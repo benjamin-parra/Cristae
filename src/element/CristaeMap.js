@@ -175,7 +175,7 @@ export class CristaeMap extends LitElement {
       mapOptions: { center: this.#center(), zoom: this.initialZoom ?? 2 },
       insets: this.viewportInsets,
       hoverThrottleMs: this.hoverThrottle ?? 0,
-      zoomAnimation: this.zoomAnimation ?? 'in-only',
+      zoomAnimation: this.zoomAnimation ?? 'none',
       zoomControl: !this.noZoomControl,
     })
     if (this.tile) this.#engine.setTileProvider({ noWrap: !this.worldCopies, ...this.tile })

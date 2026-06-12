@@ -65,7 +65,7 @@ export class MapEngine {
   camera
   ready
 
-  constructor({ leaflet, glify, container, mapOptions, insets, hoverThrottleMs = 0, map, zoomAnimation = 'in-only', zoomControl = true } = {}) {
+  constructor({ leaflet, glify, container, mapOptions, insets, hoverThrottleMs = 0, map, zoomAnimation = 'none', zoomControl = true } = {}) {
     this.#L = leaflet
     this.#glify = glify
     this.#ownsMap = !map
@@ -349,8 +349,8 @@ export class MapEngine {
 
   /* ── Internos ── */
 
-  // 'in-only' (default): zoom-out instantáneo — un zoom-out animado encoge los tiles viejos mientras
-  // el fondo más amplio aparece de golpe → desfase perceptible. 'none': sin animación de zoom.
+  // 'none' (default): sin animación de zoom. 'in-only': zoom-in animado pero zoom-out instantáneo — un
+  // zoom-out animado encoge los tiles viejos mientras el fondo más amplio aparece de golpe → desfase perceptible.
   // Nota: zoomAnimation:false en el constructor de Leaflet dejaría los handlers `zoomanim` sin
   // cablean → se usa la palanca en caliente (_zoomAnimated) en vez del latch de construcción.
   #applyZoomAnimation(mode) {

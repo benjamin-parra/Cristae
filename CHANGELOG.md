@@ -14,6 +14,8 @@ Primera versión pública (rebrand de Fastlet2).
 - Web components `<cristae-*>` (Lit), motor headless `MapEngine`, y los factories
   `createSource` / `defineSource` del núcleo.
 - Build self-contained (`node build.mjs` → `dist/cristae`, ESM + UMD) para uso sin bundler.
+- Animación de zoom **desactivada por defecto** (`zoom-animation="none"`); `zoom-animation="in-only"`
+  la reactiva (zoom-in animado, zoom-out instantáneo).
 
 ### Portabilidad
 - Eliminado el global `__DEBUG__` (las validaciones de contrato quedan siempre activas; corren
