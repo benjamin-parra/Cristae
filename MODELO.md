@@ -2,7 +2,7 @@
 
 > Documento de **modelo/diseño** (no implementación). Define:
 > 1. El web component **`<cristae-map>`** (Lit) y su motor headless.
-> 2. El refactor interno **Cristae → Cristae**: terminología portable, sin dominio, y los cambios **estructurales** (no algorítmicos — el render está ultra-optimizado y no se toca) que el wrapper necesita.
+> 2. El refactor interno **hacia Cristae**: terminología portable, sin dominio, y los cambios **estructurales** (no algorítmicos — el render está ultra-optimizado y no se toca) que el wrapper necesita.
 >
 > Regla rectora: **la librería no sabe qué es un vehículo, una geocerca, una conexión ni una etapa.** Solo conoce *puntos, polígonos, etiquetas, clusters, cámara, tiles, iconos y eventos*. Todo lo de dominio se compone encima, como código del consumidor o un *recipe* externo.
 
@@ -162,7 +162,7 @@ paquete (sin esto, los artefactos publicados rompen); (3) `lit`/`leaflet`/`glify
 
 ---
 
-## 4. Terminología portable (renombrado Cristae → Cristae)
+## 4. Terminología portable (renombrado hacia Cristae)
 
 **Núcleo (renombrar / des-especializar):**
 

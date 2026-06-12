@@ -17,10 +17,8 @@
     "lint": "eslint src build.mjs",
     "build": "node build.mjs"
   },
-  "main": "./src/index.js",
   "sideEffects": ["./src/index.js", "./src/table/index.js"],
   "exports": {
-    ".": "./src/index.js",
     "./core": "./src/data/index.js",
     "./table": "./src/table/index.js",
     "./map": "./src/index.js",

@@ -26,8 +26,8 @@ instancia). `leaflet.glify` y `supercluster` viajan como dependencias normales.
 ```
 
 ```js
-import 'cristae'                              // registra los <cristae-*> de mapa
-import { createSource, defineIconSet } from 'cristae'
+import 'cristae/map'                          // registra los <cristae-*> de mapa
+import { createSource, defineIconSet } from 'cristae/map'
 // ...crear Source, asignar iconSet y source a la capa
 ```
 
@@ -35,7 +35,7 @@ import { createSource, defineIconSet } from 'cristae'
 
 | Specifier        | Trae                                   | Registra            |
 |------------------|----------------------------------------|---------------------|
-| `cristae`        | mapa + núcleo (Leaflet/glify/lit)      | `<cristae-*>` mapa  |
+| `cristae/map`    | mapa + núcleo (Leaflet/glify/lit)      | `<cristae-*>` mapa  |
 | `cristae/table`  | tabla virtual + núcleo (solo `lit`)    | `<cristae-table>`   |
 | `cristae/core`   | solo el núcleo de datos (sin DOM)      | —                   |
 
