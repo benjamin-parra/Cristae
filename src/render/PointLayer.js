@@ -1,0 +1,281 @@
+import { POINT_VERTEX, POINT_FRAGMENT } from './shaders.js'
+import { GpuAtlasBinding } from '../atlas/GpuAtlasBinding.js'
+import { Picking } from './Picking.js'
+import { projX0, projY0 } from './project.js'
+
+// Capa de puntos GL sobre glify. Dos paths (MODELO §17):
+//   rebuild   → glify.setData (O(n), aloca; set/filtro/cluster/regrow). Reusa arrays + trunca length.
+//   incremental → escribe el slot del buffer interleaved por bufferSubData (O(1), [0-alloc];
+//                 move y patch sin cambio de membresía). NO pasa por setData. (§17.5)
+// El layout glify es [x, y, r, g, b, a, size] (bytes=7): r=tile, g=ángulo, b,a=id de picking.
+
+const DEFAULT_VARIANT = 'default'
+const NORM = 1 / 360
+const angleNorm = (deg) => (((deg % 360) + 360) % 360) * NORM
+
+export class PointLayer {
+
+  #glify; #map; #pane; #source; #iconSet; #interactive
+  #layer = null
+  #binding = null
+  #picking = null
+  #hoverHits = []                 // hits del último pick de hover, cacheados para resolveHover
+  #hoverSample = null             // muestra del puntero de ese pick (su seq valida el cache)
+
+  // Reusados en rebuild — [0-alloc] entre rebuilds salvo crecimiento del set.
+  #positions = []                 // [lat, lng] por slot (data de glify)
+  #meta = []                      // { tileIdx, angleNorm, size } por slot
+  #idBySlot = []                  // slot → id (traduce hits de picking)
+  #scratchColor = { r: 0, g: 0, b: 0, a: 1 }
+
+  // Espejo del buffer GL para el path incremental.
+  #verts = null; #buf = null; #cx = 0; #cy = 0
+  #slot = new Map()               // id → slot
+  #count = 0
+  #snapLen = -1                   // tamaño del snapshot del último rebuild (detecta alta/baja)
+  #suppressed = null              // ids a omitir del buffer (p. ej. clusterizados); null = ninguno
+
+  #unsub = null
+
+  constructor({ glify, map, pane, source, iconSet, interactive = false }) {
+    this.#glify = glify
+    this.#map = map
+    this.#pane = pane
+    this.#source = source
+    this.#iconSet = iconSet
+    this.#interactive = interactive
+    this.#unsub = source.subscribe(() => this.#onChange())
+    this.#onChange()
+  }
+
+  get count() { return this.#count }
+  get picking() { return this.#picking }
+  get hasPendingPick() { return this.#picking?.pending ?? false }
+
+  idForSlot(slot) { return this.#idBySlot[slot] }
+
+  /* ── Picking (la capa de interacción orquesta; la capa resuelve hits) ── */
+
+  // Encola un pick GPU para la muestra del puntero. `sample` lleva containerPoint + seq.
+  requestHoverHit(sample) {
+    return this.#picking
+      ? this.#picking.request(sample.containerPoint.x, sample.containerPoint.y, this.#count, this.#layer.mapMatrix.array, sample)
+      : false
+  }
+
+  // Recoge el pick encolado (no bloqueante). Cachea los hits + la muestra para resolveHover.
+  collectHoverHit() {
+    const pick = this.#picking?.collect()
+    if (!pick) return null
+    this.#hoverHits = this.#hitsFromSlots(pick.slots)
+    this.#hoverSample = pick.metadata
+    return pick.metadata
+  }
+
+  // resolveHover devuelve el cache solo si corresponde a la muestra vigente (mismo seq).
+  resolveHover(baseEvent) {
+    return this.#hoverSample?.seq === baseEvent.seq ? this.#hoverHits : []
+  }
+
+  // resolveClick hace un pick síncrono (un tiro) en el punto del evento.
+  resolveClick(baseEvent) {
+    const cp = baseEvent.containerPoint ?? this.#map.latLngToContainerPoint(baseEvent.latlng)
+    const pick = this.#picking?.pickSync(cp.x, cp.y, this.#count, this.#layer.mapMatrix.array, baseEvent)
+    return pick ? this.#hitsFromSlots(pick.slots) : []
+  }
+
+  cancelHoverHit() { this.#picking?.abort() }
+
+  // Slots del picking → partes de hit. El ref y el id del punto son su id de dato; el pick GPU
+  // es exacto → distancePx 0. El registro envuelve estas partes con layerId/zIndex/order.
+  #hitsFromSlots(slots) {
+    const parts = []
+    slots.forEach(slot => { const id = this.#idBySlot[slot]; parts.push({ ref: id, id, distancePx: 0 }) })
+    return parts
+  }
+
+  /* ── Lifecycle ── */
+
+  redraw() { this.#layer?.layer.redraw() }       // glify.points() → instancia; la L.Layer está en .layer
+  syncPickingSize() { this.#picking?.syncSize() }
+
+  // Reposiciona y redibuja el canvas de glify (síncrono); el motor la invoca en move/moveend/zoomend.
+  resetCanvasReference() { this.#layer?.layer._reset() }
+
+  // Re-encode total con los accessors actuales (recolor por antigüedad/latencia, SPECS §8.1)
+  // o tras cambiar la supresión. Fuerza rebuild aunque el set no cambie de tamaño.
+  refresh() { if (this.#layer) this.#rebuild(this.#source.getSnapshot()) }
+
+  // ids a omitir del buffer (cluster). Cambiarla exige refresh() para reconstruir.
+  set suppressed(ids) { this.#suppressed = ids }
+
+  destroy() {
+    this.#unsub?.()
+    this.#picking?.detach()
+    this.#binding?.destroy()
+    this.#layer?.remove()
+    this.#layer = null
+  }
+
+  /* ── Reacción al Source (ya coalescida a rAF por el Emitter) ── */
+
+  #onChange() {
+    const snap = this.#source.getSnapshot()
+    if (!this.#layer || snap.length !== this.#snapLen) return this.#rebuild(snap)
+
+    const byId = this.#source.itemById
+    if (!byId) return this.#rebuild(snap)              // sin lookup O(1) → rebuild seguro
+
+    const a = this.#source.accessors
+    const atlas0 = this.#iconSet.atlas
+    const count0 = atlas0.count
+
+    const moves = this.#source.moveDirtyIds?.()        // solo posición → 2 floats
+    if (moves && moves.size) {
+      for (const id of moves) {
+        const s = this.#slot.get(id)
+        if (s === undefined) return this.#rebuild(snap)
+        this.#writePosition(s, a.positionOf(byId(id)))
+      }
+      // No se limpia acá: el Source acumula por ventana y limpia al abrir la siguiente
+      // (así un 2º suscriptor —p.ej. una label-layer— ve el mismo set en este flush).
+    }
+
+    const dirty = this.#source.dirtyIds?.()            // posición + color + size → 7 floats
+    if (dirty && dirty.size) {
+      for (const id of dirty) {
+        const s = this.#slot.get(id)
+        if (s === undefined) return this.#rebuild(snap)
+        this.#writeSlot(s, byId(id))
+        if (this.#iconSet.atlas !== atlas0) return this.#rebuild(snap)   // regrow → re-encode todo
+      }
+    }
+
+    if (this.#iconSet.atlas.count > count0) this.#binding.sync(this.#iconSet.atlas)  // append
+    this.#layer.layer.redraw()
+  }
+
+  /* ── Rebuild (O(n), reusa arrays) ── */
+
+  #rebuild(snap) {
+    const a = this.#source.accessors
+    let idx = 0
+    this.#slot.clear()
+    for (let i = 0; i < snap.length; i++) {
+      const item = snap[i]
+      const pos = a.positionOf(item)
+      if (!pos || !Number.isFinite(pos.lat) || !Number.isFinite(pos.lng)) continue   // §15.2 no-finito → omitir
+      const id = a.idOf(item)
+      if (this.#suppressed?.has(id)) continue                          // clusterizado → omitir del buffer
+      if (this.#slot.has(id)) continue                                 // §15.2 duplicado → primero
+
+      const tileIdx = this.#iconSet.resolve(a.variantOf ? a.variantOf(item) : DEFAULT_VARIANT)
+      const an = (this.#iconSet.rotates && a.headingOf) ? angleNorm(a.headingOf(item)) : 0
+      const sz = a.sizeOf ? a.sizeOf(item) : this.#iconSet.defaultSize
+
+      const p = this.#positions[idx]
+      if (p) { p[0] = pos.lat; p[1] = pos.lng } else this.#positions[idx] = [pos.lat, pos.lng]
+      const m = this.#meta[idx]
+      if (m) { m.tileIdx = tileIdx; m.angleNorm = an; m.size = sz }
+      else this.#meta[idx] = { tileIdx, angleNorm: an, size: sz }
+
+      this.#idBySlot[idx] = id
+      this.#slot.set(id, idx)
+      idx++
+    }
+    this.#positions.length = idx
+    this.#meta.length = idx
+    this.#idBySlot.length = idx
+    this.#count = idx
+    this.#snapLen = snap.length
+
+    if (!this.#layer) this.#create()
+    else this.#layer.setData(this.#positions)          // el atlas ya quedó settled tras el loop
+
+    this.#bind()                                        // recapturar typedVertices (nuevo cada render)
+    this.#binding.sync(this.#iconSet.atlas)
+    this.#layer.layer.redraw()
+  }
+
+  // Primera vez: crea la capa glify con NUESTROS shaders; los callbacks leen meta por índice.
+  #create() {
+    this.#layer = this.#glify.points({
+      map: this.#map,
+      pane: this.#pane,
+      data: this.#positions,
+      latitudeKey: 0,
+      longitudeKey: 1,
+      sensitivity: 0,                                   // hover/click nativo off → picking propio
+      sensitivityHover: 0,
+      vertexShaderSource: POINT_VERTEX,
+      fragmentShaderSource: POINT_FRAGMENT,
+      color: (i) => this.#colorAt(i),
+      size: (i) => this.#meta[i].size,
+    })
+    const gl = this.#layer.gl
+    if (this.#layer.bytes !== 7)
+      throw new Error('[cristae] glify layout != 7; abortar path incremental')
+    this.#binding = new GpuAtlasBinding(gl)
+    this.#binding.register(this.#layer.program)
+    if (this.#interactive) {
+      this.#picking = new Picking()
+      const pickProgram = this.#picking.attach(gl, this.#layer.program, this.#binding.texture)
+      this.#binding.register(pickProgram)
+    }
+  }
+
+  // Color por punto (path de rebuild): scratch mutado-y-retornado — glify lo spreadea sincrónicamente.
+  #colorAt(i) {
+    const m = this.#meta[i]
+    const c = this.#scratchColor
+    c.r = this.#iconSet.atlas.tileChannel(m.tileIdx)
+    c.g = m.angleNorm
+    const id = i + 1
+    c.b = ((id >> 8) & 0xff) / 255
+    c.a = (id & 0xff) / 255
+    return c
+  }
+
+  // Recaptura el espejo: el WebGLBuffer es estable, pero typedVertices se reemplaza en cada
+  // render() de glify (points.ts:114). Re-emite DYNAMIC_DRAW (hint apto a updates puntuales).
+  #bind() {
+    const gl = this.#layer.gl
+    this.#buf = this.#layer.getBuffer('vertices')
+    this.#verts = this.#layer.typedVertices
+    this.#cx = this.#layer.mapCenterPixels.x
+    this.#cy = this.#layer.mapCenterPixels.y
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.#buf)
+    gl.bufferData(gl.ARRAY_BUFFER, this.#verts, gl.DYNAMIC_DRAW)
+  }
+
+  // move: 2 floats (posición). [0-alloc] en WebGL2 (forma de 5 args, sin subarray).
+  #writePosition(s, pos) {
+    const base = s * 7
+    this.#verts[base] = projX0(pos.lng) - this.#cx
+    this.#verts[base + 1] = projY0(pos.lat) - this.#cy
+    const gl = this.#layer.gl
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.#buf)
+    gl.bufferSubData(gl.ARRAY_BUFFER, base * 4, this.#verts, base, 2)
+  }
+
+  // patch de un ítem sucio: posición + color + size (7 floats). El id (b,a) es función del slot,
+  // que es estable → se reescribe igual sin coste extra.
+  #writeSlot(s, item) {
+    const a = this.#source.accessors
+    const v = this.#verts
+    const base = s * 7
+    const pos = a.positionOf(item)
+    v[base] = projX0(pos.lng) - this.#cx
+    v[base + 1] = projY0(pos.lat) - this.#cy
+    v[base + 2] = this.#iconSet.atlas.tileChannel(
+      this.#iconSet.resolve(a.variantOf ? a.variantOf(item) : DEFAULT_VARIANT))
+    v[base + 3] = (this.#iconSet.rotates && a.headingOf) ? angleNorm(a.headingOf(item)) : 0
+    const id = s + 1
+    v[base + 4] = ((id >> 8) & 0xff) / 255
+    v[base + 5] = (id & 0xff) / 255
+    v[base + 6] = a.sizeOf ? a.sizeOf(item) : this.#iconSet.defaultSize
+    const gl = this.#layer.gl
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.#buf)
+    gl.bufferSubData(gl.ARRAY_BUFFER, base * 4, v, base, 7)
+  }
+}
