@@ -40,7 +40,11 @@ export class CristaeMap extends LitElement {
   static styles = [
     unsafeCSS(leafletCss),
     css`
-      :host { display: block; position: relative; width: 100%; height: 100%; }
+      /* isolation:isolate crea un stacking context en el host: confina el z-index interno
+         (panes de Leaflet 200-700, controles 800-1000, overlays) para que el mapa NO se
+         pinte por encima de modales/drawers de la página. Sin esto, esos z-index compiten
+         en el contexto raíz y tapan UI superpuesta. position:relative solo no alcanza. */
+      :host { display: block; position: relative; isolation: isolate; width: 100%; height: 100%; }
       #map { width: 100%; height: 100%; }
       /* Overlay de 9 zonas (4 esquinas + 4 lados + centro) como grilla 3×3 sobre el mapa. Cada
          zona es un slot nombrado que apila (flex) uno o más hijos alineados a su anclaje. El
