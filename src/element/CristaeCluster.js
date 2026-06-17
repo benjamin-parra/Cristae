@@ -29,6 +29,12 @@ export class CristaeCluster extends CristaeLayerElement {
     radius: { type: Number },
     maxZoom: { type: Number, attribute: 'max-zoom' },
     minPoints: { type: Number, attribute: 'min-points' },
+    enabled: { type: Boolean },   // toggle de clustering (default true); off → sin agrupar, sin desmontar
+  }
+
+  constructor() {
+    super()
+    this.enabled = true
   }
 
   // Listo cuando todos los hijos de gramática (host(s), no la burbuja) tienen su config.
@@ -55,12 +61,12 @@ export class CristaeCluster extends CristaeLayerElement {
   cristaeUnits() { return this._units ?? [] }
 
   cristaeConfig() {
-    return { radius: this.radius, maxZoom: this.maxZoom, minPoints: this.minPoints, bubble: this.#bubbleConfig() }
+    return { radius: this.radius, maxZoom: this.maxZoom, minPoints: this.minPoints, enabled: this.enabled, bubble: this.#bubbleConfig() }
   }
 
   syncLayer(changed) {
-    if (changed.has('radius') || changed.has('maxZoom') || changed.has('minPoints')) {
-      this._handle?.control?.setConfig({ radius: this.radius, maxZoom: this.maxZoom, minPoints: this.minPoints })
+    if (changed.has('radius') || changed.has('maxZoom') || changed.has('minPoints') || changed.has('enabled')) {
+      this._handle?.control?.setConfig({ radius: this.radius, maxZoom: this.maxZoom, minPoints: this.minPoints, enabled: this.enabled })
     }
   }
 

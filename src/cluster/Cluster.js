@@ -23,16 +23,18 @@ export class Cluster {
   #radius
   #maxZoom
   #minPoints
+  #enabled = true                // off → no suprime nada y no emite burbujas (toggle limpio)
   #features = []
   #allIds = new Set()
   #clusteredIds = new Set()      // estable: nunca se reasigna, solo clear()+add()
   #bubbles = []
   #signature = null
 
-  constructor({ radius = 80, maxZoom = 18, minPoints = 2 } = {}) {
+  constructor({ radius = 80, maxZoom = 18, minPoints = 2, enabled = true } = {}) {
     this.#radius = radius
     this.#maxZoom = maxZoom
     this.#minPoints = minPoints
+    this.#enabled = enabled
     this.#sc = this.#build()
   }
 
@@ -44,6 +46,9 @@ export class Cluster {
   set radius(v) { if (v !== this.#radius) { this.#radius = v; this.#rebuildIndex() } }
   set maxZoom(v) { if (v !== this.#maxZoom) { this.#maxZoom = v; this.#rebuildIndex() } }
   set minPoints(v) { if (v !== this.#minPoints) { this.#minPoints = v; this.#rebuildIndex() } }
+  // Toggle de clustering: al apagarlo se fuerza el recálculo (signature null) → el próximo
+  // recluster vacía clusteredIds/bubbles; al encenderlo vuelve a agrupar. Limpio, sin desmontar.
+  set enabled(v) { if (v !== this.#enabled) { this.#enabled = v; this.#signature = null } }
 
   /* ── Datos: extrae features e indexa. O(n) extracción + O(n log n) build ── */
 
@@ -70,6 +75,15 @@ export class Cluster {
   /* ── Viewport: reagrupa al zoom dado. O(1) query + O(results) firma ── */
 
   recluster(zoom) {
+    // Apagado: ningún punto suprimido, ninguna burbuja. Idempotente vía firma 'off'.
+    if (!this.#enabled) {
+      if (this.#signature === 'off') return false
+      this.#signature = 'off'
+      this.#clusteredIds.clear()
+      this.#bubbles = []
+      return true
+    }
+
     const results = this.#sc.getClusters(WORLD, Math.round(zoom))
 
     let signature = zoom + ':'

@@ -19,7 +19,7 @@ import { CristaePopup } from './element/CristaePopup.js'
 grammar.register('cristae-point-layer', CristaePointLayer.cristaeSignature)
 grammar.register('cristae-polygon-layer', CristaePolygonLayer.cristaeSignature)
 grammar.register('cristae-label-layer', CristaeLabelLayer.cristaeSignature)
-grammar.register('cristae-cluster', CristaeCluster.cristaeSignature)
+grammar.register('cristae-cluster', CristaeCluster.cristaeSignature, { apply: CristaeCluster.cristaeApply })
 grammar.register('cristae-overlay', CristaeOverlay.cristaeSignature, { apply: CristaeOverlay.cristaeApply })
 
 const define = (name, ctor) => { if (!customElements.get(name)) customElements.define(name, ctor) }

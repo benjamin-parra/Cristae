@@ -203,7 +203,7 @@ export class MapEngine {
   // set `suppressed` (ref estable, mutado in place) a TODOS los hosts y a sus ligados (labels +
   // overlays, que leen `host.suppressed`). El <cristae-cluster> declarativo entra por acá vía el
   // reductor de la gramática; `addCluster` (un host) es azúcar imperativa que delega.
-  addClusterFold(targets, { radius, maxZoom, minPoints, bubble } = {}) {
+  addClusterFold(targets, { radius, maxZoom, minPoints, enabled, bubble } = {}) {
     const hosts = []
     for (const t of targets) {
       const rec = this.#layers.get(t.id)
@@ -211,7 +211,7 @@ export class MapEngine {
     }
     if (!hosts.length) return null
 
-    const cluster = new Cluster({ radius, maxZoom, minPoints })
+    const cluster = new Cluster({ radius, maxZoom, minPoints, enabled })
     const base = hosts[0].rec
     const { idOf, positionOf } = base.source.accessors   // ids deben ser únicos entre hosts (precondición)
 
@@ -244,10 +244,11 @@ export class MapEngine {
 
     let disposed = false
     const control = {
-      setConfig: ({ radius, maxZoom, minPoints } = {}) => {
+      setConfig: ({ radius, maxZoom, minPoints, enabled } = {}) => {
         if (radius != null) cluster.radius = radius
         if (maxZoom != null) cluster.maxZoom = maxZoom
         if (minPoints != null) cluster.minPoints = minPoints
+        if (enabled != null) cluster.enabled = enabled
         if (cluster.recluster(this.#map.getZoom())) apply()
       },
       dispose: () => {
