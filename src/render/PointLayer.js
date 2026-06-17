@@ -145,6 +145,9 @@ export class PointLayer {
     const moves = this.#source.moveDirtyIds?.()        // solo posición → 2 floats
     if (moves && moves.size) {
       for (const id of moves) {
+        // overlay: si el ítem no es de esta capa (where) NO está en el buffer → ignorar el
+        // move (si no, un move de un ítem ajeno forzaría un rebuild por slot inexistente).
+        if (this.#where && !this.#where(byId(id))) continue
         const s = this.#slot.get(id)
         if (s === undefined) return this.#rebuild(snap)
         this.#writePosition(s, a.positionOf(byId(id)))
@@ -156,6 +159,7 @@ export class PointLayer {
     const dirty = this.#source.dirtyIds?.()            // posición + color + size → 7 floats
     if (dirty && dirty.size) {
       for (const id of dirty) {
+        if (this.#where && !this.#where(byId(id))) continue   // ajeno a esta capa → ignorar
         const s = this.#slot.get(id)
         if (s === undefined) return this.#rebuild(snap)
         this.#writeSlot(s, byId(id))
