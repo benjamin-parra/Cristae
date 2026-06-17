@@ -16,6 +16,8 @@ const angleNorm = (deg) => (((deg % 360) + 360) % 360) * NORM
 export class PointLayer {
 
   #glify; #map; #pane; #source; #iconSet; #interactive
+  #accessors = null               // accessors de RENDER (override de los de la Source: variantOf/sizeOf/headingOf)
+  #where = null                   // predicado de membresía por-capa (overlay): omite ítems que no matchean
   #layer = null
   #binding = null
   #picking = null
@@ -37,11 +39,18 @@ export class PointLayer {
 
   #unsub = null
 
-  constructor({ glify, map, pane, source, iconSet, interactive = false }) {
+  // `accessors` override (default = los de la Source): permite que una capa LEA los
+  // datos de una Source compartida (idOf/positionOf) pero RENDERICE con otros
+  // variantOf/sizeOf/headingOf (caso overlay: misma flota, sprite de badge sin rotar).
+  // `where` filtra qué ítems de la Source entran a ESTA capa (overlay: sólo los que
+  // tienen badge), sin tocar la Source (que el mapa comparte).
+  constructor({ glify, map, pane, source, iconSet, interactive = false, accessors = null, where = null }) {
     this.#glify = glify
     this.#map = map
     this.#pane = pane
     this.#source = source
+    this.#accessors = accessors ?? source.accessors
+    this.#where = where
     this.#iconSet = iconSet
     this.#interactive = interactive
     this.#unsub = source.subscribe(() => this.#onChange())
@@ -109,6 +118,9 @@ export class PointLayer {
   // ids a omitir del buffer (cluster). Cambiarla exige refresh() para reconstruir.
   set suppressed(ids) { this.#suppressed = ids }
 
+  // Predicado de membresía por-capa (overlay). Cambiarlo exige refresh().
+  set where(fn) { this.#where = fn ?? null }
+
   destroy() {
     this.#unsub?.()
     this.#picking?.detach()
@@ -126,7 +138,7 @@ export class PointLayer {
     const byId = this.#source.itemById
     if (!byId) return this.#rebuild(snap)              // sin lookup O(1) → rebuild seguro
 
-    const a = this.#source.accessors
+    const a = this.#accessors
     const atlas0 = this.#iconSet.atlas
     const count0 = atlas0.count
 
@@ -158,11 +170,12 @@ export class PointLayer {
   /* ── Rebuild (O(n), reusa arrays) ── */
 
   #rebuild(snap) {
-    const a = this.#source.accessors
+    const a = this.#accessors
     let idx = 0
     this.#slot.clear()
     for (let i = 0; i < snap.length; i++) {
       const item = snap[i]
+      if (this.#where && !this.#where(item)) continue                  // overlay: ítem sin badge → fuera de esta capa
       const pos = a.positionOf(item)
       if (!pos || !Number.isFinite(pos.lat) || !Number.isFinite(pos.lng)) continue   // §15.2 no-finito → omitir
       const id = a.idOf(item)
@@ -261,7 +274,7 @@ export class PointLayer {
   // patch de un ítem sucio: posición + color + size (7 floats). El id (b,a) es función del slot,
   // que es estable → se reescribe igual sin coste extra.
   #writeSlot(s, item) {
-    const a = this.#source.accessors
+    const a = this.#accessors
     const v = this.#verts
     const base = s * 7
     const pos = a.positionOf(item)

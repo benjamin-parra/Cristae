@@ -6,6 +6,9 @@ let seq = 0
 // (geometry/polygon.js, O(log n + k)). `accessors` = { idOf, ringsOf, styleOf? }.
 export class CristaePolygonLayer extends CristaeLayerElement {
 
+  // Gramática de composición: entidad hoja que produce `polygon`.
+  static cristaeSignature = { consumes: [], produces: ['polygon'], combine: null, arity: 'leaf' }
+
   static properties = {
     data: { type: Array },
     accessors: { type: Object },

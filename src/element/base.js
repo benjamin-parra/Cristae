@@ -1,4 +1,6 @@
 import { LitElement, nothing } from 'lit'
+import { grammar } from './composite.js'
+import { enclosingModifier, leafUnits } from '../grammar/index.js'
 
 // Base de las capas declarativas. No renderan nada visible (viven en light DOM como portadores de
 // config + reactividad). El montaje es una FUNCIÓN REACTIVA de (motor ⊗ config): no ocurre en un
@@ -20,7 +22,7 @@ export class CristaeLayerElement extends LitElement {
 
   connectedCallback() {
     super.connectedCallback()
-    if (this._enclosingCluster()) return        // el cluster gestiona a sus hijos host/bubble
+    if (this._enclosingModifier()) return       // el modificador gestiona a sus hijos
     this.closest('cristae-map')?.requestMount(this)
   }
 
@@ -49,7 +51,7 @@ export class CristaeLayerElement extends LitElement {
   updated(changed) {
     if (this._handle) { this.syncLayer(changed); return }
     if (this._engine && this.mountReady()) this._handle = this.mountLayer(this._engine)
-    if (!this._handle) this._enclosingCluster()?.requestUpdate()
+    if (!this._handle) this._enclosingModifier()?.requestUpdate()
   }
 
   /* ── Contrato de subclase ── */
@@ -57,13 +59,18 @@ export class CristaeLayerElement extends LitElement {
   mountLayer(_engine) { return null }           // crea la capa en el motor y devuelve su handle
   syncLayer(_changed) {}                        // reenvía cambios de props al handle ya montado
 
-  // Cluster ancestro (excluyéndose a sí mismo). Sus hijos NO se auto-montan: los monta el cluster.
-  _enclosingCluster() {
-    let p = this.parentElement
-    while (p && p.tagName !== 'CRISTAE-MAP') {
-      if (p.tagName === 'CRISTAE-CLUSTER') return p
-      p = p.parentElement
-    }
-    return null
+  // RenderUnits que aporta este nodo a su modificador padre (gramática de composición).
+  // Default = HOJA (una unit del kind que produce la firma). Los modificadores (cluster/
+  // overlay) lo sobreescriben para devolver el conjunto que reduce su subárbol.
+  cristaeUnits() {
+    if (!this._handle || !this._engine) return []
+    return leafUnits(this, this._engine, { signatureFor: grammar.signatureFor })
+  }
+
+  // Modificador de la gramática que envuelve a este elemento (cluster/overlay/…). Sus
+  // hijos NO se auto-montan: los monta el modificador (su reductor). Con sólo el cluster
+  // registrado como wrapper, equivale al viejo `_enclosingCluster`.
+  _enclosingModifier() {
+    return enclosingModifier(this, grammar.isWrapper)
   }
 }

@@ -15,13 +15,15 @@
   },
   "scripts": {
     "lint": "eslint src build.mjs",
-    "build": "node build.mjs"
+    "build": "node build.mjs",
+    "test": "node test/grammar.test.mjs"
   },
   "sideEffects": ["./src/index.js", "./src/table/index.js"],
   "exports": {
     "./core": "./src/data/index.js",
     "./table": "./src/table/index.js",
     "./map": "./src/index.js",
+    "./grammar": "./src/grammar/index.js",
     "./package.json": "./package.json"
   },
   "peerDependencies": {

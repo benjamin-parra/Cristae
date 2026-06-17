@@ -196,36 +196,53 @@ export class MapEngine {
     }
   }
 
-  /* ── Cluster: agrupa una capa de puntos host y la suprime; burbuja parametrizable ── */
+  /* ── Cluster (fold): agrupa N capas de puntos en UN clustering y comparte la supresión ── */
 
-  addCluster({ hostId, radius, maxZoom, minPoints, bubble } = {}) {
-    const host = this.#layers.get(hostId)
-    if (!host || host.kind !== 'point') return null
+  // Clusteriza el conjunto UNIÓN de varios hosts en un solo supercluster y reparte el MISMO
+  // set `suppressed` (ref estable, mutado in place) a TODOS los hosts y a sus ligados (labels +
+  // overlays, que leen `host.suppressed`). El <cristae-cluster> declarativo entra por acá vía el
+  // reductor de la gramática; `addCluster` (un host) es azúcar imperativa que delega.
+  addClusterFold(targets, { radius, maxZoom, minPoints, bubble } = {}) {
+    const hosts = []
+    for (const t of targets) {
+      const rec = this.#layers.get(t.id)
+      if (rec && rec.kind === 'point') hosts.push({ id: t.id, rec })
+    }
+    if (!hosts.length) return null
 
     const cluster = new Cluster({ radius, maxZoom, minPoints })
-    const { idOf, positionOf } = host.source.accessors
-    const bubblePane = `${host.paneName}-clusters`
-    this.#ensurePane(bubblePane, BASE_Z + host.order * Z_STEP + 5)
-    const sink = this.#makeBubbleSink(bubble, bubblePane, host.order, hostId)
+    const base = hosts[0].rec
+    const { idOf, positionOf } = base.source.accessors   // ids deben ser únicos entre hosts (precondición)
 
-    // `clusteredIds` es UN set estable observado por dos renderers: la capa de puntos (lo omite del
-    // buffer GL) y las labels ligadas al host (no pintan etiquetas flotantes de lo clusterizado).
-    // `record.suppressed` es ese mismo ref → fuente única, sin copias que sincronizar.
-    const apply = () => {
-      host.suppressed = cluster.clusteredIds
-      host.layer.suppressed = cluster.clusteredIds
-      host.layer.refresh()
-      sink.feed(cluster.bubbles)
-      this.#resyncBoundLabels(hostId)              // recluster (datos o zoom) → re-filtra labels
+    const foldId = `cluster-${this.#order++}`
+    const bubblePane = `${foldId}-bubbles`
+    this.#ensurePane(bubblePane, BASE_Z + base.order * Z_STEP + 5)
+    const sink = this.#makeBubbleSink(bubble, bubblePane, base.order, foldId)
+    const bubbleId = `${foldId}:clusters`
+
+    const snapshot = () => {
+      if (hosts.length === 1) return hosts[0].rec.source.getSnapshot()
+      const all = []
+      for (const { rec } of hosts) { const s = rec.source.getSnapshot(); for (let i = 0; i < s.length; i++) all.push(s[i]) }
+      return all
     }
-    const onData = () => { cluster.index(host.source.getSnapshot(), idOf, positionOf); if (cluster.recluster(this.#map.getZoom())) apply() }
+    const apply = () => {
+      for (const { id, rec } of hosts) {
+        rec.suppressed = cluster.clusteredIds
+        rec.layer.suppressed = cluster.clusteredIds
+        rec.layer.refresh()
+        this.#resyncBound(id)                      // recluster → re-filtra labels + overlays ligados a este host
+      }
+      sink.feed(cluster.bubbles)
+    }
+    const onData = () => { cluster.index(snapshot(), idOf, positionOf); if (cluster.recluster(this.#map.getZoom())) apply() }
     const onZoom = () => { if (cluster.recluster(this.#map.getZoom())) apply() }
-
-    const unsub = host.source.subscribe(onData)
+    const unsubs = hosts.map(({ rec }) => rec.source.subscribe(onData))
     this.#map.on('zoomend', onZoom)
     onData()
 
-    host.cluster = {
+    let disposed = false
+    const control = {
       setConfig: ({ radius, maxZoom, minPoints } = {}) => {
         if (radius != null) cluster.radius = radius
         if (maxZoom != null) cluster.maxZoom = maxZoom
@@ -233,14 +250,70 @@ export class MapEngine {
         if (cluster.recluster(this.#map.getZoom())) apply()
       },
       dispose: () => {
-        unsub(); this.#map.off('zoomend', onZoom); sink.dispose()
-        host.suppressed = null
-        host.layer.suppressed = null; host.layer.refresh()   // sin cluster → el host vuelve completo
-        this.#resyncBoundLabels(hostId)                      // labels vuelven a mostrar todo
-        host.cluster = null
+        if (disposed) return
+        disposed = true
+        unsubs.forEach(u => u()); this.#map.off('zoomend', onZoom); sink.dispose()
+        for (const { id, rec } of hosts) {
+          rec.suppressed = null; rec.layer.suppressed = null; rec.layer.refresh()   // sin cluster → host completo
+          this.#resyncBound(id)
+          if (rec.cluster === control) rec.cluster = null
+        }
       },
     }
-    return host.cluster
+    // dispose idempotente compartido: quitar cualquiera de los hosts (o el sibling) limpia el fold.
+    for (const { rec } of hosts) rec.cluster = control
+
+    return { kind: 'bubble', id: bubbleId, handle: { id: bubbleId, control }, source: this.#layers.get(bubbleId)?.source, suppressed: null }
+  }
+
+  // Azúcar imperativa de un solo host (la usa addPointLayer({cluster}) y el path imperativo).
+  addCluster({ hostId, radius, maxZoom, minPoints, bubble } = {}) {
+    const r = this.addClusterFold([{ id: hostId }], { radius, maxZoom, minPoints, bubble })
+    return r ? r.handle.control : null
+  }
+
+  /* ── Overlay: badge ligado a un host de puntos (sigue su data + su supresión de cluster) ── */
+
+  addOverlay({ id, hostId, iconSet, variantOf, sizeOf, where, visible = true }) {
+    const host = this.#layers.get(hostId)
+    if (!host || host.kind !== 'point') return null
+
+    const order = this.#order++
+    const paneName = `${host.paneName}-overlay-${order}`
+    const zIndex = BASE_Z + host.order * Z_STEP + 7        // sobre el host (y sobre la burbuja, +5)
+    this.#ensurePane(paneName, zIndex)
+
+    // Comparte la Source del host (mismo dato → move/patch en vivo) pero RENDERIZA con
+    // accessors propios (badge, sin rotar) y filtra con `where` (sólo los que tienen badge).
+    const accessors = { ...host.source.accessors }
+    if (variantOf) accessors.variantOf = variantOf
+    if (sizeOf) accessors.sizeOf = sizeOf
+    accessors.headingOf = null                              // el overlay no rota (badge de esquina)
+
+    const set = this.#resolveIconSet(iconSet)
+    const layer = new PointLayer({
+      glify: this.#glify, map: this.#map, pane: paneName, source: host.source,
+      accessors, iconSet: set, interactive: false, where,
+    })
+    layer.suppressed = host.suppressed ?? null               // hereda la supresión del cluster (si la hay)
+    layer.refresh()
+
+    const record = {
+      kind: 'overlay', source: host.source, layer, paneName, order, bindTo: hostId,
+      // el cluster reinvoca esto al re-suprimir (#resyncBound): re-apunta al ref vivo del host + reconstruye.
+      resync: () => { layer.suppressed = this.#layers.get(hostId)?.suppressed ?? null; layer.refresh() },
+    }
+    this.#layers.set(id, record)
+    this.#applyVisibility(id, paneName, visible)
+
+    return {
+      id,
+      get source() { return record.source },
+      get layer() { return record.layer },
+      refresh: () => layer.refresh(),
+      setWhere: (fn) => { layer.where = fn; layer.refresh() },
+      setVisible: (v) => this.setLayerVisibility(id, v),
+    }
   }
 
   /* ── Fuentes externas (ruta B) ── */
@@ -512,11 +585,14 @@ export class MapEngine {
     return true
   }
 
-  // Re-filtra las labels ligadas a un host cuando su supresión (cluster) cambia sin cambiar los
-  // datos — p. ej. recluster por zoom. La suscripción a la fuente no dispara en ese caso.
-  #resyncBoundLabels(hostId) {
+  // Re-sincroniza los productores LIGADOS a un host (labels y overlays) cuando su
+  // supresión (cluster) cambia sin cambiar los datos — p. ej. recluster por zoom. La
+  // suscripción a la fuente no dispara en ese caso. Cada `resync` re-lee `host.suppressed`
+  // (labels: re-filtra; overlays: re-apunta el ref vivo + refresh).
+  #resyncBound(hostId) {
     this.#layers.forEach(record => {
-      if (record.kind === 'label' && record.bindTo === hostId) record.resync?.()
+      if (record.bindTo !== hostId) return
+      if (record.kind === 'label' || record.kind === 'overlay') record.resync?.()
     })
   }
 

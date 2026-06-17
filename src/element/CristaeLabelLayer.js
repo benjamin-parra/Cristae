@@ -8,6 +8,9 @@ let seq = 0
 // cluster NO se auto-monta: el cluster la lee como configuración de burbuja.
 export class CristaeLabelLayer extends CristaeLayerElement {
 
+  // Gramática de composición: entidad hoja que produce `label`, ligada a un `point`.
+  static cristaeSignature = { consumes: [], produces: ['label'], combine: null, arity: 'leaf', bindsTo: 'point' }
+
   static properties = {
     bindTo: { attribute: 'bind-to' },
     source: { type: Object },

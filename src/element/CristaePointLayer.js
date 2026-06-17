@@ -9,6 +9,9 @@ let seq = 0
 // pueden ir como atributos. Reenvía cambios de `source`/`data`/`visible` al motor.
 export class CristaePointLayer extends CristaeLayerElement {
 
+  // Gramática de composición: entidad hoja que produce `point`.
+  static cristaeSignature = { consumes: [], produces: ['point'], combine: null, arity: 'leaf' }
+
   static properties = {
     data: { type: Array },
     source: { attribute: false },                // Source compartida (createSource/defineSource)
