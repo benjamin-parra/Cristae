@@ -56,6 +56,7 @@ export class MapEngine {
 
   #layers = new Map()             // id → record { kind, source, layer, controls, paneName, order }
   #pickLayers = []                // capas de puntos interactivas (para la sesión de picking)
+  #glLayers = new Set()           // capas GL (canvas glify propio) a reproyectar en move/zoom/resize
   #pendingBinds = []              // label-layers cuyo host aún no existía (resolución por nombre)
   #signals = new Map()            // eventos del motor (ready/viewportchange/interaction*) → handlers
   #iconSets = new Map()           // nombre → IconSet registrado (resolución por nombre)
@@ -124,7 +125,7 @@ export class MapEngine {
     // consumidor → el motor solo lee, no escribe. El objeto ES el Source (handle colapsado).
     const controls = cfg.source ? null : createSource(accessors, set?.variants)
     const source = cfg.source ?? controls
-    const layer = new PointLayer({ glify: this.#glify, map: this.#map, pane: paneName, source, iconSet: set, interactive })
+    const layer = this.#trackGl(new PointLayer({ glify: this.#glify, map: this.#map, pane: paneName, source, iconSet: set, interactive }))
 
     const record = { kind: 'point', source, layer, controls, paneName, order, interactive }
     this.#layers.set(id, record)
@@ -291,10 +292,10 @@ export class MapEngine {
     accessors.headingOf = null                              // el overlay no rota (badge de esquina)
 
     const set = this.#resolveIconSet(iconSet)
-    const layer = new PointLayer({
+    const layer = this.#trackGl(new PointLayer({
       glify: this.#glify, map: this.#map, pane: paneName, source: host.source,
       accessors, iconSet: set, interactive: false, where,
-    })
+    }))
     layer.suppressed = host.suppressed ?? null               // hereda la supresión del cluster (si la hay)
     layer.refresh()
 
@@ -324,9 +325,9 @@ export class MapEngine {
     record.layer.destroy()
     record.source = source
     record.controls = null
-    record.layer = new PointLayer({
+    record.layer = this.#trackGl(new PointLayer({
       glify: this.#glify, map: this.#map, pane: record.paneName, source, iconSet: record.iconSet, interactive: record.interactive,
-    })
+    }))
     if (record.interactive) {
       const entry = this.#pickLayers.find(e => e.layerId === id)
       if (entry) entry.layer = record.layer
@@ -443,27 +444,39 @@ export class MapEngine {
     this.#map.on('zoomstart', () => { zooming = true })
     this.#map.on('zoomend', () => {
       zooming = false; lastX = NaN; lastY = NaN
-      this.#forEachPointLayer(layer => layer.resetCanvasReference())
+      this.#forEachGlLayer(layer => layer.resetCanvasReference())
     })
     this.#map.on('move', () => {
       if (zooming) return
       const pos = L.DomUtil.getPosition(this.#map.getPanes().mapPane)
       if (pos.x === lastX && pos.y === lastY) return
       lastX = pos.x; lastY = pos.y
-      this.#forEachPointLayer(layer => layer.resetCanvasReference())
+      this.#forEachGlLayer(layer => layer.resetCanvasReference())
     })
     this.#map.on('moveend', () => {
       lastX = NaN; lastY = NaN
-      this.#forEachPointLayer(layer => layer.resetCanvasReference())
+      this.#forEachGlLayer(layer => layer.resetCanvasReference())
     })
   }
 
-  #forEachPointLayer(fn) {
-    this.#layers.forEach(record => { if (record.kind === 'point') fn(record.layer) })
+  // Inscribe una capa GL (canvas glify propio que Leaflet NO reproyecta) en el set que el ciclo de
+  // render recorre en move/zoom/resize, y envuelve su destroy() para darla de baja sola. ÚNICO punto
+  // de alta/baja: cualquier capa GL —PointLayer hoy (punto, overlay, burbuja de cluster); otra
+  // entidad/modificador GL mañana— se inscribe pasando por acá al CREARSE, sin enumerar `kind`s ni
+  // escanear todas las capas en el hot-path. Las capas Leaflet-nativas (label, polígono) no pasan
+  // por acá (Leaflet ya las reproyecta). (#2)
+  #trackGl(layer) {
+    this.#glLayers.add(layer)
+    const destroy = layer.destroy.bind(layer)
+    layer.destroy = () => { this.#glLayers.delete(layer); destroy() }
+    return layer
   }
 
+  // Recorre SÓLO las capas GL inscritas (sin escanear #layers): reproyección en move/zoom/resize.
+  #forEachGlLayer(fn) { this.#glLayers.forEach(fn) }
+
   #resetCanvases() {
-    this.#forEachPointLayer(layer => layer.resetCanvasReference())
+    this.#forEachGlLayer(layer => layer.resetCanvasReference())
   }
 
   #registerResolver(id, kind, zIndex, order, resolveClick, resolveHover) {
@@ -543,7 +556,7 @@ export class MapEngine {
       variantOf: b => (iconSet.variantForCount?.(b.count) ?? String(b.count)),
       sizeOf: spec.sizeOf,
     }, iconSet.variants)
-    const layer = new PointLayer({ glify: this.#glify, map: this.#map, pane: bubblePane, source: controls, iconSet, interactive: false })
+    const layer = this.#trackGl(new PointLayer({ glify: this.#glify, map: this.#map, pane: bubblePane, source: controls, iconSet, interactive: false }))
     this.#layers.set(siblingId, { kind: 'point', source: controls, layer, controls, paneName: bubblePane, order })
     return {
       feed: (bubbles) => controls.set(bubbles),
