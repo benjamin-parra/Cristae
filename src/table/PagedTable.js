@@ -67,6 +67,7 @@ export class PagedTable {
     comparator = null,
     searchBy = null,
     searchFilter = null,
+    where = null,
     onSlice = null,
     onPage = null,
   } = {}) {
@@ -75,7 +76,7 @@ export class PagedTable {
     if (typeof template !== 'string') throw new TypeError('[PagedTable] template (string HTML) es obligatorio')
     if (typeof binder !== 'function') throw new TypeError('[PagedTable] binder es obligatorio')
 
-    this.#options = { container, scrollElement, template, comparator, searchBy, searchFilter, onSlice, onPage }
+    this.#options = { container, scrollElement, template, comparator, searchBy, searchFilter, where, onSlice, onPage }
     this.#rowHeight = rowHeight
     this.#pageSize = Math.max(1, pageSize | 0)
     this.#binder = binder
@@ -129,6 +130,20 @@ export class PagedTable {
 
   setSearch(text) {
     this.#searchQuery = (text ?? '').trim()
+    this.#lastPageCount = -1
+    this.#refs.scrollContainer.scrollTop = 0
+    this.#requestUpdate(true)
+    return this
+  }
+
+  // Predicado de MEMBRESÍA por tabla (subconjunto de vista): N tablas comparten UNA
+  // Source y cada una muestra su propio subconjunto sin que el filtro afecte al mapa
+  // ni a las otras tablas (a diferencia de `source.addFilter`, que es compartido). Se
+  // aplica en `#mergeAndFilter` ANTES del text-search. `null` ⇒ sin filtro (todo pasa).
+  // Igual disciplina que `setSearch`: resetea el conteo de páginas y corre el pipeline
+  // duro — sin re-render de React (el motor reescribe el pool en su rAF).
+  setWhere(fn) {
+    this.#options.where = fn ?? null
     this.#lastPageCount = -1
     this.#refs.scrollContainer.scrollTop = 0
     this.#requestUpdate(true)
@@ -189,7 +204,7 @@ export class PagedTable {
   // conteo de coincidencias. Nunca reordena `dataset`: el reorder vive en `workingSet`.
   #mergeAndFilter() {
     const data = this.#dataset
-    const { searchBy: selector, searchFilter: predicate } = this.#options
+    const { searchBy: selector, searchFilter: predicate, where } = this.#options
     const query = this.#searchQuery.toLowerCase()
     const ws = this.#workingSet
     const total = data.length
@@ -197,14 +212,23 @@ export class PagedTable {
     if (ws.length < total) ws.length = total
     let cursor = 0
 
+    // Gate de membresía por tabla (where) ANTES del text-search: un ítem que no pertenece
+    // a la vista nunca se cuenta ni se ordena. `where` null ⇒ no se evalúa nada (cero costo
+    // sobre el camino existente).
     if (query && selector) {
       for (let i = 0; i < total; ++i) {
         const item = data[i]
+        if (where && !where(item)) continue
         const val = selector(item)
         const match = predicate
           ? predicate(query, item, val)
           : String(val ?? '').toLowerCase().includes(query)
         if (match) ws[cursor++] = item
+      }
+    } else if (where) {
+      for (let i = 0; i < total; ++i) {
+        const item = data[i]
+        if (where(item)) ws[cursor++] = item
       }
     } else {
       for (let i = 0; i < total; ++i) ws[cursor++] = data[i]

@@ -18,6 +18,7 @@ export class CristaePointLayer extends CristaeLayerElement {
     accessors: { type: Object },
     iconSet: { attribute: 'icon-set' },          // string (nombre registrado) u objeto IconSet
     filters: { type: Array },
+    where: { attribute: false },                 // (item) => boolean: membresía por-capa (filtra qué entra a ESTA capa sin tocar la Source compartida)
     interactive: { type: Boolean },
     visible: { type: Boolean },
     autoFit: { attribute: 'auto-fit' },          // "once": encuadra la capa al llegar los primeros puntos
@@ -44,6 +45,7 @@ export class CristaePointLayer extends CristaeLayerElement {
       accessors: this.accessors,
       iconSet: this.iconSet,
       filters: this.filters,
+      where: this.where,                         // membresía por-capa (filtra la Source compartida sin mutarla)
       interactive: this.interactive,
       visible: this.visible,
     })
@@ -54,6 +56,7 @@ export class CristaePointLayer extends CristaeLayerElement {
   syncLayer(changed) {
     if (changed.has('source') && this.source) this._engine.attachSource(this._handle.id, this.source)
     else if (changed.has('data') && this.data) this._handle.set(this.data)
+    if (changed.has('where')) this._handle.setWhere(this.where)
     if (changed.has('visible')) this._handle.setVisible(this.visible)
   }
 

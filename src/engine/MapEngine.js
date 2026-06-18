@@ -114,7 +114,7 @@ export class MapEngine {
   /* ── Capas de puntos ── */
 
   addPointLayer(cfg) {
-    const { id, data, accessors, iconSet, interactive = false, pane, z, visible = true, filters, cluster } = cfg
+    const { id, data, accessors, iconSet, interactive = false, pane, z, visible = true, filters, where, cluster } = cfg
     const order = this.#order++
     const paneName = pane ?? `cristae-point-${id}`
     const zIndex = z ?? (BASE_Z + order * Z_STEP)
@@ -125,7 +125,9 @@ export class MapEngine {
     // consumidor → el motor solo lee, no escribe. El objeto ES el Source (handle colapsado).
     const controls = cfg.source ? null : createSource(accessors, set?.variants)
     const source = cfg.source ?? controls
-    const layer = this.#trackGl(new PointLayer({ glify: this.#glify, map: this.#map, pane: paneName, source, iconSet: set, interactive }))
+    // `where`: membresía por-capa (filtra qué ítems de la Source compartida entran a ESTA capa
+    // sin mutar la Source). Otras vistas de la misma Source no se ven afectadas.
+    const layer = this.#trackGl(new PointLayer({ glify: this.#glify, map: this.#map, pane: paneName, source, iconSet: set, interactive, where }))
 
     const record = { kind: 'point', source, layer, controls, paneName, order, interactive }
     this.#layers.set(id, record)
@@ -526,6 +528,10 @@ export class MapEngine {
       remove: (itemId) => controls?.remove(itemId),
       addFilter: (f) => controls?.addFilter(f),
       removeFilter: (fid) => controls?.removeFilter(fid),
+      // Membresía declarativa por-capa: cambia el predicado `where` y reconstruye SOLO esta
+      // capa (no toca la Source compartida → otras vistas no se ven afectadas). Lee record.layer
+      // (no captura) porque attachSource puede swapear la capa. Espejo del setWhere del overlay.
+      setWhere: (fn) => { record.layer.where = fn; record.layer.refresh() },
       preloadIcons: (variants) => iconSet?.seed(variants),
       refresh: () => record.layer.refresh(),
       setVisible: (v) => this.setLayerVisibility(id, v),
