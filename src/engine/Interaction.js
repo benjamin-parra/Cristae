@@ -1,4 +1,4 @@
-import { EVENT_HOVER } from '../events/events.js'
+import { EVENT_HOVER, PICK_CHANNELS } from '../events/events.js'
 
 // Interaction — traduce los eventos del puntero del L.map en hits ruteados por el EventBus.
 // Cablea tres cosas y nada más: (1) pointer/click del DOM → registry.resolveHits → bus.dispatch;
@@ -6,9 +6,17 @@ import { EVENT_HOVER } from '../events/events.js'
 // supresión de hover durante zoom/pan y el cursor automático. No conoce capas ni dominio: pide
 // los hits al registro y los puntos pickeables al motor.
 //
-// Hover dirigido por demanda: si nadie suscribió un handler de hover, ni se inicia la sesión
-// (el picking de hover correría en cada pointermove — lo más frecuente — y es caro). El cursor
-// pointer se pone solo cuando el set de hover no está vacío y se restaura al vaciarse.
+// Picking dirigido por demanda, con DOS motivos para correr la sesión de hover (ver PICK_CHANNELS):
+//   · entregar EVENTOS de hover  → demanda del canal HOVER  (`#hoverDemand`);
+//   · CURSOR de affordance       → demanda de CLICK *o* HOVER (`#pickDemand`).
+// El cursor `pointer` es una affordance de la INTERACTIVIDAD, no del canal de hover: una capa
+// clickeable debe marcar el puntero al pasar sobre sus features —como `.leaflet-interactive` en
+// Leaflet, y como promete SPECS §eventos ("cursor automático … capa interactive")— aunque el
+// consumidor NO escuche `cristae:hover`. Por eso la sesión de hover (que es lo que sabe si el
+// puntero cae sobre una feature) se corre también bajo demanda de CLICK, pero los EVENTOS de hover
+// se emiten solo si hay demanda de HOVER. Si ningún canal interactivo tiene demanda, la sesión no
+// se inicia (el picking correría en cada pointermove — lo más frecuente — y es caro). El cursor se
+// restaura al salir del contenedor, durante zoom/pan, y al caer la demanda interactiva a cero.
 
 const noRaf = (cb) => setTimeout(cb, 0)
 const hasRaf = typeof requestAnimationFrame === 'function'
@@ -31,7 +39,8 @@ export class Interaction {
   #pointer = { seq: 0, clientX: 0, clientY: 0, containerPoint: { x: 0, y: 0 } }
   #containerRect = null
 
-  #hoverDemand = false
+  #hoverDemand = false          // demanda del canal HOVER → emitir eventos de hover
+  #pickDemand = false           // demanda de CLICK u HOVER → correr el picking (para el cursor)
   #interacting = false
   #hoverDirty = false
   #hoverLastAt = -Infinity
@@ -57,10 +66,13 @@ export class Interaction {
 
   set hoverThrottleMs(ms) { this.#throttleMs = ms }
 
-  // El motor la llama cuando cambia la demanda (alta/baja de un handler de hover).
+  // El motor la llama cuando cambia la demanda (alta/baja de un handler de click/hover). Recalcula
+  // los dos gates: HOVER (emitir eventos) y CLICK|HOVER (correr el picking para el cursor).
   syncHoverDemand() {
-    this.#hoverDemand = this.#registry.layerIds().some(id => this.#registry.demandMaskOf(id) & EVENT_HOVER)
-    if (!this.#hoverDemand) this.#endHover()
+    const ids = this.#registry.layerIds()
+    this.#hoverDemand = ids.some(id => this.#registry.demandMaskOf(id) & EVENT_HOVER)
+    this.#pickDemand = ids.some(id => this.#registry.demandMaskOf(id) & PICK_CHANNELS)
+    if (!this.#pickDemand) this.#endHover()
   }
 
   destroy() {
@@ -121,7 +133,7 @@ export class Interaction {
     const sample = this.#sampleOf(p)
     this.#bus.dispatch('pointer:move', null, sample)            // crudo: coordenadas, sin picking
 
-    if (!this.#hoverDemand || this.#interacting) return
+    if (!this.#pickDemand || this.#interacting) return
     this.#hoverDirty = true
     if (this.#session) return                                  // latest-only: la sesión activa relee al cerrar
 
@@ -146,8 +158,10 @@ export class Interaction {
     this.#hoverDirty = false
     this.#hoverLastAt = now()
 
+    // Se pickean las capas interactivas con demanda de CLICK u HOVER: las solo-click se pickean
+    // para poder marcar el cursor (sus EVENTOS de hover no se emiten — ver #emitHover).
     const active = this.#pickLayers().filter(({ layerId }) =>
-      this.#registry.isLayerVisible(layerId) && (this.#registry.demandMaskOf(layerId) & EVENT_HOVER))
+      this.#registry.isLayerVisible(layerId) && (this.#registry.demandMaskOf(layerId) & PICK_CHANNELS))
 
     const queued = active.filter(({ layer }) => layer.requestHoverHit(sample))
     if (!queued.length) return this.#emitHover(sample)         // nada que pickear → resolver inline
@@ -184,9 +198,13 @@ export class Interaction {
   }
 
   #emitHover(sample) {
-    const hits = this.#registry.resolveHits('hover', sample)
-    this.#bus.dispatch('hover', hits, sample)
-    this.#setCursor(hits.length > 0)
+    // EVENTOS de hover: solo si hay demanda del canal HOVER (resolveHits('hover') ya filtra por él,
+    // así que para una capa solo-click esto no dispara nada espurio).
+    if (this.#hoverDemand) this.#bus.dispatch('hover', this.#registry.resolveHits('hover', sample), sample)
+    // CURSOR de affordance: `pointer` si el puntero cae sobre una feature de una capa interactiva
+    // con demanda de click u hover (no requiere escuchar 'hover'). Alinea la implementación con
+    // SPECS §eventos: "cursor automático … capa interactive".
+    this.#setCursor(this.#registry.hasHitForChannels(PICK_CHANNELS, sample))
   }
 
   #endHover() {
@@ -194,6 +212,7 @@ export class Interaction {
     this.#session = null
     this.#generation++
     this.#pickLayers().forEach(({ layer }) => layer.cancelHoverHit())
+    this.#setCursor(false)   // cerrar la sesión (leave / zoom-pan / demanda a cero) restaura el cursor
   }
 
   /* ── Supresión durante zoom/pan ── */

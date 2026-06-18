@@ -436,7 +436,7 @@ Hit = { layerId, kind: 'point'|'polygon', ref, id, distancePx, zIndex, order }
 | `cristae:viewportchange` | `{center, zoom, bounds}` | O(1) — moveend/zoomend |
 | `cristae:interactionstart` / `…end` | `{}` | O(1) — para que el consumidor frene su emitter |
 
-- **Cursor automático:** si el set de hits incluye una capa `interactive`, el motor pone `cursor:pointer` y lo restaura. El consumidor no toca el cursor (vive en shadow DOM).
+- **Cursor automático (affordance de interactividad):** el motor pone `cursor:pointer` cuando el puntero cae sobre una feature de una capa interactiva con demanda de **click _u_ hover**, y lo restaura. **No requiere suscribir `cristae:hover`:** una capa clickeable (listener de `cristae:click`) ya muestra el puntero, igual que `.leaflet-interactive` en Leaflet. Para conseguirlo, la sesión de picking de hover (la que sabe si el puntero cae sobre una feature) corre también bajo demanda de click — aunque los EVENTOS `cristae:hover` se sigan emitiendo solo si hay demanda de hover. Implica que un mapa solo-click paga el picking de hover (throttled por `hover-throttle`) por el cursor. El consumidor no toca el cursor (vive en shadow DOM).
 - **Sin `onDisambiguate` en el core:** `click` entrega todos los hits; el popup de desambiguación lo arma el consumidor con los `x,y` provistos.
 - **Borde que requiere manejo:** hover suprimido durante zoom/pan (sesión de hover se reinicia en `leave`).
 

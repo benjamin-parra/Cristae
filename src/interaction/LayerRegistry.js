@@ -127,6 +127,21 @@ export class LayerRegistry {
     return hits
   }
 
+  // ¿El puntero (en `baseEvent`) cae sobre una feature de ALGUNA capa visible cuya demanda
+  // intersecta `channelMask`? Usa el resolver de hover (proximidad geométrica para polígonos; pick
+  // GPU ya recogido por la sesión para puntos). Es la consulta del CURSOR de affordance: una capa
+  // con demanda de CLICK debe marcar el puntero aunque nadie escuche el canal de hover (ver
+  // Interaction). No ordena ni materializa hits: corta al primer acierto (O(L) en el peor caso).
+  hasHitForChannels(channelMask, baseEvent) {
+    for (const entry of this.#entriesByLayerId.values()) {
+      if (!entry.visible) continue
+      if (!(entry.activeMask & channelMask)) continue
+      const parts = entry.resolveHover?.(baseEvent)
+      if (parts && parts.length) return true
+    }
+    return false
+  }
+
   // Quita todas las capas asociadas a un objeto Leaflet dado. Devuelve los layerIds removidos.
   removeByLeafletLayer(leafletLayer) {
     const removedIds = []
