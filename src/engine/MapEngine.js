@@ -53,6 +53,7 @@ export class MapEngine {
   #interaction
   #tiles = null
   #tileLayer = null
+  #destroying = false             // teardown del engine en curso → no rebuildear glify (canvas muriendo)
 
   #layers = new Map()             // id → record { kind, source, layer, controls, paneName, order }
   #pickLayers = []                // capas de puntos interactivas (para la sesión de picking)
@@ -257,6 +258,12 @@ export class MapEngine {
         if (disposed) return
         disposed = true
         unsubs.forEach(u => u()); this.#map.off('zoomend', onZoom); sink.dispose()
+        // Teardown del engine: TODO se está removiendo, así que des-suprimir el host y
+        // refrescarlo (+ resyncear sus labels/overlays ligados) es trabajo inútil y peligroso
+        // — rebuildearía glify sobre un canvas que se destruye (crash `_redraw` getSize null).
+        // El `destroy()` de cada capa libera igual. Fuera del teardown (quitar UNA capa) el
+        // host SÍ se des-suprime y resyncea normalmente.
+        if (this.#destroying) return
         for (const { id, rec } of hosts) {
           rec.suppressed = null; rec.layer.suppressed = null; rec.layer.refresh()   // sin cluster → host completo
           this.#resyncBound(id)
@@ -412,6 +419,8 @@ export class MapEngine {
   invalidateCanvas() { this.#resetCanvases() }
 
   destroy() {
+    if (this.#destroying) return
+    this.#destroying = true
     _liveEngines.delete(this)
     this.#interaction.destroy()
     this.camera.destroy()
@@ -610,6 +619,7 @@ export class MapEngine {
   // suscripción a la fuente no dispara en ese caso. Cada `resync` re-lee `host.suppressed`
   // (labels: re-filtra; overlays: re-apunta el ref vivo + refresh).
   #resyncBound(hostId) {
+    if (this.#destroying) return                  // teardown: no rebuildear capas ligadas (se remueven igual)
     this.#layers.forEach(record => {
       if (record.bindTo !== hostId) return
       if (record.kind === 'label' || record.kind === 'overlay') record.resync?.()
