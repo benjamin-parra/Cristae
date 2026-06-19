@@ -79,6 +79,7 @@ export class CristaeMap extends LitElement {
   #mounted = false
   #everMounted = false
   #resizeObserver = null
+  #resizeTimer = null          // debounce (trailing) del syncSize: coalesce una ráfaga de resize a una sola corrida
   #resolveReady
   // Puenteo bajo demanda: nro de listeners DOM por tipo cristae:* (persiste entre reconexiones, porque
   // las registraciones de addEventListener sobreviven al detach) y el unsub del motor activo por tipo
@@ -123,6 +124,7 @@ export class CristaeMap extends LitElement {
   disconnectedCallback() {
     super.disconnectedCallback()
     this.#resizeObserver?.disconnect()
+    if (this.#resizeTimer != null) { clearTimeout(this.#resizeTimer); this.#resizeTimer = null }
     this.#engine?.destroy()
     this.#engine = null
     this.#mounted = false
@@ -197,8 +199,19 @@ export class CristaeMap extends LitElement {
       this.#resolveReady = null
     })
 
-    this.#resizeObserver = new ResizeObserver(() => this.#engine?.syncSize())
+    this.#resizeObserver = new ResizeObserver(() => this.#scheduleSync())
     this.#resizeObserver.observe(this)
+  }
+
+  // Resize del contenedor → debounce (trailing). El ResizeObserver dispara por frame mientras el
+  // contenedor se anima (p.ej. abrir/cerrar un panel hermano que empuja el mapa), y cada syncSize()
+  // reproyecta TODAS las capas de puntos (invalidateSize + resetCanvases) — reproyectar por frame es
+  // caro con muchos puntos/polígonos. Re-agendar en cada notificación colapsa la ráfaga a UN solo
+  // syncSize ~110ms después de que el tamaño se asienta. Un resize aislado simplemente se aplica
+  // ~110ms más tarde (imperceptible y sin reflows intermedios).
+  #scheduleSync() {
+    if (this.#resizeTimer != null) clearTimeout(this.#resizeTimer)
+    this.#resizeTimer = setTimeout(() => { this.#resizeTimer = null; this.#engine?.syncSize() }, 110)
   }
 
   #wireEvents() {
