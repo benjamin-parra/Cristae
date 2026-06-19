@@ -125,7 +125,15 @@ export class PointLayer {
     this.#unsub?.()
     this.#picking?.detach()
     this.#binding?.destroy()
+    // Liberar el contexto WebGL de inmediato. `glify.remove()` (base-gl-layer.remove) quita la capa
+    // del mapa pero NO libera su contexto GL → queda vivo hasta el GC. Re-montar el mapa (HMR en dev,
+    // o el error-boundary recreando el árbol en prod) acumularía contextos hasta "Too many active
+    // WebGL contexts": el navegador descarta el más viejo y glify._redraw sobre ese contexto perdido
+    // crashea. Cada capa tiene su PROPIO canvas+contexto y glify no escucha 'webglcontextlost', así
+    // que esto no afecta a las capas hermanas. Capturamos `gl` ANTES de remove() (sigue válido luego).
+    const gl = this.#layer?.gl ?? null
     this.#layer?.remove()
+    try { gl?.getExtension('WEBGL_lose_context')?.loseContext() } catch { /* sin la extensión: no-op */ }
     this.#layer = null
   }
 
