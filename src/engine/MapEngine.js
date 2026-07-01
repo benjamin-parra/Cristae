@@ -17,7 +17,19 @@ import { createTileSnapshotRetention } from '../tiles/TileSnapshotRetention.js'
 
 const BASE_Z = 400
 const Z_STEP = 10
+// Offset de la capa de LABELS sobre su host. El fold de cluster (burbujas + spider) se cuelga por ENCIMA
+// de esta banda para que las etiquetas de otros marcadores NO tapen los vehículos que el cluster superpone
+// al expandirse (el spider es el contenido enfocado → va arriba de los labels). Ver addLabelLayer + fold.
+const LABEL_Z_OFFSET = 200
 const BUS_EVENTS = new Set(['click', 'hover', 'hover:start', 'hover:end', 'pointer:move'])
+
+// Ventana de coalescido del re-index del cluster ante moves de POSICIÓN (no estructurales).
+// `cluster.index` (Supercluster.load) es O(n log n) + ~4 allocs/punto y resetea la firma → fuerza
+// apply() (rebuild GL completo). Bajo WS la Source emite ~1 vez/frame; re-indexar por frame satura
+// el hilo y traba el zoom. A zoom de cluster, mover unos metros NO cambia el bucket → el re-index
+// puede diferirse a esta ventana sin pérdida visual. Los cambios ESTRUCTURALES (alta/baja/patch)
+// NO esperan: re-indexan al instante (ver onData en addClusterFold).
+const CLUSTER_REINDEX_THROTTLE_MS = 1000
 
 // Lado del sprite de la burbuja default (px). El radio es `size * 0.42` y el texto escala con `size`,
 // así que esto fija el tamaño visible de toda la burbuja. El consumidor lo cambia con `bubble.sizes`.
@@ -25,17 +37,75 @@ const DEFAULT_CLUSTER_SIZE = 43
 
 // Dibujo por defecto de la burbuja de cluster. `plus` (de defineClusterIconSet) marca el bucket que
 // es piso de un rango → "+", sin afirmar un conteo exacto. El consumidor reemplaza esto con su `draw`.
-const DEFAULT_CLUSTER_DRAW = (ctx, size, count, plus) => {
-  const r = size * 0.42
-  ctx.fillStyle = count >= 200 ? '#dc2626' : count >= 50 ? '#f59e0b' : '#2563eb'
-  ctx.globalAlpha = 0.9
-  ctx.beginPath(); ctx.arc(size / 2, size / 2, r, 0, Math.PI * 2); ctx.fill()
+// Color de acento de la jerarquía spiderfy (índigo Wing) — se usa para sub-bubbles y patas del grupo.
+const SUB_ACCENT = '#6366f1'
+
+// Dibujo de SUB-CLUSTER (jerarquía spiderfy): DISTINTO a la burbuja base sólida y con toque Wing —
+// halo suave (profundidad) + disco + anillo interior blanco + conteo bold. Se lee como "sub-grupo,
+// click para abrir", no se confunde con un cluster base. `accent` (opcional) pisa el color por CONTEO
+// con un color fijo (config `accent` del cluster); sin él, colorea por umbral rojo/ámbar/índigo.
+const makeSubClusterDraw = (accent = null) => (ctx, size, count, plus) => {
+  const cx = size / 2, cy = size / 2, r = size * 0.33
+  const color = accent ?? (count >= 200 ? '#dc2626' : count >= 50 ? '#f59e0b' : SUB_ACCENT)
+  // Halo glow en DOS anillos (suave→fuerte), dentro del radio dibujable (≤ size/2) → cada sub-cluster
+  // "pop" y no se confunde con otros iconos.
+  ctx.fillStyle = color
+  ctx.beginPath(); ctx.arc(cx, cy, r + size * 0.14, 0, Math.PI * 2); ctx.globalAlpha = 0.15; ctx.fill()
+  ctx.beginPath(); ctx.arc(cx, cy, r + size * 0.07, 0, Math.PI * 2); ctx.globalAlpha = 0.32; ctx.fill()
   ctx.globalAlpha = 1
+  ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2)                   // disco
+  ctx.fillStyle = color; ctx.fill()
+  ctx.lineWidth = Math.max(1.5, size * 0.05)                            // anillo interior blanco
+  ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.stroke()
+  const label = plus ? `${count}+` : String(count)
+  ctx.fillStyle = '#fff'
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+  ctx.font = `600 ${Math.round(size * (label.length > 4 ? 0.22 : 0.30))}px sans-serif`
+  ctx.fillText(label, cx, cy)
+}
+const SUB_CLUSTER_DRAW = makeSubClusterDraw()   // default: color por conteo
+
+const DEFAULT_CLUSTER_DRAW = (ctx, size, count, plus, dim = false) => {
+  const r = size * 0.42
+  const a = dim ? 0.4 : 1                          // expandido → burbuja semitransparente (spiderfy)
+  ctx.fillStyle = count >= 200 ? '#dc2626' : count >= 50 ? '#f59e0b' : '#2563eb'
+  ctx.globalAlpha = 0.9 * a
+  ctx.beginPath(); ctx.arc(size / 2, size / 2, r, 0, Math.PI * 2); ctx.fill()
+  ctx.globalAlpha = a
   const label = plus ? `${count}+` : String(count)
   ctx.fillStyle = '#fff'
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
   ctx.font = `${Math.round(size * (label.length > 4 ? 0.22 : 0.28))}px sans-serif`
   ctx.fillText(label, size / 2, size / 2)
+}
+
+// Posiciones spiderfy alrededor de un punto-contenedor (px), estilo Leaflet.markercluster: anillo
+// para pocos elementos, espiral arquimediana para muchos. Devuelve offsets [x,y] en px del contenedor.
+// Se calcula en PÍXELES (no metros) → no se deforma por la latitud de Web-Mercator.
+const SPIDER_CIRCLE_MAX = 9
+const SPIDER_MIN_RADIUS = 42   // radio interior libre default: despeja el botón de cierre + el 1er marcador (vehículos ~44px)
+
+// gap = radio interior mínimo (deja libre el centro para el botón X); circleMax = umbral círculo↔espiral.
+function spiderfyOffsets(cx, cy, n, sep = 30, gap = SPIDER_MIN_RADIUS, circleMax = SPIDER_CIRCLE_MAX) {
+  const out = []
+  if (n <= circleMax) {
+    const legLength = Math.max((sep * (2 + n)) / (2 * Math.PI), sep * 0.85, gap)
+    const step = (2 * Math.PI) / n
+    for (let i = 0; i < n; i++) { const a = i * step; out.push([cx + legLength * Math.cos(a), cy + legLength * Math.sin(a)]) }
+  } else {
+    // Espiral arquimediana de PASO CONSTANTE: r = b·θ, radio interior `gap` (despeja la X) y paso radial
+    // por vuelta = `sep` (= la separación tangencial) → vueltas equiespaciadas. Así el radio no se dispara
+    // con muchos elementos ni queda un hueco grande entre la última vuelta y las demás (donde cabía el
+    // popup/hover). La separación tangencial se mantiene ≈ sep avanzando el ángulo sep/r por marcador.
+    const b = sep / (2 * Math.PI)
+    let angle = gap / b
+    for (let i = 0; i < n; i++) {
+      const r = b * angle
+      out.push([cx + r * Math.cos(angle), cy + r * Math.sin(angle)])
+      angle += sep / r
+    }
+  }
+  return out
 }
 
 // Registro estático de engines vivos: al destruirse uno, sus hermanos reciben resetCanvasReference()
@@ -62,7 +132,11 @@ export class MapEngine {
   #signals = new Map()            // eventos del motor (ready/viewportchange/interaction*) → handlers
   #iconSets = new Map()           // nombre → IconSet registrado (resolución por nombre)
   #defaultClusters = null         // cluster icon-set por defecto (lazy)
+  #defaultSubClusters = null      // icon-set de sub-clusters de la espiral (jerarquía, lazy)
   #order = 0
+  #focused = null                 // enfoque: Set(id) de capas a opacidad plena (resto atenuado), o null
+  #dimOpacity = 0.3               // opacidad del resto mientras hay enfoque activo
+  #focusKinds = null              // kinds de capa que el enfoque atenúa (null = todas)
 
   camera
   ready
@@ -115,7 +189,7 @@ export class MapEngine {
   /* ── Capas de puntos ── */
 
   addPointLayer(cfg) {
-    const { id, data, accessors, iconSet, interactive = false, pane, z, visible = true, filters, where, cluster } = cfg
+    const { id, data, accessors, iconSet, interactive = false, pane, z, visible = true, filters, where, cluster, capture, presentAs } = cfg
     const order = this.#order++
     const paneName = pane ?? `cristae-point-${id}`
     const zIndex = z ?? (BASE_Z + order * Z_STEP)
@@ -130,13 +204,15 @@ export class MapEngine {
     // sin mutar la Source). Otras vistas de la misma Source no se ven afectadas.
     const layer = this.#trackGl(new PointLayer({ glify: this.#glify, map: this.#map, pane: paneName, source, iconSet: set, interactive, where }))
 
-    const record = { kind: 'point', source, layer, controls, paneName, order, interactive }
+    // `where` en el record: si esta capa está clusterizada, el cluster indexa `source ∧ where` (no la
+    // Source cruda) → cuenta lo que la capa REALMENTE muestra. setWhere lo actualiza y re-indexa el cluster.
+    const record = { kind: 'point', source, layer, controls, paneName, order, interactive, where: where ?? null }
     this.#layers.set(id, record)
 
     if (interactive) {
       this.#pickLayers.push({ layerId: id, layer })
       // Los resolvers leen record.layer (no capturan): attachSource puede swapear la capa.
-      this.#registerResolver(id, 'point', zIndex, order, e => record.layer.resolveClick(e), e => record.layer.resolveHover(e))
+      this.#registerResolver(id, 'point', zIndex, order, e => record.layer.resolveClick(e), e => record.layer.resolveHover(e), { capture, presentAs })
     }
     this.#applyVisibility(id, paneName, visible)
 
@@ -184,9 +260,11 @@ export class MapEngine {
     const { id, bindTo, pane, z, paint, style, textOf, accessors } = cfg
     const order = this.#order++
     const paneName = pane ?? `cristae-label-${id}`
-    const zIndex = z ?? (BASE_Z + order * Z_STEP + 200)        // labels por encima de las capas
+    const zIndex = z ?? (BASE_Z + order * Z_STEP + LABEL_Z_OFFSET)        // labels por encima de las capas
     const labelLayer = new LabelLayer({ map: this.#map, pane: { name: paneName, zIndex }, paint, style })
-    const record = { kind: 'label', layer: labelLayer, paneName, order, bindTo }
+    // `visible` en record: controla si sync() (la suscripción a la Source) corre el reduce O(n) +
+    // setLabels. Con setVisible(false) el sync es no-op → cero CPU por cada emit del WS.
+    const record = { kind: 'label', layer: labelLayer, paneName, order, bindTo, visible: true }
     this.#layers.set(id, record)
 
     const bind = () => this.#bindLabels(id, record, { bindTo, textOf, accessors, source: cfg.source })
@@ -196,7 +274,14 @@ export class MapEngine {
       id,
       setLabels: (labels) => labelLayer.setLabels(labels),
       setHovered: (ids) => labelLayer.setHovered(ids),
-      setVisible: (v) => labelLayer.setVisibility(v),
+      setVisible: (v) => {
+        const wasHidden = !record.visible
+        record.visible = v
+        // Al re-habilitar: refrescar los labels con el estado actual ANTES de que el overlay pinte
+        // (setVisibility(true)→setEnabled(true)→requestRedraw). Así no hay flash de contenido viejo.
+        if (v && wasHidden) record.resync?.()
+        labelLayer.setVisibility(v)
+      },
     }
   }
 
@@ -206,7 +291,7 @@ export class MapEngine {
   // set `suppressed` (ref estable, mutado in place) a TODOS los hosts y a sus ligados (labels +
   // overlays, que leen `host.suppressed`). El <cristae-cluster> declarativo entra por acá vía el
   // reductor de la gramática; `addCluster` (un host) es azúcar imperativa que delega.
-  addClusterFold(targets, { radius, maxZoom, minPoints, enabled, bubble } = {}) {
+  addClusterFold(targets, { radius, maxZoom, minPoints, enabled, expandable = true, bubble, dimRest = false, dimRestOpacity = 0.3, circleThreshold = null, spiralGap = null, accent = null, lineColor = null } = {}) {
     const hosts = []
     for (const t of targets) {
       const rec = this.#layers.get(t.id)
@@ -214,22 +299,197 @@ export class MapEngine {
     }
     if (!hosts.length) return null
 
+    let expandableActive = expandable ?? true   // mutable via setConfig
+    let dimRestActive = dimRest                  // atenuar el resto del mapa al expandir (mutable)
+    let dimRestOpacityActive = dimRestOpacity ?? 0.3
+    let circleThresholdActive = circleThreshold  // umbral círculo↔espiral (nº) o null = auto (SPIDER_CIRCLE_MAX)
+    let spiralGapActive = spiralGap              // radio interior de la espiral (nº) o null = default (SPIDER_MIN_RADIUS)
+    let accentActive = accent                    // color de acento (sub-burbujas al montar + traza si no hay lineColor) o null
+    let lineColorActive = lineColor              // color de la TRAZA que une los elementos (el consumidor lo deriva) o null
     const cluster = new Cluster({ radius, maxZoom, minPoints, enabled })
     const base = hosts[0].rec
     const { idOf, positionOf } = base.source.accessors   // ids deben ser únicos entre hosts (precondición)
 
     const foldId = `cluster-${this.#order++}`
     const bubblePane = `${foldId}-bubbles`
-    this.#ensurePane(bubblePane, BASE_Z + base.order * Z_STEP + 5)
-    const sink = this.#makeBubbleSink(bubble, bubblePane, base.order, foldId)
+    this.#ensurePane(bubblePane, BASE_Z + base.order * Z_STEP + LABEL_Z_OFFSET + 5)   // sobre los labels (+200)
+    // La burbuja se registra SIEMPRE como interactiva (no condicionada a expandable): así habilitar
+    // expandable en runtime no exige recablear el picking. El gate real vive en el handler de click.
+    const sink = this.#makeBubbleSink(bubble, bubblePane, base.order, foldId, true)
     const bubbleId = `${foldId}:clusters`
 
+    // Resuelve un id de dato desclusterizado a su host → { layerId, item }. Recorre los hosts (un
+    // cluster puede envolver varias capas). itemById es OPCIONAL → fallback a scan lineal con el idOf
+    // del host. Primer host que resuelve gana; si ninguno, item:null. Lo usan el spider y el evento.
+    const resolveOne = (id) => {
+      for (const { id: layerId, rec } of hosts) {
+        let item = rec.source.itemById?.(id)
+        if (item == null && !rec.source.itemById) {
+          const hidOf = rec.source.accessors.idOf
+          item = rec.source.getSnapshot().find(it => hidOf(it) === id)
+        }
+        if (item != null) return { layerId, item }
+      }
+      return { layerId: null, item: null }
+    }
+
+    // ── Spiderfy: capa de marcadores en espiral + líneas para los clusters expandidos ──
+    // Las hojas expandidas QUEDAN suprimidas en el host; acá se renderizan en posiciones espirales
+    // (markercluster-style) REUSANDO el iconSet del host (mismo sprite que el vehículo real) con líneas
+    // desde el centro. Una sola sesión spider por fold: id + pane ESTABLES (reusados open/close) → sin
+    // leak de panes ni crecimiento de #order. La capa va por la API PÚBLICA addPointLayer (no privados).
+    const spiderId = `${foldId}:spider`
+    // Hoja desplegada = dato del host en el overlay → se PRESENTA como su capa host (mismo id de dato, en
+    // su posición desplegada); aplica a TODO canal (lo usa resolveHits). presentedFrom deja que el
+    // auto-collapse la reconozca propia. leafLL lo llena applySpider.
+    const leafLL = new Map()
+    const presentLeaf = (hit) => {
+      const ll = leafLL.get(hit.ref)
+      if (!ll) return null
+      const { layerId } = resolveOne(hit.ref)
+      return layerId && { ...hit, layerId, id: hit.ref, ref: hit.ref, latlng: ll, presentedFrom: spiderId }
+    }
+    const ha = base.source.accessors
+    const spiderAccessors = {
+      idOf: s => s.id,
+      positionOf: s => ({ lat: s.lat, lng: s.lng }),
+      // hashOf por posición: al recalcularse la espiral (mismo id, nueva pos por reflow/compactado)
+      // el default (=idOf) no marcaría dirty → el marcador quedaría en su pos vieja dejando huecos.
+      hashOf: s => `${s.lat}:${s.lng}`,
+    }
+    if (ha.variantOf) spiderAccessors.variantOf = s => ha.variantOf(s.orig)   // mismo sprite que el host
+    if (ha.headingOf) spiderAccessors.headingOf = s => ha.headingOf(s.orig)   // rumbo (si el iconSet rota)
+    if (ha.sizeOf)    spiderAccessors.sizeOf    = s => ha.sizeOf(s.orig)
+    const spiderHandle = base.iconSet ? this.addPointLayer({
+      id: spiderId, data: [], accessors: spiderAccessors, iconSet: base.iconSet,
+      interactive: true, z: BASE_Z + base.order * Z_STEP + LABEL_Z_OFFSET + 7, presentAs: presentLeaf,   // hoja: sobre labels(+200), burbuja(+5) y líneas(+4)
+    }) : null
+    // Capa de SUB-CLUSTERS de la espiral (jerarquía): burbujas de conteo con el MISMO iconSet de
+    // conteo que las burbujas base. Slots {kind:'subcluster'} van acá; los {kind:'leaf'} a `spiderHandle`.
+    const spiderSubId = `${foldId}:spider-sub`
+    const subIconSet = this.#subClusterIconSet(accentActive)   // accent (si hay) pinta las sub-burbujas; fijado al montar
+    const spiderSubHandle = this.addPointLayer({
+      id: spiderSubId, data: [],
+      accessors: {
+        idOf: s => s.id,
+        positionOf: s => ({ lat: s.lat, lng: s.lng }),
+        variantOf: s => (subIconSet.variantForCount?.(s.count) ?? String(s.count)),
+        hashOf: s => `${s.count}:${s.lat}:${s.lng}`,   // re-encode al cambiar conteo/posición
+      },
+      iconSet: subIconSet, interactive: true, z: BASE_Z + base.order * Z_STEP + LABEL_Z_OFFSET + 8, capture: true,   // sobre labels(+200); ocluye lo de abajo
+    })
+    const legsPane = `${foldId}-legs`
+    // Líneas DETRÁS de la burbuja (+5) y de los marcadores (+7): look canónico spiderfy. Si fueran
+    // encima, con muchas patas tapan el centro y la burbuja dim queda ilegible.
+    this.#ensurePane(legsPane, BASE_Z + base.order * Z_STEP + LABEL_Z_OFFSET + 4, true)        // sobre labels(+200); noPointer: las líneas no pican
+    const legGroup = this.#L.layerGroup([], { pane: legsPane }).addTo(this.#map)
+    const setLegs = (segs) => {
+      legGroup.clearLayers()
+      for (const s of segs)
+        this.#L.polyline(s.pts, { pane: legsPane, color: s.color, weight: s.weight, opacity: s.opacity ?? 0.7, interactive: false }).addTo(legGroup)
+    }
+    // Recalcula espiral (px del contenedor → latlng) + marcadores + líneas desde cluster.expandedGroups.
+    // Sin expansión → vacía capa y líneas. Colapsa en zoomstart, así que nunca queda con el pixel-radius
+    // de otro zoom (no hay drift). Cero costo cuando no hay nada expandido (groups vacío).
+    const applySpider = () => {
+      if (!spiderHandle) return
+      leafLL.clear()
+      const leafItems = [], subItems = [], segs = [], bands = []
+      for (const g of cluster.expandedGroups) {
+        const c = this.#map.latLngToContainerPoint([g.center.lat, g.center.lng])
+        // sep mayor cuando hay sub-burbujas para que no se solapen ni queden impickeables. Los slots ya son
+        // 1:1 con marcadores renderables (el índice del cluster deduplica por id) → el caracol se dimensiona
+        // por g.slots.length sin huecos: cada slot recibe UNA posición, UNA pata y UN marcador.
+        const hasSub = g.slots.some(s => s.kind === 'subcluster')
+        // Estabilidad círculo↔espiral al abrir una sub-burbuja: la RAMA se decide sobre el conteo COLAPSADO
+        // de sub-burbujas (subs actuales + la que está abierta, single-open), NO sobre el expandido. Así, si
+        // colapsado era un CÍRCULO (≤ SPIDER_CIRCLE_MAX sub-burbujas), abrir una NO morphea a espiral → no se
+        // pierde la forma ni cuál se abrió. Se fuerza el círculo pasando circleMax = total de slots.
+        const subCount = g.slots.reduce((n, s) => n + (s.kind === 'subcluster' ? 1 : 0), 0)
+        const hasBloom = g.slots.some(s => s.kind === 'leaf' && s.group != null)
+        const collapsedCount = subCount + (hasBloom ? 1 : 0)
+        const circleMax = circleThresholdActive ?? SPIDER_CIRCLE_MAX   // umbral círculo↔espiral configurable (auto = default)
+        const gap = spiralGapActive ?? SPIDER_MIN_RADIUS                // radio interior de la espiral configurable
+        const keepCircle = collapsedCount > 0 && collapsedCount <= circleMax
+        const offs = spiderfyOffsets(c.x, c.y, g.slots.length, hasSub ? 58 : 54, gap, keepCircle ? g.slots.length : circleMax)
+        // Traza que UNE los marcadores ENTRE SÍ (no las patas al centro): es lo que hace legible la forma
+        // de la espiral aunque quede compacta. Un tramo por corrida contigua del MISMO tipo — hojas
+        // (individuales 'base' o florecidas 'bloom') → traza índigo; sub-burbujas → traza gris —. Va gruesa
+        // y con harta opacidad para SEGUIRLA a simple vista (asoma en el hueco entre marcadores); las patas
+        // al centro (segs) quedan tenues y secundarias. Antes las hojas 'base' no llevaban traza.
+        let runType = null, runPts = null
+        const flushRun = () => {
+          if (runPts && runPts.length >= 2) {
+            const leaf = runType !== 'sub'   // 'base' | 'bloom' = hojas
+            // Color de la traza que UNE los elementos: `lineColor` si el consumidor lo pasó (típico: una
+            // variación cromática del acento para que los marcadores del acento puro resalten), si no el
+            // `accent`, si no los defaults. Las secciones se distinguen por opacidad (hojas 0.6 / sub 0.55).
+            // La librería NO deriva colores: recibe el que corresponda ya resuelto.
+            const color = lineColorActive ?? accentActive ?? (leaf ? SUB_ACCENT : '#94a3b8')
+            bands.push({ pts: runPts, color, weight: 12, opacity: leaf ? 0.6 : 0.55 })
+          }
+          runType = null; runPts = null
+        }
+        g.slots.forEach((slot, i) => {
+          const ll = this.#map.containerPointToLatLng(offs[i])
+          const pts = [[g.center.lat, g.center.lng], [ll.lat, ll.lng]]
+          let type
+          if (slot.kind === 'subcluster') {
+            subItems.push({ id: slot.id, lat: ll.lat, lng: ll.lng, count: slot.count })
+            type = 'sub'
+          } else {
+            const { item } = resolveOne(slot.id)
+            leafItems.push({ id: slot.id, lat: ll.lat, lng: ll.lng, orig: item })
+            leafLL.set(slot.id, { lat: ll.lat, lng: ll.lng })
+            type = slot.group != null ? 'bloom' : 'base'
+          }
+          segs.push({ pts, color: '#94a3b8', weight: 1.2, opacity: 0.45 })   // pata al centro: tenue, secundaria
+          if (type !== runType) { flushRun(); runType = type; runPts = [] }
+          runPts.push([ll.lat, ll.lng])
+        })
+        flushRun()
+      }
+      // set + refresh(): refresh fuerza un REBUILD completo sincrónico desde el snapshot recién seteado
+      // → limpia marcadores stale. Sin él, si el set nuevo tiene la MISMA cantidad de ítems que el
+      // anterior pero ids distintos (cambiar de base / togglear sub-cluster), el path incremental de la
+      // capa puede dejar una sub-burbuja vieja flotando en su posición previa.
+      spiderHandle.set(leafItems); spiderHandle.refresh?.()
+      spiderSubHandle.set(subItems); spiderSubHandle.refresh?.()
+      setLegs([...bands, ...segs])   // bandas detrás (se dibujan primero), patas encima
+    }
+
+    // El cluster indexa lo que la capa MUESTRA = `source ∧ where` (membresía por-capa), no la Source
+    // cruda → los conteos de burbuja reflejan el filtro de la pantalla. Sin el `where` de una capa, es su
+    // snapshot completo. La re-indexación ante cambios de `where` la dispara setWhere (record.cluster.reindex).
     const snapshot = () => {
-      if (hosts.length === 1) return hosts[0].rec.source.getSnapshot()
+      if (hosts.length === 1) {
+        const { rec } = hosts[0]
+        const s = rec.source.getSnapshot()
+        return rec.where ? s.filter(rec.where) : s
+      }
       const all = []
-      for (const { rec } of hosts) { const s = rec.source.getSnapshot(); for (let i = 0; i < s.length; i++) all.push(s[i]) }
+      for (const { rec } of hosts) {
+        const s = rec.source.getSnapshot(), w = rec.where
+        for (let i = 0; i < s.length; i++) if (!w || w(s[i])) all.push(s[i])
+      }
       return all
     }
+    // Enfoque del cluster: con expansión activa (y dim-rest on), resalta el spider (hojas + sub-burbujas
+    // + burbuja ancla) y ATENÚA el resto del mapa; sin expansión o con dim-rest off, restaura. Idempotente.
+    const syncFocus = () => {
+      if (dimRestActive && cluster.expandedGroups.length)
+        // Sólo marcadores (point/label): las geocercas/polígonos quedan como contexto, no se atenúan.
+        this.focus([spiderId, spiderSubId, bubbleId], { opacity: dimRestOpacityActive, kinds: ['point', 'label'] })
+      else
+        this.unfocusAll()
+    }
+    // Estado de expansión mostrado, para detectar transiciones expandido→colapsado en apply(). apply() es
+    // el ÚNICO emisor de 'collapse': cubre TODA causa de cierre (colapso explícito, click-toggle, zoom,
+    // deshabilitar clustering, o el reindex que poda el ancla al salir su móvil de la flota). Sin esto,
+    // los cierres implícitos (enabled=false / ancla podada) cerraban la espiral pero dejaban el botón X
+    // flotando (sólo se ocultaba con el 'collapse' de los caminos explícitos). 'expand' sí es explícito
+    // (lo emiten los handlers de click / la API, con su payload rico: clusterId, center, entities).
+    let expandedShown = false
     const apply = () => {
       for (const { id, rec } of hosts) {
         rec.suppressed = cluster.clusteredIds
@@ -238,26 +498,142 @@ export class MapEngine {
         this.#resyncBound(id)                      // recluster → re-filtra labels + overlays ligados a este host
       }
       sink.feed(cluster.bubbles)
+      applySpider()                                // marcadores en espiral + líneas de los expandidos
+      syncFocus()                                  // resalta el spider / atenúa el resto (si dim-rest)
+      const nowExpanded = cluster.expandedGroups.length > 0
+      if (expandedShown && !nowExpanded) _onInteraction?.({ type: 'collapse' })   // cierre (explícito o implícito) → oculta el botón X
+      expandedShown = nowExpanded
     }
-    const onData = () => { cluster.index(snapshot(), idOf, positionOf); if (cluster.recluster(this.#map.getZoom())) apply() }
+    const doIndex = () => { cluster.index(snapshot(), idOf, positionOf); if (cluster.recluster(this.#map.getZoom())) apply() }
+    // ¿hubo cambio ESTRUCTURAL (alta/baja/patch del set) en algún host esta ventana? Un move de
+    // posición NO marca dirtyIds (sólo moveDirtyIds) → se trata como deriva, no como cambio de set.
+    // Si un host no expone dirtyIds (ruta B sin la señal) caemos al comportamiento previo (inmediato)
+    // por conservadurismo — la optimización aplica sólo cuando la Source puede distinguir (ruta C).
+    const structuralDirty = () => hosts.some(({ rec }) => {
+      const fn = rec.source.dirtyIds
+      if (typeof fn !== 'function') return true
+      const d = fn.call(rec.source)
+      return d != null && d.size > 0
+    })
+    let reindexTimer = null
+    const onData = () => {
+      if (structuralDirty()) {
+        if (reindexTimer != null) { clearTimeout(reindexTimer); reindexTimer = null }
+        doIndex()                                    // el SET cambió → re-index inmediato (membresía puede cambiar)
+      } else if (reindexTimer == null) {
+        reindexTimer = setTimeout(() => { reindexTimer = null; doIndex() }, CLUSTER_REINDEX_THROTTLE_MS)  // sólo moves → diferido
+      }
+    }
     const onZoom = () => { if (cluster.recluster(this.#map.getZoom())) apply() }
     const unsubs = hosts.map(({ rec }) => rec.source.subscribe(onData))
     this.#map.on('zoomend', onZoom)
-    onData()
+    doIndex()                                        // primer index inmediato (no esperar la ventana)
+
+    // Callback que CristaeCluster instala para traducir interacciones a DOM events.
+    // El motor no sabe de DOM; el elemento web component hace esa traducción.
+    let _onInteraction = null
+
+    // Las entidades desclusterizadas, cada una con su capa de origen (heterogéneo-safe). Ver resolveOne.
+    const entitiesOf = (ids) => ids.map(id => { const { layerId, item } = resolveOne(id); return { layerId, id, item } })
+
+    // Colapsa TODO (re-forma los clusters). Una sola vía para el click-afuera, el zoom y el
+    // setConfig(expandable=false) → emite el DOM event 'collapse' de forma consistente.
+    const doCollapseAll = () => {
+      if (cluster.collapseAll() && cluster.recluster(this.#map.getZoom())) { apply(); return true }   // apply() emite 'collapse' por transición
+      return false
+    }
+
+    // Colapso al hacer ZOOM: la pertenencia del ancla no tiene sentido entre niveles de zoom (el
+    // ancla cae en ALGÚN cluster a cada zoom → auto-expandiría uno distinto). Limpiar en zoomstart
+    // mantiene los bursts de zoom en el fast-path de recluster y replica a WingMap (zoom re-clusteriza).
+    const onZoomStart = () => doCollapseAll()
+    this.#map.on('zoomstart', onZoomStart)
+
+    // Click en burbuja → expande ESE cluster (modelo ancla). Se registra SIEMPRE; el toggle
+    // `expandableActive` se evalúa en vivo. Guarda de generación: hit.ref debe existir en la fuente
+    // de burbujas VIVA, que contiene exactamente los cluster-ids de la generación de #sc vigente
+    // (apply() la repobla sincrónicamente tras cada recluster). Si no está, la burbuja es de un paint
+    // previo (repaint pendiente) → se ignora. Así getLeaves nunca recibe un id stale (ni lanza ni
+    // devuelve hojas equivocadas).
+    const bubbleRec = this.#layers.get(bubbleId)
+    // El bus entrega los handlers por-capa con un ARRAY de hits (ya filtrado a esta capa), no un hit
+    // suelto (ver EventBus.#emit). El top hit de la burbuja es hits[0].
+    const offBubbleClick = this.#bus.on('click', bubbleId, (hits) => {
+      if (!expandableActive) return
+      const ref = hits[0]?.ref
+      if (ref == null) return
+      // Guarda anti-carrera: el id debe seguir vivo en la fuente de burbujas (misma generación que
+      // #sc, repoblada sincrónicamente por apply()). Evita pasar un cluster-id de un frame previo a
+      // getLeaves —que podría devolver hojas equivocadas sin lanzar—. En el caso común no bloquea.
+      // `bub` además trae el centro de la burbuja → posiciona el panel del consumidor.
+      const bub = bubbleRec?.source?.itemById?.(ref)
+      if (!bub) return
+      // TOGGLE por-cluster: si esta burbuja ya está expandida (semitransparente) → colapsa SÓLO ella;
+      // si no → la expande. El click en la burbuja lo captura esta capa (el popup sólo abre en top-hit).
+      if (cluster.isClusterExpanded(ref)) {
+        const ids = cluster.collapseCluster(ref)
+        if (ids && cluster.recluster(this.#map.getZoom())) apply()   // apply() emite 'collapse' por transición
+      } else {
+        const res = cluster.expandCluster(ref)
+        if (res && cluster.recluster(this.#map.getZoom())) {
+          apply()
+          const entities = entitiesOf(res.ids)
+          _onInteraction?.({ type: 'expand', clusterId: ref, center: { lat: bub.lat, lng: bub.lng }, count: entities.length, entities })
+        }
+      }
+    })
+
+    // Click en SUB-CLUSTER de la espiral (depth-2): florece SUS hojas empujando a los hermanos (toggle).
+    // hits[0].ref = el id del sub-bubble = min leaf-id = el ancla interna que espera expandInner.
+    const offSubClick = this.#bus.on('click', spiderSubId, (hits) => {
+      if (!expandableActive) return
+      const subId = hits[0]?.ref
+      if (subId == null) return
+      cluster.expandInner(subId)
+      if (cluster.recluster(this.#map.getZoom())) apply()
+    })
 
     let disposed = false
     const control = {
-      setConfig: ({ radius, maxZoom, minPoints, enabled } = {}) => {
+      setConfig: ({ radius, maxZoom, minPoints, enabled, expandable: newExpandable, dimRest: newDimRest, dimRestOpacity: newDimRestOpacity, circleThreshold: newCircleThreshold, spiralGap: newSpiralGap, accent: newAccent, lineColor: newLineColor } = {}) => {
         if (radius != null) cluster.radius = radius
         if (maxZoom != null) cluster.maxZoom = maxZoom
         if (minPoints != null) cluster.minPoints = minPoints
         if (enabled != null) cluster.enabled = enabled
+        if (newDimRestOpacity != null) dimRestOpacityActive = newDimRestOpacity
+        if (newDimRest != null) dimRestActive = newDimRest
+        // Geometría/estilo de la espiral: no cambian la clusterización (recluster puede no gatillar), así
+        // que si cambian con una espiral abierta hay que re-aplicar a mano para re-layoutear/re-colorear.
+        // `accent` recolorea la TRAZA en caliente; las SUB-BURBUJAS quedan con el accent del montaje (su
+        // icon-set está horneado) → un cambio reactivo de accent no las repinta.
+        let geomChanged = false
+        if (newCircleThreshold !== undefined && newCircleThreshold !== circleThresholdActive) { circleThresholdActive = newCircleThreshold; geomChanged = true }
+        if (newSpiralGap !== undefined && newSpiralGap !== spiralGapActive) { spiralGapActive = newSpiralGap; geomChanged = true }
+        if (newAccent !== undefined && newAccent !== accentActive) { accentActive = newAccent; geomChanged = true }
+        if (newLineColor !== undefined && newLineColor !== lineColorActive) { lineColorActive = newLineColor; geomChanged = true }
+        if (newExpandable != null && newExpandable !== expandableActive) {
+          expandableActive = newExpandable
+          if (!expandableActive) doCollapseAll()   // al deshabilitar, re-formar y limpiar estado
+        }
         if (cluster.recluster(this.#map.getZoom())) apply()
+        else if (geomChanged && cluster.expandedGroups.length) apply()   // geometría cambió con espiral abierta → re-layout
+        else syncFocus()   // sin cambio de recluster, pero dim-rest pudo togglear en caliente → resincronizar el enfoque
       },
       dispose: () => {
         if (disposed) return
         disposed = true
-        unsubs.forEach(u => u()); this.#map.off('zoomend', onZoom); sink.dispose()
+        this.unfocusAll()                          // restaura opacidades por si el fold estaba atenuando el resto
+        offBubbleClick?.()
+        offSubClick?.()
+        if (reindexTimer != null) { clearTimeout(reindexTimer); reindexTimer = null }   // cancela re-index diferido pendiente
+        unsubs.forEach(u => u()); this.#map.off('zoomend', onZoom); this.#map.off('zoomstart', onZoomStart); sink.dispose()
+        // Sesión spider: capa (removeLayer NO borra su pane → lo borro a mano), líneas y su pane.
+        this.removeLayer(spiderId)
+        this.removeLayer(spiderSubId)
+        legGroup.remove()
+        this.#map.getPane(legsPane)?.remove()
+        this.#map.getPane('cristae-point-' + spiderId)?.remove()
+        this.#map.getPane('cristae-point-' + spiderSubId)?.remove()
         // Teardown del engine: TODO se está removiendo, así que des-suprimir el host y
         // refrescarlo (+ resyncear sus labels/overlays ligados) es trabajo inútil y peligroso
         // — rebuildearía glify sobre un canvas que se destruye (crash `_redraw` getSize null).
@@ -270,6 +646,34 @@ export class MapEngine {
           if (rec.cluster === control) rec.cluster = null
         }
       },
+      // API de expand/collapse: usada por CristaeCluster y como escape-hatch via getUnsafeHandler.
+      // `id` es un cluster-id de Supercluster — sólo válido dentro del frame actual; el caller debe
+      // pasarlo recién obtenido (p. ej. del detail de un cristae:cluster-expand). El estado interno
+      // queda anclado por hoja, así que sobrevive a reindex/zoom aunque el id ya no exista.
+      expand: (id) => {
+        const res = cluster.expandCluster(id)
+        if (res && cluster.recluster(this.#map.getZoom())) {
+          apply()
+          const bub = bubbleRec?.source?.itemById?.(id)
+          const entities = entitiesOf(res.ids)
+          _onInteraction?.({ type: 'expand', clusterId: id, center: bub ? { lat: bub.lat, lng: bub.lng } : null, count: entities.length, entities })
+        }
+        return res ? res.ids : null
+      },
+      collapse: (id) => {
+        const ids = cluster.collapseCluster(id)
+        if (ids && cluster.recluster(this.#map.getZoom())) apply()   // apply() emite 'collapse' por transición
+      },
+      collapseAll: () => doCollapseAll(),
+      // Re-indexa el cluster con el snapshot actual (source ∧ where). Lo dispara setWhere cuando cambia
+      // el filtro por-capa: un cambio de `where` no emite en la Source (que sigue completa), así que sin
+      // esto las burbujas mantendrían el conteo de la flota sin filtrar.
+      reindex: () => doIndex(),
+      isExpanded: (id) => cluster.isClusterExpanded(id),
+      // ¿esta capa pertenece al fold? (burbuja o spider). El auto-collapse del web component lo usa
+      // para NO colapsar cuando el click cae en la burbuja o en un marcador de la espiral.
+      ownsLayer: (layerId) => layerId === bubbleId || layerId === spiderId || layerId === spiderSubId,
+      set onInteraction(fn) { _onInteraction = fn },
     }
     // dispose idempotente compartido: quitar cualquiera de los hosts (o el sibling) limpia el fold.
     for (const { rec } of hosts) rec.cluster = control
@@ -491,8 +895,8 @@ export class MapEngine {
     this.#forEachGlLayer(layer => layer.resetCanvasReference())
   }
 
-  #registerResolver(id, kind, zIndex, order, resolveClick, resolveHover) {
-    this.#registry.upsertResolver({ layerId: id, kind, zIndex, declOrder: order, resolveClick, resolveHover, visible: true })
+  #registerResolver(id, kind, zIndex, order, resolveClick, resolveHover, overlay) {
+    this.#registry.upsertResolver({ layerId: id, kind, zIndex, declOrder: order, resolveClick, resolveHover, visible: true, capture: overlay?.capture, presentAs: overlay?.presentAs })
     this.#registry.setLayerDemandMask(id, this.#bus.demandMaskFor(id))
     this.#interaction.syncHoverDemand()
   }
@@ -524,6 +928,52 @@ export class MapEngine {
     this.#registry.setLayerVisibility(id, visible)
   }
 
+  /* ── Enfoque / atenuado de capas (primitivo general) ── */
+  // `focus(ids)` deja esas capas a opacidad plena y ATENÚA el resto (opacidad `opacity`); sirve para
+  // destacar un subconjunto (p. ej. el spider al expandir un cluster). `unfocus(ids)` las saca del
+  // conjunto brillante (se re-atenúan); `unfocusAll()` restaura todo. Sólo toca `pane.style.opacity`:
+  // barato, NO re-renderiza glify ni toca datos ni el picking → las capas atenuadas siguen interactivas.
+  // Idempotente (recomputa desde cero). Cubre por id de capa; los panes sin capa (líneas del spider) no
+  // se tocan → quedan a opacidad plena junto al foco. `kinds` acota QUÉ capas se atenúan (por kind:
+  // 'point'/'label'/'polygon'…); null = todas. Ej: atenuar sólo marcadores dejando las geocercas de
+  // contexto intactas → `focus(ids, { kinds: ['point', 'label'] })`.
+  focus(ids, { opacity = 0.3, kinds = null } = {}) {
+    this.#focused = new Set(ids)
+    this.#dimOpacity = opacity
+    this.#focusKinds = kinds
+    this.#applyFocus()
+  }
+
+  unfocus(ids) {
+    if (!this.#focused) return
+    for (const id of ids) this.#focused.delete(id)
+    this.#applyFocus()
+  }
+
+  unfocusAll() {
+    if (!this.#focused) return
+    this.#focused = null
+    for (const [, rec] of this.#layers) if (rec.paneName) this.#applyOpacity(rec.paneName, 1)
+  }
+
+  setLayerOpacity(id, alpha) {
+    const rec = this.#layers.get(id)
+    if (rec?.paneName) this.#applyOpacity(rec.paneName, alpha)
+  }
+
+  #applyFocus() {
+    for (const [id, rec] of this.#layers) {
+      if (!rec.paneName) continue
+      if (this.#focusKinds && !this.#focusKinds.includes(rec.kind)) continue   // fuera de alcance → intacta (brillante)
+      this.#applyOpacity(rec.paneName, this.#focused.has(id) ? 1 : this.#dimOpacity)
+    }
+  }
+
+  #applyOpacity(paneName, alpha) {
+    const pane = this.#map.getPane(paneName)
+    if (pane) pane.style.opacity = alpha >= 1 ? '' : String(alpha)
+  }
+
   #pointHandle(id, record, iconSet) {
     const { controls } = record
     record.iconSet = iconSet
@@ -540,7 +990,10 @@ export class MapEngine {
       // Membresía declarativa por-capa: cambia el predicado `where` y reconstruye SOLO esta
       // capa (no toca la Source compartida → otras vistas no se ven afectadas). Lee record.layer
       // (no captura) porque attachSource puede swapear la capa. Espejo del setWhere del overlay.
-      setWhere: (fn) => { record.layer.where = fn; record.layer.refresh() },
+      // Además persiste el `where` en el record y RE-INDEXA el cluster que envuelve esta capa (si lo
+      // hay): el cluster indexa `source ∧ where`, y un cambio de `where` no emite en la Source → sin
+      // esto los conteos de burbuja quedarían obsoletos (mostrarían la flota completa, no la filtrada).
+      setWhere: (fn) => { record.where = fn ?? null; record.layer.where = fn; record.layer.refresh(); record.cluster?.reindex() },
       preloadIcons: (variants) => iconSet?.seed(variants),
       refresh: () => record.layer.refresh(),
       setVisible: (v) => this.setLayerVisibility(id, v),
@@ -550,9 +1003,10 @@ export class MapEngine {
   // Burbuja parametrizable: el consumidor define CÓMO se ven los clusters (capa de puntos con
   // icon-set de cluster, o capa de labels con el conteo), o usa el default. El sink expone
   // `feed(bubbles)` (la forma de alimentar varía por tipo) y `dispose`.
-  #makeBubbleSink(bubble, bubblePane, order, hostId) {
+  // interactive: true cuando expandable está activo (las burbujas reciben clicks de expand/collapse).
+  #makeBubbleSink(bubble, bubblePane, order, hostId, interactive = false) {
     const siblingId = `${hostId}:clusters`
-    const zIndex = BASE_Z + order * Z_STEP + 5
+    const zIndex = BASE_Z + order * Z_STEP + LABEL_Z_OFFSET + 5   // burbujas sobre los labels (+200) — mismo pane que bubblePane
     const spec = bubble ?? { kind: 'point' }
 
     if (spec.kind === 'label') {
@@ -569,14 +1023,28 @@ export class MapEngine {
     const controls = createSource({
       idOf: b => b.id,
       positionOf: b => ({ lat: b.lat, lng: b.lng }),
-      variantOf: b => (iconSet.variantForCount?.(b.count) ?? String(b.count)),
+      // Burbuja expandida (spiderfy) → variante atenuada, SÓLO si el iconSet la soporta (default sí;
+      // custom sin `expandedVariant` cae al sprite normal — no rompe).
+      variantOf: b => (b.expanded && iconSet.expandedVariant)
+        ? iconSet.expandedVariant(b.count)
+        : (iconSet.variantForCount?.(b.count) ?? String(b.count)),
       sizeOf: spec.sizeOf,
+      // hashOf explícito: el default (=idOf) NO marcaría dirty al togglear `expanded` (mismo id, mismo
+      // count, misma pos) → el dim no se re-renderizaría. Incluye count/expanded/pos para que cualquiera
+      // de esos cambios re-encode el sprite de la burbuja.
+      hashOf: b => `${b.count}:${b.expanded ? 'd' : ''}:${b.lat}:${b.lng}`,
     }, iconSet.variants)
-    const layer = this.#trackGl(new PointLayer({ glify: this.#glify, map: this.#map, pane: bubblePane, source: controls, iconSet, interactive: false }))
-    this.#layers.set(siblingId, { kind: 'point', source: controls, layer, controls, paneName: bubblePane, order })
+    const layer = this.#trackGl(new PointLayer({ glify: this.#glify, map: this.#map, pane: bubblePane, source: controls, iconSet, interactive }))
+    this.#layers.set(siblingId, { kind: 'point', source: controls, layer, controls, paneName: bubblePane, order, interactive })
+    if (interactive) {
+      this.#pickLayers.push({ layerId: siblingId, layer })
+      // La burbuja ocluye lo que tiene debajo (capa overlay): su click no se filtra a geocercas/puntos.
+      this.#registerResolver(siblingId, 'point', zIndex, order, e => layer.resolveClick(e), () => [], { capture: true })
+    }
     return {
       feed: (bubbles) => controls.set(bubbles),
-      dispose: () => { layer.destroy(); controls.destroy(); this.#layers.delete(siblingId) },
+      // removeLayer limpia registry, pickLayers y bus — más completo que el destroy manual anterior.
+      dispose: () => this.removeLayer(siblingId),
     }
   }
 
@@ -589,6 +1057,14 @@ export class MapEngine {
     return defineClusterIconSet({ buckets, draw: draw ?? DEFAULT_CLUSTER_DRAW, sizes })
   }
 
+  // IconSet de los SUB-CLUSTERS de la espiral (jerarquía): estilo claro+anillo, distinto a la burbuja
+  // base sólida; un poco más chico. Sin `accent` → color por conteo, cacheado (lazy, compartido). Con
+  // `accent` → color fijo, icon-set propio (no cacheado: cada acento es distinto).
+  #subClusterIconSet(accent = null) {
+    if (accent) return defineClusterIconSet({ draw: makeSubClusterDraw(accent), sizes: { default: DEFAULT_CLUSTER_SIZE - 6 } })
+    return this.#defaultSubClusters ??= defineClusterIconSet({ draw: SUB_CLUSTER_DRAW, sizes: { default: DEFAULT_CLUSTER_SIZE - 6 } })
+  }
+
   #bindLabels(id, record, { bindTo, textOf, accessors, source }) {
     const host = bindTo ? this.#layers.get(bindTo) : null
     if (bindTo && !host) return false                          // host aún no declarado → pendiente
@@ -599,14 +1075,22 @@ export class MapEngine {
     const posOf = (host ? host.source.accessors.positionOf : accessors.positionOf)
     const text = textOf ?? (item => String(idOf(item)))
 
-    const sync = () => record.layer.setLabels(
-      src.getSnapshot().reduce((acc, item) => {
-        const itemId = idOf(item)
-        if (host?.suppressed?.has(itemId)) return acc        // clusterizado → sin label flotante
-        const p = posOf(item)
-        if (p && Number.isFinite(p.lat) && Number.isFinite(p.lng)) acc.push({ id: itemId, lat: p.lat, lng: p.lng, text: text(item) })
-        return acc
-      }, []))
+    const sync = () => {
+      // Guard de visibilidad: si la capa está oculta, saltar el reduce O(n) + setLabels. Con WS
+      // a alta frecuencia este sync se invoca en cada emit (~1/frame); sin el guard procesaría
+      // 2000+ ítems y pintaría fillText en un canvas que el usuario no ve. `record.visible` lo
+      // setea addLabelLayer.setVisible; para bubble-labels (#makeBubbleSink, sin addLabelLayer)
+      // es undefined → no se aplica el guard (siempre visible).
+      if (record.visible === false) return
+      record.layer.setLabels(
+        src.getSnapshot().reduce((acc, item) => {
+          const itemId = idOf(item)
+          if (host?.suppressed?.has(itemId)) return acc        // clusterizado → sin label flotante
+          const p = posOf(item)
+          if (p && Number.isFinite(p.lat) && Number.isFinite(p.lng)) acc.push({ id: itemId, lat: p.lat, lng: p.lng, text: text(item) })
+          return acc
+        }, []))
+    }
 
     record.resync = sync                                     // el cluster lo reinvoca al re-suprimir
     record.unsub = src.subscribe(sync)

@@ -30,6 +30,10 @@ class CanvasOverlay extends L.Layer {
   #width = 0
   #height = 0
   #ratio = 1
+  // Oculto (setVisibility false): no pintar el canvas aunque la Source emita (WS a ~60fps).
+  // El guard evita el O(n) fillText por frame en capas que el usuario no ve. Se re-habilita
+  // en setVisibility(true), que fuerza un repintado con el estado actual.
+  #enabled = true
 
   constructor(paint) {
     super()
@@ -59,9 +63,17 @@ class CanvasOverlay extends L.Layer {
   }
 
   requestRedraw() {
-    if (!this._map) return
+    if (!this._map || !this.#enabled) return
     this.#resize()
     this.#paint(this.#ctx, this._map)
+  }
+
+  // Habilita/deshabilita el pintado. En false, requestRedraw() es no-op (todos los callers:
+  // setLabels/setHovered/style y los eventos moveend/zoomend/resize de Leaflet). En true, fuerza
+  // un repintado inmediato para mostrar el estado actual al volver visible la capa.
+  setEnabled(v) {
+    this.#enabled = v
+    if (v && this._map) this.requestRedraw()
   }
 
   #hide() { this.#canvas.style.visibility = 'hidden' }
@@ -129,6 +141,10 @@ export class LabelLayer {
   }
 
   setVisibility(visible) {
+    // Cortar el pintado del canvas ADEMÁS de ocultar el pane: sin esto, la capa oculta seguía
+    // corriendo fillText en cada moveend/zoomend/emit. Al volver visible, setEnabled(true) fuerza
+    // un requestRedraw() con los labels actuales antes de que el pane aparezca (sin flash viejo).
+    this.#overlay.setEnabled(visible)
     const pane = this.#map.getPane(this.#pane)
     pane.style.setProperty('visibility', visible ? '' : 'hidden')
     pane.style.setProperty('pointer-events', 'none')

@@ -13,6 +13,7 @@ export class LayerRegistry {
   #hitResolver
   #entriesByLayerId = new Map()
   #objectsByLayerId = new Map()
+  #overlayLayers = new Set()      // capas overlay (capture/presentAs): ocluyen/proxan en resolveHits
   #nextDeclOrder = 0
 
   // Acepta un HitResolver ya construido o un map para fabricar el por-defecto sobre Leaflet.
@@ -70,6 +71,8 @@ export class LayerRegistry {
     entry.activeMask = entry.activeMask ?? previous?.activeMask ?? 0
 
     this.#entriesByLayerId.set(entry.layerId, entry)
+    if (entry.capture || entry.presentAs) this.#overlayLayers.add(entry.layerId)
+    else this.#overlayLayers.delete(entry.layerId)
     if (layerObject !== undefined) this.#objectsByLayerId.set(entry.layerId, layerObject)
   }
 
@@ -124,6 +127,20 @@ export class LayerRegistry {
       || (a.order - b.order)
       || (a.distancePx - b.distancePx)
     )
+    return this.#present(hits)
+  }
+
+  // Capas overlay sobre la lista ya ordenada, top-down: una capa `capture` ocluye lo que tiene debajo
+  // (no se entrega); una `presentAs` además antepone su hit reetiquetado por la capa (proxy de
+  // identidad). Resultado = lista canónica que ven TODOS los canales y consumidores. Sin overlays, igual.
+  #present(hits) {
+    if (!this.#overlayLayers.size) return hits
+    for (let i = 0; i < hits.length; i++) {
+      if (!this.#overlayLayers.has(hits[i].layerId)) continue
+      const clipped = i + 1 < hits.length ? hits.slice(0, i + 1) : hits
+      const proxied = this.#entriesByLayerId.get(hits[i].layerId).presentAs?.(hits[i])
+      return proxied ? [proxied, ...clipped] : clipped
+    }
     return hits
   }
 
@@ -150,6 +167,7 @@ export class LayerRegistry {
       removedIds.push(layerId)
       this.#entriesByLayerId.delete(layerId)
       this.#objectsByLayerId.delete(layerId)
+      this.#overlayLayers.delete(layerId)
     })
     return removedIds
   }
@@ -157,6 +175,7 @@ export class LayerRegistry {
   removeByLayerId(layerId) {
     this.#entriesByLayerId.delete(layerId)
     this.#objectsByLayerId.delete(layerId)
+    this.#overlayLayers.delete(layerId)
   }
 
   nextDeclOrder() {

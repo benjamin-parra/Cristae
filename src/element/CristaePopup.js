@@ -145,13 +145,18 @@ export class CristaePopup extends LitElement {
     this.#h = r.height
   }
 
-  // Click en el mapa: si pegó en la capa `for`, abre sobre ese item; si no, cierra.
+  // Click en el mapa: abre sólo si la capa `for` es el TOP hit (no si quedó ocluida debajo de otra
+  // capa interactiva — p. ej. una burbuja de cluster encima de un punto). Empty-safe: hits=[] (click
+  // al vacío) → hit null → cierra. Esto evita que clickear un cluster/spider abra el popup de un punto
+  // tapado. `hits` viene ordenado top-first (LayerRegistry.resolveHits).
   #openFromHit(hits) {
-    const hit = hits.find(h => h.layerId === this.for)
+    const hit = hits[0]?.layerId === this.for ? hits[0] : null
     const record = hit && this.#map.getLayer(this.for)
     const item = record?.source?.itemById?.(hit.id)
     if (item == null) { this.close(); return }
-    this.open(item, record.source.accessors.positionOf(item))
+    // Si el hit trae posición propia (overlay que presenta una hoja en su lugar desplegado), anclar ahí;
+    // si no, en la posición real del item.
+    this.open(item, hit.latlng ?? record.source.accessors.positionOf(item))
   }
 
   #reposition() {
