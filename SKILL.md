@@ -219,6 +219,40 @@ map.addEventListener('cristae:hover', (e) => resaltar(e.detail.hits))
 > motor: **filtra por capa** (`'fleet'` o `['a','b']`) y el callback recibe los hits directos
 > (`cb(hits, ev)`), sin `e.detail`. Usa la del DOM por defecto; la del motor cuando solo te importa una capa.
 
+### Clustering — la sesión de expansión (`cluster:expand` / `cluster:update` / `cluster:dismiss`)
+
+Cuando `<cristae-cluster>` está abierto (spiderfy), el motor publica su **sesión de expansión** por el
+bus, con el mismo estilo delta que `hover:start`/`hover:end` — vía `map.on(canal, cb) → off` (no DOM,
+no `e.detail`). Tres eventos:
+
+```js
+const offs = [
+  map.on('cluster:expand',  s => panel.open(s)),        // se abrió una burbuja base → NUEVA sesión
+  map.on('cluster:update',  s => panel.sync(s)),        // la sesión activa cambió (drill de subburbuja, o +/- datos)
+  map.on('cluster:dismiss', ({ id }) => panel.close(id)), // cerró (colapso/zoom/enabled=false) o el ancla se podó
+];
+// cleanup: offs.forEach(off => off())
+```
+
+`session` es un POJO (agrupado, heterogéneo-safe):
+
+```js
+{
+  id,                 // identidad ESTABLE (hoja-ancla base): casa expand↔update↔dismiss; sobrevive reindex/zoom
+  center: { lat, lng },
+  count,
+  entities: [ { layerId, id, item } ],                    // TODAS las hojas, plano  → "buscar todo"
+  groups:   [ { id, count, expanded, entities: [...] } ], // subburbujas; [] si base plano (≤ splitThreshold)
+}                                                          //   group.expanded = la subburbuja drilleada (el "delta")
+```
+
+- `item` es el objeto del consumidor resuelto de la Source viva (o `null`). Con `layerId` sabés de qué
+  capa es cada entidad → un cluster puede envolver varias capas.
+- La **membresía es un snapshot congelado** de la sesión: sólo se re-emite en cambios estructurales
+  (drill, poda), **nunca por un `move`**. Alimentá una tabla/panel en vivo desde la MISMA Source (los
+  campos se actualizan solos); usá la sesión sólo para la membresía + el agrupamiento.
+- Lectura imperativa (sin esperar el próximo evento): `document.querySelector('cristae-cluster').session`.
+
 ---
 
 ## Cámara — de `map.setView` a `el.camera`

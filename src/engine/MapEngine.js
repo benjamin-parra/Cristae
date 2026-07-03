@@ -37,10 +37,10 @@ const DEFAULT_CLUSTER_SIZE = 43
 
 // Dibujo por defecto de la burbuja de cluster. `plus` (de defineClusterIconSet) marca el bucket que
 // es piso de un rango → "+", sin afirmar un conteo exacto. El consumidor reemplaza esto con su `draw`.
-// Color de acento de la jerarquía spiderfy (índigo Wing) — se usa para sub-bubbles y patas del grupo.
+// Color de acento de la jerarquía spiderfy (índigo) — se usa para sub-bubbles y patas del grupo.
 const SUB_ACCENT = '#6366f1'
 
-// Dibujo de SUB-CLUSTER (jerarquía spiderfy): DISTINTO a la burbuja base sólida y con toque Wing —
+// Dibujo de SUB-CLUSTER (jerarquía spiderfy): DISTINTO a la burbuja base sólida y con acento del tema —
 // halo suave (profundidad) + disco + anillo interior blanco + conteo bold. Se lee como "sub-grupo,
 // click para abrir", no se confunde con un cluster base. `accent` (opcional) pisa el color por CONTEO
 // con un color fijo (config `accent` del cluster); sin él, colorea por umbral rojo/ámbar/índigo.
@@ -489,7 +489,12 @@ export class MapEngine {
     // los cierres implícitos (enabled=false / ancla podada) cerraban la espiral pero dejaban el botón X
     // flotando (sólo se ocultaba con el 'collapse' de los caminos explícitos). 'expand' sí es explícito
     // (lo emiten los handlers de click / la API, con su payload rico: clusterId, center, entities).
-    let expandedShown = false
+    // Estado de la última sesión de expansión EMITIDA por este fold: { id, sig } o null (colapsado). El
+    // `sig` = id-ancla | count | subgrupo-abierto detecta cambios estructurales (drill de subburbuja,
+    // poda/crecimiento) al mismo estado abierto. `dismissReason` es una pista best-effort para el evento
+    // dismiss (zoom la marca; el resto cae a 'collapse').
+    let lastSession = null
+    let dismissReason = 'collapse'
     const apply = () => {
       for (const { id, rec } of hosts) {
         rec.suppressed = cluster.clusteredIds
@@ -500,9 +505,39 @@ export class MapEngine {
       sink.feed(cluster.bubbles)
       applySpider()                                // marcadores en espiral + líneas de los expandidos
       syncFocus()                                  // resalta el spider / atenúa el resto (si dim-rest)
-      const nowExpanded = cluster.expandedGroups.length > 0
-      if (expandedShown && !nowExpanded) _onInteraction?.({ type: 'collapse' })   // cierre (explícito o implícito) → oculta el botón X
-      expandedShown = nowExpanded
+      // ── Emisor ÚNICO de la sesión de expansión (cluster:expand/update/dismiss) ──
+      // Cubre TODA causa (click en burbuja base/sub, zoom, poda del ancla, enabled=false) comparando la
+      // sesión previa vs la nueva por id + firma estructural. Gated por firma → NO emite en un reindex sin
+      // cambio estructural (p. ej. sólo moves de WS): la lista llega una vez y el consumidor la actualiza
+      // en vivo desde la Source compartida. El `_onInteraction` interno mantiene el botón central (X) del
+      // elemento; `#emit` publica el evento del bus (`map.on('cluster:*')`).
+      const struct = cluster.sessionStructure
+      if (!struct) {
+        if (lastSession) {
+          const detail = { id: lastSession.id, reason: dismissReason }
+          lastSession = null
+          _onInteraction?.({ type: 'dismiss' })
+          this.#emit('cluster:dismiss', detail)
+        }
+      } else {
+        const center = cluster.expandedGroups[0]?.center ?? null
+        const sig = struct.id + '|' + struct.count + '|' + (struct.groups.find(g => g.expanded)?.id ?? '')
+        if (!lastSession) {
+          lastSession = { id: struct.id, sig }
+          _onInteraction?.({ type: 'expand', center })
+          this.#emit('cluster:expand', buildSession(struct, center))
+        } else if (lastSession.id !== struct.id) {
+          // Cambió de base directo (abrir otra sin cerrar): dismiss del viejo + expand del nuevo.
+          this.#emit('cluster:dismiss', { id: lastSession.id, reason: 'collapse' })
+          lastSession = { id: struct.id, sig }
+          _onInteraction?.({ type: 'expand', center })
+          this.#emit('cluster:expand', buildSession(struct, center))
+        } else if (lastSession.sig !== sig) {
+          lastSession.sig = sig
+          _onInteraction?.({ type: 'update', center })
+          this.#emit('cluster:update', buildSession(struct, center))
+        }
+      }
     }
     const doIndex = () => { cluster.index(snapshot(), idOf, positionOf); if (cluster.recluster(this.#map.getZoom())) apply() }
     // ¿hubo cambio ESTRUCTURAL (alta/baja/patch del set) en algún host esta ventana? Un move de
@@ -536,6 +571,19 @@ export class MapEngine {
     // Las entidades desclusterizadas, cada una con su capa de origen (heterogéneo-safe). Ver resolveOne.
     const entitiesOf = (ids) => ids.map(id => { const { layerId, item } = resolveOne(id); return { layerId, id, item } })
 
+    // Payload VANILLA del evento cluster:* a partir de la estructura lógica (Cluster.sessionStructure).
+    // Resuelve ids→entities UNA vez (Map reusado por los grupos → sin doble scan). `groups` viene [] cuando
+    // el base es plano (≤ splitThreshold): el consumidor usa `entities`. Orden = espacial (getLeaves).
+    const buildSession = (struct, center) => {
+      const entities = entitiesOf(struct.ids)
+      const byId = new Map(entities.map(e => [e.id, e]))
+      const groups = struct.groups.map(g => ({
+        id: g.id, count: g.count, expanded: g.expanded,
+        entities: g.ids.map(id => byId.get(id) ?? { layerId: null, id, item: null }),
+      }))
+      return { id: struct.id, center, count: struct.count, entities, groups }
+    }
+
     // Colapsa TODO (re-forma los clusters). Una sola vía para el click-afuera, el zoom y el
     // setConfig(expandable=false) → emite el DOM event 'collapse' de forma consistente.
     const doCollapseAll = () => {
@@ -545,8 +593,8 @@ export class MapEngine {
 
     // Colapso al hacer ZOOM: la pertenencia del ancla no tiene sentido entre niveles de zoom (el
     // ancla cae en ALGÚN cluster a cada zoom → auto-expandiría uno distinto). Limpiar en zoomstart
-    // mantiene los bursts de zoom en el fast-path de recluster y replica a WingMap (zoom re-clusteriza).
-    const onZoomStart = () => doCollapseAll()
+    // mantiene los bursts de zoom en el fast-path de recluster (zoom re-clusteriza, como en los wrappers de mapa).
+    const onZoomStart = () => { dismissReason = 'zoom'; doCollapseAll(); dismissReason = 'collapse' }
     this.#map.on('zoomstart', onZoomStart)
 
     // Click en burbuja → expande ESE cluster (modelo ancla). Se registra SIEMPRE; el toggle
@@ -575,11 +623,7 @@ export class MapEngine {
         if (ids && cluster.recluster(this.#map.getZoom())) apply()   // apply() emite 'collapse' por transición
       } else {
         const res = cluster.expandCluster(ref)
-        if (res && cluster.recluster(this.#map.getZoom())) {
-          apply()
-          const entities = entitiesOf(res.ids)
-          _onInteraction?.({ type: 'expand', clusterId: ref, center: { lat: bub.lat, lng: bub.lng }, count: entities.length, entities })
-        }
+        if (res && cluster.recluster(this.#map.getZoom())) apply()   // apply() es el ÚNICO emisor de 'cluster:expand'
       }
     })
 
@@ -648,16 +692,12 @@ export class MapEngine {
       },
       // API de expand/collapse: usada por CristaeCluster y como escape-hatch via getUnsafeHandler.
       // `id` es un cluster-id de Supercluster — sólo válido dentro del frame actual; el caller debe
-      // pasarlo recién obtenido (p. ej. del detail de un cristae:cluster-expand). El estado interno
-      // queda anclado por hoja, así que sobrevive a reindex/zoom aunque el id ya no exista.
+      // pasarlo recién obtenido. El estado interno queda anclado por hoja, así que sobrevive a
+      // reindex/zoom aunque el id ya no exista. Para reaccionar a la interacción del usuario, preferir
+      // los eventos del bus `map.on('cluster:expand'|'cluster:update'|'cluster:dismiss', cb)`.
       expand: (id) => {
         const res = cluster.expandCluster(id)
-        if (res && cluster.recluster(this.#map.getZoom())) {
-          apply()
-          const bub = bubbleRec?.source?.itemById?.(id)
-          const entities = entitiesOf(res.ids)
-          _onInteraction?.({ type: 'expand', clusterId: id, center: bub ? { lat: bub.lat, lng: bub.lng } : null, count: entities.length, entities })
-        }
+        if (res && cluster.recluster(this.#map.getZoom())) apply()   // apply() es el ÚNICO emisor de 'cluster:expand'
         return res ? res.ids : null
       },
       collapse: (id) => {
@@ -673,6 +713,9 @@ export class MapEngine {
       // ¿esta capa pertenece al fold? (burbuja o spider). El auto-collapse del web component lo usa
       // para NO colapsar cuando el click cae en la burbuja o en un marcador de la espiral.
       ownsLayer: (layerId) => layerId === bubbleId || layerId === spiderId || layerId === spiderSubId,
+      // Lectura imperativa de la sesión actual (o null): paridad con map.camera para consumidores que
+      // montan tarde y necesitan el estado sin esperar el próximo evento cluster:*.
+      getSession: () => { const s = cluster.sessionStructure; return s ? buildSession(s, cluster.expandedGroups[0]?.center ?? null) : null },
       set onInteraction(fn) { _onInteraction = fn },
     }
     // dispose idempotente compartido: quitar cualquiera de los hosts (o el sibling) limpia el fold.

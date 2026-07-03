@@ -1,4 +1,5 @@
 import { LitElement, nothing } from 'lit'
+import { computePlacement, stagesFrom } from './popupPlacement.js'
 
 const ZERO_INSETS = { top: 0, right: 0, bottom: 0, left: 0 }
 // La tarjeta se ancla por su base-centro al punto (su pico apunta al dato). Si cambia este transform,
@@ -10,6 +11,18 @@ const parsePair = (v) => {
   if (Array.isArray(v)) return v
   const nums = String(v).match(/-?\d+(?:\.\d+)?/g)?.map(Number)
   return nums && nums.length >= 2 ? [nums[0], nums[1]] : null
+}
+
+// Lee una LISTA de tokens desde un atributo string ("flip shift clip" → ['flip','shift','clip']).
+// Lista-valuada al estilo de las props CSS `position-try-fallbacks` / `touch-action`. La usa `fit`.
+const parseTokens = (v) => (Array.isArray(v) ? v : String(v).trim().split(/\s+/).filter(Boolean))
+
+// Converter de `fit`: atributo removido (null) o vacío ⇒ null — el elemento VUELVE al camino
+// legacy (auto-pan + clip) en vez de quedar en un modo fit sin etapas. Ver `updated`.
+const fitFromAttribute = (v) => {
+  if (v == null) return null
+  const tokens = parseTokens(v)
+  return tokens.length ? tokens : null
 }
 
 // Convierte un atributo booleano "presente = ON, default ON": ausente → undefined (tratado como ON
@@ -39,6 +52,16 @@ const boolDefaultOn = { fromAttribute: (v) => v !== 'false' && v !== '0' }
 // `clip` (default ON): si la caja se sale de los límites del mapa (p. ej. al panear), la parte que
 // sobresale NO se muestra (clip-path, recorte en el compositor). Sin coste por frame: usa el tamaño
 // cacheado en `open`, así no fuerza reflow del nodo al reposicionar.
+//
+// `fit` (OPT-IN, ausente por defecto): keep-in-view que mueve la TARJETA (no la cámara). Los tokens
+// activan etapas de un pipeline fijo lado→corrimiento→recorte — su orden es irrelevante:
+//   · flip  → abre encima o debajo del ancla según dónde entre (más espacio como desempate);
+//   · shift → desliza la caja lo mínimo para que entre;
+//   · clip  → recorta el residuo contra el borde real (`fit-padding` sólo anticipa flip/shift).
+// La geometría vive en popupPlacement.js (pura: misma entrada ⇒ misma salida) y la caja calculada
+// es la pintada (left/top literales, sin transform; `data-side` expone el lado elegido). Encuadra
+// igual un ancla normal y una desplazada por cluster/spider. SIN `fit`, todo lo anterior aplica
+// sin cambios.
 export class CristaePopup extends LitElement {
 
   static properties = {
@@ -52,6 +75,10 @@ export class CristaePopup extends LitElement {
     pinned: { attribute: 'pinned', converter: boolDefaultOn },
     // Recorta lo que sobresalga de los límites del mapa. Default ON.
     clip: { attribute: 'clip', converter: boolDefaultOn },
+    // Etapas keep-in-view (opt-in). Ausente, vacío o removido ⇒ camino legacy. Ver cabecera + #placeFit.
+    fit: { attribute: 'fit', converter: { fromAttribute: fitFromAttribute } },
+    // Margen [x,y] px que anticipa flip/shift (default [20,20]). Alias de `auto-pan-padding`.
+    fitPadding: { attribute: 'fit-padding', converter: { fromAttribute: parsePair } },
   }
 
   render() { return nothing }           // sin UI en el shadow: el nodo flotante vive en light DOM
@@ -62,6 +89,7 @@ export class CristaePopup extends LitElement {
   #screenPt = null                      // punto del contenedor congelado para modo `pinned="false"`
   #w = 0                                // tamaño de la caja, medido en `open` (1 reflow por apertura)
   #h = 0
+  #ro = null                            // re-mide si el contenido cambia con la tarjeta abierta
   #lmap = null                          // L.Map crudo enganchado para el `move` continuo (paneo/inercia)
   #onClick = (e) => this.#openFromHit(e.detail.hits)
   #onViewport = () => this.#reposition()
@@ -76,6 +104,11 @@ export class CristaePopup extends LitElement {
     this.#node.className = 'cristae-popup'
     this.#node.style.cssText = `position:fixed; z-index:10000; display:none; transform:${NODE_TRANSFORM}`
     document.body.appendChild(this.#node)
+    // La medida de `open` deja de valer si el contenido cambia de tamaño después (datos que llegan
+    // async, imágenes): re-medir y re-encuadrar cuando ocurre. Event-driven — el reposicionamiento
+    // por frame sigue sin forzar reflow.
+    this.#ro = new ResizeObserver(() => { if (this.#anchor) { this.#measure(); this.#reposition() } })
+    this.#ro.observe(this.#node)
     // Eventos en el ELEMENTO mapa (no en el engine): sobreviven a un re-mount, y la cámara se lee viva.
     this.#map.addEventListener('cristae:click', this.#onClick)
     this.#map.addEventListener('cristae:viewportchange', this.#onViewport)
@@ -100,6 +133,8 @@ export class CristaePopup extends LitElement {
     removeEventListener('scroll', this.#onViewport, true)
     removeEventListener('resize', this.#onViewport)
     document.removeEventListener('keydown', this.#onKey)
+    this.#ro?.disconnect()
+    this.#ro = null
     this.#node?.remove()
     this.#node = null
   }
@@ -124,9 +159,9 @@ export class CristaePopup extends LitElement {
     this.#node.style.display = ''
     this.#anchor = latlng
     this.#screenPt = null              // se fija en el primer #reposition (punto inicial de apertura)
-    this.#measure()                    // tamaño con el contenido visible — cacheado para clip/auto-pan
-    this.#reposition()
-    this.#autoPan()
+    this.#measure()                    // tamaño con el contenido visible — cacheado para clip/fit
+    this.#reposition()                 // con `fit` ya encuadra card-space (flip/shift/clip)
+    if (!this.fit) this.#autoPan()     // sin `fit`: comportamiento legacy (pan de cámara al abrir)
   }
 
   close() {
@@ -134,8 +169,15 @@ export class CristaePopup extends LitElement {
     this.#anchor = null
   }
 
-  // Toggle reactivo de pinned/clip en caliente: reubica al instante, sin esperar un viewportchange.
-  updated() { if (this.#anchor) this.#reposition() }
+  // Toggle reactivo de pinned/clip/fit en caliente: reubica al instante, sin esperar un viewportchange.
+  // Apagar `fit` restaura el transform base-centro (el encuadre fit posiciona por caja literal).
+  updated(changed) {
+    if (changed.has('fit') && !this.fit && this.#node) {
+      this.#node.style.transform = NODE_TRANSFORM
+      delete this.#node.dataset.side
+    }
+    if (this.#anchor) this.#reposition()
+  }
 
   // Mide la caja una vez por apertura (clip y auto-pan trabajan luego con este tamaño cacheado, así el
   // reposicionamiento por frame no fuerza reflow del nodo). clip-path no afecta el rect → medida limpia.
@@ -174,6 +216,8 @@ export class CristaePopup extends LitElement {
       cx = pt.x; cy = pt.y
       this.#screenPt = { x: cx, y: cy }
     }
+    // Con `fit` la caja se computa entera desde el ancla (#placeFit). Sin `fit`, camino legacy.
+    if (this.fit) return this.#placeFit(rect, cx, cy)
     const [dx, dy] = this.offset ?? [0, -12]
     const nodeLeft = rect.left + cx + dx
     const nodeTop = rect.top + cy + dy
@@ -201,6 +245,38 @@ export class CristaePopup extends LitElement {
     node.style.clipPath = (cTop || cRight || cBottom || cLeft)
       ? `inset(${cTop}px ${cRight}px ${cBottom}px ${cLeft}px)`
       : ''
+  }
+
+  // Encuadre `fit`: proyecta el ancla, delega la geometría al módulo puro (popupPlacement.js) y
+  // escribe el resultado tal cual — la caja calculada ES la pintada (left/top literales, transform
+  // neutro). `fit`/`fit-padding`/`offset` se normalizan en el punto de uso: pueden llegar parseados
+  // por su converter (vía atributo) o crudos (frameworks que asignan la propiedad no pasan por el
+  // converter); parseTokens/parsePair aceptan ambas formas.
+  #placeFit(rect, cx, cy) {
+    const ins = this.#map?.camera?.insets ?? ZERO_INSETS
+    const [ox, oy] = parsePair(this.offset) ?? [0, -12]
+    const [px, py] = parsePair(this.fitPadding ?? this.autoPanPadding) ?? [20, 20]
+    const { left, top, side, clip } = computePlacement({
+      anchor: { x: rect.left + cx, y: rect.top + cy },
+      size: { w: this.#w, h: this.#h },
+      viewport: {
+        left: rect.left + ins.left,
+        top: rect.top + ins.top,
+        right: rect.right - ins.right,
+        bottom: rect.bottom - ins.bottom,
+      },
+      stages: stagesFrom(parseTokens(this.fit)),
+      offsetX: ox,
+      gap: Math.abs(oy),
+      paddingX: px,
+      paddingY: py,
+    })
+    const node = this.#node
+    node.style.transform = 'none'
+    node.style.left = `${left}px`
+    node.style.top = `${top}px`
+    node.dataset.side = side
+    node.style.clipPath = clip ? `inset(${clip.top}px ${clip.right}px ${clip.bottom}px ${clip.left}px)` : ''
   }
 
   // Si la caja ya posicionada se sale de la región visible (contenedor menos viewport-insets),

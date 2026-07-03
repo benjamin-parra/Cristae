@@ -69,6 +69,25 @@ export class Cluster {
   // no calcula pantalla). Fase 1: todos los slots son 'leaf'.
   get expandedGroups() { return this.#expandedGroups }
 
+  // Estructura LÓGICA de la sesión de expansión abierta, o null si no hay ninguna. Es lo que consume el
+  // motor para armar el payload de los eventos `cluster:expand/update/dismiss` — INDEPENDIENTE de qué
+  // sub-cluster está drilleado (a diferencia de `expandedGroups`, que splicea el abierto para el render):
+  //   { id, count, ids, groups }
+  //   · id     = hoja-ancla base (ESTABLE: sobrevive reindex/zoom → key para casar expand↔update↔dismiss)
+  //   · ids    = todas las hojas del snapshot congelado (orden espacial), plano
+  //   · groups = subburbujas [{ id, count, ids, expanded }] cuando el base se particiona (count > splitThreshold);
+  //              [] cuando es plano (hojas directas). `expanded` marca la subburbuja abierta (#innerAnchor).
+  // Sale del SNAPSHOT #baseLeaves → invariante a reindex (mismo criterio que la espiral).
+  get sessionStructure() {
+    if (this.#baseAnchor == null || !this.#baseLeaves) return null
+    const ids = this.#baseLeaves.map(l => l.properties.id)
+    const count = ids.length
+    if (count <= this.#splitThreshold) return { id: this.#baseAnchor, count, ids, groups: [] }
+    const groups = this.#partitionGroups(this.#baseLeaves)
+      .map(g => ({ id: g.id, count: g.ids.length, ids: g.ids, expanded: g.id === this.#innerAnchor }))
+    return { id: this.#baseAnchor, count, ids, groups }
+  }
+
   /* ── Expand / collapse de clusters individuales (modelo ANCLA por hoja) ──
    * El caller (MapEngine) garantiza que `clusterId` es del frame ACTUAL verificándolo contra la
    * fuente de burbujas viva antes de llamar; el try/catch es la red secundaria ante la carrera
@@ -98,12 +117,13 @@ export class Cluster {
     return false
   }
 
-  // Sub-clustering STR (Sort-Tile-Recursive): parte las hojas en ~√N grupos balanceados y
-  // espacialmente coherentes. Determinista — el tiebreak por id es OBLIGATORIO en AMBOS sorts (la
-  // estabilidad de Array.sort no está garantizada a estos tamaños; sin él la partición y los conteos
-  // parpadean entre reindex en vivo). Cada grupo → slot {kind:'subcluster', id:minLeafId(ancla
-  // estable), count, ids}. O(N log N), corre SÓLO al recluster del base abierto (no por-frame del resto).
-  #partition(leaves) {
+  // Partición pura STR (Sort-Tile-Recursive): parte las hojas en ~√N grupos balanceados y espacialmente
+  // coherentes, cada uno keyed por su min leaf-id (ancla estable). Determinista — el tiebreak por id es
+  // OBLIGATORIO en AMBOS sorts (la estabilidad de Array.sort no está garantizada a estos tamaños; sin él
+  // la partición y los conteos parpadean entre reindex en vivo). O(N log N), corre SÓLO al recluster del
+  // base abierto. Es la partición LÓGICA (independiente de qué sub-cluster está drilleado): la consumen
+  // `#partition` (slots de render, que splicean el abierto) y `sessionStructure` (payload del evento).
+  #partitionGroups(leaves) {
     const N = leaves.length
     const G = Math.ceil(Math.sqrt(N))          // nº de sub-clusters
     const S = Math.ceil(N / G)                 // ~hojas por sub-cluster
@@ -112,7 +132,7 @@ export class Cluster {
     const cmpId = (a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
     const arr = leaves.map(lf => ({ id: lf.properties.id, x: lf.geometry.coordinates[0], y: lf.geometry.coordinates[1] }))
     arr.sort((a, b) => (a.x - b.x) || cmpId(a, b))     // por lng, tiebreak id
-    const slots = []
+    const groups = []
     for (let i = 0; i < arr.length; i += sliceCap) {
       const slice = arr.slice(i, i + sliceCap)
       slice.sort((a, b) => (a.y - b.y) || cmpId(a, b))  // por lat dentro de la franja, tiebreak id
@@ -120,14 +140,22 @@ export class Cluster {
         const grp = slice.slice(j, j + S)
         let min = grp[0].id
         for (const g of grp) if (g.id < min) min = g.id
-        if (min === this.#innerAnchor) {
-          // ABIERTO (depth-2): el sub-cluster florece en sus hojas, spliced EN SU LUGAR → el caracol
-          // crece y empuja a los hermanos (la espiral se recalcula sobre el nuevo total de slots).
-          // `group` marca que son del sub-cluster abierto → el motor las une visualmente (patas color).
-          for (const g of grp) slots.push({ kind: 'leaf', id: g.id, group: min })
-        } else {
-          slots.push({ kind: 'subcluster', id: min, count: grp.length, ids: grp.map(g => g.id) })
-        }
+        groups.push({ id: min, ids: grp.map(g => g.id) })
+      }
+    }
+    return groups
+  }
+
+  // Slots de RENDER de la espiral a partir de la partición lógica: el sub-cluster ABIERTO (#innerAnchor)
+  // florece en sus hojas spliced EN SU LUGAR → el caracol crece y empuja a los hermanos (`group` las une
+  // visualmente); el resto quedan como burbujas {kind:'subcluster'}. Preserva el orden de #partitionGroups.
+  #partition(leaves) {
+    const slots = []
+    for (const g of this.#partitionGroups(leaves)) {
+      if (g.id === this.#innerAnchor) {
+        for (const id of g.ids) slots.push({ kind: 'leaf', id, group: g.id })
+      } else {
+        slots.push({ kind: 'subcluster', id: g.id, count: g.ids.length, ids: g.ids })
       }
     }
     return slots

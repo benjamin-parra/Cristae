@@ -64,6 +64,12 @@ export class IconSet {
   // Siembra manual idempotente (preloadIcons): adelanta variantes sin esperar a los datos.
   seed(variants) { for (let i = 0; i < variants.length; i++) this.resolve(variants[i]) }
 
+  // Canvas rasterizado de UNA variante (el MISMO tile que usa el atlas GPU) para reusar el icono FUERA del
+  // mapa: una celda de tabla, una leyenda, etc. Idéntico al marcador (mismo describe+render). Genérico, sin
+  // dominio. El consumidor lo cachea (p. ej. dataURL por variante) si lo pinta por fila. Si el iconSet
+  // rota (`rotates`), el consumidor aplica la rotación por headingOf al reusarlo (el tile va sin rotar).
+  sprite(variant) { return this.#atlas.tileAt(this.resolve(variant)) }
+
   async #init(variants) {
     if (this.#prerender) await this.#prerender()
     this.seed(variants)                          // preseed: 0 append en runtime para lo declarado

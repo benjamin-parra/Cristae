@@ -167,6 +167,17 @@ export class CristaeMap extends LitElement {
     else this.#pending.push(el)
   }
 
+  // `viewport-insets` es reactivo: las franjas del contenedor ocluidas por UI del consumidor
+  // (paneles/sidebars internos) cambian en runtime al abrir/cerrar un panel. Se re-aplican a la
+  // cámara y se emite `viewportchange` — la región visible cambió aunque la cámara no se movió —
+  // para que los overlays anclados (popup, botón central del cluster) se re-encuadren al instante.
+  updated(changed) {
+    if (!changed.has('viewportInsets') || !this.#engine) return
+    this.#engine.camera.insets = this.viewportInsets
+    const m = this.#engine.getLeafletMap()
+    this.#emit('viewportchange', { center: m.getCenter(), zoom: m.getZoom(), bounds: m.getBounds() })
+  }
+
   async #mount() {
     if (this.#mounted) return
     this.#mounted = true

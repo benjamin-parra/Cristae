@@ -120,27 +120,17 @@ export class CristaeCluster extends CristaeLayerElement {
     if (control) {
       this.#bubbleLayerId = bubble.id
 
-      // Puente motor → DOM events (API declarativa del clustering). El motor no sabe de DOM; aquí se
-      // traduce. El consumidor sólo escucha el evento — no necesita conocer el motor ni Supercluster:
-      //
-      //   cristae:cluster-expand   detail = { clusterId, center:{lat,lng}, count, entities }
-      //   cristae:cluster-collapse detail = {}   (SIN payload: el motor lo emite por TRANSICIÓN de estado
-      //                                           expandido→colapsado, cubriendo TODA causa de cierre —
-      //                                           click, zoom, deshabilitar clustering, ancla podada—)
-      //
-      // `entities` es la lista de lo desclusterizado, HETEROGÉNEO-safe: un cluster puede envolver
-      // varias capas (gramática), así que cada fila trae su capa de origen:
-      //   entities: [ { layerId, id, item }, … ]   item = objeto opaco del consumidor (o null)
-      // Con `layerId` el consumidor sabe de qué fuente es cada entidad (vehículo / sensor / persona…)
-      // y arma su panel/tabla sin acoplarse a internals de Cristae. Orden = espacial (getLeaves).
-      control.onInteraction = ({ type, clusterId, center, count, entities, ids }) => {
-        // Botón central de re-clusterizar: aparece al abrir un base, se va al colapsar.
-        if (type === 'expand') this.#showCenter(center, control)
-        else this.#hideCenter()
-        this.dispatchEvent(new CustomEvent(
-          type === 'expand' ? 'cristae:cluster-expand' : 'cristae:cluster-collapse',
-          { bubbles: true, composed: true, detail: { clusterId, center, count, entities, ids } }
-        ))
+      // La SESIÓN de expansión se publica como eventos del BUS del motor —`map.on('cluster:expand'|
+      // 'cluster:update'|'cluster:dismiss', cb)`, mismo estilo que hover:start/end e interactionstart/end
+      // (ver MapEngine.apply → #emit). El elemento NO despacha su propio CustomEvent: aquí sólo consume la
+      // transición interna (`_onInteraction`) para su BOTÓN CENTRAL de re-clusterizar:
+      //   expand : nueva sesión (click en burbuja base)              → mostrar la X
+      //   update : la sesión cambió (subburbuja drilleada, o poda/crecimiento del snapshot) → reposicionar
+      //   dismiss: cerró (colapso/zoom/enabled=false) o el ancla desapareció por poda → ocultar la X
+      // El payload rico (id, center, count, entities agrupados) viaja por `#emit('cluster:*')`, no por acá.
+      control.onInteraction = ({ type, center }) => {
+        if (type === 'dismiss') this.#hideCenter()
+        else this.#showCenter(center, control)   // expand | update → (re)posiciona el botón central
       }
 
       if (this.expandable) this.#attachAutoCollapse(control)
@@ -194,8 +184,11 @@ export class CristaeCluster extends CristaeLayerElement {
     const pt = cam.latLngToContainerPoint([this.#centerAnchor.lat, this.#centerAnchor.lng])
     const rect = this.#mapEl.getBoundingClientRect()
     // El botón es un overlay HTML en document.body — el contenedor del mapa NO lo clipea como a los
-    // marcadores GL. Si el ancla cae fuera del mapa (paneo), ocultarlo en vez de dejarlo flotar afuera.
-    if (pt.x < 0 || pt.y < 0 || pt.x > rect.width || pt.y > rect.height) {
+    // marcadores GL. Si el ancla cae fuera de la REGIÓN VISIBLE (el contenedor menos los
+    // viewport-insets que ocluyen UI del consumidor — paneo, o un panel interno encima), ocultarlo
+    // en vez de dejarlo flotar afuera. Misma región contra la que recorta el popup.
+    const ins = cam.insets
+    if (pt.x < ins.left || pt.y < ins.top || pt.x > rect.width - ins.right || pt.y > rect.height - ins.bottom) {
       this.#centerEl.style.display = 'none'
       return
     }
@@ -240,16 +233,19 @@ export class CristaeCluster extends CristaeLayerElement {
   }
 
   /* ── API pública — usable desde código externo si hace falta control fino ──
-   * `clusterId` es un id de Supercluster (efímero): pasar SÓLO uno recién obtenido del frame actual
-   * (p. ej. el `detail.clusterId` de un evento cristae:cluster-expand). El estado queda anclado por
-   * hoja, así que la expansión sobrevive a reindex/zoom aunque ese id deje de existir. expand()
-   * devuelve los `ids` desclusterizados (o null). Para reaccionar a clicks del usuario, preferir el
-   * evento `cristae:cluster-expand` (declarativo) en vez de llamar a estos métodos. */
+   * `clusterId` es un id de Supercluster (efímero): pasar SÓLO uno recién obtenido del frame actual. El
+   * estado queda anclado por hoja, así que la expansión sobrevive a reindex/zoom aunque ese id deje de
+   * existir. expand() devuelve los `ids` desclusterizados (o null). Para reaccionar a la interacción del
+   * usuario, preferir los eventos del bus `map.on('cluster:expand'|'cluster:update'|'cluster:dismiss', cb)`
+   * en vez de llamar a estos métodos. */
 
   expand(clusterId)     { return this._handle?.control?.expand(clusterId) ?? null }
   collapse(clusterId)   { this._handle?.control?.collapse(clusterId) }
   collapseAll()         { this._handle?.control?.collapseAll() }
   isExpanded(clusterId) { return this._handle?.control?.isExpanded(clusterId) ?? false }
+  // Estado actual de la sesión de expansión (o null): paridad con map.camera para lectura imperativa sin
+  // esperar el próximo evento. Mismo payload que `map.on('cluster:expand', s => …)`.
+  get session()         { return this._handle?.control?.getSession?.() ?? null }
 
   /* ── Internos ── */
 

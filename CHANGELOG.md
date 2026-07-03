@@ -5,7 +5,49 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
 
 ## [Sin publicar]
 
+### Añadido
+- **Eventos de la sesión de expansión de cluster (`cluster:expand` / `cluster:update` / `cluster:dismiss`).**
+  `<cristae-cluster>` publica su estado de spiderfy por el **bus del motor** (`map.on('cluster:expand', cb)
+  → off`), con el mismo estilo delta que `hover:start`/`hover:end` (no un `CustomEvent` bespoke del
+  elemento). `expand` = se abrió una burbuja base (nueva sesión); `update` = la sesión activa cambió (se
+  drilleó/cerró una **subburbuja** — antes esto NO emitía nada — o la membresía creció/encogió por poda);
+  `dismiss` = cerró (colapso/zoom/`enabled=false`) o el ancla desapareció. El payload es un POJO agrupado y
+  heterogéneo-safe: `{ id, center, count, entities:[{layerId,id,item}], groups:[{id,count,expanded,entities}] }`
+  — `entities` plano para "buscar todo", `groups` = subburbujas con la drilleada marcada (`expanded`), `[]`
+  si el base es plano (≤ `splitThreshold`). La membresía es el **snapshot congelado** de la sesión (sólo
+  re-emite en cambios estructurales, nunca por un `move`), pensado para alimentar un panel/tabla en vivo
+  desde la misma Source. Lectura imperativa: getter `cluster.session`. Arquitectura: `Cluster.sessionStructure`
+  + `#partitionGroups` (partición lógica separada del render); `MapEngine.apply()` es el emisor ÚNICO
+  (compara sesión previa↔nueva por id + firma) → cubre toda causa de cierre y elimina la asimetría en que
+  el click de subburbuja no emitía. Reemplaza los `cristae:cluster-expand`/`cristae:cluster-collapse`
+  previos (sin consumidores).
+
+- **Keep-in-view opt-in `fit` en `<cristae-popup>`** (`fit="flip shift clip"`, `fit-padding`,
+  `data-side`): la tarjeta se mantiene a la vista **moviéndose ella** (no la cámara) — clave cuando
+  la capa vive en un `<cristae-cluster>`, donde el auto-pan recolapsaría el spiderfy. Los tokens
+  activan etapas de un pipeline fijo lado→corrimiento→recorte (su **orden es irrelevante**): `flip`
+  elige encima/debajo según dónde entre la caja (más espacio como desempate), `shift` desliza lo
+  mínimo, y `clip` recorta contra el borde **real** del mapa (`fit-padding` sólo anticipa
+  flip/shift, nunca corre el corte). La geometría es pura y sin DOM (`popupPlacement.js`, con test
+  propio en `test/popup-placement.test.mjs`); la caja se computa entera por frame desde (ancla
+  proyectada, tamaño, viewport − insets) y se escribe literal — sin transform ni estado entre
+  frames. `fit`/`fit-padding` se normalizan en el punto de uso, así funcionan igual por atributo o
+  por propiedad (frameworks que asignan propiedades no pasan por el converter, p. ej. React 19);
+  atributo removido o vacío ⇒ vuelve al camino legacy. **Sin `fit`, nada cambia.**
+
 ### Corregido
+- **`viewport-insets` reactivo en runtime.** El atributo de `<cristae-map>` sólo se aplicaba al
+  crear el motor; cambiarlo después (abrir/cerrar un panel interno del consumidor) no actualizaba
+  la región visible. Ahora re-aplica `camera.insets` y emite `viewportchange` — los overlays
+  anclados (popup, botón central del cluster) se re-encuadran al instante. El botón central,
+  además, ahora respeta los insets (se oculta bajo la franja ocluida), igual que el recorte del
+  popup.
+
+- **Medida de la tarjeta desactualizada si el contenido cambia tras `open`.** La medida única de
+  `open` quedaba vieja cuando el contenido crecía después (datos async, imágenes) y el recorte
+  operaba sobre una caja distinta a la pintada. Un ResizeObserver re-mide y re-encuadra al cambiar
+  el tamaño — event-driven, el reposicionamiento por frame sigue sin forzar reflow.
+
 - **Cursor `pointer` para capas clickeables sin handler de hover.** El "cursor automático" que
   promete SPECS §eventos ("si el set de hits incluye una capa `interactive`, el motor pone
   `cursor:pointer`") solo se aplicaba cuando había demanda del canal **hover**: una capa
