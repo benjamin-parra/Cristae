@@ -50,6 +50,7 @@ Construcción: `new Cluster({ radius = 80, maxZoom = 18, minPoints = 2 })`.
 | `bubbles` | getter `→ Array` | O(1) | burbujas del último recluster |
 | `index(items, idOf, positionOf)` | `(Item[], fn, fn) → void` | O(n) extracción + O(n log n) build | construye features e indexa. Omite posiciones no finitas. Llamar cuando cambian los datos |
 | `recluster(zoom)` | `(number) → boolean` | O(1) query + O(results) firma | reagrupa al zoom dado; devuelve `true` solo si el set **cambió** (firma distinta). Llamar en cambio de zoom |
+| `declusterZoomFor(id)` | `(id) → number\|null` | O(results) × O(log maxZoom) | **puro** (no muta estado): menor zoom entero ∈ `[0, maxZoom+1]` al que `id` deja de estar clusterizado. `null` si no está indexado o el clustering está apagado. Monótono en zoom → búsqueda binaria con la MISMA query worldwide que `recluster` (coincide exacto con `clusteredIds`). Lo consume la cámara (`revealPoint` / `followPoint({reveal})`) |
 | `radius` / `maxZoom` / `minPoints` | setters | O(n log n) si cambia | **reactivos**: recrean el índice y recargan las features ya extraídas. Idempotentes (mismo valor → no-op) |
 | `reset()` | `() → void` | O(1) | limpia todo y recrea el índice vacío |
 

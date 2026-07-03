@@ -406,15 +406,17 @@ Todo **acción** (no estado): es la **única** vía de movimiento de viewport tr
 | `flyTo(latlng, zoom)` | O(1) | animado (easing es opción de `flyTo`, no un método aparte) |
 | `fitBounds(bounds, {insets})` | O(1) | |
 | `fitToLayer(layerId, {insets, maxZoom})` | O(n) (bounds de n puntos) | encuadra una capa |
+| `revealPoint(layerId, id, {zoom})` | O(results·log maxZoom) si clusteriza | enfoca un punto (one-shot) dejándolo **visible individualmente**: si su capa clusteriza, sube el zoom al mínimo que lo desclusteriza. Sin cluster (o si ya está solo) = `setView` |
 | `zoomIn(delta?)` / `zoomOut(delta?)` / `setZoom(zoom)` | O(1) | **ortogonal al follow**: el zoom no cancela un `followPoint` (ajusta escala, no reposiciona) |
 | `panBy(offset, options?)` | O(1) | desplaza por delta en **px** de contenedor; **ortogonal al follow** (ajuste fino). Lo usa el auto-pan del popup (§8.5) |
-| `followPoint(layerId, id, {zoom})` | O(1) por update | la cámara sigue la posición **viva** (se actualiza con `move`/`patch` del Source); **sin que el consumidor bombee** |
+| `followPoint(layerId, id, {zoom, reveal})` | O(1) por update | la cámara sigue la posición **viva** (se actualiza con `move`/`patch` del Source); **sin que el consumidor bombee**. `reveal:true` arranca al zoom mínimo desclusterizado |
 | `stopFollow()` | O(1) | |
 | `getCenter()/getZoom()/getBounds()` | O(1) | |
 | `latLngToContainerPoint(latlng)` / `containerPointToLatLng(point)` | O(1) | proyección píxel ↔ geo **relativa al contenedor**; ancla overlays HTML en light DOM sin bajar a `getLeafletMap()` |
 
 - **`followPoint` (clave):** el motor re-centra cuando la posición del `id` seguido cambia en el Source, coalescido a rAF. Reemplaza el bombeo manual `onVehicleUpdate→panToSmooth` (MODELO §14.1-6).
 - **Test:** `followPoint('fleet', 7)`; luego `handle.move(7, lat, lng)` → la cámara re-centra **sin** llamadas del consumidor; un `move` de otro id no mueve la cámara.
+- **`revealPoint` / `reveal`:** el zoom mínimo de desclusterización lo calcula `Cluster.declusterZoomFor` (§8.3, puro) y el motor lo **inyecta** en la cámara (`declusterZoomOf(layerId,id)`) leyendo el fold de la capa. La cámara no conoce el cluster — misma inyección que `resolveSource`. Enfocar un elemento seleccionado y que no quede escondido en una burbuja es así un one-shot (`revealPoint`) o un follow que arranca visible (`followPoint({reveal})`).
 
 ---
 

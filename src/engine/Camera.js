@@ -12,13 +12,15 @@ export class Camera {
   #L
   #insets
   #resolveSource
+  #declusterZoomOf            // (layerId, id) → zoom mínimo desclusterizado | null (inyectado por el motor)
   #follow = null              // { id, zoom, source, unsub, lastKey }
 
-  constructor({ map, L, insets, resolveSource } = {}) {
+  constructor({ map, L, insets, resolveSource, declusterZoomOf } = {}) {
     this.#map = map
     this.#L = L
     this.#insets = { ...ZERO_INSETS, ...insets }
     this.#resolveSource = resolveSource ?? (() => null)
+    this.#declusterZoomOf = declusterZoomOf ?? (() => null)
   }
 
   set insets(insets) { this.#insets = { ...ZERO_INSETS, ...insets } }
@@ -66,15 +68,39 @@ export class Camera {
     return this
   }
 
+  // Enfoca un punto (one-shot) dejándolo VISIBLE individualmente: si su capa clusteriza, sube el zoom
+  // al mínimo que lo desclusteriza. Por id como followPoint, puntual como setView. Sin capa clusterizada
+  // (o si ya está solo al zoom pedido) es un setView normal. El zoom mínimo lo resuelve el motor
+  // (inyectado) — Camera no conoce el cluster, igual que con resolveSource.
+  revealPoint(layerId, id, { zoom } = {}) {
+    this.stopFollow()
+    const source = this.#resolveSource(layerId)
+    const item = source?.itemById?.(id)
+    const p = item && source.accessors.positionOf(item)
+    if (!p || !Number.isFinite(p.lat) || !Number.isFinite(p.lng)) return this
+    const want = zoom ?? this.#map.getZoom()
+    const dz = this.#declusterZoomOf(layerId, id)
+    const z = dz != null && dz > want ? dz : want
+    this.#map.setView(this.#centeredFor([p.lat, p.lng], z), z)
+    return this
+  }
+
   /* ── Seguimiento de posición viva ── */
 
-  followPoint(layerId, id, { zoom } = {}) {
+  // `reveal`: al iniciar el follow, garantiza el zoom mínimo que desclusteriza el punto (una vez, no
+  // por recenter — el zoom del follow es fijo). Sin capa clusterizada, es un followPoint normal.
+  followPoint(layerId, id, { zoom, reveal = false } = {}) {
     this.stopFollow()
     const source = this.#resolveSource(layerId)
     if (!source) return this
 
+    let z = zoom
+    if (reveal) {
+      const dz = this.#declusterZoomOf(layerId, id)
+      if (dz != null) z = Math.max(z ?? this.#map.getZoom(), dz)
+    }
     const recenter = () => this.#recenterFollow()
-    this.#follow = { id, zoom, source, unsub: source.subscribe(recenter), lastKey: null }
+    this.#follow = { id, zoom: z, source, unsub: source.subscribe(recenter), lastKey: null }
     recenter()                                  // encuadre inicial inmediato
     return this
   }

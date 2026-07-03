@@ -366,6 +366,27 @@ export class Cluster {
     return true
   }
 
+  /* ── Consulta pura: zoom mínimo al que un punto deja de estar clusterizado ──
+   * Cómputo headless, hermano de recluster: NO muta el estado vivo (#signature/#clusteredIds/#bubbles).
+   * Devuelve el menor zoom entero ∈ [0, maxZoom+1] al que `id` es SOLO (no absorbido en una burbuja), o
+   * null si el id no está indexado o el clustering está apagado (el consumidor no necesita subir el zoom).
+   * "Solo a z" se determina con la MISMA query worldwide que recluster → el resultado coincide EXACTO con
+   * clusteredIds a ese zoom (un bbox mínimo NO sirve: el range query de supercluster no devuelve fiable el
+   * punto contenido). Monótono en zoom (más zoom = más separación) → búsqueda binaria; soloAt(maxZoom+1) es
+   * siempre true (Supercluster no agrupa sobre maxZoom), así que el borde superior existe y la búsqueda
+   * termina. O(results) por paso × O(log maxZoom) pasos; corre sólo al enfocar (no es hot-path). */
+  declusterZoomFor(id) {
+    if (!this.#enabled || !this.#allIds.has(id)) return null
+    const soloAt = z => {
+      for (const f of this.#sc.getClusters(WORLD, z))
+        if (!f.properties.cluster && f.properties.id === id) return true
+      return false
+    }
+    let lo = 0, hi = this.#maxZoom + 1
+    while (lo < hi) { const m = (lo + hi) >> 1; if (soloAt(m)) hi = m; else lo = m + 1 }
+    return lo
+  }
+
   reset() {
     this.#features = []
     this.#allIds = new Set()

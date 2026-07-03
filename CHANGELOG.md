@@ -6,6 +6,18 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
 ## [Sin publicar]
 
 ### Añadido
+- **Enfoque desclusterizado: `camera.revealPoint(layerId, id, {zoom})` + `followPoint({reveal})`.**
+  Enfocar un elemento seleccionado y que **no quede escondido en una burbuja** de cluster: `revealPoint`
+  (one-shot, por id como `followPoint`, puntual como `setView`) sube el zoom al mínimo que lo desclusteriza
+  si su capa clusteriza; `followPoint({reveal:true})` arranca el seguimiento a ese zoom. El cálculo vive en
+  `Cluster.declusterZoomFor(id)` — cómputo **puro** (no muta `clusteredIds`/`bubbles`/firma): menor zoom entero
+  ∈ `[0, maxZoom+1]` al que el punto es solo, por búsqueda binaria (monótono en zoom) con la MISMA query
+  worldwide que `recluster` (coincide exacto con `clusteredIds`).
+  El motor **inyecta** ese cómputo en la cámara (`declusterZoomOf(layerId,id)`, leído del fold de la capa) igual
+  que `resolveSource` → `Camera` sigue sin conocer el cluster. Expuesto también en el `control` del fold. Test:
+  `test/decluster-zoom.test.mjs` (punto único → 0; casi-coincidentes → `maxZoom+1`; borde cruzado contra
+  `recluster`/`clusteredIds`; pureza).
+
 - **Eventos de la sesión de expansión de cluster (`cluster:expand` / `cluster:update` / `cluster:dismiss`).**
   `<cristae-cluster>` publica su estado de spiderfy por el **bus del motor** (`map.on('cluster:expand', cb)
   → off`), con el mismo estilo delta que `hover:start`/`hover:end` (no un `CustomEvent` bespoke del

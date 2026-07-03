@@ -175,6 +175,9 @@ export class MapEngine {
       L: leaflet,
       insets,
       resolveSource: (id) => this.#layers.get(id)?.source ?? null,
+      // Zoom mínimo de desclusterización por (capa, id): la cámara lo consulta para revealPoint /
+      // followPoint({reveal}) sin conocer el cluster. El fold ata rec.cluster = control (ver addClusterFold).
+      declusterZoomOf: (layerId, id) => this.#layers.get(layerId)?.cluster?.declusterZoomFor(id) ?? null,
     })
 
     this.#map.on('moveend zoomend', () => this.#emit('viewportchange', {
@@ -716,6 +719,10 @@ export class MapEngine {
       // Lectura imperativa de la sesión actual (o null): paridad con map.camera para consumidores que
       // montan tarde y necesitan el estado sin esperar el próximo evento cluster:*.
       getSession: () => { const s = cluster.sessionStructure; return s ? buildSession(s, cluster.expandedGroups[0]?.center ?? null) : null },
+      // Zoom mínimo al que `id` deja de estar clusterizado (cómputo puro; ver Cluster.declusterZoomFor).
+      // Lo inyecta la cámara para revealPoint/followPoint({reveal}); también disponible para lectura
+      // imperativa. null si el id no está en el cluster o el clustering está apagado.
+      declusterZoomFor: (id) => cluster.declusterZoomFor(id),
       set onInteraction(fn) { _onInteraction = fn },
     }
     // dispose idempotente compartido: quitar cualquiera de los hosts (o el sibling) limpia el fold.
