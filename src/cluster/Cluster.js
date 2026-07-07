@@ -50,6 +50,10 @@ export class Cluster {
   // cierran el sub-cluster interno). Un móvil nuevo NO se suma a una espiral abierta (semántica spiderfy).
   #baseLeaves = null             // [{ properties:{id}, geometry:{coordinates:[lng,lat]} }] | null
   #baseLeafIds = null            // Set(id) del snapshot (supresión/membresía O(1)) | null
+  // Marcado: ids de dato que el consumidor quiere señalizados. Las burbujas que contengan alguno
+  // se taggean `marked` (variante propia del icon-set) y su colocación queda en #markedHidden.
+  #markedIds = new Set()
+  #markedHidden = []             // [{ id, center:{lat,lng} }] de los marcados ocultos en una burbuja, por recluster
 
   constructor({ radius = 80, maxZoom = 18, minPoints = 2, enabled = true, splitThreshold = 16 } = {}) {
     this.#radius = radius
@@ -68,6 +72,17 @@ export class Cluster {
   // ({kind:'leaf',id} | {kind:'subcluster',id,count,ids}). El motor los proyecta a píxeles (headless
   // no calcula pantalla). Fase 1: todos los slots son 'leaf'.
   get expandedGroups() { return this.#expandedGroups }
+
+  // Ids marcados (los define el consumidor). Cambiarlos invalida la firma → el próximo recluster
+  // re-taggea las burbujas y regenera #markedHidden.
+  set marked(ids) {
+    this.#markedIds = ids instanceof Set ? ids : new Set(ids ?? [])
+    this.#signature = null
+  }
+  get hasMarked() { return this.#markedIds.size > 0 }
+  // Colocación de los marcados OCULTOS en una burbuja colapsada: [{ id, center }] en orden por id.
+  // Snapshot del último recluster (lectura O(1), como `bubbles` — nunca consulta el índice).
+  get markedHidden() { return this.#markedHidden }
 
   // Estructura LÓGICA de la sesión de expansión abierta, o null si no hay ninguna. Es lo que consume el
   // motor para armar el payload de los eventos `cluster:expand/update/dismiss` — INDEPENDIENTE de qué
@@ -230,6 +245,18 @@ export class Cluster {
     return this.#hasBaseAnchor(leaves)
   }
 
+  // Contenido (ids de dato) de una burbuja del FRAME actual — consulta pura, hermana de
+  // expandCluster pero sin efectos. `clusterId` es efímero: pasar uno recién obtenido (un hit
+  // del frame). La burbuja dim de la sesión abierta ('b:'+ancla) responde con el snapshot
+  // congelado. null si el id es stale/desconocido.
+  contents(clusterId) {
+    if (this.#baseAnchor != null && clusterId === 'b:' + this.#baseAnchor)
+      return this.#baseLeaves.map(l => l.properties.id)
+    let leaves
+    try { leaves = this.#leavesOf(clusterId) } catch { return null }
+    return leaves.map(lf => lf.properties.id)
+  }
+
   /* ── Config reactiva: recrea el índice y recarga las features ya extraídas ── */
 
   set radius(v) { if (v !== this.#radius) { this.#radius = v; this.#rebuildIndex() } }
@@ -295,6 +322,7 @@ export class Cluster {
       this.#clusteredIds.clear()
       this.#bubbles = []
       this.#expandedGroups = []
+      this.#markedHidden = []
       return true
     }
 
@@ -363,7 +391,48 @@ export class Cluster {
 
     this.#bubbles = bubbles
     this.#expandedGroups = groups
+    this.#refreshMarked()
     return true
+  }
+
+  /* ── Marcado: señaliza las burbujas que contienen ids marcados ── */
+
+  // Marcados OCULTOS en una burbuja colapsada: dentro de clusteredIds pero fuera del snapshot de
+  // espiral (#baseLeafIds, que se dibuja desplegado). Sólo estos necesitan señalización — un
+  // marcado solo ya es visible. O(|marcados|), sin tocar el índice.
+  #markedOcultos() {
+    const ocultos = new Set()
+    this.#markedIds.forEach(id => {
+      if (this.#clusteredIds.has(id) && !this.#baseLeafIds?.has(id)) ocultos.add(id)
+    })
+    return ocultos
+  }
+
+  // Ids de `target` contenidos en UNA burbuja colapsada. getLeaves con id FRESCO del recluster
+  // vigente (mismo criterio que emitBase); la burbuja expandida se salta (sus hojas están a la vista).
+  #markedEn(bubble, target) {
+    if (bubble.expanded) return []
+    let leaves
+    try { leaves = this.#leavesOf(bubble.id) } catch { return [] }
+    return leaves.map(lf => lf.properties.id).filter(id => target.has(id))
+  }
+
+  // Corre al final de cada recluster: taggea `marked` las burbujas con marcados ocultos y cachea
+  // su colocación [{ id, center }]. getLeaves sólo si quedó alguno oculto, con early-stop al
+  // ubicarlos todos. Orden canónico por id → la firma del emisor no depende del índice.
+  #refreshMarked() {
+    this.#markedHidden = []
+    if (!this.#markedIds.size) return
+    const target = this.#markedOcultos()
+    for (const b of this.#bubbles) {
+      if (!target.size) break
+      for (const id of this.#markedEn(b, target)) {
+        target.delete(id)
+        b.marked = true
+        this.#markedHidden.push({ id, center: { lat: b.lat, lng: b.lng } })
+      }
+    }
+    this.#markedHidden.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
   }
 
   /* ── Consulta pura: zoom mínimo al que un punto deja de estar clusterizado ──
@@ -393,6 +462,7 @@ export class Cluster {
     this.#clusteredIds.clear()
     this.#bubbles = []
     this.#expandedGroups = []
+    this.#markedHidden = []
     this.#baseAnchor = null
     this.#innerAnchor = null
     this.#baseLeaves = null

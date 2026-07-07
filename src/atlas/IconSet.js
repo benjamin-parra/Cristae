@@ -141,19 +141,25 @@ export const defineClusterIconSet = ({ buckets = DEFAULT_CLUSTER_BUCKETS, draw, 
     // `plus`: el bucket absorbe conteos por encima de su valor (el siguiente entero no es bucket) →
     // el draw lo marca con "+", honesto sin afirmar un conteo exacto. Derivado de la topología de
     // buckets, no de un umbral horneado. Se evalúa en append (rasterización), nunca en el hot-loop.
-    // `dim`: prefijo 'd' (cluster expandido en spiderfy) → se parsea ANTES de Number() para no romper
-    // el contrato describe-TOTAL (Number('d50')=NaN renderaría 'NaN'). El draw lo dibuja semitransparente.
+    // `dim`/`marked`: prefijos 'd' (cluster expandido en spiderfy) / 'm' (burbuja con ids marcados)
+    // → se parsean ANTES de Number() para no romper el contrato describe-TOTAL (Number('d50')=NaN
+    // renderaría 'NaN'). El draw los recibe como flags (semitransparente / resaltada).
     describe: (variant) => {
-      const dim = variant.charCodeAt(0) === 100   // 'd'
-      const v = Number(dim ? variant.slice(1) : variant)
-      return { shape: 'cluster', count: v, plus: !has.has(v + 1), dim }
+      const c0 = variant.charCodeAt(0)
+      const dim = c0 === 100                      // 'd'
+      const marked = c0 === 109                   // 'm'
+      const v = Number(dim || marked ? variant.slice(1) : variant)
+      return { shape: 'cluster', count: v, plus: !has.has(v + 1), dim, marked }
     },
-    renderers: { cluster: (ctx, size, d) => draw(ctx, size, d.count, d.plus, d.dim) },
+    renderers: { cluster: (ctx, size, d) => draw(ctx, size, d.count, d.plus, d.dim, d.marked) },
   })
   // Conteo real → variante. O(1), cero alloc: clamp a [0, top] e indexa LUT + string cacheado.
   set.variantForCount = (count) => variants[count >= top ? lut[top] : lut[count > 0 ? count : 0]]
   // Variante "atenuada" (cluster expandido). Round-trip con el describe de arriba (prefijo 'd'). El
   // sink de burbujas la usa SÓLO si existe (set.expandedVariant) → custom iconSets sin esto no dimean.
   set.expandedVariant = (count) => 'd' + set.variantForCount(count)
+  // Variante "marcada" (burbuja que contiene ids marcados por el consumidor). Mismo round-trip
+  // (prefijo 'm'); el sink la usa SÓLO si existe → custom iconSets sin esto no resaltan.
+  set.markedVariant = (count) => 'm' + set.variantForCount(count)
   return set
 }

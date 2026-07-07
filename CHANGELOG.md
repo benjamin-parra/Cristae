@@ -6,6 +6,38 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
 ## [Sin publicar]
 
 ### Añadido
+- **Eje "marked": señalizar las burbujas que contienen ids marcados (`markedIds` + `cluster:marked`).**
+  El consumidor marca un SET de ids de dato (`<cristae-cluster>.markedIds`, por propiedad; o
+  `control.setMarked(ids)`) y la librería hace dos cosas, ambas a cadencia de recluster: (1) pinta la
+  burbuja que contiene alguno con la variante `marked` del icon-set — `defineClusterIconSet` suma el
+  prefijo `'m'` (espejo del `'d'` de expandido) y pasa `marked` como 6º arg del `draw`, backward-compatible —
+  y (2) emite la señal del motor **`cluster:marked`** (`map.on('cluster:marked', cb)`, mismo bus que
+  `cluster:expand`) con el hecho mínimo no-derivable: `{ hidden: [{ layerId, id, center }] }` — qué
+  marcados quedaron OCULTOS en una burbuja colapsada y el centro geográfico de esa burbuja (ancla para
+  líneas/overlays del consumidor). Un marcado solo o desplegado en la espiral es visible → no viaja; la
+  posición viva la da la Source del consumidor, nunca el evento. Emisor único en `apply()` gateado por
+  firma (id + centro cuantizado `MARKED_CENTER_QUANT`): los moves de WS intra-bucket no re-emiten, y el
+  drift del centroide por miembros no-marcados sí (el ancla no queda despegada del sprite). Lectura
+  imperativa de paridad: `control.getMarked()` / getter `cluster.marked`. El cómputo vive en
+  `Cluster.#refreshMarked` (gate O(|marcados|) sin tocar el índice + `getLeaves` con early-stop, sólo si
+  quedó alguno oculto) y se lee por `Cluster.markedHidden` (snapshot O(1)). Config `dim-marked` (+
+  `dimRestExcept` por propiedad): con ids marcados, atenúa el resto del mapa vía el mismo enfoque del
+  fold (`syncFocus`), dejando brillantes las capas que el consumidor indique. **Ortogonal al
+  seguimiento de cámara** (`camera.followPoint`/`revealPoint`): marcar no mueve la cámara y seguir
+  no marca — son handles independientes que el consumidor compone, típicamente derivando AMBOS del
+  mismo estado de dominio ("el móvil seguido") para que activar/cancelar restaure todo junto. Test:
+  `test/marked-bubble.test.mjs`.
+
+- **Burbuja de cluster consultable (interacción genérica): `bubbleLayerId` + hover + `contentsOf`.**
+  La burbuja deja de ser interna-del-fold y pasa a entidad de primera clase del picking: el consumidor
+  descubre su capa (`<cristae-cluster>.bubbleLayerId`) y se suscribe a sus hits por el bus normal
+  (`map.on('click' | 'hover', bubbleLayerId, cb)` — el hover de burbuja antes estaba deshabilitado; ahora
+  resuelve real y sigue demand-gated: cero costo sin suscriptores). `contentsOf(clusterId)` (elemento y
+  control; `Cluster.contents` puro) devuelve los ids de dato de una burbuja del frame actual — hermana de
+  `expand()` sin efectos, misma guarda de generación anti-stale, snapshot congelado para la burbuja dim de
+  una sesión abierta. Con `expandable=false` + estos tres handles, el consumidor compone sus propias
+  interacciones (tooltip de contenido al hover, click→fit/expand, resaltado por contenido) sin tocar la lib.
+
 - **Enfoque desclusterizado: `camera.revealPoint(layerId, id, {zoom})` + `followPoint({reveal})`.**
   Enfocar un elemento seleccionado y que **no quede escondido en una burbuja** de cluster: `revealPoint`
   (one-shot, por id como `followPoint`, puntual como `setView`) sube el zoom al mínimo que lo desclusteriza
@@ -48,6 +80,24 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   atributo removido o vacío ⇒ vuelve al camino legacy. **Sin `fit`, nada cambia.**
 
 ### Corregido
+- **Los updates incrementales de la capa de puntos sobrevivían sólo hasta el próximo render de
+  glify.** `#writePosition`/`#writeSlot` escribían el buffer GPU (y su espejo `typedVertices`)
+  pero NO los arrays CPU (`#positions`/`#meta`) desde los que glify REGENERA los vértices en cada
+  render (move/zoom): un pan/zoom revertía todos los moves/patches al estado del último rebuild.
+  Pasaba desapercibido en capas que algo reconstruye periódicamente (un host clusterizado se
+  refresca en cada apply del fold), pero una capa alimentada sólo por la vía incremental —p. ej.
+  una vista `where` de la misma Source— quedaba congelada. Ahora los writes incrementales
+  mantienen también el espejo CPU.
+
+- **El enfoque (`focus`/dim) ignoraba los overlays y trataba a las capas ligadas como
+  independientes.** Un badge (`<cristae-overlay>`) quedaba a opacidad plena sobre su host
+  atenuado. Ahora las capas LIGADAS (labels/overlays con `bindTo`) siguen la suerte de foco de su
+  host, y el dim del fold cubre el kind `overlay`.
+
+- **`attachSource` recreaba la capa sin su `where`.** Reemplazar la Source de una capa con
+  membresía por-capa la dejaba mostrando la Source completa hasta el próximo `setWhere`. Ahora la
+  capa nueva hereda el `where` del record.
+
 - **`viewport-insets` reactivo en runtime.** El atributo de `<cristae-map>` sólo se aplicaba al
   crear el motor; cambiarlo después (abrir/cerrar un panel interno del consumidor) no actualizaba
   la región visible. Ahora re-aplica `camera.insets` y emite `viewportchange` — los overlays

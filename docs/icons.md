@@ -173,10 +173,17 @@ cluster es agregación de conteo, no dominio: por eso vive en el core, **sin** s
 ```js
 defineClusterIconSet({
   buckets,   // number[] — thresholds ascendentes. El consumidor fija la escala de SU dominio.
-  draw,      // (ctx, size, count, plus) => void — pinta la burbuja; `plus` ⇒ marcar "+"
+  draw,      // (ctx, size, count, plus, dim, marked) => void — pinta la burbuja; `plus` ⇒ marcar "+"
   sizes,     // { default?, canvas? }
 })
 ```
+
+**Flags de estado del `draw`.** Además de `count`/`plus`, el draw recibe dos booleans opcionales
+(ignorarlos es válido): `dim` = burbuja **expandida** en spiderfy (convención: semitransparente) y
+`marked` = burbuja que contiene **ids marcados** por el consumidor (convención: resaltada). Viajan
+como prefijo de la variante (`'d'`/`'m'` + bucket) con round-trip en el `describe` interno; el sink de
+burbujas usa `expandedVariant`/`markedVariant` **sólo si existen** — un icon-set custom sin ellos no
+atenúa ni resalta, pero no rompe.
 
 **Por qué buckets y no el conteo exacto.** Cada burbuja distinta es una variante = un tile del atlas.
 Un tile por conteo posible explotaría el atlas. Los buckets acotan las variantes. **No importa cuántos
@@ -214,12 +221,14 @@ tope `2000+`. Se puede cambiar si el dominio tiene otra escala.
 **una vez** los strings de cada bucket (cacheados) y una **LUT `Uint16Array`** (conteo → índice de
 bucket, piso). En runtime es una sola indexación — O(1), cero alloc, cero GC.
 
-`describe: v => ({ shape:'cluster', count: Number(v), plus })` y un único renderer `cluster` que delega
-en el `draw` provisto. Devuelve el `IconSet` con un método extra:
+`describe: v => ({ shape:'cluster', count, plus, dim, marked })` y un único renderer `cluster` que
+delega en el `draw` provisto. Devuelve el `IconSet` con métodos extra:
 
 | Método | Firma | Complejidad | Notas |
 |---|---|---|---|
 | `variantForCount(count)` | `(number) → string` | **O(1), 0 alloc** | conteo real → variante (string del bucket) vía LUT + string cacheado. Lo usa la cluster-layer como `variantOf` |
+| `expandedVariant(count)` | `(number) → string` | O(1) | variante atenuada (`'d'` + bucket) de la burbuja expandida en spiderfy |
+| `markedVariant(count)` | `(number) → string` | O(1) | variante resaltada (`'m'` + bucket) de la burbuja que contiene ids marcados |
 
 ---
 

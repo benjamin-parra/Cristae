@@ -31,6 +31,12 @@ const BUS_EVENTS = new Set(['click', 'hover', 'hover:start', 'hover:end', 'point
 // NO esperan: re-indexan al instante (ver onData en addClusterFold).
 const CLUSTER_REINDEX_THROTTLE_MS = 1000
 
+// Decimales del centro de burbuja en la firma de `cluster:marked` (~1 m). El centroide puede
+// correrse por miembros NO marcados sin cambiar la membresía del marcado: con el centro en la
+// firma, el ancla reportada se re-emite y no queda despegada del sprite. Más fino re-emitiría
+// por jitter sub-marcador; más grueso dejaría el ancla visiblemente corrida.
+const MARKED_CENTER_QUANT = 5
+
 // Lado del sprite de la burbuja default (px). El radio es `size * 0.42` y el texto escala con `size`,
 // así que esto fija el tamaño visible de toda la burbuja. El consumidor lo cambia con `bubble.sizes`.
 const DEFAULT_CLUSTER_SIZE = 43
@@ -294,7 +300,7 @@ export class MapEngine {
   // set `suppressed` (ref estable, mutado in place) a TODOS los hosts y a sus ligados (labels +
   // overlays, que leen `host.suppressed`). El <cristae-cluster> declarativo entra por acá vía el
   // reductor de la gramática; `addCluster` (un host) es azúcar imperativa que delega.
-  addClusterFold(targets, { radius, maxZoom, minPoints, enabled, expandable = true, bubble, dimRest = false, dimRestOpacity = 0.3, circleThreshold = null, spiralGap = null, accent = null, lineColor = null } = {}) {
+  addClusterFold(targets, { radius, maxZoom, minPoints, enabled, expandable = true, bubble, dimRest = false, dimRestOpacity = 0.3, dimMarked = false, dimRestExcept = [], circleThreshold = null, spiralGap = null, accent = null, lineColor = null } = {}) {
     const hosts = []
     for (const t of targets) {
       const rec = this.#layers.get(t.id)
@@ -305,6 +311,8 @@ export class MapEngine {
     let expandableActive = expandable ?? true   // mutable via setConfig
     let dimRestActive = dimRest                  // atenuar el resto del mapa al expandir (mutable)
     let dimRestOpacityActive = dimRestOpacity ?? 0.3
+    let dimMarkedActive = dimMarked              // atenuar el resto mientras haya ids marcados (mutable)
+    let dimRestExceptActive = dimRestExcept ?? []  // capas del consumidor que quedan brillantes al atenuar
     let circleThresholdActive = circleThreshold  // umbral círculo↔espiral (nº) o null = auto (SPIDER_CIRCLE_MAX)
     let spiralGapActive = spiralGap              // radio interior de la espiral (nº) o null = default (SPIDER_MIN_RADIUS)
     let accentActive = accent                    // color de acento (sub-burbujas al montar + traza si no hay lineColor) o null
@@ -477,12 +485,17 @@ export class MapEngine {
       }
       return all
     }
-    // Enfoque del cluster: con expansión activa (y dim-rest on), resalta el spider (hojas + sub-burbujas
-    // + burbuja ancla) y ATENÚA el resto del mapa; sin expansión o con dim-rest off, restaura. Idempotente.
+    // Enfoque del cluster: con expansión activa (y dim-rest on) resalta el spider, y con ids
+    // marcados (y dim-marked on) resalta las burbujas; en ambos casos ATENÚA el resto del mapa.
+    // `dimRestExcept` deja brillantes capas del consumidor (p. ej. una capa propia ligada a los
+    // marcados). Sin causa activa, restaura. Idempotente.
     const syncFocus = () => {
-      if (dimRestActive && cluster.expandedGroups.length)
-        // Sólo marcadores (point/label): las geocercas/polígonos quedan como contexto, no se atenúan.
-        this.focus([spiderId, spiderSubId, bubbleId], { opacity: dimRestOpacityActive, kinds: ['point', 'label'] })
+      const porExpansion = dimRestActive && cluster.expandedGroups.length
+      const porMarcado = dimMarkedActive && cluster.hasMarked
+      if (porExpansion || porMarcado)
+        // Sólo marcadores (point/label/overlay): las geocercas/polígonos quedan como contexto, no
+        // se atenúan. Las capas LIGADAS (labels/overlays con bindTo) siguen la suerte de su host.
+        this.focus([spiderId, spiderSubId, bubbleId, ...dimRestExceptActive], { opacity: dimRestOpacityActive, kinds: ['point', 'label', 'overlay'] })
       else
         this.unfocusAll()
     }
@@ -498,6 +511,10 @@ export class MapEngine {
     // dismiss (zoom la marca; el resto cae a 'collapse').
     let lastSession = null
     let dismissReason = 'collapse'
+    // Ids marcados del fold (dueño: setMarked snapshotea el input) + firma del último emit del
+    // eje marked. Declarados ANTES de apply(): su guard los lee en el primer doIndex del montaje.
+    const markedSet = new Set()
+    let lastMarkedSig = ''
     const apply = () => {
       for (const { id, rec } of hosts) {
         rec.suppressed = cluster.clusteredIds
@@ -539,6 +556,18 @@ export class MapEngine {
           lastSession.sig = sig
           _onInteraction?.({ type: 'update', center })
           this.#emit('cluster:update', buildSession(struct, center))
+        }
+      }
+      // ── Emisor ÚNICO del eje "marked" (cluster:marked) — espejo del bloque de sesión ──
+      // Snapshot level-triggered: cada emisión es la verdad completa de los marcados ocultos en
+      // una burbuja ({ hidden: [{layerId, id, center}] }); vacío = "ninguno oculto". Gated por
+      // firma con el centro cuantizado (ver MARKED_CENTER_QUANT). El guard además evita
+      // markedSigOf/buildMarked en el primer apply() del montaje (consts aún no declaradas).
+      if (markedSet.size || lastMarkedSig) {
+        const sig = markedSigOf(cluster.markedHidden)
+        if (sig !== lastMarkedSig) {
+          lastMarkedSig = sig
+          this.#emit('cluster:marked', buildMarked(cluster.markedHidden))
         }
       }
     }
@@ -586,6 +615,16 @@ export class MapEngine {
       }))
       return { id: struct.id, center, count: struct.count, entities, groups }
     }
+
+    // Firma y payload del eje "marked" a partir de Cluster.markedHidden ([{id, center}], orden
+    // canónico por id). El payload agrega el `layerId` del host dueño (set heterogéneo cross-capa);
+    // la firma cuantiza el centro (MARKED_CENTER_QUANT) para re-emitir sólo ante movimiento real.
+    const markedSigOf = (hidden) => hidden
+      .map(h => `${h.id}@${h.center.lat.toFixed(MARKED_CENTER_QUANT)},${h.center.lng.toFixed(MARKED_CENTER_QUANT)}`)
+      .join('|')
+    const buildMarked = (hidden) => ({
+      hidden: hidden.map(h => ({ layerId: resolveOne(h.id).layerId, id: h.id, center: h.center })),
+    })
 
     // Colapsa TODO (re-forma los clusters). Una sola vía para el click-afuera, el zoom y el
     // setConfig(expandable=false) → emite el DOM event 'collapse' de forma consistente.
@@ -642,13 +681,15 @@ export class MapEngine {
 
     let disposed = false
     const control = {
-      setConfig: ({ radius, maxZoom, minPoints, enabled, expandable: newExpandable, dimRest: newDimRest, dimRestOpacity: newDimRestOpacity, circleThreshold: newCircleThreshold, spiralGap: newSpiralGap, accent: newAccent, lineColor: newLineColor } = {}) => {
+      setConfig: ({ radius, maxZoom, minPoints, enabled, expandable: newExpandable, dimRest: newDimRest, dimRestOpacity: newDimRestOpacity, dimMarked: newDimMarked, dimRestExcept: newDimRestExcept, circleThreshold: newCircleThreshold, spiralGap: newSpiralGap, accent: newAccent, lineColor: newLineColor } = {}) => {
         if (radius != null) cluster.radius = radius
         if (maxZoom != null) cluster.maxZoom = maxZoom
         if (minPoints != null) cluster.minPoints = minPoints
         if (enabled != null) cluster.enabled = enabled
         if (newDimRestOpacity != null) dimRestOpacityActive = newDimRestOpacity
         if (newDimRest != null) dimRestActive = newDimRest
+        if (newDimMarked != null) dimMarkedActive = newDimMarked
+        if (newDimRestExcept !== undefined) dimRestExceptActive = newDimRestExcept ?? []
         // Geometría/estilo de la espiral: no cambian la clusterización (recluster puede no gatillar), así
         // que si cambian con una espiral abierta hay que re-aplicar a mano para re-layoutear/re-colorear.
         // `accent` recolorea la TRAZA en caliente; las SUB-BURBUJAS quedan con el accent del montaje (su
@@ -723,6 +764,26 @@ export class MapEngine {
       // Lo inyecta la cámara para revealPoint/followPoint({reveal}); también disponible para lectura
       // imperativa. null si el id no está en el cluster o el clustering está apagado.
       declusterZoomFor: (id) => cluster.declusterZoomFor(id),
+      // ── Eje "marked": burbujas que contienen ids marcados por el consumidor ──
+      // setMarked REEMPLAZA el set (snapshotea el input antes de limpiar: aliasing-safe) →
+      // recluster re-taggea las burbujas (variante `marked` del icon-set) y apply() emite
+      // `cluster:marked` si la colocación cambió. La lib nunca muta el set por su cuenta: un id
+      // podado que reaparece vuelve a señalizarse solo; desmarcar es del consumidor.
+      setMarked: (ids) => {
+        const next = ids ? Array.from(ids) : []
+        markedSet.clear()
+        for (const id of next) markedSet.add(id)
+        cluster.marked = markedSet
+        if (cluster.recluster(this.#map.getZoom())) apply()
+      },
+      // Lectura imperativa del eje marked (paridad con getSession): mismo payload que el evento.
+      getMarked: () => buildMarked(cluster.markedHidden),
+      // Contenido (ids de dato) de una burbuja del frame actual — consulta pura, hermana de
+      // expand() pero sin efectos. Misma guarda de generación que el click handler.
+      contentsOf: (id) => (bubbleRec?.source?.itemById?.(id) ? cluster.contents(id) : null),
+      // Id de la capa de burbujas: el consumidor se suscribe a sus hits por el bus normal
+      // (map.on('click' | 'hover', bubbleLayerId, cb)) y compone con contentsOf/expand.
+      bubbleLayerId: bubbleId,
       set onInteraction(fn) { _onInteraction = fn },
     }
     // dispose idempotente compartido: quitar cualquiera de los hosts (o el sibling) limpia el fold.
@@ -790,7 +851,7 @@ export class MapEngine {
     record.source = source
     record.controls = null
     record.layer = this.#trackGl(new PointLayer({
-      glify: this.#glify, map: this.#map, pane: record.paneName, source, iconSet: record.iconSet, interactive: record.interactive,
+      glify: this.#glify, map: this.#map, pane: record.paneName, source, iconSet: record.iconSet, interactive: record.interactive, where: record.where,
     }))
     if (record.interactive) {
       const entry = this.#pickLayers.find(e => e.layerId === id)
@@ -1015,7 +1076,10 @@ export class MapEngine {
     for (const [id, rec] of this.#layers) {
       if (!rec.paneName) continue
       if (this.#focusKinds && !this.#focusKinds.includes(rec.kind)) continue   // fuera de alcance → intacta (brillante)
-      this.#applyOpacity(rec.paneName, this.#focused.has(id) ? 1 : this.#dimOpacity)
+      // Las capas LIGADAS a un host (labels/overlays con bindTo) siguen su suerte de foco: un
+      // badge no queda brillante sobre un marcador atenuado ni atenuado sobre uno enfocado.
+      const key = rec.bindTo ?? id
+      this.#applyOpacity(rec.paneName, this.#focused.has(key) ? 1 : this.#dimOpacity)
     }
   }
 
@@ -1073,23 +1137,29 @@ export class MapEngine {
     const controls = createSource({
       idOf: b => b.id,
       positionOf: b => ({ lat: b.lat, lng: b.lng }),
-      // Burbuja expandida (spiderfy) → variante atenuada, SÓLO si el iconSet la soporta (default sí;
-      // custom sin `expandedVariant` cae al sprite normal — no rompe).
+      // Burbuja expandida (spiderfy) → variante atenuada; burbuja con ids marcados → variante
+      // resaltada. SÓLO si el iconSet las soporta (default sí; custom sin `expandedVariant`/
+      // `markedVariant` cae al sprite normal — no rompe). Expandida gana sobre marcada: sus hojas
+      // ya están desplegadas a la vista, el resalte sería redundante.
       variantOf: b => (b.expanded && iconSet.expandedVariant)
         ? iconSet.expandedVariant(b.count)
-        : (iconSet.variantForCount?.(b.count) ?? String(b.count)),
+        : (b.marked && iconSet.markedVariant)
+          ? iconSet.markedVariant(b.count)
+          : (iconSet.variantForCount?.(b.count) ?? String(b.count)),
       sizeOf: spec.sizeOf,
-      // hashOf explícito: el default (=idOf) NO marcaría dirty al togglear `expanded` (mismo id, mismo
-      // count, misma pos) → el dim no se re-renderizaría. Incluye count/expanded/pos para que cualquiera
-      // de esos cambios re-encode el sprite de la burbuja.
-      hashOf: b => `${b.count}:${b.expanded ? 'd' : ''}:${b.lat}:${b.lng}`,
+      // hashOf explícito: el default (=idOf) NO marcaría dirty al togglear `expanded`/`marked`
+      // (mismo id, mismo count, misma pos) → el restyle no se re-renderizaría. Incluye count/
+      // estado/pos para que cualquiera de esos cambios re-encode el sprite de la burbuja.
+      hashOf: b => `${b.count}:${b.expanded ? 'd' : b.marked ? 'm' : ''}:${b.lat}:${b.lng}`,
     }, iconSet.variants)
     const layer = this.#trackGl(new PointLayer({ glify: this.#glify, map: this.#map, pane: bubblePane, source: controls, iconSet, interactive }))
     this.#layers.set(siblingId, { kind: 'point', source: controls, layer, controls, paneName: bubblePane, order, interactive })
     if (interactive) {
       this.#pickLayers.push({ layerId: siblingId, layer })
       // La burbuja ocluye lo que tiene debajo (capa overlay): su click no se filtra a geocercas/puntos.
-      this.#registerResolver(siblingId, 'point', zIndex, order, e => layer.resolveClick(e), () => [], { capture: true })
+      // Hover real (demand-gated: sólo computa si alguien se suscribe) → la burbuja es una entidad
+      // consultable como cualquier otra: hits por el bus + contentsOf del control.
+      this.#registerResolver(siblingId, 'point', zIndex, order, e => layer.resolveClick(e), e => layer.resolveHover(e), { capture: true })
     }
     return {
       feed: (bubbles) => controls.set(bubbles),

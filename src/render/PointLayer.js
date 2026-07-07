@@ -265,8 +265,15 @@ export class PointLayer {
     gl.bufferData(gl.ARRAY_BUFFER, this.#verts, gl.DYNAMIC_DRAW)
   }
 
+  // Los writes incrementales actualizan TAMBIÉN el espejo CPU (#positions/#meta): glify regenera
+  // typedVertices DESDE ellos en cada render (move/zoom) — sin el espejo al día, un re-render
+  // revertiría los updates incrementales al estado del último rebuild.
+
   // move: 2 floats (posición). [0-alloc] en WebGL2 (forma de 5 args, sin subarray).
   #writePosition(s, pos) {
+    const p = this.#positions[s]
+    p[0] = pos.lat
+    p[1] = pos.lng
     const base = s * 7
     this.#verts[base] = projX0(pos.lng) - this.#cx
     this.#verts[base + 1] = projY0(pos.lat) - this.#cy
@@ -279,18 +286,27 @@ export class PointLayer {
   // que es estable → se reescribe igual sin coste extra.
   #writeSlot(s, item) {
     const a = this.#accessors
+    const pos = a.positionOf(item)
+    const tileIdx = this.#iconSet.resolve(a.variantOf ? a.variantOf(item) : DEFAULT_VARIANT)
+    const an = (this.#iconSet.rotates && a.headingOf) ? angleNorm(a.headingOf(item)) : 0
+    const sz = a.sizeOf ? a.sizeOf(item) : this.#iconSet.defaultSize
+    const p = this.#positions[s]
+    p[0] = pos.lat
+    p[1] = pos.lng
+    const m = this.#meta[s]
+    m.tileIdx = tileIdx
+    m.angleNorm = an
+    m.size = sz
     const v = this.#verts
     const base = s * 7
-    const pos = a.positionOf(item)
     v[base] = projX0(pos.lng) - this.#cx
     v[base + 1] = projY0(pos.lat) - this.#cy
-    v[base + 2] = this.#iconSet.atlas.tileChannel(
-      this.#iconSet.resolve(a.variantOf ? a.variantOf(item) : DEFAULT_VARIANT))
-    v[base + 3] = (this.#iconSet.rotates && a.headingOf) ? angleNorm(a.headingOf(item)) : 0
+    v[base + 2] = this.#iconSet.atlas.tileChannel(tileIdx)
+    v[base + 3] = an
     const id = s + 1
     v[base + 4] = ((id >> 8) & 0xff) / 255
     v[base + 5] = (id & 0xff) / 255
-    v[base + 6] = a.sizeOf ? a.sizeOf(item) : this.#iconSet.defaultSize
+    v[base + 6] = sz
     const gl = this.#layer.gl
     gl.bindBuffer(gl.ARRAY_BUFFER, this.#buf)
     gl.bufferSubData(gl.ARRAY_BUFFER, base * 4, v, base, 7)

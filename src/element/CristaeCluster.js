@@ -71,6 +71,8 @@ export class CristaeCluster extends CristaeLayerElement {
     expandable: { type: Boolean },    // toggle de expand/collapse al click (default true)
     dimRest:        { type: Boolean, attribute: 'dim-rest' },          // al expandir, atenúa el resto del mapa (default false)
     dimRestOpacity: { type: Number,  attribute: 'dim-rest-opacity' },  // opacidad del resto atenuado (default 0.3)
+    dimMarked:      { type: Boolean, attribute: 'dim-marked' },        // con ids marcados, atenúa el resto del mapa (default false)
+    dimRestExcept:  { attribute: false },                              // capas del consumidor que quedan brillantes al atenuar (por ref)
     circleThreshold: { attribute: 'circle-threshold' },                // nº o "auto" (default): umbral círculo→espiral del spider
     spiralGap:       { type: Number, attribute: 'spiral-gap' },        // radio interior de la espiral en px (default 42)
     accent:          { attribute: 'accent' },                          // fondo de sub-burbujas (+ traza si no hay line-color)
@@ -79,6 +81,10 @@ export class CristaeCluster extends CristaeLayerElement {
 
   // ID de la capa de burbujas de este cluster (para detectar clicks propios vs. ajenos).
   #bubbleLayerId = null
+  // Ids marcados: canal imperativo propio, NO config del fold (no viaja por cristaeConfig). Se
+  // setea por PROPIEDAD (los frameworks asignan propiedades, no atributos) y se guarda siempre
+  // para re-empujarlo al montar — un remount crea un fold nuevo con el set vacío.
+  #markedIds = null
   // Referencia al <cristae-map> antecesor (necesaria para limpiar el listener al desmontar).
   #mapEl = null
   // Función de baja del listener de auto-collapse en click externo.
@@ -95,6 +101,7 @@ export class CristaeCluster extends CristaeLayerElement {
     this.enabled    = true
     this.expandable = true
     this.dimRest    = false
+    this.dimMarked  = false
   }
 
   // Listo cuando todos los hijos de gramática (host(s), no la burbuja) tienen su config.
@@ -134,6 +141,7 @@ export class CristaeCluster extends CristaeLayerElement {
       }
 
       if (this.expandable) this.#attachAutoCollapse(control)
+      if (this.#markedIds?.length) control.setMarked(this.#markedIds)   // re-push: el fold nuevo arranca vacío
     }
 
     return { id: `cluster-marker-${++clSeq}`, units: this._units, control }
@@ -216,14 +224,36 @@ export class CristaeCluster extends CristaeLayerElement {
 
   cristaeUnits() { return this._units ?? [] }
 
+  // Config del fold (sin la burbuja): ÚNICA fuente del objeto que consumen el montaje
+  // (cristaeConfig) y el re-envío reactivo (syncLayer). Sus claves = las propiedades reactivas
+  // del elemento — agregar una prop nueva es tocar `static properties` y este objeto, nada más.
+  #foldConfig() {
+    return {
+      radius: this.radius,
+      maxZoom: this.maxZoom,
+      minPoints: this.minPoints,
+      enabled: this.enabled,
+      expandable: this.expandable,
+      dimRest: this.dimRest,
+      dimRestOpacity: this.dimRestOpacity,
+      dimMarked: this.dimMarked,
+      dimRestExcept: this.dimRestExcept,
+      circleThreshold: parseCircleThreshold(this.circleThreshold),
+      spiralGap: this.spiralGap,
+      accent: this.accent ?? null,
+      lineColor: this.lineColor ?? null,
+    }
+  }
+
   cristaeConfig() {
-    return { radius: this.radius, maxZoom: this.maxZoom, minPoints: this.minPoints, enabled: this.enabled, expandable: this.expandable, dimRest: this.dimRest, dimRestOpacity: this.dimRestOpacity, circleThreshold: parseCircleThreshold(this.circleThreshold), spiralGap: this.spiralGap, accent: this.accent ?? null, lineColor: this.lineColor ?? null, bubble: this.#bubbleConfig() }
+    return { ...this.#foldConfig(), bubble: this.#bubbleConfig() }
   }
 
   syncLayer(changed) {
-    if (changed.has('radius') || changed.has('maxZoom') || changed.has('minPoints') || changed.has('enabled') || changed.has('expandable') || changed.has('dimRest') || changed.has('dimRestOpacity') || changed.has('circleThreshold') || changed.has('spiralGap') || changed.has('accent') || changed.has('lineColor')) {
-      this._handle?.control?.setConfig({ radius: this.radius, maxZoom: this.maxZoom, minPoints: this.minPoints, enabled: this.enabled, expandable: this.expandable, dimRest: this.dimRest, dimRestOpacity: this.dimRestOpacity, circleThreshold: parseCircleThreshold(this.circleThreshold), spiralGap: this.spiralGap, accent: this.accent ?? null, lineColor: this.lineColor ?? null })
-    }
+    // Toda propiedad reactiva del elemento es config del fold: si cambió alguna (las claves del
+    // objeto SON los nombres de las props), se reenvía la config completa por setConfig.
+    const cfg = this.#foldConfig()
+    if (Object.keys(cfg).some((k) => changed.has(k))) this._handle?.control?.setConfig(cfg)
     // Reconectar/desconectar el auto-collapse cuando expandable cambia en caliente.
     if (changed.has('expandable')) {
       const control = this._handle?.control
@@ -246,6 +276,24 @@ export class CristaeCluster extends CristaeLayerElement {
   // Estado actual de la sesión de expansión (o null): paridad con map.camera para lectura imperativa sin
   // esperar el próximo evento. Mismo payload que `map.on('cluster:expand', s => …)`.
   get session()         { return this._handle?.control?.getSession?.() ?? null }
+
+  /* ── Eje "marked" + interacción genérica con burbujas ── */
+
+  // Ids de dato marcados (Array o Set): las burbujas que contengan alguno se pintan con la
+  // variante `marked` del icon-set y su colocación se publica por `map.on('cluster:marked', cb)`.
+  // Property por referencia (no serializa a atributo); se re-empuja sola en cada montaje.
+  set markedIds(ids) {
+    this.#markedIds = ids ? [...ids] : []
+    this._handle?.control?.setMarked?.(this.#markedIds)
+  }
+  get markedIds()       { return this.#markedIds ?? [] }
+  // Lectura imperativa del eje marked (paridad con `session`): mismo payload que el evento.
+  get marked()          { return this._handle?.control?.getMarked?.() ?? { hidden: [] } }
+  // Id de la capa de burbujas: para suscribirse a sus hits por el bus del motor
+  // (map.on('click' | 'hover', bubbleLayerId, cb)) y componer con contentsOf/expand.
+  get bubbleLayerId()   { return this.#bubbleLayerId }
+  // Contenido (ids de dato) de una burbuja del frame actual — consulta pura (ver control).
+  contentsOf(clusterId) { return this._handle?.control?.contentsOf?.(clusterId) ?? null }
 
   /* ── Internos ── */
 
