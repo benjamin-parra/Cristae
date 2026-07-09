@@ -3,7 +3,17 @@
   "version": "0.1.0",
   "type": "module",
   "description": "Librería de mapas WebGL + tabla virtual sobre un núcleo de datos reactivo compartido. Tres entry points desacoplados (core / table / map); table y map nunca se importan entre sí.",
-  "keywords": ["web-components", "widgets", "real-time", "webgl", "leaflet", "glify", "virtual-table", "reactive", "map"],
+  "keywords": [
+    "web-components",
+    "widgets",
+    "real-time",
+    "webgl",
+    "leaflet",
+    "glify",
+    "virtual-table",
+    "reactive",
+    "map"
+  ],
   "license": "MIT",
   "author": "Benjamin Parra",
   "repository": {
@@ -18,11 +28,23 @@
     "build": "node build.mjs",
     "test": "node test/grammar.test.mjs && node test/popup-placement.test.mjs && node test/decluster-zoom.test.mjs"
   },
-  "sideEffects": ["./src/index.js", "./src/table/index.js"],
+  "sideEffects": [
+    "./src/index.js",
+    "./src/table/index.js"
+  ],
   "exports": {
-    "./core": "./src/data/index.js",
-    "./table": "./src/table/index.js",
-    "./map": "./src/index.js",
+    "./core": {
+      "types": "./types/core.d.ts",
+      "default": "./src/data/index.js"
+    },
+    "./table": {
+      "types": "./types/table.d.ts",
+      "default": "./src/table/index.js"
+    },
+    "./map": {
+      "types": "./types/map.d.ts",
+      "default": "./src/index.js"
+    },
     "./grammar": "./src/grammar/index.js",
     "./package.json": "./package.json"
   },
@@ -40,5 +62,16 @@
     "globals": "^15.11.0",
     "vite": "^7.3.3"
   },
-  "files": ["src", "docs", "SKILL.md", "MODELO.md", "SPECS.md", "README.md", "CHANGELOG.md", "LICENSE", "build.mjs"]
+  "files": [
+    "src",
+    "types",
+    "docs",
+    "SKILL.md",
+    "MODELO.md",
+    "SPECS.md",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "build.mjs"
+  ]
 }

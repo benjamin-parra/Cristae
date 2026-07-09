@@ -6,6 +6,15 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
 ## [Sin publicar]
 
 ### Añadido
+- **Tipos TypeScript publicados en el paquete (`types/`).** Los entries `cristae/core`,
+  `cristae/table` y `cristae/map` declaran su condición `types` en `exports`: contrato
+  Source completo (`createSource`/`defineSource`/`makeFilter`, `patch(items, dirtyIds)`
+  con `dirtyIds` requerido), IconSets (`defineIconSet`/`defineClusterIconSet` con la
+  firma real `draw(ctx, size, count, plus, dim?, marked?)`, `prerenderFonts`),
+  `PolygonAccessors`, `drawLabel`, `tilePresets`, y el motor de tabla (`PagedTable`,
+  `paginationModel`, `PageInfo`). Los consumidores TypeScript dejan de mantener
+  declaraciones espejo a mano (que ya habían divergido en firmas). Las clases de los
+  custom elements se declaran mínimas; la superficie de instancia se documenta en docs/.
 - **Eje "marked": señalizar las burbujas que contienen ids marcados (`markedIds` + `cluster:marked`).**
   El consumidor marca un SET de ids de dato (`<cristae-cluster>.markedIds`, por propiedad; o
   `control.setMarked(ids)`) y la librería hace dos cosas, ambas a cadencia de recluster: (1) pinta la
