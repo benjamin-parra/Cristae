@@ -292,7 +292,11 @@ export class CristaeCluster extends CristaeLayerElement {
   // Id de la capa de burbujas: para suscribirse a sus hits por el bus del motor
   // (map.on('click' | 'hover', bubbleLayerId, cb)) y componer con contentsOf/expand.
   get bubbleLayerId()   { return this.#bubbleLayerId }
-  // Contenido (ids de dato) de una burbuja del frame actual — consulta pura (ver control).
+  // Id de la capa de SUB-burbujas de la espiral (jerarquía depth-2), o null. Mismo uso que
+  // bubbleLayerId: suscribirse a sus hits por el bus; el hit.id es el ancla del grupo → componer
+  // con la estructura de sesión (`session` / eventos cluster:*), que trae los miembros por grupo.
+  get subBubbleLayerId() { return this._handle?.control?.subBubbleLayerId ?? null }
+  // Contenido (ids de dato) de una burbuja BASE del frame actual — consulta pura (ver control).
   contentsOf(clusterId) { return this._handle?.control?.contentsOf?.(clusterId) ?? null }
 
   /* ── Internos ── */

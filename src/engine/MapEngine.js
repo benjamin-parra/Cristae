@@ -21,7 +21,7 @@ const Z_STEP = 10
 // de esta banda para que las etiquetas de otros marcadores NO tapen los vehículos que el cluster superpone
 // al expandirse (el spider es el contenido enfocado → va arriba de los labels). Ver addLabelLayer + fold.
 const LABEL_Z_OFFSET = 200
-const BUS_EVENTS = new Set(['click', 'hover', 'hover:start', 'hover:end', 'pointer:move'])
+const BUS_EVENTS = new Set(['click', 'secondary-click', 'hover', 'hover:start', 'hover:end', 'pointer:move'])
 
 // Ventana de coalescido del re-index del cluster ante moves de POSICIÓN (no estructurales).
 // `cluster.index` (Supercluster.load) es O(n log n) + ~4 allocs/punto y resetea la firma → fuerza
@@ -779,11 +779,17 @@ export class MapEngine {
       // Lectura imperativa del eje marked (paridad con getSession): mismo payload que el evento.
       getMarked: () => buildMarked(cluster.markedHidden),
       // Contenido (ids de dato) de una burbuja del frame actual — consulta pura, hermana de
-      // expand() pero sin efectos. Misma guarda de generación que el click handler.
+      // expand() pero sin efectos. Misma guarda de generación que el click handler. Sólo entiende
+      // ids de burbuja BASE (los de Supercluster + el sintético 'b:' de la sesión); el contenido de
+      // una SUB-burbuja de la espiral se lee de la estructura de sesión (getSession / cluster:*).
       contentsOf: (id) => (bubbleRec?.source?.itemById?.(id) ? cluster.contents(id) : null),
       // Id de la capa de burbujas: el consumidor se suscribe a sus hits por el bus normal
       // (map.on('click' | 'hover', bubbleLayerId, cb)) y compone con contentsOf/expand.
       bubbleLayerId: bubbleId,
+      // Id de la capa de SUB-burbujas de la espiral (jerarquía depth-2). Mismo patrón que bubbleLayerId:
+      // suscribirse a sus hits por el bus; el hit.id es el ancla del grupo → componer con la estructura
+      // de sesión (getSession / eventos cluster:*), que trae los miembros de cada grupo.
+      subBubbleLayerId: spiderSubId,
       set onInteraction(fn) { _onInteraction = fn },
     }
     // dispose idempotente compartido: quitar cualquiera de los hosts (o el sibling) limpia el fold.
@@ -1162,7 +1168,14 @@ export class MapEngine {
       this.#registerResolver(siblingId, 'point', zIndex, order, e => layer.resolveClick(e), e => layer.resolveHover(e), { capture: true })
     }
     return {
-      feed: (bubbles) => controls.set(bubbles),
+      // feed SINCRÓNICO con el recluster: set() deja el Store al día ya, y refresh() reconstruye
+      // buffers + #idBySlot + picking EN EL MISMO TICK (la emisión del Source va a rAF, el rebuild
+      // acá no espera). Sin el refresh, el pick de un click quedaría UNA generación detrás del
+      // estado vivo (ventana rAF): un cluster-id viejo que colisione numéricamente con uno nuevo
+      // (los ids de Supercluster son densos) pasaría la guarda de itemById y getLeaves resolvería
+      // OTRO cluster. El #onChange del rAF posterior re-camina los dirty ya escritos (idempotente,
+      // n = nº de burbujas). Simétrico con los hosts (apply) y el spider (applySpider).
+      feed: (bubbles) => { controls.set(bubbles); layer.refresh() },
       // removeLayer limpia registry, pickLayers y bus — más completo que el destroy manual anterior.
       dispose: () => this.removeLayer(siblingId),
     }

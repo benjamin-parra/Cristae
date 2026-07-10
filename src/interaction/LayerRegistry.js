@@ -1,4 +1,4 @@
-import { EVENT_CLICK, EVENT_HOVER } from '../events/events.js'
+import { EVENT_CLICK, EVENT_HOVER, EVENT_SECONDARY } from '../events/events.js'
 import { HitResolver } from './HitResolver.js'
 
 // Registro de capas interactivas. Genérico sobre funciones resolver: no conoce capas de
@@ -184,9 +184,14 @@ export class LayerRegistry {
 
   // Pide partes de hit al resolver del canal correspondiente, solo si ese canal tiene
   // demanda activa en la capa → sin demanda de hover, no se hace picking de hover.
+  // Los canales discretos (click primario / secundario) comparten el pick síncrono `resolveClick`
+  // (el botón no cambia dónde cae el hit); cada uno se gatea por su propio bit de demanda.
   #resolveParts(entry, eventType, baseEvent) {
     if (eventType === 'click') {
       return (entry.activeMask & EVENT_CLICK) ? (entry.resolveClick?.(baseEvent) ?? []) : []
+    }
+    if (eventType === 'secondary-click') {
+      return (entry.activeMask & EVENT_SECONDARY) ? (entry.resolveClick?.(baseEvent) ?? []) : []
     }
     return (entry.activeMask & EVENT_HOVER) ? (entry.resolveHover?.(baseEvent) ?? []) : []
   }

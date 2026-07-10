@@ -85,6 +85,16 @@ export class PagedTable<T = unknown> {
   getPageInfo(): PageInfo;
   /** Ítem de una fila por su índice 1-based del DOM (vía slice visible). */
   itemAtRow(rowIndex: number): T | null;
+  /**
+   * Posición 0-based de `item` en la vista filtrada + ordenada vigente, o -1 si no está en el
+   * dataset o no pasa el filtro. Inverso de `itemAtRow`: no toca el render. `item` debe ser una
+   * referencia del dataset vigente (la que entregan `getSnapshot()`/`itemAtRow`). Determinista
+   * mientras `comparator` sea un orden total (con empates, la posición dentro del bloque empatado
+   * queda indefinida, igual que el particionado por quickselect del render).
+   */
+  indexOf(item: T): number;
+  /** Página 0-based en la que cae `item` bajo el filtro + orden vigentes, o -1 si no está / no pasa el filtro. */
+  pageOf(item: T): number;
   refresh(): this;
   destroy(): void;
 }

@@ -88,7 +88,50 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   por propiedad (frameworks que asignan propiedades no pasan por el converter, p. ej. React 19);
   atributo removido o vacío ⇒ vuelve al camino legacy. **Sin `fit`, nada cambia.**
 
+- **Canal de evento `secondary-click` (click contextual: botón secundario / long-press / tecla Menú).**
+  `map.on('secondary-click', layerId?, cb)` entrega los hits GPU-pickeados en el punto del gesto por el
+  MISMO camino síncrono que el click primario (`resolveClick`) — el botón no cambia dónde cae el hit, sólo
+  cuál se apretó. Es un canal DISCRETO con su propio bit de demanda (`EVENT_SECONDARY`): no abre sesión de
+  picking de hover (`PICK_CHANNELS` lo excluye) y por ende no toca el cursor. El menú nativo del browser
+  queda **intacto por default** — el listener va por el `contextmenu` del DOM (no por el evento de Leaflet)
+  y es no-passive, así el consumidor lo suprime con `event.preventDefault()` sólo cuando resolvió un hit
+  propio. Sin suscriptores: cero costo y comportamiento nativo sin cambios.
+
+- **`subBubbleLayerId` en `<cristae-cluster>` (+ `control`): capa de sub-burbujas de la espiral consultable.**
+  Hermano de `bubbleLayerId` para la jerarquía depth-2: el consumidor se suscribe a los hits de las
+  sub-burbujas por el bus (`map.on('click' | 'secondary-click' | 'hover', subBubbleLayerId, cb)`); el
+  `hit.id` es el ancla del grupo → se compone con la estructura de sesión (`cluster.session` / eventos
+  `cluster:*`, que traen los miembros por grupo). `null` si no hay espiral.
+
+- **`PagedTable.indexOf(item)` / `pageOf(item)`: posición y página de un ítem en la vista vigente.**
+  Inverso de `itemAtRow`: `indexOf` devuelve la posición 0-based de `item` en la vista filtrada + ordenada
+  (o -1 si no pasa el filtro), sin tocar el render — recorre el dataset una vez contando cuántas filas
+  visibles ordenan antes; `pageOf` es azúcar (`⌊indexOf / pageSize⌋`) para "¿en qué página aparece esta
+  fila?". Determinista mientras el `comparator` sea un orden total (con empates, la posición dentro del
+  bloque empatado queda indefinida, igual que el particionado por quickselect del render). El gate de
+  membresía se unificó en un helper (`#matches`): la MISMA regla `where` + búsqueda que el camino caliente.
+  Publicado en `types/table.d.ts`.
+
 ### Corregido
+- **El pick de una burbuja de cluster podía quedar una generación atrás del estado vivo.** El `feed` de la
+  capa de burbujas hacía `Source.set()` (síncrono al store) pero difería a rAF el rebuild de buffers +
+  picking; entre el recluster y ese rAF, un click resolvía contra el índice viejo y un cluster-id reciclado
+  (los ids de Supercluster son densos) podía pasar la guarda y devolver OTRO cluster. Ahora el `feed`
+  reconstruye buffers + `#idBySlot` + picking **en el mismo tick** (`layer.refresh()`), simétrico con los
+  hosts y la espiral; el `#onChange` posterior del rAF re-camina los dirty ya escritos (idempotente,
+  O(nº de burbujas)).
+
+- **`Cluster.contents()` devolvía la membresía VIVA de la burbuja de una sesión abierta, no la que se vio.**
+  Cuando el id consultado es el de la burbuja base de una sesión abierta (id vivo de Supercluster, no el
+  sintético `'b:'`), ahora responde con el **snapshot congelado** (`#baseLeaves`) — el mismo conteo/hojas
+  que la burbuja dim y la espiral renderizan — en vez del bucket vivo, que pudo ganar/perder miembros
+  durante la sesión. Misma atomicidad con-lo-visto que las sub-burbujas. Sin sesión abierta, sin cambios.
+
+- **La paginación mostraba un total "de N" congelado dentro de la misma cantidad de páginas.** El
+  dirty-skip de `#updatePaginationUI` comparaba sólo página + nº de páginas, así que altas/bajas del dataset
+  (o un cambio del `where` por ref + `refresh()`) que no cruzaban un borde de página no re-emitían `onPage`
+  y la vista quedaba con el conteo viejo. Ahora también compara el total de ítems (`#lastTotal`).
+
 - **Los updates incrementales de la capa de puntos sobrevivían sólo hasta el próximo render de
   glify.** `#writePosition`/`#writeSlot` escribían el buffer GPU (y su espejo `typedVertices`)
   pero NO los arrays CPU (`#positions`/`#meta`) desde los que glify REGENERA los vértices en cada

@@ -245,15 +245,21 @@ export class Cluster {
     return this.#hasBaseAnchor(leaves)
   }
 
-  // Contenido (ids de dato) de una burbuja del FRAME actual — consulta pura, hermana de
+  // Contenido (ids de dato) de una burbuja BASE del FRAME actual — consulta pura, hermana de
   // expandCluster pero sin efectos. `clusterId` es efímero: pasar uno recién obtenido (un hit
-  // del frame). La burbuja dim de la sesión abierta ('b:'+ancla) responde con el snapshot
-  // congelado. null si el id es stale/desconocido.
+  // del frame). La burbuja dim de la sesión abierta ('b:'+ancla) responde con el snapshot congelado.
+  // null si el id es stale/desconocido. (El contenido de una SUB-burbuja de la espiral NO se consulta
+  // acá — su id es una hoja-ancla, no un cluster de Supercluster — sino en sessionStructure.groups.)
   contents(clusterId) {
     if (this.#baseAnchor != null && clusterId === 'b:' + this.#baseAnchor)
       return this.#baseLeaves.map(l => l.properties.id)
     let leaves
     try { leaves = this.#leavesOf(clusterId) } catch { return null }
+    // Burbuja dim de la sesión abierta con id VIVO de Supercluster (caso común, no el sintético
+    // 'b:'): responde con el snapshot CONGELADO — lo que la burbuja y la espiral renderizan
+    // (conteo + hojas del click) — no con el bucket vivo, que puede haber ganado/perdido
+    // miembros durante la sesión. Misma atomicidad con-lo-visto que las sub-burbujas.
+    if (this.#hasBaseAnchor(leaves)) return this.#baseLeaves.map(l => l.properties.id)
     return leaves.map(lf => lf.properties.id)
   }
 

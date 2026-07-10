@@ -92,13 +92,19 @@ export class Interaction {
     this.#onDom('pointerleave', () => this.#onPointerLeave())
 
     this.#onMap('click', (e) => this.#onClick(e))
+    // secondary-click va por listener DOM del CONTENEDOR, no por el evento 'contextmenu' de
+    // Leaflet: con un listener Leaflet el mapa ejecuta preventDefault en TODO click derecho
+    // (haya o no feature debajo), matando el menú nativo del browser incondicionalmente. Con el
+    // listener DOM el default queda intacto y decide el consumidor. No-passive: el consumidor
+    // puede llamar preventDefault() sobre el evento entregado.
+    this.#onDom('contextmenu', (e) => this.#onSecondaryClick(e), { passive: false })
     this.#onMap('movestart', () => this.#beginInteraction())
     this.#onMap('zoomstart', () => this.#beginInteraction())
     this.#onMap('moveend', () => this.#endInteraction())
     this.#onMap('zoomend', () => { this.#pickLayers().forEach(({ layer }) => layer.syncPickingSize()); this.#endInteraction() })
   }
 
-  #onDom(type, fn) { this.#container.addEventListener(type, fn, { passive: true }); this.#domHandlers.set(type, fn) }
+  #onDom(type, fn, options = { passive: true }) { this.#container.addEventListener(type, fn, options); this.#domHandlers.set(type, fn) }
   #onMap(type, fn) { this.#map.on(type, fn); this.#mapHandlers.set(type, fn) }
 
   /* ── Puntero ── */
@@ -150,6 +156,22 @@ export class Interaction {
   #onClick(event) {
     const hits = this.#registry.resolveHits('click', event)
     this.#bus.dispatch('click', hits, event.originalEvent ?? event)
+  }
+
+  // Click contextual (botón secundario / long-press / tecla Menú), desde el MouseEvent del DOM.
+  // La muestra (containerPoint/latlng/layerPoint) se arma acá — mismo shape que #sampleOf — y el
+  // pick es el MISMO camino síncrono que el click primario (`resolveHits('secondary-click')` →
+  // `resolveClick`). El menú nativo del browser queda INTACTO por default: lo suprime el
+  // consumidor con `event.preventDefault()` sólo cuando resolvió un hit propio.
+  #onSecondaryClick(event) {
+    const containerPoint = this.#map.mouseEventToContainerPoint(event)
+    const sample = {
+      containerPoint,
+      latlng: this.#map.containerPointToLatLng(containerPoint),
+      layerPoint: this.#map.containerPointToLayerPoint(containerPoint),
+    }
+    const hits = this.#registry.resolveHits('secondary-click', sample)
+    this.#bus.dispatch('secondary-click', hits, event)
   }
 
   /* ── Sesión de hover (picking GPU no bloqueante) ── */

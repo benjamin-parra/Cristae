@@ -63,6 +63,7 @@ export class EventBus {
   dispatch(kind, hits, baseEvent) {
     if (kind === 'pointer:move') return this.#emitRaw('pointer:move', baseEvent)
     if (kind === 'click') return this.#emit('click', hits, baseEvent)
+    if (kind === 'secondary-click') return this.#emit('secondary-click', hits, baseEvent)
     if (kind === 'hover') return this.#dispatchHover(hits, baseEvent)
     if (kind === 'hover:out') return this.#dispatchHoverOut(baseEvent)
   }

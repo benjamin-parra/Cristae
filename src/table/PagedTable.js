@@ -36,6 +36,7 @@ export class PagedTable {
   #searchQuery = ''
   #lastPageCount = -1
   #lastPageIndex = -1
+  #lastTotal = -1
 
   #refs = {
     scrollContainer: null,
@@ -165,6 +166,48 @@ export class PagedTable {
     return this.#visibleSlice[rowIndex - this.#pageIndex * this.#pageSize - 1] ?? null
   }
 
+  // Posición (0-based) de `item` en la vista filtrada + ordenada vigente, o -1 si no está en el
+  // dataset o no pasa el filtro. Inverso de `itemAtRow`: NO toca el render ni el `workingSet` —
+  // recorre el dataset una vez contando cuántas filas visibles ordenan antes de `item`. `item` debe
+  // ser una referencia del dataset vigente (la que entregan `getSnapshot()`/`itemAtRow`). Con orden
+  // (`comparator`) el rango es el nº de filas visibles que ordenan estrictamente antes; sin orden es
+  // el nº de filas visibles previas en el dataset. Determinista mientras `comparator` sea un orden
+  // total; con empates, la posición dentro del bloque empatado no está definida (mismo criterio que
+  // el particionado por quickselect del render).
+  indexOf(item) {
+    const query = this.#searchQuery.toLowerCase()
+    if (!this.#matches(item, query)) return -1
+
+    const data = this.#dataset
+    const cmp = this.#options.comparator
+    let rank = 0
+
+    if (cmp) {
+      let found = false
+      for (let i = 0; i < data.length; ++i) {
+        const other = data[i]
+        if (other === item) { found = true; continue }
+        if (this.#matches(other, query) && cmp(other, item) < 0) rank++
+      }
+      return found ? rank : -1
+    }
+
+    // Sin comparador el orden es el del dataset: el rango es el nº de filas visibles previas.
+    for (let i = 0; i < data.length; ++i) {
+      const other = data[i]
+      if (other === item) return rank
+      if (this.#matches(other, query)) rank++
+    }
+    return -1
+  }
+
+  // Página (0-based) en la que cae `item` bajo el filtro + orden vigentes, o -1 si no está / no pasa
+  // el filtro. Azúcar sobre `indexOf` para el caso común "¿en qué página aparece esta fila?".
+  pageOf(item) {
+    const index = this.indexOf(item)
+    return index < 0 ? -1 : Math.floor(index / this.#pageSize)
+  }
+
   refresh() { this.#requestUpdate(false); return this }
 
   destroy() {
@@ -198,6 +241,20 @@ export class PagedTable {
       this.#refreshPending = false
       this.#executePipeline(wasHard)
     })
+  }
+
+  // Membresía de la vista de UN ítem: where primero, luego text-search. `query` llega ya en
+  // minúsculas. Es el MISMO gate que `#mergeAndFilter` (que lo desdobla en bucles para el camino
+  // caliente); acá vive la regla única para las consultas de posición (`indexOf`/`pageOf`), fuera
+  // de ese camino.
+  #matches(item, query) {
+    const { searchBy: selector, searchFilter: predicate, where } = this.#options
+    if (where && !where(item)) return false
+    if (!query || !selector) return true
+    const val = selector(item)
+    return predicate
+      ? predicate(query, item, val)
+      : String(val ?? '').toLowerCase().includes(query)
   }
 
   // Filtra el dataset en `workingSet` (reusado). Sin búsqueda → copia de refs directa. Devuelve el
@@ -366,11 +423,15 @@ export class PagedTable {
   }
 
   // Notifica el cambio de página/total a la vista (que dibuja la paginación declarativamente).
-  // Dirty-skip: si no cambió ni la página ni el total, no emite.
+  // Dirty-skip por página + TOTAL DE ÍTEMS: comparar sólo totalPages silenciaría cualquier cambio
+  // de conteo dentro de la misma cantidad de páginas (altas/bajas del dataset, cambio del `where`
+  // por ref + refresh()) y la vista mostraría un "de N" congelado hasta cruzar un borde de página.
   #updatePaginationUI(totalPages) {
-    if (totalPages === this.#lastPageCount && this.#pageIndex === this.#lastPageIndex) return
+    if (totalPages === this.#lastPageCount && this.#pageIndex === this.#lastPageIndex
+      && this.#totalItems === this.#lastTotal) return
     this.#lastPageCount = totalPages
     this.#lastPageIndex = this.#pageIndex
+    this.#lastTotal = this.#totalItems
     this.#options.onPage?.(this.getPageInfo())
   }
 
