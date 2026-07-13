@@ -6,6 +6,23 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
 ## [Sin publicar]
 
 ### Añadido
+- **Eje `enabled` en `<cristae-point-layer>`: membresía de la ENTIDAD en la composición.**
+  Ortogonal a `visible` (que queda como pintado puro — sprites ocultos, la capa sigue componiendo):
+  una capa deshabilitada **aporta ∅ a los modificadores que la consumen** — el fold de cluster
+  indexa `source ∧ where` de los hosts HABILITADOS (espejo del mecanismo `setWhere → reindex`),
+  así que sus burbujas se recomputan sin los puntos del host apagado (todos apagados → sin
+  burbujas; una sesión de expansión abierta se cierra con `cluster:dismiss` al podarse el ancla).
+  Además oculta su pane, limpia su picking, y **arrastra a sus LIGADOS**: labels `bind-to` (por su
+  canal nativo `setVisibility` — pane + gate de pintado juntos; el toggle del consumidor sólo
+  registra su intención mientras el host está apagado, sin re-mostrar el canvas retenido) y
+  overlays (pane + gate). El **pipeline de render deja de reaccionar a la Source** mientras está
+  deshabilitada (`PointLayer.#enabled`, mismo patrón que `LabelLayer`): cero CPU/GPU por emit del
+  WS; al re-habilitar, `refresh()` de catch-up (la Source siguió viva → la capa vuelve al día).
+  Capas/overlays que NACEN con el host deshabilitado nacen gateados; `attachSource` conserva el
+  gate. Superficie: atributo/prop `enabled` (default `true`), handle `setEnabled`,
+  `engine.setLayerEnabled(id, enabled)`. `setLayerVisibility` ahora compone la visibilidad
+  efectiva del pane (`visible ∧ enabled`, el del host para ligados). Retro-compatible: todo el
+  comportamiento nuevo se gatea por `enabled === false`, que ningún consumidor existente setea.
 - **Tipos TypeScript publicados en el paquete (`types/`).** Los entries `cristae/core`,
   `cristae/table` y `cristae/map` declaran su condición `types` en `exports`: contrato
   Source completo (`createSource`/`defineSource`/`makeFilter`, `patch(items, dirtyIds)`

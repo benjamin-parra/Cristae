@@ -172,7 +172,8 @@ El overlay no captura el puntero (deja pasar drag/zoom); cada hijo sloteado lo r
 |---|---|---|
 | `id` | string | atributo (= id de capa) |
 | `interactive` | boolean | atributo |
-| `visible` | boolean (default `true`) | atributo |
+| `visible` | boolean (default `true`) | atributo — pintado puro: oculta los sprites sin sacar la capa de la composición (un cluster que la envuelva sigue contándola) |
+| `enabled` | boolean (default `true`) | atributo — membresía de la **entidad** en la composición, ortogonal a `visible`: deshabilitada aporta ∅ a los modificadores que la consumen (un cluster re-indexa sin sus puntos y recomputa las burbujas), oculta pane + picking, arrastra a sus ligados (labels `bind-to`, overlays) y su pipeline deja de reaccionar a la Source (cero CPU/GPU por emit). Handle: `setEnabled` / `engine.setLayerEnabled` |
 | `auto-fit` | `"once"` | atributo — encuadra la capa al llegar los **primeros** puntos (una vez), vía `camera.fitToLayer` |
 | `icon-set` | string (nombre registrado) \| objeto IconSet | atributo (string) o prop `iconSet` (objeto) |
 | `data` | `Item[]` (ruta A) | **prop** |

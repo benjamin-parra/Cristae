@@ -36,6 +36,10 @@ export class PointLayer {
   #count = 0
   #snapLen = -1                   // tamaño del snapshot del último rebuild (detecta alta/baja)
   #suppressed = null              // ids a omitir del buffer (p. ej. clusterizados); null = ninguno
+  // Deshabilitada como ENTIDAD (setLayerEnabled): la suscripción a la Source no procesa nada —
+  // cero CPU/GPU por emit del WS mientras el pane está oculto (mismo patrón que LabelLayer).
+  // refresh() sigue operativo (es el catch-up explícito al re-habilitar).
+  #enabled = true
 
   #unsub = null
 
@@ -121,6 +125,10 @@ export class PointLayer {
   // Predicado de membresía por-capa (overlay). Cambiarlo exige refresh().
   set where(fn) { this.#where = fn ?? null }
 
+  // Gate del pipeline (entidad deshabilitada): apaga la REACCIÓN a la Source, no el handle.
+  // Re-habilitar exige refresh() para ponerse al día (lo hace setLayerEnabled).
+  set enabled(v) { this.#enabled = v !== false }
+
   destroy() {
     this.#unsub?.()
     this.#picking?.detach()
@@ -132,6 +140,7 @@ export class PointLayer {
   /* ── Reacción al Source (ya coalescida a rAF por el Emitter) ── */
 
   #onChange() {
+    if (!this.#enabled && this.#layer) return   // deshabilitada: no reaccionar (el 1er build sí corre — refresh() exige #layer)
     const snap = this.#source.getSnapshot()
     if (!this.#layer || snap.length !== this.#snapLen) return this.#rebuild(snap)
 

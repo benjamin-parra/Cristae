@@ -198,7 +198,7 @@ export class MapEngine {
   /* ── Capas de puntos ── */
 
   addPointLayer(cfg) {
-    const { id, data, accessors, iconSet, interactive = false, pane, z, visible = true, filters, where, cluster, capture, presentAs } = cfg
+    const { id, data, accessors, iconSet, interactive = false, pane, z, visible = true, enabled = true, filters, where, cluster, capture, presentAs } = cfg
     const order = this.#order++
     const paneName = pane ?? `cristae-point-${id}`
     const zIndex = z ?? (BASE_Z + order * Z_STEP)
@@ -213,17 +213,20 @@ export class MapEngine {
     // sin mutar la Source). Otras vistas de la misma Source no se ven afectadas.
     const layer = this.#trackGl(new PointLayer({ glify: this.#glify, map: this.#map, pane: paneName, source, iconSet: set, interactive, where }))
 
-    // `where` en el record: si esta capa está clusterizada, el cluster indexa `source ∧ where` (no la
-    // Source cruda) → cuenta lo que la capa REALMENTE muestra. setWhere lo actualiza y re-indexa el cluster.
-    const record = { kind: 'point', source, layer, controls, paneName, order, interactive, where: where ?? null }
+    // `where`/`enabled` en el record: si esta capa está clusterizada, el cluster indexa `source ∧ where`
+    // de los hosts HABILITADOS (no la Source cruda) → cuenta lo que la capa REALMENTE muestra.
+    // setWhere/setLayerEnabled los actualizan y re-indexan el cluster. `visible` (pintado puro) se
+    // persiste para componer la visibilidad EFECTIVA del pane (visible ∧ enabled).
+    const record = { kind: 'point', source, layer, controls, paneName, order, interactive, where: where ?? null, visible, enabled }
     this.#layers.set(id, record)
+    if (!enabled) layer.enabled = false          // nace gateada: no reacciona a la Source hasta setLayerEnabled(true)
 
     if (interactive) {
       this.#pickLayers.push({ layerId: id, layer })
       // Los resolvers leen record.layer (no capturan): attachSource puede swapear la capa.
       this.#registerResolver(id, 'point', zIndex, order, e => record.layer.resolveClick(e), e => record.layer.resolveHover(e), { capture, presentAs })
     }
-    this.#applyVisibility(id, paneName, visible)
+    this.#applyVisibility(id, paneName, visible && enabled)
 
     filters?.forEach(f => controls?.addFilter(f))
     if (data && controls) controls.set(data)
@@ -289,7 +292,12 @@ export class MapEngine {
         // Al re-habilitar: refrescar los labels con el estado actual ANTES de que el overlay pinte
         // (setVisibility(true)→setEnabled(true)→requestRedraw). Así no hay flash de contenido viejo.
         if (v && wasHidden) record.resync?.()
-        labelLayer.setVisibility(v)
+        // Compone la membresía del host (bindTo): con el host deshabilitado como ENTIDAD, el toggle
+        // del consumidor sólo registra su intención (record.visible) — el pane no se muestra hasta
+        // que setLayerEnabled(true) lo restaure (y resyncee el contenido). Sin esto, prender labels
+        // con el host deshabilitado re-mostraría el canvas con lo último pintado (labels fantasma).
+        const host = record.bindTo ? this.#layers.get(record.bindTo) : null
+        labelLayer.setVisibility(v && host?.enabled !== false)
       },
     }
   }
@@ -469,17 +477,21 @@ export class MapEngine {
       setLegs([...bands, ...segs])   // bandas detrás (se dibujan primero), patas encima
     }
 
-    // El cluster indexa lo que la capa MUESTRA = `source ∧ where` (membresía por-capa), no la Source
-    // cruda → los conteos de burbuja reflejan el filtro de la pantalla. Sin el `where` de una capa, es su
-    // snapshot completo. La re-indexación ante cambios de `where` la dispara setWhere (record.cluster.reindex).
+    // El cluster indexa lo que la capa MUESTRA = `source ∧ where` de cada host HABILITADO (membresía
+    // por-capa + membresía de la ENTIDAD), no la Source cruda → los conteos de burbuja reflejan lo que
+    // la pantalla ve. Un host con `enabled=false` aporta ∅: sus puntos no clusterizan y las burbujas se
+    // recomputan sobre los hosts vivos (sin ninguno → sin burbujas). Sin el `where` de una capa, es su
+    // snapshot completo. La re-indexación ante cambios de `where`/`enabled` la disparan
+    // setWhere/setLayerEnabled (record.cluster.reindex).
     const snapshot = () => {
-      if (hosts.length === 1) {
-        const { rec } = hosts[0]
+      const live = hosts.filter(({ rec }) => rec.enabled !== false)
+      if (live.length === 1) {
+        const { rec } = live[0]
         const s = rec.source.getSnapshot()
         return rec.where ? s.filter(rec.where) : s
       }
       const all = []
-      for (const { rec } of hosts) {
+      for (const { rec } of live) {
         const s = rec.source.getSnapshot(), w = rec.where
         for (let i = 0; i < s.length; i++) if (!w || w(s[i])) all.push(s[i])
       }
@@ -519,6 +531,7 @@ export class MapEngine {
       for (const { id, rec } of hosts) {
         rec.suppressed = cluster.clusteredIds
         rec.layer.suppressed = cluster.clusteredIds
+        if (rec.enabled === false) continue        // host deshabilitado: pane oculto — repintar/resyncear se difiere a setLayerEnabled(true)
         rec.layer.refresh()
         this.#resyncBound(id)                      // recluster → re-filtra labels + overlays ligados a este host
       }
@@ -831,12 +844,13 @@ export class MapEngine {
     layer.refresh()
 
     const record = {
-      kind: 'overlay', source: host.source, layer, paneName, order, bindTo: hostId,
+      kind: 'overlay', source: host.source, layer, paneName, order, bindTo: hostId, visible,
       // el cluster reinvoca esto al re-suprimir (#resyncBound): re-apunta al ref vivo del host + reconstruye.
       resync: () => { layer.suppressed = this.#layers.get(hostId)?.suppressed ?? null; layer.refresh() },
     }
     this.#layers.set(id, record)
-    this.#applyVisibility(id, paneName, visible)
+    this.#applyVisibility(id, paneName, visible && host.enabled !== false)   // ligado: nace oculto si su host está deshabilitado
+    if (host.enabled === false) layer.enabled = false                        // y gateado (setLayerEnabled(true) lo revive con resync)
 
     return {
       id,
@@ -859,6 +873,7 @@ export class MapEngine {
     record.layer = this.#trackGl(new PointLayer({
       glify: this.#glify, map: this.#map, pane: record.paneName, source, iconSet: record.iconSet, interactive: record.interactive, where: record.where,
     }))
+    if (record.enabled === false) record.layer.enabled = false   // el swap conserva el gate de la entidad deshabilitada
     if (record.interactive) {
       const entry = this.#pickLayers.find(e => e.layerId === id)
       if (entry) entry.layer = record.layer
@@ -888,8 +903,52 @@ export class MapEngine {
   setLayerVisibility(id, visible) {
     const record = this.#layers.get(id)
     if (!record) return false
-    this.#applyVisibility(id, record.paneName, visible)
-    if (!visible) this.#bus.clearLayer(id)
+    // `visible` (pintado) se persiste para componer con `enabled` (membresía de la entidad): la
+    // visibilidad EFECTIVA del pane es visible ∧ enabled — el propio para hosts, el del host para
+    // ligados (bindTo). Los labels mantienen su flag por su canal propio (gate del sync, #bindLabels).
+    if (record.kind !== 'label') record.visible = visible
+    const host = record.bindTo ? this.#layers.get(record.bindTo) : null
+    const effective = visible && record.enabled !== false && (!host || host.enabled !== false)
+    this.#applyVisibility(id, record.paneName, effective)
+    if (!effective) this.#bus.clearLayer(id)
+    return true
+  }
+
+  // Habilita/deshabilita una capa de puntos como ENTIDAD de la composición — eje ortogonal a
+  // `visible` (pintado puro): deshabilitada aporta ∅ a los modificadores que la consumen (un
+  // cluster que la envuelva re-indexa sin sus puntos y recomputa las burbujas), su pane se
+  // oculta, su picking se limpia y sus LIGADOS (labels/overlays bind-to) se ocultan con ella.
+  // Habilitarla restaura todo (resync + reindex incluidos). Idempotente; NO toca la Source —
+  // los datos siguen vivos (move/patch del WS) y al volver, la capa aparece al día.
+  setLayerEnabled(id, enabled) {
+    const record = this.#layers.get(id)
+    if (!record || record.kind !== 'point') return false
+    const next = enabled !== false
+    if ((record.enabled !== false) === next) return true
+    record.enabled = next
+    // Gate del pipeline de render: deshabilitada, la capa NO reacciona a la Source (cero CPU/GPU
+    // por emit del WS — el ahorro real de "deshabilitar", no sólo ocultar). refresh() abajo es el
+    // catch-up al volver (la Source siguió viva mientras tanto).
+    record.layer.enabled = next
+    this.#applyVisibility(id, record.paneName, next && record.visible !== false)
+    if (!next) this.#bus.clearLayer(id)
+    // Ligados: siguen la suerte de la ENTIDAD (un badge/label de un host deshabilitado no queda
+    // flotando solo). Componen su propio `visible` — re-habilitar no revive lo que el consumidor
+    // ocultó por su toggle. Los labels van por su canal nativo (setVisibility: pane + gate de
+    // pintado JUNTOS — su canvas retiene lo último pintado, ocultar sólo el pane desalinearía el
+    // gate al componer con su propio toggle); los overlays gatean su pipeline y ocultan su pane.
+    this.#layers.forEach((r, rid) => {
+      if (r.bindTo !== id) return
+      const on = next && r.visible !== false
+      if (r.kind === 'label') r.layer.setVisibility(on)
+      else {
+        if (r.kind === 'overlay') r.layer.enabled = next
+        this.#applyVisibility(rid, r.paneName, on)
+      }
+    })
+    this.#resyncBound(id)               // labels re-filtran + overlays refrescan (gateados por enabled → al volver, frescos)
+    if (next) record.layer.refresh()    // catch-up del host (para capas SIN cluster es LA vía; con cluster el apply() de abajo re-refresca — costo 1 rebuild por toggle)
+    record.cluster?.reindex()           // el fold recomputa las burbujas con la unión de hosts habilitados
     return true
   }
 
@@ -1117,6 +1176,10 @@ export class MapEngine {
       preloadIcons: (variants) => iconSet?.seed(variants),
       refresh: () => record.layer.refresh(),
       setVisible: (v) => this.setLayerVisibility(id, v),
+      // Membresía de la ENTIDAD en la composición (eje ortogonal a setVisible, que es pintado
+      // puro): off → la capa aporta ∅ a sus modificadores (el cluster re-indexa sin ella), pane
+      // oculto, picking limpio y ligados ocultos. Ver setLayerEnabled.
+      setEnabled: (v) => this.setLayerEnabled(id, v),
     }
   }
 
@@ -1209,12 +1272,14 @@ export class MapEngine {
     const text = textOf ?? (item => String(idOf(item)))
 
     const sync = () => {
-      // Guard de visibilidad: si la capa está oculta, saltar el reduce O(n) + setLabels. Con WS
+      // Guard de visibilidad: si la capa está oculta —o su host está deshabilitado como ENTIDAD
+      // (setLayerEnabled ocultó este pane junto a él)— saltar el reduce O(n) + setLabels. Con WS
       // a alta frecuencia este sync se invoca en cada emit (~1/frame); sin el guard procesaría
       // 2000+ ítems y pintaría fillText en un canvas que el usuario no ve. `record.visible` lo
       // setea addLabelLayer.setVisible; para bubble-labels (#makeBubbleSink, sin addLabelLayer)
-      // es undefined → no se aplica el guard (siempre visible).
-      if (record.visible === false) return
+      // es undefined → no se aplica el guard (siempre visible). Al re-habilitar el host,
+      // setLayerEnabled resyncea (este mismo sync) → labels frescos.
+      if (record.visible === false || host?.enabled === false) return
       record.layer.setLabels(
         src.getSnapshot().reduce((acc, item) => {
           const itemId = idOf(item)
