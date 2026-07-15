@@ -256,21 +256,38 @@ es azúcar sobre esto (su `controls` expone solo `{ id }` del host: quitar el el
 
 ### `<cristae-popup>` — tarjeta HTML anclada al dato
 
-**No es una capa** (no dibuja en GL): es un overlay del consumidor en **light DOM** (un nodo flotante en
-`document.body`, así el CSS de la página lo estiliza — un popup de Leaflet caería en el shadow root y no).
-Hijo de `<cristae-map>`. Se abre al click sobre la capa `for`, se posiciona proyectando la posición del
-item con la cámara, y se reubica en viewport/scroll. Cierra al click fuera o con `Escape`.
+**No es una capa** (no dibuja en GL): es un overlay del consumidor en **light DOM** (nodos flotantes en
+`document.body`, así el CSS de la página los estiliza — un popup de Leaflet caería en el shadow root y no).
+Hijo de `<cristae-map>`. Se abre al click sobre una capa `for` (acepta varios ids como token-list —
+capas hermanas que presentan los **mismos** datos, idealmente la misma instancia de `Source`), queda
+**anclado al item** (ancla viva: sigue sus `move`/`patch`) y se reubica en viewport/scroll. Cierra al
+click fuera, con `Escape`, o solo si el id sale del dataset.
 
 | Miembro | Tipo | Atributo / prop |
 |---|---|---|
-| `for` | string (id de la capa que lo abre) | atributo |
+| `for` | string (ids de capa que lo abren, token-list) | atributo |
 | `contentOf` | `(item) => string \| Node` | **prop** |
 | `offset` | `[dx, dy]` px (default `[0, -12]`) | **prop** |
-| `pinned` | boolean (default `true`) | atributo — fija la tarjeta al **punto geográfico**: se mueve con el mapa. `pinned="false"` la deja fija en pantalla (ignora pan/zoom) |
+| `follow` | boolean (default `true`) | atributo — ancla VIVA: la tarjeta sigue la posición del item leída del `Source` en cada flush. `follow="false"` la congela al punto de apertura |
+| `max-open` | number (default `1`) | atributo — tarjetas simultáneas: con `1` abrir reemplaza a la anterior; con N>1 cada item abre la suya (re-click la renueva) y al exceder N cae la más antigua |
+| `pinned` | boolean (default `true`) | atributo — fija la tarjeta al **punto geográfico**: se mueve con el mapa. `pinned="false"` la deja fija en pantalla (ignora pan/zoom y el ancla viva) |
 | `clip` | boolean (default `true`) | atributo — recorta la parte de la tarjeta que sobresalga de la región visible (mapa menos `viewport-insets`). `clip="false"` la deja desbordar |
 | `auto-pan` | boolean (default `true`) | atributo — al abrir, panea la cámara para meter la caja si se sale del recuadro; `auto-pan="false"` lo apaga |
 | `auto-pan-padding` | `[x, y]` px (default `[20, 20]`) | atributo — margen entre la caja y el borde de la región visible al panear |
-| **métodos** | `open(item, { lat, lng })`, `close()` | acción |
+| **métodos** | `open(item, latlng?)`, `close(id?)`, `refresh()` | acción |
+
+**Vida de la tarjeta** (mientras está abierta, colgada del flush de su `Source` — ya coalescido a rAF,
+mismo patrón que `Camera.followPoint`): el ancla **sigue** los `move`/`patch` del item sin re-render
+(un move nunca re-ejecuta `contentOf`); si un `set`/`patch` **reemplaza el objeto** del item,
+`contentOf` se re-ejecuta con el fresco; si el id **sale del dataset** (remove, `set` sin el item, o
+un filtro del `Source` que lo excluya), la tarjeta se cierra. `open(item, latlng)` con `latlng`
+explícito la deja **congelada** en ese punto (colocaciones deliberadas — p. ej. una hoja presentada
+por un overlay en su lugar desplegado); `open(item)` sin `latlng` requiere que el item viva en alguna
+capa `for`. `close(id)` cierra la tarjeta de ese id de dato; `close()` cierra todas. `refresh()`
+re-ejecuta `contentOf` de lo abierto (misma ancla, sin auto-pan) — para refrescos transversales del
+consumidor (p. ej. un cambio de idioma). El nodo `.cristae-popup` se **crea por apertura y se remueve
+al cerrar** (no hay nodo persistente): no cachear referencias al nodo, y cablear los listeners del
+contenido dentro de `contentOf` (cada re-render los repone).
 
 **Pinned** (default ON): la tarjeta está anclada al dato y **sigue al mapa** — al panear/zoom se
 re-proyecta sobre su punto. Con `pinned="false"` queda fija en su posición de pantalla sobre el mapa
@@ -279,8 +296,9 @@ re-proyecta sobre su punto. Con `pinned="false"` queda fija en su posición de p
 **Clip** (default ON): si la tarjeta se sale de la **región visible** —el mapa menos los
 `viewport-insets` (la franja que ocupan los widgets/paneles)— la fracción que sobresale **no se
 muestra** (recorte vía `clip-path` en el compositor), así no se monta sobre los widgets. Sin insets,
-recorta contra el borde del mapa. No cuesta por frame: usa el tamaño medido al abrir, así reposicionar
-no fuerza reflow. Con `clip="false"` desborda.
+recorta contra el borde del mapa. No cuesta por frame: usa el tamaño medido al renderizar (y re-medido
+por `ResizeObserver` si el contenido cambia), así reposicionar no fuerza reflow. Con `clip="false"`
+desborda.
 
 **Auto-pan** (como Leaflet, solo con `pinned`): al abrir, si la tarjeta no entra en la **región
 visible** —el contenedor menos los `viewport-insets` del mapa (la UI que ocluye)— la cámara panea lo

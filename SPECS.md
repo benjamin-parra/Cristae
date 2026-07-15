@@ -378,20 +378,31 @@ root del mapa. Hijo de `<cristae-map>`.
 
 | Entrada | Tipo | Notas |
 |---|---|---|
-| `for` (attr) | string | id de la capa cuyos hits la abren |
+| `for` (attr) | string (token-list) | ids de las capas cuyos hits la abren — hermanas que presentan los MISMOS datos (idealmente la misma instancia de `Source`) |
 | `contentOf` (prop) | `(item) → string \| Node` | la lib resuelve el item por `source.itemById(hit.id)` del hit |
 | `offset` (prop) | `[dx, dy]` px | default `[0, -12]` |
+| `follow` (attr) | boolean | default `true`; ancla VIVA (sigue la posición del item por flush del `Source`). `"false"` → congelada al punto de apertura |
+| `max-open` (attr) | number | default `1` (abrir reemplaza); N>1 → una tarjeta por item, la más antigua cae al exceder el cupo |
 | `pinned` (attr) | boolean | default `true`; fija al punto geo (sigue al mapa). `"false"` → fija en pantalla |
 | `clip` (attr) | boolean | default `true`; recorta lo que sobresalga de la región visible (mapa − `viewport-insets`). `"false"` → desborda |
 | `auto-pan` (attr) | boolean | default `true` (como Leaflet); `"false"`/`"0"` lo apaga |
 | `auto-pan-padding` (attr) | `[x, y]` px | default `[20, 20]`; margen al borde visible |
-| **métodos** | `open(item, {lat,lng})` / `close()` | acción |
+| **métodos** | `open(item, latlng?)` / `close(id?)` / `refresh()` | acción — sin `latlng` el ancla es viva; `close(id)` cierra por id de dato, `close()` todas; `refresh()` re-ejecuta `contentOf` de lo abierto sin panear |
 
 - Se posiciona con `camera.latLngToContainerPoint` (§9) y se reubica en `viewportchange`/scroll/resize.
+- **Vida por flush del `Source`** (una suscripción por tarjeta, ya coalescida a rAF — mismo patrón que
+  `Camera.followPoint`): (1) el id salió del dataset (remove / `set` sin el item / filtro que lo
+  excluye — `itemById` lee la vista filtrada) → la tarjeta se cierra; (2) el objeto del item fue
+  REEMPLAZADO (`set`/`patch`) → `contentOf` se re-ejecuta con el fresco; (3) su posición cambió y el
+  ancla es viva → re-ancla SIN re-render (un `move` nunca re-ejecuta `contentOf`; comparación a
+  primitivos, [0-alloc] en el camino caliente). El callback va aislado con `safe` (§ data/safe.js):
+  un `contentOf` que lance no corta el fan-out del Emitter al resto de los suscriptores. Un `latlng`
+  explícito en `open` congela el ancla (colocaciones presentadas por overlay/spider). El nodo
+  `.cristae-popup` se crea por apertura y se remueve al cerrar (con `max-open` puede haber N nodos).
 - **Reposición continua:** `viewportchange` solo llega en moveend/zoomend (baja frecuencia por contrato), así que para seguir el paneo/inercia EN CONTINUO la tarjeta engancha además el `move` crudo del `L.Map` (vía `engine.getLeafletMap()`); se re-vincula por montaje en `cristae:ready`. Sin esto, la tarjeta y su clip saltaban recién al detenerse el mapa.
 - Escucha los eventos de la lib en el **elemento mapa** (no en el engine) → sobrevive a un re-mount y lee la cámara viva.
-- **`pinned` (default ON):** re-proyecta el ancla en cada reposición → la tarjeta sigue el pan/zoom. `pinned="false"` congela el punto de contenedor inicial (`#screenPt`) → fija en pantalla, ajena a pan/zoom (acompaña solo el scroll del widget).
-- **`clip` (default ON):** `#applyClip` setea `clip-path: inset(...)` con la fracción que sobresale de la **región visible = rect del mapa − `viewport-insets`** (los mismos insets que usa auto-pan; así la tarjeta no se monta sobre los widgets/paneles). Geometría derivada del **tamaño cacheado en `open`** + transform base-centro → **cero `getBoundingClientRect` del nodo por frame** (el único rect leído por reposición es el del mapa, que ya se leía). Recorte de compositor, sin relayout.
+- **`pinned` (default ON):** re-proyecta el ancla en cada reposición → la tarjeta sigue el pan/zoom. `pinned="false"` congela el punto de contenedor inicial (por tarjeta) → fija en pantalla, ajena a pan/zoom y al ancla viva (acompaña solo el scroll del widget).
+- **`clip` (default ON):** `#applyClip` setea `clip-path: inset(...)` con la fracción que sobresale de la **región visible = rect del mapa − `viewport-insets`** (los mismos insets que usa auto-pan; así la tarjeta no se monta sobre los widgets/paneles). Geometría derivada del **tamaño cacheado al renderizar** (open/re-render; re-medido por `ResizeObserver` si el contenido cambia) + transform base-centro → **cero `getBoundingClientRect` del nodo por frame** (el único rect leído por reposición es el del mapa, que ya se leía). Recorte de compositor, sin relayout.
 - **Auto-pan al abrir (solo `pinned`):** si la caja se sale de la región visible (contenedor − `viewport-insets`), `open` llama `camera.panBy` con el delta en px justo para meterla + `auto-pan-padding`. Mismo cálculo que el `_adjustPan` de Leaflet pero contra los insets del mapa. El `panBy` re-dispara `viewportchange` → reubica sobre el ancla viva (no re-evalúa auto-pan: solo `open`). Sin `pinned`, panear no movería la tarjeta → se omite.
 
 ---

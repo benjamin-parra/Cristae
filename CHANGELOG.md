@@ -6,6 +6,20 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
 ## [Sin publicar]
 
 ### Añadido
+- **`<cristae-popup>`: ancla VIVA, `for` multi-capa y tarjetas simultáneas.** La tarjeta abierta
+  deja de ser una foto del click: se suscribe a la `Source` de su capa y en cada flush (ya
+  coalescido a rAF, mismo patrón que `Camera.followPoint`) **sigue la posición del item**
+  (`move`/`patch`) sin re-render, **re-ejecuta `contentOf`** cuando un `set`/`patch` reemplaza su
+  objeto, y **se cierra** si el id sale del dataset. Superficie nueva: `follow` (default `true`;
+  `"false"` congela el ancla al punto de apertura), `for` como **token-list** (capas hermanas que
+  presentan los MISMOS datos — idealmente la misma instancia de `Source` — abren la misma tarjeta),
+  `max-open` (default `1` = abrir reemplaza, como siempre; N>1 = una tarjeta por item con cupo FIFO),
+  `open(item)` con `latlng` **opcional** (sin él, ancla viva; con él, congelada — colocaciones
+  presentadas por overlay/spider), `close(id?)` (por id de dato, o todas) y `refresh()` (re-ejecuta
+  `contentOf` de lo abierto, misma ancla, sin auto-pan — para refrescos transversales del consumidor,
+  p. ej. idioma). El callback de flush va aislado con `safe`: un `contentOf` que lance no corta el
+  fan-out del Emitter. Costo: comparaciones O(1) por tarjeta por flush, sin allocs en el camino
+  caliente; un move **nunca** re-ejecuta `contentOf`. Docs en `docs/elements.md` + SPECS §8.5.
 - **Eje `enabled` en `<cristae-point-layer>`: membresía de la ENTIDAD en la composición.**
   Ortogonal a `visible` (que queda como pintado puro — sprites ocultos, la capa sigue componiendo):
   una capa deshabilitada **aporta ∅ a los modificadores que la consumen** — el fold de cluster
@@ -128,6 +142,28 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   bloque empatado queda indefinida, igual que el particionado por quickselect del render). El gate de
   membresía se unificó en un helper (`#matches`): la MISMA regla `where` + búsqueda que el camino caliente.
   Publicado en `types/table.d.ts`.
+
+### Cambiado
+- **`<cristae-popup>` — notas de migración** (comportamiento observable respecto de la versión
+  anterior; con datos estáticos no hay diferencia):
+  - El nodo `.cristae-popup` se **crea por apertura y se remueve al cerrar** (antes era un único
+    nodo persistente con `display:none`). No cachear referencias al nodo; en E2E asertar
+    presencia/ausencia, no `display`; las animaciones CSS de entrada corren en cada apertura.
+  - `contentOf` puede **re-ejecutarse** mientras la tarjeta está abierta (reemplazo del objeto por
+    `set`/`patch`, o `refresh()`): cablear los listeners del contenido DENTRO de `contentOf` (cada
+    re-render los repone) y no disparar side-effects "de apertura" ahí; el foco/selección dentro de
+    la tarjeta no sobrevive un re-render.
+  - La tarjeta **se cierra sola** si el id sale del dataset — incluye filtros del `Source`
+    (`addFilter` que lo excluya: `itemById` lee la vista filtrada) y un `set([])` transitorio entre
+    awaits (en el mismo tick el coalescing a rAF lo absorbe).
+  - `close(x)` con argumento ahora cierra **por id de dato** (string/number); cualquier otro valor
+    (p. ej. el `Event` de un `close` usado directo como handler) sigue cerrando todo.
+  - `positionOf` puede devolver lat/lng numéricos **o strings numéricos** (se coercionan, paridad
+    con la tolerancia de Leaflet); posiciones no finitas → la apertura es un no-op silencioso (antes
+    lanzaba `Invalid LatLng` dentro del listener de click en cada reposición).
+  - `offset`/`auto-pan-padding` asignados como **string por propiedad** ahora se parsean igual que
+    por atributo (antes el camino legacy los destructuraba por caracteres).
+  - Ids de capa con espacios dejan de ser direccionables por `for` (ahora es token-list).
 
 ### Corregido
 - **El pick de una burbuja de cluster podía quedar una generación atrás del estado vivo.** El `feed` de la
