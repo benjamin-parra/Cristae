@@ -15,11 +15,19 @@ import Atlas from './Atlas.js'
 //   Anti-patrón típico: derivar una prop vía `LISTA.indexOf(variant)` sobre una lista cerrada
 //   precalculada → `-1` para variantes nuevas → prop undefined. Derivar de la variante misma
 //   (hash, parseo) en su lugar, para que sea total por construcción.
+//
+//   Campo OPCIONAL `scale` (número > 0): multiplicador del tamaño en pantalla del sprite (su
+//   footprint), default 1. Deja que una variante rinda un ícono MÁS grande que su `sizeOf` sin
+//   re-rasterizar ni tocar el accessor — p. ej. un realce dibujado alrededor que excede el ícono.
 
 const HEADROOM = 1.5
 const MIN_CAPACITY = 16
 
 const capacityFor = (count) => Math.max(MIN_CAPACITY, Math.ceil((count || 1) * HEADROOM))
+
+// Escala de footprint declarada por el descriptor (`scale`): multiplicador del tamaño en pantalla
+// del sprite. Ausente o no-positiva ⇒ 1 (sin cambio). Se normaliza UNA vez, al rasterizar.
+const footprintScale = (s) => (Number.isFinite(s) && s > 0 ? s : 1)
 
 export class IconSet {
 
@@ -28,6 +36,8 @@ export class IconSet {
   #prerender
   #tileSize
   #atlas
+  #scales = []   // índice de tile → footprintScale (1 = sin cambio). Los índices del atlas son
+                 // estables ante grow, así que este arreglo sigue alineado entre generaciones.
 
   rotates
   defaultSize
@@ -47,17 +57,22 @@ export class IconSet {
   // El atlas vivo. Su identidad cambia en regrow → el binding re-sube y la capa re-encoda.
   get atlas() { return this.#atlas }
 
+  // Escala de footprint del tile ya resuelto (1 por defecto). La point-layer la aplica sobre
+  // gl_PointSize: una variante puede rendir un sprite MÁS grande que su `sizeOf`, sin re-rasterizar.
+  tileScale(i) { return this.#scales[i] ?? 1 }
+
   // variante → índice. Nueva: rasteriza + append (red de seguridad, nunca invisible).
   // Capacidad agotada → nueva generación (Atlas.grow); el caller detecta el regrow por identidad.
   resolve(variant) {
     let i = this.#atlas.indexOf(variant)
     if (i !== -1) return i
-    const bitmap = this.#rasterize(variant)
+    const { bitmap, scale } = this.#rasterize(variant)
     i = this.#atlas.append(variant, bitmap)
     if (i === -1) {
       this.#atlas = Atlas.grow(this.#atlas)
       i = this.#atlas.append(variant, bitmap)
     }
+    this.#scales[i] = scale
     return i
   }
 
@@ -68,6 +83,8 @@ export class IconSet {
   // mapa: una celda de tabla, una leyenda, etc. Idéntico al marcador (mismo describe+render). Genérico, sin
   // dominio. El consumidor lo cachea (p. ej. dataURL por variante) si lo pinta por fila. Si el iconSet
   // rota (`rotates`), el consumidor aplica la rotación por headingOf al reusarlo (el tile va sin rotar).
+  // El `scale` (footprint) TAMPOCO va en el tile: es tamaño en pantalla (gl_PointSize), no del bitmap →
+  // el reuse fuera del mapa muestra el ícono a tamaño de tile nativo (sin el agrandado del on-map).
   sprite(variant) { return this.#atlas.tileAt(this.resolve(variant)) }
 
   async #init(variants) {
@@ -84,7 +101,7 @@ export class IconSet {
     canvas.width = this.#tileSize
     canvas.height = this.#tileSize
     render(canvas.getContext('2d'), this.#tileSize, d)
-    return canvas
+    return { bitmap: canvas, scale: footprintScale(d.scale) }
   }
 }
 

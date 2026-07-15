@@ -180,6 +180,15 @@ export class PointLayer {
     this.#layer.layer.redraw()
   }
 
+  // Tamaño en pantalla del sprite: `sizeOf` (o el default del iconSet) × la escala de footprint de
+  // la variante (1 salvo que el descriptor pida `scale`). Punto único para los dos paths (rebuild e
+  // incremental) → la escala no puede olvidarse en uno.
+  #sizeFor(item, tileIdx) {
+    const a = this.#accessors
+    const base = a.sizeOf ? a.sizeOf(item) : this.#iconSet.defaultSize
+    return base * this.#iconSet.tileScale(tileIdx)
+  }
+
   /* ── Rebuild (O(n), reusa arrays) ── */
 
   #rebuild(snap) {
@@ -197,7 +206,7 @@ export class PointLayer {
 
       const tileIdx = this.#iconSet.resolve(a.variantOf ? a.variantOf(item) : DEFAULT_VARIANT)
       const an = (this.#iconSet.rotates && a.headingOf) ? angleNorm(a.headingOf(item)) : 0
-      const sz = a.sizeOf ? a.sizeOf(item) : this.#iconSet.defaultSize
+      const sz = this.#sizeFor(item, tileIdx)
 
       const p = this.#positions[idx]
       if (p) { p[0] = pos.lat; p[1] = pos.lng } else this.#positions[idx] = [pos.lat, pos.lng]
@@ -298,7 +307,7 @@ export class PointLayer {
     const pos = a.positionOf(item)
     const tileIdx = this.#iconSet.resolve(a.variantOf ? a.variantOf(item) : DEFAULT_VARIANT)
     const an = (this.#iconSet.rotates && a.headingOf) ? angleNorm(a.headingOf(item)) : 0
-    const sz = a.sizeOf ? a.sizeOf(item) : this.#iconSet.defaultSize
+    const sz = this.#sizeFor(item, tileIdx)
     const p = this.#positions[s]
     p[0] = pos.lat
     p[1] = pos.lng

@@ -23,6 +23,10 @@ export type IconSet = {
 
 export interface IconDescriptor {
   shape: string;
+  /** Footprint scale OPCIONAL (> 0, default 1): multiplicador del tamaño en pantalla del sprite
+   *  (gl_PointSize). Rinde un ícono más grande que su `sizeOf` sin re-rasterizar ni tocar el
+   *  accessor — p. ej. un realce dibujado alrededor que excede el ícono. */
+  scale?: number;
   [k: string]: unknown;
 }
 
