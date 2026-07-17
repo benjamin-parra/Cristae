@@ -982,12 +982,11 @@ export class MapEngine {
   getLeafletMap() { return this.#map }
   getUnsafeHandler() { return this }
 
-  // Resize del contenedor: Leaflet recalcula tamaño y cada picking reajusta su FBO. Además se
-  // redibujan las capas de puntos: invalidateSize() solo emite move/moveend si el resize desplaza
-  // el centro, así que un resize simétrico (cambio de alto, maximizar columna) limpia el canvas
-  // glify sin que #wireRenderLifecycle lo redibuje. Reseteamos aquí para cerrar ese hueco.
+  // Resize del contenedor: recalcula tamaño con `pan:false` (ancla fija, NO recentra — sobre la capa
+  // GL el reencuadre se percibe como salto/parpadeo), reajusta el picking FBO y resetea las capas de
+  // puntos (un resize simétrico no desplaza el centro, así que el canvas glify no se redibuja solo).
   syncSize() {
-    this.#map.invalidateSize()
+    this.#map.invalidateSize({ pan: false })
     this.#pickLayers.forEach(({ layer }) => layer.syncPickingSize())
     this.#resetCanvases()
   }
