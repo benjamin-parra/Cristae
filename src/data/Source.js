@@ -14,11 +14,12 @@ const toUnsub = (teardown) =>
 
 // Guard de configuración: valida el contrato del Source una sola vez al definirlo (no es hot path).
 const requireSourceConfig = ({ accessors, getSnapshot, subscribe }) => {
+  // Geometría: `positionOf` (point/label) o `pathOf` (line). Una de las dos.
   const ok = typeof getSnapshot === 'function'
     && typeof subscribe === 'function'
     && typeof accessors?.idOf === 'function'
-    && typeof accessors?.positionOf === 'function'
-  if (!ok) throw new TypeError('[defineSource] requiere getSnapshot, subscribe y accessors.idOf/positionOf')
+    && (typeof accessors?.positionOf === 'function' || typeof accessors?.pathOf === 'function')
+  if (!ok) throw new TypeError('[defineSource] requiere getSnapshot, subscribe, accessors.idOf y positionOf|pathOf')
 }
 
 // Ruta B genérica: adapta CUALQUIER librería de reactividad a un Source, sin Store/Emitter
@@ -63,6 +64,12 @@ export const defineSource = ({ accessors, variants, getSnapshot, subscribe, vers
 // siguiente (tras un emit) → correctos bajo coalescing: N ops en un tick colapsan en un emit con
 // todos sus ids.
 export const createSource = (accessors, variants) => {
+  // `idOf` es lo ÚNICO universal: el Store indexa por id. La geometría la exige cada capa que la
+  // consuma (`positionOf` para punto/label, `pathOf` para línea) — pedirla acá dejaría fuera a una
+  // Source que sólo alimenta una tabla, que es un uso legítimo y no tiene geometría.
+  if (typeof accessors?.idOf !== 'function')
+    throw new TypeError('[createSource] requiere accessors.idOf')
+
   const idOf = accessors.idOf
   const basePositionOf = accessors.positionOf
 
@@ -93,13 +100,17 @@ export const createSource = (accessors, variants) => {
   }
   const commit = () => { version++; emitter.notify() }
 
-  // positionOf efectivo: usa el override si el id fue movido.
-  const positionOf = (item) => overrides.get(idOf(item)) ?? basePositionOf(item)
+  // positionOf efectivo: usa el override si el id fue movido. Sólo para fuentes con geometría de
+  // punto (point/label); una fuente de líneas (pathOf, sin positionOf) no lo expone ni usa `move`.
+  const positionOf = basePositionOf
+    ? (item) => overrides.get(idOf(item)) ?? basePositionOf(item)
+    : undefined
+  const readAccessors = positionOf ? { ...accessors, positionOf } : accessors
 
   // Un único objeto: lectura (contrato Source) + escritura (dueño). El motor solo lee.
   return {
     /* ── Lectura: contrato Source ── */
-    accessors: { ...accessors, positionOf },
+    accessors: readAccessors,
     variants,
     getSnapshot: () => store.filtered,
     version: () => version,

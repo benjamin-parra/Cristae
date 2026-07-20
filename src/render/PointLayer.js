@@ -240,7 +240,7 @@ export class PointLayer {
       data: this.#positions,
       latitudeKey: 0,
       longitudeKey: 1,
-      sensitivity: 0,                                   // hover/click nativo off → picking propio
+      sensitivity: 0,                                   // irrelevante: sin `click`/`hover` glify NO registra su handler
       sensitivityHover: 0,
       vertexShaderSource: POINT_VERTEX,
       fragmentShaderSource: POINT_FRAGMENT,

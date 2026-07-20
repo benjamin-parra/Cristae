@@ -5,7 +5,13 @@
 /** Accessors que describen cómo leer cada ítem del consumidor. */
 export interface SourceAccessors<T> {
   idOf: (item: T) => string | number;
-  positionOf: (item: T) => { lat: number; lng: number };
+  /** Geometría de PUNTO (point/label). Una de `positionOf` | `pathOf` es obligatoria. */
+  positionOf?: (item: T) => { lat: number; lng: number };
+  /** Geometría de LÍNEA (line-layer): vértices `[lat,lng]` del path, plano —donde un vértice no
+   *  finito CORTA la línea— o anidado con las partes explícitas. Ver `toParts` en `./map`. */
+  pathOf?: (item: T) =>
+    | Iterable<[number, number]>
+    | Iterable<Iterable<[number, number]>>;
   variantOf?: (item: T) => string;
   headingOf?: (item: T) => number;
   sizeOf?: (item: T) => number;

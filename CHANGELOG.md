@@ -5,7 +5,77 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
 
 ## [Sin publicar]
 
+### Corregido
+- **`styleOf.weight` ahora significa PX DE PANTALLA en los dos backends.** glify no recibe un grosor
+  sino el **radio de una brocha** que barre ±w en pasos de 0.5 sobre una línea de 1px: rendía `2w+1` px
+  de ancho, así que el backend GL dibujaba **al doble de grosor** que el Leaflet con el mismo `styleOf`
+  —contradiciendo el contrato publicado ("`weight` en px de pantalla")— y pagaba 4× las pasadas de
+  dibujo. `LineLayer` convierte px → radio (`(px−1)/2`) al registrar el callback. Efecto colateral: las
+  pasadas por feature y por frame bajan de 169→25 (3 px), 441→81 (5 px) y 1089→225 (8 px).
+
+### Cambiado
+- **`LayerRegistry.resolveHits` deja pasar el detalle propio de cada resolver.** Armaba el hit con una
+  lista fija de claves (`ref/id/distancePx` + identidad de capa), contradiciendo su propio contrato de
+  ser *genérico sobre funciones resolver*: el detalle específico de una capa —`partIndex`/`segmentIndex`
+  de una línea— moría ahí. Ahora hace spread del `part` y **luego** escribe las claves del registro
+  (`layerId`, `kind`, `zIndex`, `order`), que siguen siendo suyas y no las puede pisar un resolver.
+  Aditivo: los consumidores que leen `id`/`kind`/`ref`/`layerId` no cambian.
+
 ### Añadido
+- **Primitiva de LÍNEAS: `<cristae-line-layer>` / `engine.addLineLayer` (GPU + gradiente + picking).**
+  Cuarta forma geométrica junto a `point`/`polygon`/`label`, sin dominio (una polilínea de N
+  vértices con estilo — no "recorrido"/"ruta"). Render GL sobre `glify.Lines` **sin forkearlo**
+  (`render/LineLayer.js`, hermano de `PointLayer`): reusa su rebuild `setData` y su draw `gl.LINES`
+  intactos y le **añade el color per-vértice** para el gradiente escribiendo los canales `r,g,b,a`
+  del buffer interleaved (`bytes=6`, buffer `'vertex'`) por `bufferSubData` — el shader de glify ya
+  interpola `_color` entre vértices, así que el degradado es físicamente posible sin tocar GLSL. El
+  gradiente **sobrevive pan/zoom** (glify sólo re-compone la matriz en `_reset`, no re-ejecuta
+  `resetVertices`) y se re-aplica sólo tras un rebuild. Accessors: `{ idOf, pathOf, styleOf?,
+  scalarOf?, colorRamp? }` — `pathOf(item) → Iterable<[lat,lng]>`; `styleOf` da color/weight/opacity
+  PLANO por línea; `scalarOf(item, i)` + `colorRamp(value) → [r,g,b,a]` dan el gradiente per-vértice
+  (el core NO interpreta el escalar). **El estilo es ESTADO (`styleOf`), no un método**: recolorear
+  una línea = mutar su item + `set`/`patch` la Source (como un punto no tiene `setColor`); el motor
+  decide cómo aplicarlo y hoy siempre reconstruye (el fast-path incremental por `bufferSubData` es una
+  optimización INTERNA pendiente, no parte del contrato) — sin `setStyle` imperativo. **Picking** CPU nearest-segment (`geometry/polyline.js`,
+  índice espacial O(log n + k), módulo puro), `kind:'line'` con `distancePx` real; el hit-test nativo
+  de glify se apaga (`sensitivity:0`). Las tres ergonomías (elemento `.data` / `.source` compartida /
+  handle) como point-layer; el guard de `Source` acepta `positionOf` **o** `pathOf`. **Deuda
+  documentada (NO en este incremento):** el grosor real por triángulos (glify simula `weight` con
+  brocha O(weight²) draw-calls), el `dash` (no hay en `gl.LINES`), y el append incremental de un
+  track vivo por la punta (`extend`, hoy rebuild coalescido). **Dos backends**: `vector: true` (o
+  `<cristae-line-layer vector>`) usa un backend **Leaflet** (`L.polyline`) que **sí dibuja `styleOf.dash`**
+  y no abre otro contexto WebGL (para pocas líneas / punteadas), vs el backend GL default (volumen /
+  gradiente, sin dash). **Patrones de trazo por UN solo eje** (`dash` = `stroke-dasharray` px) + `cap`:
+  guiones `[8,6]`, punteado `[1,6]`+`cap:'round'`, raya-punto `[12,5,1,5]`+`cap:'round'` — sin flags
+  `dotted`/`dashDot` (generalidad por composición, no por enumeración). **Flechas de dirección: se
+  COMPONEN**, no son propiedad del trazo — helper puro `sampleAlong(path, count)` → `[{lat,lng,heading}]`
+  equiespaciado por longitud, que alimenta un point-layer con `headingOf` (el sprite rota solo y hereda
+  atlas/picking/popup). **Líneas MULTI-PARTE**: `pathOf` admite dos encodings que colapsan a la misma
+  representación (`toParts`, exportado) — plano, donde un vértice **no finito CORTA** la línea, o
+  anidado `[[[lat,lng],…],…]` con las partes explícitas. Un track GPS con baches sale **partido** en
+  vez de puenteado por una recta que no existe (antes los vértices inválidos se descartaban y sus
+  vecinos quedaban unidos). Multi-parte **no** es multi-entidad: un id, un estilo y **un solo hit** (el
+  índice guarda una entrada por parte, con bboxes ajustadas para el broad-phase, y gana la más cercana,
+  reportada como `partIndex`+`segmentIndex`). En GL sale como `MultiLineString` (glify emite una tirada
+  de vértices por parte, contiguas y en orden → el mapeo buffer↔dato se guarda por parte); en Leaflet,
+  como `L.polyline` multi-path. `scalarOf(item, i)` indexa la **entrada** de `pathOf` — con el encoding
+  plano el corte ocupa índice, con el anidado corren concatenados — así un array paralelo de escalares
+  no se desincroniza, y el hit expone `vertexIndex` **en ese mismo espacio** (más `partIndex`) para que
+  se pueda cruzar con el dato. `sampleAlong` también normaliza por `toParts`: nunca muestrea sobre un
+  hueco ni devuelve `NaN` por un vértice sucio. Docs en `docs/lines.md`; tipos `LineAccessors` /
+  `LineHandle` / `LineHit` en `types/map.d.ts`.
+  ⚠️ **Nota sobre glify**: sus dos callbacks NO reciben el mismo índice — `resetVertices` pide el color
+  con el índice de FEATURE y `drawOnCanvas` pide el weight recorriendo `vertices`, que tiene una entrada
+  por PARTE. Con features de una sola parte coinciden por accidente; con `MultiLineString` el weight hay
+  que registrarlo contra un array paralelo a PARTES.
+- **Primitiva de MARCADORES HTML: `<cristae-html-layer>` / `engine.addHtmlLayer`.** `L.divIcon` sobre
+  Leaflet — **GL-safe** (no abre otro contexto WebGL). Su nicho: badges de dominio con contenido HTML
+  arbitrario (heroicon SVG, glifo de fuente `<i class="fv-*">`, letra) + popup/tooltip, que el iconset
+  canvas del point-layer no rinde. Es el **complemento** del point-layer GPU (alta cardinalidad /
+  tiempo real), no su competidor — "3 badges con un heroicon dentro". Accessors: `{ idOf, positionOf,
+  htmlOf, classNameOf?, sizeOf?, anchorOf? }`; handle sólo acciones `{ id, source, set, setVisible }`;
+  picking por marcador más cercano (`kind:'html'`). Retira el `getLeafletMap()`+`L.divIcon` a mano que
+  los consumidores hacían sólo para colgar HTML. Tipos `HtmlAccessors`/`HtmlHandle` en `types/map.d.ts`.
 - **`<cristae-popup>`: ancla VIVA, `for` multi-capa y tarjetas simultáneas.** La tarjeta abierta
   deja de ser una foto del click: se suscribe a la `Source` de su capa y en cada flush (ya
   coalescido a rAF, mismo patrón que `Camera.followPoint`) **sigue la posición del item**

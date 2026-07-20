@@ -74,6 +74,103 @@ export interface PolygonAccessors<T> {
   styleOf?: (g: T) => Record<string, unknown>;
 }
 
+// ── Líneas (addLineLayer / <cristae-line-layer>) ────────────────────────────
+// GPU (glify.Lines) + gradiente per-vértice por bufferSubData + picking CPU nearest-segment.
+// `dash` y el grosor real por triángulos NO están (deuda documentada — ver docs/lines.md).
+export interface LineAccessors<T> {
+  idOf: (l: T) => number;
+  /** Vértices del path en orden, `[lat, lng]`. Dos encodings (ver `toParts`): plano — un vértice no
+   *  finito **corta** la línea (un track GPS con baches sale partido, no puenteado) — o anidado
+   *  `[[[lat,lng],…],…]` con las partes explícitas. Una línea multi-parte sigue siendo UNA entidad:
+   *  un id, un estilo, un hit. */
+  pathOf: (l: T) => Iterable<[number, number]> | Iterable<Iterable<[number, number]>>;
+  /** Estilo PLANO por línea. `color` = `"#RRGGBB"` o `[r,g,b,a]` (0..1); `weight` en px de pantalla.
+   *  `dash` (patrón `stroke-dasharray` en px) y `cap` SÓLO los dibuja el backend Leaflet
+   *  (`vector:true`); el backend GL los ignora. Un solo eje `dash` cubre todos los patrones
+   *  tradicionales: `[8,6]` guiones · `[1,6]`+`cap:'round'` punteado · `[12,5,1,5]`+`cap:'round'`
+   *  raya-punto (línea de eje). */
+  styleOf?: (l: T) => {
+    color?: string | number[];
+    weight?: number;
+    opacity?: number;
+    dash?: number[];
+    cap?: "butt" | "round" | "square";
+  };
+  /** Escalar por vértice (genérico — el core NO lo interpreta) para colorear por gradiente.
+   *  `vertexIndex` indexa la ENTRADA de `pathOf` (con el encoding plano, los cortes ocupan índice;
+   *  con el anidado, los índices corren concatenados) → un array paralelo no se desincroniza. */
+  scalarOf?: (l: T, vertexIndex: number) => number;
+  /** Rampa `valor → color` (`"#RRGGBB"` o `[r,g,b,a]` en 0..1). Con `scalarOf` presente gana sobre `styleOf.color`. */
+  colorRamp?: (value: number) => string | [number, number, number, number];
+}
+
+/** Handle de una line-layer (retorno de `MapEngine.addLineLayer`) — SÓLO acciones (empujar datos /
+ *  visibilidad). El estilo es ESTADO (`styleOf`): para recolorear una línea se muta su item y se
+ *  set/patch la Source; NO hay `setStyle` imperativo. */
+export interface LineHandle<T = unknown> {
+  readonly id: string;
+  readonly source: CristaeSource<T>;
+  /** Reemplaza el conjunto de líneas (ruta `data`; rebuild O(n)). */
+  set(items: T[]): void;
+  setVisible(visible: boolean): void;
+}
+
+/** Normaliza lo que devuelve `pathOf` a partes: corta el encoding plano en cada vértice no finito y
+ *  aplana el anidado. `from` = índice del primer vértice de la parte en la entrada (dentro de una
+ *  parte son contiguos). Descarta partes de < 2 vértices. Es la MISMA convención que aplica la
+ *  line-layer — exportada para decorar multi-parte sin reimplementarla. Puro, sin DOM. */
+export function toParts(
+  input:
+    | Iterable<[number, number]>
+    | Iterable<Iterable<[number, number]>>
+    | null
+    | undefined,
+): Array<{ path: [number, number][]; from: number }>;
+
+/** Hit de una línea (`kind:'line'`). `vertexIndex` vive en el espacio de índices de la ENTRADA de
+ *  `pathOf` — el MISMO que recibe `scalarOf` — y apunta al vértice donde arranca el segmento picado,
+ *  para poder cruzar el hit con un array paralelo de dato. `partIndex` ubica la parte. */
+export interface LineHit {
+  ref: number;
+  id: number;
+  distancePx: number;
+  partIndex: number;
+  vertexIndex: number;
+}
+
+/** Muestrea `count` puntos equiespaciados por longitud a lo largo del path `[lat,lng][]`, con el
+ *  rumbo (0=N, 90=E) del segmento en que caen. Para DECORAR una línea componiendo: los puntos van a
+ *  un point-layer con `headingOf` (flechas de dirección / ticks). Multi-parte: componer con
+ *  `toParts(p).flatMap(({ path }) => sampleAlong(path, n))` para no muestrear sobre los huecos.
+ *  Puro, sin DOM. */
+export function sampleAlong(
+  path: [number, number][],
+  count: number,
+): Array<{ lat: number; lng: number; heading: number }>;
+
+// ── Marcadores HTML (addHtmlLayer / <cristae-html-layer>) ───────────────────
+// L.divIcon sobre Leaflet — GL-safe (NO abre otro contexto WebGL). Nicho: badges de dominio con HTML
+// arbitrario (heroicon / glifo de fuente) + popup. COMPLEMENTA el point-layer GPU, no lo reemplaza.
+export interface HtmlAccessors<T> {
+  idOf: (m: T) => number;
+  positionOf: (m: T) => { lat: number; lng: number };
+  /** HTML del marcador (string) — heroicon SVG, glifo `<i class="fv-*">`, letra, etc. */
+  htmlOf: (m: T) => string;
+  classNameOf?: (m: T) => string;
+  /** Tamaño `[w,h]` px del icono; omitir = tamaño por CSS. */
+  sizeOf?: (m: T) => [number, number];
+  /** Ancla `[x,y]` px; default = centro del `sizeOf`. */
+  anchorOf?: (m: T) => [number, number];
+}
+
+/** Handle de una html-layer (retorno de `MapEngine.addHtmlLayer`) — sólo acciones. */
+export interface HtmlHandle<T = unknown> {
+  readonly id: string;
+  readonly source: CristaeSource<T>;
+  set(items: T[]): void;
+  setVisible(visible: boolean): void;
+}
+
 // ── Labels (src/render/LabelLayer.js) ───────────────────────────────────────
 /** Painter default de etiquetas (inyectable en la label-layer vía `paint`). */
 export function drawLabel(
@@ -109,6 +206,8 @@ export class MapEngine {
 export class CristaeMap extends HTMLElement {}
 export class CristaePointLayer extends HTMLElement {}
 export class CristaePolygonLayer extends HTMLElement {}
+export class CristaeLineLayer extends HTMLElement {}
+export class CristaeHtmlLayer extends HTMLElement {}
 export class CristaeLabelLayer extends HTMLElement {}
 export class CristaeCluster extends HTMLElement {}
 export class CristaeOverlay extends HTMLElement {}

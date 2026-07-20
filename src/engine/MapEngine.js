@@ -3,6 +3,9 @@ import { EventBus } from '../events/EventBus.js'
 import { Interaction } from './Interaction.js'
 import { Camera } from './Camera.js'
 import { PointLayer } from '../render/PointLayer.js'
+import { LineLayer } from '../render/LineLayer.js'
+import { LeafletLineLayer } from '../render/LeafletLineLayer.js'
+import { HtmlLayer } from '../render/HtmlLayer.js'
 import { LabelLayer } from '../render/LabelLayer.js'
 import { Cluster } from '../cluster/Cluster.js'
 import { defineClusterIconSet } from '../atlas/IconSet.js'
@@ -264,6 +267,75 @@ export class MapEngine {
     this.#applyVisibility(id, paneName, visible)
 
     return { id, set: (items) => render(items), setVisible: (v) => this.setLayerVisibility(id, v) }
+  }
+
+  /* ── Capas de líneas (GL glify.Lines + hit-testing nearest-segment CPU) ── */
+
+  addLineLayer(cfg) {
+    const { id, data, accessors, interactive = false, pane, z, visible = true, vector = false } = cfg
+    const order = this.#order++
+    const paneName = pane ?? `cristae-line-${id}`
+    const zIndex = z ?? (BASE_Z + order * Z_STEP)
+    this.#ensurePane(paneName, zIndex)               // noPointer: la capa no captura puntero (picking propio)
+
+    // `controls` = Source que posee el motor (ruta A/data); con `cfg.source` el dueño es el consumidor.
+    const controls = cfg.source ? null : createSource(accessors)
+    const source = cfg.source ?? controls
+    // Backend: GL (glify, #trackGl para reproyectar en move/zoom) o Leaflet (DASH, reproyecta solo →
+    // NO va a #glLayers). Mismo contrato de hit (kind 'line', nearest-segment) en ambos.
+    const layer = vector
+      ? new LeafletLineLayer({ L: this.#L, map: this.#map, pane: paneName, source, interactive })
+      : this.#trackGl(new LineLayer({ glify: this.#glify, map: this.#map, pane: paneName, source, interactive }))
+
+    const record = { kind: 'line', source, layer, controls, paneName, order, interactive, visible }
+    this.#layers.set(id, record)
+
+    if (interactive) {
+      // Los resolvers leen record.layer (no capturan). Picking síncrono (no va a #pickLayers, como polígono).
+      this.#registerResolver(id, 'line', zIndex, order, e => record.layer.resolveClick(e), e => record.layer.resolveHover(e))
+    }
+    this.#applyVisibility(id, paneName, visible)
+
+    if (data && controls) controls.set(data)
+    this.#flushPendingBinds()
+    // Handle = SÓLO las ACCIONES de la capa (empujar datos / togglear visibilidad). El estilo NO es
+    // una acción: es estado (accessor `styleOf`) — para recolorear una línea se muta su item y se
+    // set/patch la Source; el motor reescribe su color (incremental o rebuild). No hay `setStyle`.
+    return {
+      id,
+      source,
+      set: (items) => controls?.set(items),
+      setVisible: (v) => this.setLayerVisibility(id, v),
+    }
+  }
+
+  /* ── Capa de marcadores HTML (L.divIcon; GL-safe, complementa el point-layer GPU) ── */
+
+  addHtmlLayer(cfg) {
+    const { id, data, accessors, interactive = false, pane, z, visible = true } = cfg
+    const order = this.#order++
+    const paneName = pane ?? `cristae-html-${id}`
+    const zIndex = z ?? (BASE_Z + order * Z_STEP + LABEL_Z_OFFSET)   // sobre líneas/puntos: los badges van arriba
+    this.#ensurePane(paneName, zIndex)   // noPointer: picking propio (los markers son interactive:false)
+
+    const controls = cfg.source ? null : createSource(accessors)
+    const source = cfg.source ?? controls
+    const layer = new HtmlLayer({ L: this.#L, map: this.#map, pane: paneName, source, interactive })
+
+    const record = { kind: 'html', source, layer, controls, paneName, order, interactive, visible }
+    this.#layers.set(id, record)
+    if (interactive) {
+      this.#registerResolver(id, 'html', zIndex, order, e => record.layer.resolveClick(e), e => record.layer.resolveHover(e))
+    }
+    this.#applyVisibility(id, paneName, visible)
+
+    if (data && controls) controls.set(data)
+    return {
+      id,
+      source,
+      set: (items) => controls?.set(items),
+      setVisible: (v) => this.setLayerVisibility(id, v),
+    }
   }
 
   /* ── Capas de labels (canvas; standalone o bind-to un host) ── */
@@ -897,7 +969,17 @@ export class MapEngine {
     this.#pickLayers = this.#pickLayers.filter(e => e.layerId !== id)
     this.#bus.clearLayer(id)
     this.#layers.delete(id)
+    // Libera el pane si ya NINGUNA capa lo usa. Cubre los dos casos sin conocerlos: el pane auto
+    // (`cristae-<kind>-<id>`, único) se va con su capa; un pane COMPARTIDO (varias capas con el mismo
+    // `cfg.pane`) sobrevive hasta que se desmonta la última. Sin esto los panes se acumulaban en un
+    // mapa de vida larga (alta/baja de capas) — el cluster ya los borraba a mano en su `dispose`.
+    if (record.paneName && !this.#paneInUse(record.paneName)) this.#map.getPane(record.paneName)?.remove()
     return true
+  }
+
+  #paneInUse(paneName) {
+    for (const [, r] of this.#layers) if (r.paneName === paneName) return true
+    return false
   }
 
   setLayerVisibility(id, visible) {

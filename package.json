@@ -26,7 +26,7 @@
   "scripts": {
     "lint": "eslint src build.mjs",
     "build": "node build.mjs",
-    "test": "node test/grammar.test.mjs && node test/popup-placement.test.mjs && node test/decluster-zoom.test.mjs"
+    "test": "node test/grammar.test.mjs && node test/popup-placement.test.mjs && node test/decluster-zoom.test.mjs && node test/marked-bubble.test.mjs && node test/polyline.test.mjs"
   },
   "sideEffects": [
     "./src/index.js",

@@ -110,11 +110,12 @@ export class LayerRegistry {
     this.#entriesByLayerId.forEach(entry => {
       if (!entry.visible) return
       this.#resolveParts(entry, eventType, baseEvent).forEach(part => {
+        // El detalle propio del resolver pasa (una línea aporta `partIndex`/`segmentIndex`); las
+        // claves del registro van DESPUÉS del spread: la identidad de la capa no es negociable.
         hits.push({
+          ...part,
           layerId: entry.layerId,
           kind: entry.kind,
-          ref: part.ref,
-          id: part.id,
           distancePx: part.distancePx ?? Number.POSITIVE_INFINITY,
           zIndex: entry.zIndex,
           order: entry.declOrder,
