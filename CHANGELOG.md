@@ -1,9 +1,16 @@
 # Changelog
 
 Todas las versiones notables de Cristae se documentan en este archivo. El formato sigue
-[Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y el versionado [SemVer](https://semver.org/lang/es/).
+[Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y el versionado descrito en
+[`docs/versionado.md`](docs/versionado.md) — en `0.x`, el **minor cuenta los cambios medios**
+(capacidad o eje de API nuevo) y el **patch los menores desde el último medio** (fix / perf / revert).
 
 ## [Sin publicar]
+
+## [0.13.0] - 2026-07-21
+
+Última versión antes de la reestructuración interna del código. Congela el estado de la API pública
+que el refactor debe preservar.
 
 ### Corregido
 - **`styleOf.weight` ahora significa PX DE PANTALLA en los dos backends.** glify no recibe un grosor
