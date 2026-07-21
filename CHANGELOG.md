@@ -7,6 +7,27 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
 
 ## [Sin publicar]
 
+## [0.13.1] - 2026-07-21
+
+Suite de contrato previa a la reestructuración interna. No cambia una línea de `src/`: sólo agrega la
+red que el refactor necesita para no romper la API pública en silencio.
+
+### Añadido
+- **Suite de contrato: 380 tests (367 pass, 0 fail, 13 todo), 17 archivos + un stub DOM.** Congela la
+  superficie publicada por entry (`core` / `table` / `map` / `grammar`), el contrato y la ventana de
+  flush de `Source`, la equivalencia `patch ≡ update` de `Store`, el coalescing de `Emitter`, el
+  pipeline y el DOM observable de `PagedTable`, `paginationModel`, `qselect`, el diffing de hover y el
+  libro de demanda de `EventBus`, y el protocolo duck-typed de la gramática.
+- Los defectos conocidos quedan **ejecutables** como tests `{ todo }` con el comportamiento correcto,
+  en vez de congelar el comportamiento defectuoso como si fuera el contrato.
+
+### Cambiado
+- **Runner: `npm test` ahora es `node --test`** en vez de cinco invocaciones encadenadas con `&&`.
+  El encadenamiento cortaba en el primer archivo que fallara, que es justo cuando más falta hace el
+  diagnóstico completo. Los cinco archivos previos siguen corriendo sin modificación.
+- El stub DOM vive en `test-helpers/`, fuera de `test/`: todo lo que cuelga de `test/` matchea el patrón
+  de descubrimiento de `node --test` y el helper se ejecutaba como si fuera una suite vacía.
+
 ## [0.13.0] - 2026-07-21
 
 Última versión antes de la reestructuración interna del código. Congela el estado de la API pública

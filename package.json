@@ -1,6 +1,6 @@
 {
   "name": "cristae",
-  "version": "0.13.0",
+  "version": "0.13.1",
   "type": "module",
   "description": "Librería de mapas WebGL + tabla virtual sobre un núcleo de datos reactivo compartido. Tres entry points desacoplados (core / table / map); table y map nunca se importan entre sí.",
   "keywords": [
@@ -26,7 +26,7 @@
   "scripts": {
     "lint": "eslint src build.mjs",
     "build": "node build.mjs",
-    "test": "node test/grammar.test.mjs && node test/popup-placement.test.mjs && node test/decluster-zoom.test.mjs && node test/marked-bubble.test.mjs && node test/polyline.test.mjs"
+    "test": "node --test"
   },
   "sideEffects": [
     "./src/index.js",
