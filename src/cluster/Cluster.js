@@ -115,8 +115,15 @@ export class Cluster {
    * fuente de burbujas viva antes de llamar; el try/catch es la red secundaria ante la carrera
    * reindex-en-vuelo (el id se volvió stale entre el paint de la burbuja y el click). */
 
-  // getLeaves con id FRESCO de getClusters del frame actual. Interno: nunca recibe un id retenido.
-  #leavesOf(clusterId) { return this.#sc.getLeaves(clusterId, Infinity) }
+  // Hojas de un clusterId, o null si el id está STALE. Un id RETENIDO (carrera reindex-en-vuelo entre
+  // el paint de la burbuja y el click) hace lanzar a Supercluster —o peor, devolver hojas de OTRO
+  // cluster—; la staleness se materializa a `null` (ausente) en UN solo punto de captura, y los
+  // call-sites ramifican sobre ese null en vez de repetir try/catch. recluster usa ids FRESCOS de
+  // getClusters directo (this.#sc.getLeaves), no pasa por acá.
+  #leavesOf(clusterId) {
+    try { return this.#sc.getLeaves(clusterId, Infinity) }
+    catch { return null }
+  }
 
   // Ancla = hoja más cercana al centroide del cluster (la menos propensa a ser el móvil que se aleja).
   #pickAnchor(leaves) {
@@ -132,10 +139,11 @@ export class Cluster {
     return best.properties.id
   }
 
-  // ¿estas hojas contienen el ancla del base abierto? (el base es "este cluster" del frame).
+  // ¿estas hojas contienen el ancla del base abierto? (el base es "este cluster" del frame). Hojas
+  // ausentes (null: id stale desde #leavesOf) → false, para que los call-sites pasen el resultado directo.
   #hasBaseAnchor(leaves) {
     const a = this.#sesion?.baseAnchor
-    if (a == null) return false
+    if (a == null || !leaves) return false
     for (const lf of leaves) if (lf.properties.id === a) return true
     return false
   }
@@ -195,9 +203,8 @@ export class Cluster {
   // Expande el cluster `clusterId` como BASE (single-open: cierra el base anterior y su interno).
   // Devuelve { anchorId, ids } o null (id stale / sin hojas). `ids` = los id de DATO del usuario.
   expandCluster(clusterId) {
-    let leaves
-    try { leaves = this.#leavesOf(clusterId) } catch { return null }
-    if (!leaves.length) return null
+    const leaves = this.#leavesOf(clusterId)
+    if (!leaves?.length) return null
     const anchorId = this.#pickAnchor(leaves)
     const ids = leaves.map(lf => lf.properties.id)
     // Captura la SESIÓN: congela el set de hojas (id + posición) del click. Desde acá la membresía/conteo
@@ -220,9 +227,7 @@ export class Cluster {
     const s = this.#sesion
     // Caso ancla-sola: la burbuja dim tiene id sintético 'b:'+ancla → getLeaves lanzaría; atajo directo.
     if (!(s && clusterId === 'b:' + s.baseAnchor)) {
-      let leaves
-      try { leaves = this.#leavesOf(clusterId) } catch { return null }
-      if (!this.#hasBaseAnchor(leaves)) return null
+      if (!this.#hasBaseAnchor(this.#leavesOf(clusterId))) return null   // stale → hojas null → hasBaseAnchor false
     }
     const ids = s ? [...s.baseLeafIds] : []
     this.#sesion = null
@@ -251,9 +256,7 @@ export class Cluster {
   isClusterExpanded(clusterId) {
     const s = this.#sesion
     if (s && clusterId === 'b:' + s.baseAnchor) return true   // dim sintética (ancla-sola)
-    let leaves
-    try { leaves = this.#leavesOf(clusterId) } catch { return false }
-    return this.#hasBaseAnchor(leaves)
+    return this.#hasBaseAnchor(this.#leavesOf(clusterId))     // stale → hojas null → false
   }
 
   // Contenido (ids de dato) de una burbuja BASE del FRAME actual — consulta pura, hermana de
@@ -265,8 +268,8 @@ export class Cluster {
     const s = this.#sesion
     if (s && clusterId === 'b:' + s.baseAnchor)
       return s.baseLeaves.map(l => l.properties.id)
-    let leaves
-    try { leaves = this.#leavesOf(clusterId) } catch { return null }
+    const leaves = this.#leavesOf(clusterId)
+    if (!leaves) return null                       // id stale/desconocido
     // Burbuja dim de la sesión abierta con id VIVO de Supercluster (caso común, no el sintético
     // 'b:'): responde con el snapshot CONGELADO — lo que la burbuja y la espiral renderizan
     // (conteo + hojas del click) — no con el bucket vivo, que puede haber ganado/perdido
@@ -430,8 +433,8 @@ export class Cluster {
   // vigente (mismo criterio que emitBase); la burbuja expandida se salta (sus hojas están a la vista).
   #markedEn(bubble, target) {
     if (bubble.expanded) return []
-    let leaves
-    try { leaves = this.#leavesOf(bubble.id) } catch { return [] }
+    const leaves = this.#leavesOf(bubble.id)
+    if (!leaves) return []                         // id stale → sin marcados en esta burbuja
     return leaves.map(lf => lf.properties.id).filter(id => target.has(id))
   }
 

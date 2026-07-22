@@ -552,6 +552,24 @@ test('attach lee el snapshot y re-lee en cada notify sin patear al usuario a la 
   is(desuscripciones, 1, 'destroy se desuscribe del source')
 })
 
+// El teardown de subscribe se normaliza con toUnsub: una Source cuyo subscribe devuelve un objeto
+// { unsubscribe() } (RxJS) o { dispose() } (Solid) debe darse de baja sin "x is not a function". Sin la
+// normalización, #detachSource invocaría el objeto como función y reventaría en destroy/re-attach.
+test('attach normaliza el teardown del subscribe (objeto unsubscribe/dispose, no sólo función)', async () => {
+  for (const [tipo, hacer] of [
+    ['unsubscribe', bajas => ({ unsubscribe() { bajas.n++ } })],
+    ['dispose',     bajas => ({ dispose()     { bajas.n++ } })],
+  ]) {
+    const bajas = { n: 0 }
+    const source = { getSnapshot: () => mkDataset(8), subscribe: () => hacer(bajas) }
+    const { table } = mount({ pageSize: 5 })
+    table.attach(source)
+    await flushRaf()
+    ASERTOS++; assert.doesNotThrow(() => table.destroy(), `destroy con teardown ${tipo} no lanza`)
+    is(bajas.n, 1, `destroy invocó ${tipo}() del teardown normalizado`)
+  }
+})
+
 test('attach exige el subconjunto de lectura del contrato Source', () => {
   const { table } = mount()
   ASERTOS++; assert.throws(() => table.attach({}), TypeError, 'source sin getSnapshot/subscribe')

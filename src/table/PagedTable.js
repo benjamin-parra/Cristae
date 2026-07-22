@@ -1,4 +1,5 @@
 import { qselect } from './QuickSelect.js'
+import { toUnsub } from '../data/teardown.js'
 
 // Agenda de un solo frame: coalesce las peticiones de refresco a UN rAF, recuerda si la pendiente
 // era "hard" (aunque no llegue a correr, p.ej. estando oculta) y permite cancelar. `schedule(hard,
@@ -121,7 +122,9 @@ export class PagedTable {
       throw new TypeError('[PagedTable] source debe exponer getSnapshot() y subscribe()')
 
     this.#detachSource()
-    this.#unsubscribe = source.subscribe(() => this.setData(source.getSnapshot(), false))
+    // toUnsub: el subscribe de la Source puede devolver una función, un { unsubscribe() } (RxJS) o un
+    // { dispose() } (Solid) — se normaliza a función de baja para que #detachSource nunca invoque un objeto.
+    this.#unsubscribe = toUnsub(source.subscribe(() => this.setData(source.getSnapshot(), false)))
     this.setData(source.getSnapshot(), true)
     return this
   }

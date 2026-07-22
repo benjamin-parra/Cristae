@@ -7,6 +7,36 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
 
 ## [Sin publicar]
 
+## [0.13.5] - 2026-07-22
+
+Corrección de tres bugs latentes anotados y consolidación del **eje 3 (acotado)** en el cluster. **Sin
+cambios de API** — comportamiento corregido en los bordes, la superficie pública no cambia. Suite 505 →
+**510 tests, 0 fail**; cada fix con su test de regresión verificado por revert-check (falla sin el fix).
+
+### Corregido
+- **`toRGBA` ya no devuelve `DEFAULT_COLOR` por referencia.** La rama de fallback (color inválido)
+  devolvía la constante compartida; un caller que mutara el resultado corrompía el default global de
+  todos los fallbacks siguientes. Ahora devuelve una copia fresca — contrato uniforme: **toda rama
+  entrega un `[r,g,b,a]` nuevo**. La alocación extra ocurre sólo con un color inválido (frío), nunca en
+  el gradiente por-vértice de `LineLayer`.
+- **`withAlpha` acepta los mismos formatos hex que `toRGBA`.** Antes sólo entendía `#RRGGBB` y devolvía
+  cualquier otro formato **sin aplicar el alpha** (divergencia latente con `toRGBA`): un `#RGB` corto o
+  un `#RRGGBBAA` pasaba de largo sin teñir. Ahora comparte el mismo regex `HEX`
+  (`#RGB`/`#RGBA`/`#RRGGBB`/`#RRGGBBAA`, con o sin `#`); lo que no es hex (nombres CSS, `rgb()`, `null`)
+  sigue pasando sin tocar.
+- **`PagedTable.attach` normaliza el teardown del `subscribe`.** Asignaba el retorno de `subscribe`
+  directo a `#unsubscribe`; una Source cuyo `subscribe` devuelve `{ unsubscribe() }` (RxJS) o
+  `{ dispose() }` (Solid) reventaba en `destroy`/re-`attach` con "x is not a function". Ahora pasa por
+  `toUnsub` — el mismo normalizador que ya usa `defineSource`.
+
+### Cambiado
+- **Eje 3 acotado — los `try/catch` fríos del cluster a un solo punto.** Los cinco `try/catch` que
+  envolvían `getLeaves` (en `expandCluster`/`collapseCluster`/`isClusterExpanded`/`contents`/
+  `#markedEn`) se consolidan en `#leavesOf`, que **materializa la staleness** de un `clusterId` retenido
+  a `null` (ausencia); los sitios ramifican sobre ese `null`. Se **mueven, no se agregan**: la misma
+  cantidad de `try/catch` se ejecuta (`recluster`/`#partition` siguen usando `getLeaves` directo con
+  ids frescos), y cada fallback previo se preserva exacto (`null`/`null`/`false`/`null`/`[]`).
+
 ## [0.13.4] - 2026-07-22
 
 Reestructuración interna de estilo, aplicada a toda la librería. **Sin cambios de API ni de

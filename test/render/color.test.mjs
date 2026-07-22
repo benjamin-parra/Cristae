@@ -52,11 +52,12 @@ test('toRGBA: color inválido cae a DEFAULT_COLOR y NUNCA produce NaN', () => {
   }
 })
 
-test('toRGBA: el fallback devuelve la CONSTANTE DEFAULT_COLOR por REFERENCIA (invariante/divergencia)', () => {
-  // Comportamiento ACTUAL preservado verbatim: no es una copia. Dos fallbacks comparten la misma ref
-  // y un caller que la mute corrompería el default global. Documentado en divergencias, NO arreglado.
-  assert.strictEqual(toRGBA('nope'), DEFAULT_COLOR)
-  assert.strictEqual(toRGBA('nope'), toRGBA('otro-invalido'))
+test('toRGBA: el fallback devuelve una COPIA fresca de DEFAULT_COLOR (no la constante compartida)', () => {
+  // Contrato uniforme: toda rama devuelve un [r,g,b,a] nuevo. El fallback vale por CONTENIDO pero NO es
+  // la ref compartida — así un caller que mute el resultado no corrompe el default global (bug corregido).
+  assert.deepEqual(toRGBA('nope'), DEFAULT_COLOR)
+  assert.notStrictEqual(toRGBA('nope'), DEFAULT_COLOR)
+  assert.notStrictEqual(toRGBA('nope'), toRGBA('otro-invalido'))
 })
 
 test('toColorObj: envuelve el resultado de toRGBA como {r,g,b,a}', () => {
@@ -73,11 +74,16 @@ test('withAlpha: #RRGGBB → string rgba() con canales 0..255', () => {
   assert.equal(withAlpha('#FFFFFF', 1), 'rgba(255, 255, 255, 1)')     // case-insensitive
 })
 
-test('withAlpha: SÓLO acepta #RRGGBB; cualquier otro formato se devuelve SIN tocar (divergencia)', () => {
-  // Divergencia latente vs toRGBA: withAlpha NO entiende #RGB corto ni #RRGGBBAA ni sin #. Devuelve
-  // el input crudo (sin alpha aplicado). Es un bug latente que se arregla aparte; acá se documenta.
-  assert.equal(withAlpha('#f00', 0.5), '#f00')
-  assert.equal(withAlpha('#ff000080', 0.5), '#ff000080')
-  assert.equal(withAlpha('f00', 0.5), 'f00')
+test('withAlpha: acepta los MISMOS formatos hex que toRGBA (#RGB/#RGBA/#RRGGBBAA, con o sin #)', () => {
+  // Divergencia con toRGBA resuelta: comparten el mismo HEX. El alpha SIEMPRE es el del parámetro,
+  // así que un #RRGGBBAA ignora su alpha propio (withAlpha aplica el que se le pasa).
+  assert.equal(withAlpha('#f00', 0.5), 'rgba(255, 0, 0, 0.5)')       // #RGB corto expande
+  assert.equal(withAlpha('#ff000080', 0.5), 'rgba(255, 0, 0, 0.5)')  // #RRGGBBAA → usa el alpha del parámetro
+  assert.equal(withAlpha('f00', 0.5), 'rgba(255, 0, 0, 0.5)')        // sin # (como toRGBA)
+})
+
+test('withAlpha: lo que NO es hex se devuelve sin tocar (nombres CSS, rgb(), null)', () => {
   assert.equal(withAlpha('red', 0.5), 'red')
+  assert.equal(withAlpha('rgb(1,2,3)', 0.5), 'rgb(1,2,3)')
+  assert.equal(withAlpha(null, 0.5), null)
 })

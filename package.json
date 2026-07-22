@@ -1,6 +1,6 @@
 {
   "name": "cristae",
-  "version": "0.13.4",
+  "version": "0.13.5",
   "type": "module",
   "description": "Librería de mapas WebGL + tabla virtual sobre un núcleo de datos reactivo compartido. Tres entry points desacoplados (core / table / map); table y map nunca se importan entre sí.",
   "keywords": [
