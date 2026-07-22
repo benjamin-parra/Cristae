@@ -1,6 +1,5 @@
 import { CristaeLayerElement } from './base.js'
-
-let seq = 0
+import { makeAutoId } from './autoId.js'
 
 // <cristae-polygon-layer> — polígonos Leaflet para display + hit-testing por índice geométrico
 // (geometry/polygon.js, O(log n + k)). `accessors` = { idOf, ringsOf, styleOf? }.
@@ -22,7 +21,7 @@ export class CristaePolygonLayer extends CristaeLayerElement {
     this.visible     = true
   }
 
-  layerId() { return this.id || (this._auto ??= `polygon-${++seq}`) }
+  layerId() { return this.id || (this._auto ??= makeAutoId('polygon')) }
 
   mountReady() { return !!this.accessors }       // { idOf, ringsOf, styleOf? } se asigna por JS
 

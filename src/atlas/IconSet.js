@@ -122,13 +122,19 @@ export const prerenderFonts = (...families) => async () => {
 // el conteo máximo posible). El atlas es de texturas chicas → tener buckets finos no cuesta memoria.
 //   exacto < 100 · decena 100–999 · centena 1000–2000 (tope realista; sobre eso → "2000+").
 // El consumidor casi siempre pasa los suyos: su dominio fija la escala (flota, sensores, personas…).
-const DEFAULT_CLUSTER_BUCKETS = (() => {
-  const b = []
-  for (let c = 2;    c < 100;   c++)      b.push(c)
-  for (let c = 100;  c < 1000;  c += 10)  b.push(c)
-  for (let c = 1000; c <= 2000; c += 100) b.push(c)
-  return b
-})()
+// Los tres tramos [desde, hasta, paso] (con `hasta` EXCLUSIVO) son DATOS, no tres for sueltos:
+//   exacto 2–99 (paso 1) · decena 100–990 (paso 10) · centena 1000–2000 (paso 100, tope inclusivo).
+const CLUSTER_BUCKET_TRAMOS = [
+  [2, 100, 1],
+  [100, 1000, 10],
+  [1000, 2001, 100],
+]
+const tramoValues = ([desde, hasta, paso]) => {
+  const out = []
+  for (let c = desde; c < hasta; c += paso) out.push(c)
+  return out
+}
+const DEFAULT_CLUSTER_BUCKETS = CLUSTER_BUCKET_TRAMOS.flatMap(tramoValues)
 
 // IconSet para clusters, keyed por bucket de conteo (genérico — un cluster es agregación de conteo,
 // no dominio). El consumidor define `buckets` (thresholds ascendentes) y `draw(ctx, size, count, plus)`.

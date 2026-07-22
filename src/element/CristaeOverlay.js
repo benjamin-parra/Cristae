@@ -1,7 +1,11 @@
 import { CristaeLayerElement } from './base.js'
+import { makeAutoId } from './autoId.js'
 import { grammar } from './composite.js'
-import { reduceModifier, validate } from '../grammar/index.js'
+import { grammarChildren, reduceModifier, validate } from '../grammar/index.js'
 
+// Semilla del id por-host de cada badge que monta `cristaeApply` (`<hostId>:overlay:<n>`): un mismo
+// host puede llevar varios overlays, así que el contador desambigua. Vive acá, no en `makeAutoId`,
+// porque su id lleva el prefijo del host (no el `overlay-<n>` plano de la ruta hoja).
 let ovlSeq = 0
 
 // <cristae-overlay> — MODIFICADOR de la gramática de composición (combine: 'map').
@@ -54,7 +58,7 @@ export class CristaeOverlay extends CristaeLayerElement {
 
   // Listo cuando el hijo entidad existe y tiene su config, y el badge tiene su IconSet.
   mountReady() {
-    const host = this.#hostChild()
+    const host = grammarChildren(this, grammar.isRegistered)[0]
     return !!host && host.mountReady() && this.iconSet != null
   }
 
@@ -69,7 +73,7 @@ export class CristaeOverlay extends CristaeLayerElement {
     // El _handle.id es el id del PUNTO que pasa por debajo: así un cluster que envuelva a
     // este overlay clusteriza el punto (y los badges, ligados, heredan su supresión).
     const point = this._units.find(u => u.kind === 'point')
-    return { id: point ? point.id : (this.id || `overlay-${++ovlSeq}`), units: this._units }
+    return { id: point ? point.id : (this.id || makeAutoId('overlay')), units: this._units }
   }
 
   // Units que aporta a su modificador padre (point pass-through + overlay(s)).
@@ -87,10 +91,5 @@ export class CristaeOverlay extends CristaeLayerElement {
     if (changed.has('visible')) {
       for (const u of this._units ?? []) if (u.kind === 'overlay') u.handle?.setVisible?.(this.visible)
     }
-  }
-
-  #hostChild() {
-    return [...this.children].find(el =>
-      el.getAttribute?.('slot') !== 'bubble' && typeof el.cristaeMount === 'function')
   }
 }

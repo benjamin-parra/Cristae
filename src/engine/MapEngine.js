@@ -388,15 +388,18 @@ export class MapEngine {
     }
     if (!hosts.length) return null
 
-    let expandableActive = expandable ?? true   // mutable via setConfig
-    let dimRestActive = dimRest                  // atenuar el resto del mapa al expandir (mutable)
-    let dimRestOpacityActive = dimRestOpacity ?? 0.3
-    let dimMarkedActive = dimMarked              // atenuar el resto mientras haya ids marcados (mutable)
-    let dimRestExceptActive = dimRestExcept ?? []  // capas del consumidor que quedan brillantes al atenuar
-    let circleThresholdActive = circleThreshold  // umbral círculo↔espiral (nº) o null = auto (SPIDER_CIRCLE_MAX)
-    let spiralGapActive = spiralGap              // radio interior de la espiral (nº) o null = default (SPIDER_MIN_RADIUS)
-    let accentActive = accent                    // color de acento (sub-burbujas al montar + traza si no hay lineColor) o null
-    let lineColorActive = lineColor              // color de la TRAZA que une los elementos (el consumidor lo deriva) o null
+    // Config VIVA del fold: un solo objeto mutado por setConfig (en vez de 9 `let` sueltos).
+    const cfg = {
+      expandable: expandable ?? true,          // mutable via setConfig
+      dimRest,                                 // atenuar el resto del mapa al expandir
+      dimRestOpacity: dimRestOpacity ?? 0.3,
+      dimMarked,                               // atenuar el resto mientras haya ids marcados
+      dimRestExcept: dimRestExcept ?? [],      // capas del consumidor que quedan brillantes al atenuar
+      circleThreshold,                         // umbral círculo↔espiral (nº) o null = auto (SPIDER_CIRCLE_MAX)
+      spiralGap,                               // radio interior de la espiral (nº) o null = default (SPIDER_MIN_RADIUS)
+      accent,                                  // color de acento (sub-burbujas al montar + traza si no hay lineColor) o null
+      lineColor,                               // color de la TRAZA que une los elementos (el consumidor lo deriva) o null
+    }
     const cluster = new Cluster({ radius, maxZoom, minPoints, enabled })
     const base = hosts[0].rec
     const { idOf, positionOf } = base.source.accessors   // ids deben ser únicos entre hosts (precondición)
@@ -458,7 +461,7 @@ export class MapEngine {
     // Capa de SUB-CLUSTERS de la espiral (jerarquía): burbujas de conteo con el MISMO iconSet de
     // conteo que las burbujas base. Slots {kind:'subcluster'} van acá; los {kind:'leaf'} a `spiderHandle`.
     const spiderSubId = `${foldId}:spider-sub`
-    const subIconSet = this.#subClusterIconSet(accentActive)   // accent (si hay) pinta las sub-burbujas; fijado al montar
+    const subIconSet = this.#subClusterIconSet(cfg.accent)   // accent (si hay) pinta las sub-burbujas; fijado al montar
     const spiderSubHandle = this.addPointLayer({
       id: spiderSubId, data: [],
       accessors: {
@@ -499,8 +502,8 @@ export class MapEngine {
         const subCount = g.slots.reduce((n, s) => n + (s.kind === 'subcluster' ? 1 : 0), 0)
         const hasBloom = g.slots.some(s => s.kind === 'leaf' && s.group != null)
         const collapsedCount = subCount + (hasBloom ? 1 : 0)
-        const circleMax = circleThresholdActive ?? SPIDER_CIRCLE_MAX   // umbral círculo↔espiral configurable (auto = default)
-        const gap = spiralGapActive ?? SPIDER_MIN_RADIUS                // radio interior de la espiral configurable
+        const circleMax = cfg.circleThreshold ?? SPIDER_CIRCLE_MAX   // umbral círculo↔espiral configurable (auto = default)
+        const gap = cfg.spiralGap ?? SPIDER_MIN_RADIUS                // radio interior de la espiral configurable
         const keepCircle = collapsedCount > 0 && collapsedCount <= circleMax
         const offs = spiderfyOffsets(c.x, c.y, g.slots.length, hasSub ? 58 : 54, gap, keepCircle ? g.slots.length : circleMax)
         // Traza que UNE los marcadores ENTRE SÍ (no las patas al centro): es lo que hace legible la forma
@@ -516,7 +519,7 @@ export class MapEngine {
             // variación cromática del acento para que los marcadores del acento puro resalten), si no el
             // `accent`, si no los defaults. Las secciones se distinguen por opacidad (hojas 0.6 / sub 0.55).
             // La librería NO deriva colores: recibe el que corresponda ya resuelto.
-            const color = lineColorActive ?? accentActive ?? (leaf ? SUB_ACCENT : '#94a3b8')
+            const color = cfg.lineColor ?? cfg.accent ?? (leaf ? SUB_ACCENT : '#94a3b8')
             bands.push({ pts: runPts, color, weight: 12, opacity: leaf ? 0.6 : 0.55 })
           }
           runType = null; runPts = null
@@ -574,12 +577,12 @@ export class MapEngine {
     // `dimRestExcept` deja brillantes capas del consumidor (p. ej. una capa propia ligada a los
     // marcados). Sin causa activa, restaura. Idempotente.
     const syncFocus = () => {
-      const porExpansion = dimRestActive && cluster.expandedGroups.length
-      const porMarcado = dimMarkedActive && cluster.hasMarked
+      const porExpansion = cfg.dimRest && cluster.expandedGroups.length
+      const porMarcado = cfg.dimMarked && cluster.hasMarked
       if (porExpansion || porMarcado)
         // Sólo marcadores (point/label/overlay): las geocercas/polígonos quedan como contexto, no
         // se atenúan. Las capas LIGADAS (labels/overlays con bindTo) siguen la suerte de su host.
-        this.focus([spiderId, spiderSubId, bubbleId, ...dimRestExceptActive], { opacity: dimRestOpacityActive, kinds: ['point', 'label', 'overlay'] })
+        this.focus([spiderId, spiderSubId, bubbleId, ...cfg.dimRestExcept], { opacity: cfg.dimRestOpacity, kinds: ['point', 'label', 'overlay'] })
       else
         this.unfocusAll()
     }
@@ -723,7 +726,7 @@ export class MapEngine {
     this.#map.on('zoomstart', onZoomStart)
 
     // Click en burbuja → expande ESE cluster (modelo ancla). Se registra SIEMPRE; el toggle
-    // `expandableActive` se evalúa en vivo. Guarda de generación: hit.ref debe existir en la fuente
+    // `cfg.expandable` se evalúa en vivo. Guarda de generación: hit.ref debe existir en la fuente
     // de burbujas VIVA, que contiene exactamente los cluster-ids de la generación de #sc vigente
     // (apply() la repobla sincrónicamente tras cada recluster). Si no está, la burbuja es de un paint
     // previo (repaint pendiente) → se ignora. Así getLeaves nunca recibe un id stale (ni lanza ni
@@ -732,7 +735,7 @@ export class MapEngine {
     // El bus entrega los handlers por-capa con un ARRAY de hits (ya filtrado a esta capa), no un hit
     // suelto (ver EventBus.#emit). El top hit de la burbuja es hits[0].
     const offBubbleClick = this.#bus.on('click', bubbleId, (hits) => {
-      if (!expandableActive) return
+      if (!cfg.expandable) return
       const ref = hits[0]?.ref
       if (ref == null) return
       // Guarda anti-carrera: el id debe seguir vivo en la fuente de burbujas (misma generación que
@@ -755,7 +758,7 @@ export class MapEngine {
     // Click en SUB-CLUSTER de la espiral (depth-2): florece SUS hojas empujando a los hermanos (toggle).
     // hits[0].ref = el id del sub-bubble = min leaf-id = el ancla interna que espera expandInner.
     const offSubClick = this.#bus.on('click', spiderSubId, (hits) => {
-      if (!expandableActive) return
+      if (!cfg.expandable) return
       const subId = hits[0]?.ref
       if (subId == null) return
       cluster.expandInner(subId)
@@ -769,22 +772,22 @@ export class MapEngine {
         if (maxZoom != null) cluster.maxZoom = maxZoom
         if (minPoints != null) cluster.minPoints = minPoints
         if (enabled != null) cluster.enabled = enabled
-        if (newDimRestOpacity != null) dimRestOpacityActive = newDimRestOpacity
-        if (newDimRest != null) dimRestActive = newDimRest
-        if (newDimMarked != null) dimMarkedActive = newDimMarked
-        if (newDimRestExcept !== undefined) dimRestExceptActive = newDimRestExcept ?? []
+        if (newDimRestOpacity != null) cfg.dimRestOpacity = newDimRestOpacity
+        if (newDimRest != null) cfg.dimRest = newDimRest
+        if (newDimMarked != null) cfg.dimMarked = newDimMarked
+        if (newDimRestExcept !== undefined) cfg.dimRestExcept = newDimRestExcept ?? []
         // Geometría/estilo de la espiral: no cambian la clusterización (recluster puede no gatillar), así
         // que si cambian con una espiral abierta hay que re-aplicar a mano para re-layoutear/re-colorear.
         // `accent` recolorea la TRAZA en caliente; las SUB-BURBUJAS quedan con el accent del montaje (su
         // icon-set está horneado) → un cambio reactivo de accent no las repinta.
         let geomChanged = false
-        if (newCircleThreshold !== undefined && newCircleThreshold !== circleThresholdActive) { circleThresholdActive = newCircleThreshold; geomChanged = true }
-        if (newSpiralGap !== undefined && newSpiralGap !== spiralGapActive) { spiralGapActive = newSpiralGap; geomChanged = true }
-        if (newAccent !== undefined && newAccent !== accentActive) { accentActive = newAccent; geomChanged = true }
-        if (newLineColor !== undefined && newLineColor !== lineColorActive) { lineColorActive = newLineColor; geomChanged = true }
-        if (newExpandable != null && newExpandable !== expandableActive) {
-          expandableActive = newExpandable
-          if (!expandableActive) doCollapseAll()   // al deshabilitar, re-formar y limpiar estado
+        if (newCircleThreshold !== undefined && newCircleThreshold !== cfg.circleThreshold) { cfg.circleThreshold = newCircleThreshold; geomChanged = true }
+        if (newSpiralGap !== undefined && newSpiralGap !== cfg.spiralGap) { cfg.spiralGap = newSpiralGap; geomChanged = true }
+        if (newAccent !== undefined && newAccent !== cfg.accent) { cfg.accent = newAccent; geomChanged = true }
+        if (newLineColor !== undefined && newLineColor !== cfg.lineColor) { cfg.lineColor = newLineColor; geomChanged = true }
+        if (newExpandable != null && newExpandable !== cfg.expandable) {
+          cfg.expandable = newExpandable
+          if (!cfg.expandable) doCollapseAll()   // al deshabilitar, re-formar y limpiar estado
         }
         if (cluster.recluster(this.#map.getZoom())) apply()
         else if (geomChanged && cluster.expandedGroups.length) apply()   // geometría cambió con espiral abierta → re-layout

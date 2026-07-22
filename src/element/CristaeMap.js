@@ -21,6 +21,28 @@ const glifyReady = (typeof window !== 'undefined')
 // baratos y de baja frecuencia → se cablean siempre en #wireEvents.
 const ON_DEMAND_EVENTS = new Set(['cristae:click', 'cristae:hover', 'cristae:pointermove'])
 
+// Agendador del resize del contenedor: coalesce (debounce trailing) la ráfaga del ResizeObserver a UN
+// solo `sync` ~110ms tras asentarse el tamaño. El observer dispara por frame mientras el contenedor se
+// anima (p.ej. abrir/cerrar un panel hermano que empuja el mapa), y cada syncSize() reproyecta TODAS las
+// capas de puntos (invalidateSize + resetCanvases) — reproyectar por frame es caro con muchos puntos/
+// polígonos. Re-agendar en cada notificación colapsa la ráfaga a una sola corrida ~110ms después; un
+// resize aislado se aplica ~110ms más tarde (imperceptible, sin reflows intermedios). `dispose()` corta
+// observer + timer juntos (eje 7: el estado del resize vive en el closure, no en campos sueltos del host).
+function createResizeSync(target, sync) {
+  let timer = null
+  const observer = new ResizeObserver(() => {
+    if (timer != null) clearTimeout(timer)
+    timer = setTimeout(() => { timer = null; sync() }, 110)
+  })
+  observer.observe(target)
+  return {
+    dispose() {
+      observer.disconnect()
+      if (timer != null) { clearTimeout(timer); timer = null }
+    },
+  }
+}
+
 export class CristaeMap extends LitElement {
 
   static properties = {
@@ -78,8 +100,7 @@ export class CristaeMap extends LitElement {
   #pending        = []
   #mounted        = false
   #everMounted    = false
-  #resizeObserver = null
-  #resizeTimer    = null          // debounce (trailing) del syncSize: coalesce una ráfaga de resize a una sola corrida
+  #resize         = null          // agendador del resize (observer + debounce trailing); dispose() al desmontar
   #resolveReady
   // Puenteo bajo demanda: nro de listeners DOM por tipo cristae:* (persiste entre reconexiones, porque
   // las registraciones de addEventListener sobreviven al detach) y el unsub del motor activo por tipo
@@ -122,8 +143,8 @@ export class CristaeMap extends LitElement {
 
   disconnectedCallback() {
     super.disconnectedCallback()
-    this.#resizeObserver?.disconnect()
-    if (this.#resizeTimer != null) { clearTimeout(this.#resizeTimer); this.#resizeTimer = null }
+    this.#resize?.dispose()
+    this.#resize = null
     this.#engine?.destroy()
     this.#engine = null
     this.#mounted = false
@@ -184,11 +205,19 @@ export class CristaeMap extends LitElement {
     const glify = await glifyReady
     const container = this.renderRoot.querySelector('#map')
 
+    // `initial-center` admite [lat,lng], la cadena "lat,lng" o vacío → [0,0].
+    const resolveCenter = () => {
+      const c = this.initialCenter
+      if (Array.isArray(c)) return c
+      if (typeof c === 'string' && c.includes(',')) return c.split(',').map(Number)
+      return [0, 0]
+    }
+
     this.#engine = new MapEngine({
       leaflet: L,
       glify,
       container,
-      mapOptions: { center: this.#center(), zoom: this.initialZoom ?? 2 },
+      mapOptions: { center: resolveCenter(), zoom: this.initialZoom ?? 2 },
       insets: this.viewportInsets,
       hoverThrottleMs: this.hoverThrottle ?? 0,
       zoomAnimation: this.zoomAnimation ?? 'none',
@@ -209,19 +238,7 @@ export class CristaeMap extends LitElement {
       this.#resolveReady = null
     })
 
-    this.#resizeObserver = new ResizeObserver(() => this.#scheduleSync())
-    this.#resizeObserver.observe(this)
-  }
-
-  // Resize del contenedor → debounce (trailing). El ResizeObserver dispara por frame mientras el
-  // contenedor se anima (p.ej. abrir/cerrar un panel hermano que empuja el mapa), y cada syncSize()
-  // reproyecta TODAS las capas de puntos (invalidateSize + resetCanvases) — reproyectar por frame es
-  // caro con muchos puntos/polígonos. Re-agendar en cada notificación colapsa la ráfaga a UN solo
-  // syncSize ~110ms después de que el tamaño se asienta. Un resize aislado simplemente se aplica
-  // ~110ms más tarde (imperceptible y sin reflows intermedios).
-  #scheduleSync() {
-    if (this.#resizeTimer != null) clearTimeout(this.#resizeTimer)
-    this.#resizeTimer = setTimeout(() => { this.#resizeTimer = null; this.#engine?.syncSize() }, 110)
+    this.#resize = createResizeSync(this, () => this.#engine?.syncSize())
   }
 
   #wireEvents() {
@@ -238,25 +255,25 @@ export class CristaeMap extends LitElement {
     // 'ready' se entrega por la promesa en #mount (el signal del motor ya se disparó al construir).
   }
 
-  // Suscribe el canal del motor para un tipo cristae:* bajo demanda y devuelve su unsub. Llamado solo
-  // con el motor montado (desde addEventListener o #wireEvents). Suscribir `hover` acá —y no en el
-  // montaje— es lo que mantiene el demand-counting del EventBus efectivo: sin listener, sin picking.
+  // Puenteo de un tipo cristae:* al canal del motor, como tabla const (eje 11) en vez de if-chain: cada
+  // entrada abre su canal en el motor del elemento recibido y devuelve el unsub. Es `static #private`
+  // (no const de módulo) para poder tocar #engine/#emit; los closures por-evento se crean recién al
+  // suscribir, uno por suscripción, igual que antes.
+  static #ENGINE_BRIDGE = {
+    'cristae:click':       (el) => el.#engine.on('click', (hits, ev) => el.#emit('click', { hits, originalEvent: ev })),
+    'cristae:hover':       (el) => el.#engine.on('hover', (hits) => el.#emit('hover', { hits })),
+    'cristae:pointermove': (el) => el.#engine.on('pointer:move', (_, s) => el.#emit('pointermove', s && { lat: s.latlng?.lat, lng: s.latlng?.lng, x: s.containerPoint?.x, y: s.containerPoint?.y })),
+  }
+
+  // Suscribe el canal del motor para un tipo cristae:* bajo demanda y devuelve su unsub (o null si el
+  // tipo no se puentea). Llamado solo con el motor montado (desde addEventListener o #wireEvents).
+  // Suscribir `hover` acá —y no en el montaje— es lo que mantiene el demand-counting del EventBus
+  // efectivo: sin listener, sin picking.
   #subscribeEngine(type) {
-    const e = this.#engine
-    if (type === 'cristae:click')       return e.on('click', (hits, ev) => this.#emit('click', { hits, originalEvent: ev }))
-    if (type === 'cristae:hover')       return e.on('hover', (hits) => this.#emit('hover', { hits }))
-    if (type === 'cristae:pointermove') return e.on('pointer:move', (_, s) => this.#emit('pointermove', s && { lat: s.latlng?.lat, lng: s.latlng?.lng, x: s.containerPoint?.x, y: s.containerPoint?.y }))
-    return null
+    return CristaeMap.#ENGINE_BRIDGE[type]?.(this) ?? null
   }
 
   #emit(type, detail) {
     this.dispatchEvent(new CustomEvent(`cristae:${type}`, { detail, bubbles: true, composed: true }))
-  }
-
-  #center() {
-    const c = this.initialCenter
-    if (Array.isArray(c)) return c
-    if (typeof c === 'string' && c.includes(',')) return c.split(',').map(Number)
-    return [0, 0]
   }
 }

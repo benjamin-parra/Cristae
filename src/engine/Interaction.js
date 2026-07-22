@@ -7,8 +7,8 @@ import { EVENT_HOVER, PICK_CHANNELS } from '../events/events.js'
 // los hits al registro y los puntos pickeables al motor.
 //
 // Picking dirigido por demanda, con DOS motivos para correr la sesión de hover (ver PICK_CHANNELS):
-//   · entregar EVENTOS de hover  → demanda del canal HOVER  (`#hoverDemand`);
-//   · CURSOR de affordance       → demanda de CLICK *o* HOVER (`#pickDemand`).
+//   · entregar EVENTOS de hover  → demanda del canal HOVER  (`#hover.hoverDemand`);
+//   · CURSOR de affordance       → demanda de CLICK *o* HOVER (`#hover.pickDemand`).
 // El cursor `pointer` es una affordance de la INTERACTIVIDAD, no del canal de hover: una capa
 // clickeable debe marcar el puntero al pasar sobre sus features —como `.leaflet-interactive` en
 // Leaflet, y como promete SPECS §eventos ("cursor automático … capa interactive")— aunque el
@@ -39,15 +39,20 @@ export class Interaction {
   #pointer = { seq: 0, clientX: 0, clientY: 0, containerPoint: { x: 0, y: 0 } }
   #containerRect = null
 
-  #hoverDemand = false          // demanda del canal HOVER → emitir eventos de hover
-  #pickDemand  = false          // demanda de CLICK u HOVER → correr el picking (para el cursor)
-  #interacting = false
-  #hoverDirty  = false
-  #hoverLastAt = -Infinity
-  #session     = null
-  #generation  = 0
-  #rafId       = null
-  #cursorOn    = false
+  #interacting = false          // gesto de zoom/pan en curso → suprime hover (ortogonal al subsistema)
+
+  // Estado del subsistema de hover (picking GPU): demanda, sesión activa, cursor y bookkeeping de
+  // throttle/latest-only. Se muta-y-reusa (nunca se reasigna) — los métodos calientes cachean la ref.
+  #hover = {
+    hoverDemand: false,   // demanda del canal HOVER → emitir eventos de hover
+    pickDemand: false,    // demanda de CLICK u HOVER → correr el picking (para el cursor)
+    dirty: false,         // llegó un pointermove con la sesión abierta → relee al cerrar
+    lastAt: -Infinity,    // marca de tiempo del último inicio de sesión (throttle)
+    session: null,        // sesión de picking en curso | null
+    generation: 0,        // sella cada sesión (invalidación)
+    rafId: null,          // handle del rAF del tick | null
+    cursorOn: false,      // ¿el cursor 'pointer' está puesto?
+  }
 
   #domHandlers = new Map()
   #mapHandlers = new Map()
@@ -70,9 +75,10 @@ export class Interaction {
   // los dos gates: HOVER (emitir eventos) y CLICK|HOVER (correr el picking para el cursor).
   syncHoverDemand() {
     const ids = this.#registry.layerIds()
-    this.#hoverDemand = ids.some(id => this.#registry.demandMaskOf(id) & EVENT_HOVER)
-    this.#pickDemand = ids.some(id => this.#registry.demandMaskOf(id) & PICK_CHANNELS)
-    if (!this.#pickDemand) this.#endHover()
+    const h = this.#hover
+    h.hoverDemand = ids.some(id => this.#registry.demandMaskOf(id) & EVENT_HOVER)
+    h.pickDemand = ids.some(id => this.#registry.demandMaskOf(id) & PICK_CHANNELS)
+    if (!h.pickDemand) this.#endHover()
   }
 
   destroy() {
@@ -81,7 +87,7 @@ export class Interaction {
     this.#mapHandlers.forEach((fn, type) => this.#map.off(type, fn))
     this.#domHandlers.clear()
     this.#mapHandlers.clear()
-    this.#session = null
+    this.#hover.session = null
   }
 
   /* ── Cableado ── */
@@ -139,11 +145,12 @@ export class Interaction {
     const sample = this.#sampleOf(p)
     this.#bus.dispatch('pointer:move', null, sample)            // crudo: coordenadas, sin picking
 
-    if (!this.#pickDemand || this.#interacting) return
-    this.#hoverDirty = true
-    if (this.#session) return                                  // latest-only: la sesión activa relee al cerrar
+    const h = this.#hover
+    if (!h.pickDemand || this.#interacting) return
+    h.dirty = true
+    if (h.session) return                                      // latest-only: la sesión activa relee al cerrar
 
-    if (now() - this.#hoverLastAt < this.#throttleMs) return
+    if (now() - h.lastAt < this.#throttleMs) return
     this.#startHover(sample)
   }
 
@@ -177,8 +184,9 @@ export class Interaction {
   /* ── Sesión de hover (picking GPU no bloqueante) ── */
 
   #startHover(sample) {
-    this.#hoverDirty = false
-    this.#hoverLastAt = now()
+    const h = this.#hover
+    h.dirty = false
+    h.lastAt = now()
 
     // Se pickean las capas interactivas con demanda de CLICK u HOVER: las solo-click se pickean
     // para poder marcar el cursor (sus EVENTOS de hover no se emiten — ver #emitHover).
@@ -188,20 +196,22 @@ export class Interaction {
     const queued = active.filter(({ layer }) => layer.requestHoverHit(sample))
     if (!queued.length) return this.#emitHover(sample)         // nada que pickear → resolver inline
 
-    this.#session = {
+    h.session = {
       sample,
-      generation: ++this.#generation,
+      generation: ++h.generation,
       layers: queued.map(({ layerId, layer }) => ({ layerId, layer, done: false })),
     }
     this.#scheduleTick()
   }
 
   #scheduleTick() {
-    if (this.#rafId == null) this.#rafId = raf(() => { this.#rafId = null; this.#tick() })
+    const h = this.#hover
+    if (h.rafId == null) h.rafId = raf(() => { h.rafId = null; this.#tick() })
   }
 
   #tick() {
-    const session = this.#session
+    const h = this.#hover
+    const session = h.session
     if (!session) return
     if (this.#interacting) return this.#scheduleTick()         // diferir hover mientras dura el gesto
 
@@ -214,15 +224,15 @@ export class Interaction {
     })
     if (!allDone) return this.#scheduleTick()                  // aún falta algún readback del GPU
 
-    this.#session = null
+    h.session = null
     this.#emitHover(session.sample)
-    if (this.#hoverDirty) this.#startHover(this.#sampleOf(this.#pointer))   // relee la última muestra
+    if (h.dirty) this.#startHover(this.#sampleOf(this.#pointer))   // relee la última muestra
   }
 
   #emitHover(sample) {
     // EVENTOS de hover: solo si hay demanda del canal HOVER (resolveHits('hover') ya filtra por él,
     // así que para una capa solo-click esto no dispara nada espurio).
-    if (this.#hoverDemand) this.#bus.dispatch('hover', this.#registry.resolveHits('hover', sample), sample)
+    if (this.#hover.hoverDemand) this.#bus.dispatch('hover', this.#registry.resolveHits('hover', sample), sample)
     // CURSOR de affordance: `pointer` si el puntero cae sobre una feature de una capa interactiva
     // con demanda de click u hover (no requiere escuchar 'hover'). Alinea la implementación con
     // SPECS §eventos: "cursor automático … capa interactive".
@@ -230,9 +240,10 @@ export class Interaction {
   }
 
   #endHover() {
+    const h = this.#hover
     this.#cancelRaf()
-    this.#session = null
-    this.#generation++
+    h.session = null
+    h.generation++
     this.#pickLayers().forEach(({ layer }) => layer.cancelHoverHit())
     this.#setCursor(false)   // cerrar la sesión (leave / zoom-pan / demanda a cero) restaura el cursor
   }
@@ -257,12 +268,14 @@ export class Interaction {
   /* ── Cursor automático ── */
 
   #setCursor(on) {
-    if (on === this.#cursorOn) return
-    this.#cursorOn = on
+    const h = this.#hover
+    if (on === h.cursorOn) return
+    h.cursorOn = on
     this.#container.style.cursor = on ? 'pointer' : ''
   }
 
   #cancelRaf() {
-    if (this.#rafId != null) { cancelRaf(this.#rafId); this.#rafId = null }
+    const h = this.#hover
+    if (h.rafId != null) { cancelRaf(h.rafId); h.rafId = null }
   }
 }

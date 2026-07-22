@@ -306,23 +306,19 @@ export class CristaePopup extends LitElement {
   #openFromHit(hits) {
     const hit = parseTokens(this.for).includes(hits[0]?.layerId) ? hits[0] : null
     if (!hit) { this.close(); return }
-    // Una capa `for` que no resuelve ítems por id (p. ej. polígonos) no puede vincular contenido:
-    // se avisa UNA vez y se cierra, en vez de no abrir nunca sin explicación.
     const res = resolvePopupHit(this.#map.getLayer(hit.layerId), hit.id)
-    if (res.action === 'unresolvable') this.#warnUnresolvable(hit.layerId)
+    // Una capa `for` que no resuelve ítems por id (p. ej. polígonos) no puede vincular contenido: se
+    // avisa UNA vez por capa (un `for` mal apuntado no debe inundar la consola por click) y se cierra.
+    if (res.action === 'unresolvable' && !this.#warned.has(hit.layerId)) {
+      this.#warned.add(hit.layerId)
+      console.warn(`[cristae-popup] la capa "${hit.layerId}" del atributo \`for\` no resuelve ítems por id ` +
+        `(sin Source.itemById — p. ej. una capa de polígonos): el popup no puede vincular su contenido. ` +
+        '`for` requiere una capa de puntos, líneas o html.')
+    }
     if (res.action !== 'open') { this.close(); return }
     // Hit con posición propia (overlay que presenta una hoja en su lugar desplegado) → ancla ahí,
     // congelada; sin ella → ancla viva del item.
     this.open(res.item, hit.latlng)
-  }
-
-  // Aviso por capa (una sola vez): un `for` mal apuntado no debe inundar la consola por click.
-  #warnUnresolvable(layerId) {
-    if (this.#warned.has(layerId)) return
-    this.#warned.add(layerId)
-    console.warn(`[cristae-popup] la capa "${layerId}" del atributo \`for\` no resuelve ítems por id ` +
-      `(sin Source.itemById — p. ej. una capa de polígonos): el popup no puede vincular su contenido. ` +
-      '`for` requiere una capa de puntos, líneas o html.')
   }
 
   /* ── Colocación ── */

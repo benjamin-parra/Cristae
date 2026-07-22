@@ -1,6 +1,5 @@
 import { CristaeLayerElement } from './base.js'
-
-let seq = 0
+import { makeAutoId } from './autoId.js'
 
 // <cristae-label-layer> — etiquetas canvas. Standalone (con `source`) o attachment
 // (`bind-to="<id>"`: deriva posiciones + textOf del host, resuelto por nombre, orden-indep).
@@ -26,7 +25,7 @@ export class CristaeLabelLayer extends CristaeLayerElement {
     this.visible = true
   }
 
-  layerId() { return this.id || (this._auto ??= `label-${++seq}`) }
+  layerId() { return this.id || (this._auto ??= makeAutoId('label')) }
 
   // Atada a un host (`bind-to`, atributo) o con Source propia. Sin ninguna, diferir el montaje.
   mountReady() { return !!(this.bindTo || this.source) }

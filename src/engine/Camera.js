@@ -49,7 +49,12 @@ export class Camera {
 
   fitBounds(bounds, { insets } = {}) {
     this.stopFollow()
-    this.#map.fitBounds(bounds, this.#paddingFor(insets))
+    const { top, right, bottom, left } = { ...this.#insets, ...insets }
+    const padding = {
+      paddingTopLeft: this.#L.point(left, top),
+      paddingBottomRight: this.#L.point(right, bottom),
+    }
+    this.#map.fitBounds(bounds, padding)
     return this
   }
 
@@ -162,13 +167,5 @@ export class Camera {
     if (!top && !right && !bottom && !left) return latlng
     const offset = this.#L.point((left - right) / 2, (top - bottom) / 2)
     return this.#map.unproject(this.#map.project(latlng, zoom).subtract(offset), zoom)
-  }
-
-  #paddingFor(insets) {
-    const { top, right, bottom, left } = { ...this.#insets, ...insets }
-    return {
-      paddingTopLeft: this.#L.point(left, top),
-      paddingBottomRight: this.#L.point(right, bottom),
-    }
   }
 }

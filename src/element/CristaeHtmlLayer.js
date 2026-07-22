@@ -1,6 +1,5 @@
 import { CristaeLayerElement } from './base.js'
-
-let seq = 0
+import { makeAutoId } from './autoId.js'
 
 // <cristae-html-layer> — marcadores HTML (L.divIcon) declarativos, GL-safe. accessors = { idOf,
 // positionOf, htmlOf, classNameOf?, sizeOf?, anchorOf? }. Nicho: badges de dominio con contenido HTML
@@ -24,7 +23,7 @@ export class CristaeHtmlLayer extends CristaeLayerElement {
     this.visible     = true
   }
 
-  layerId() { return this.id || (this._auto ??= `html-${++seq}`) }
+  layerId() { return this.id || (this._auto ??= makeAutoId('html')) }
 
   mountReady() { return !!(this.source || this.accessors) }
 

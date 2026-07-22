@@ -13,7 +13,7 @@ export const EVENT_SECONDARY = 4
 // puntero al pasar por encima de sus features —como `.leaflet-interactive` en Leaflet—, aunque el
 // consumidor no escuche el canal de hover. Sin esto, una capa solo-click no tendría picking de
 // hover y el cursor nunca cambiaría (contradiría el "cursor automático" de SPECS §eventos).
-// Ver engine/Interaction (#pickDemand / #emitHover) e interaction/LayerRegistry (hasHitForChannels).
+// Ver engine/Interaction (#hover.pickDemand / #emitHover) e interaction/LayerRegistry (hasHitForChannels).
 export const PICK_CHANNELS = EVENT_CLICK | EVENT_HOVER
 
 // Tipo de evento → bit de canal (dispatch por tabla en vez de if/else). Los tres sabores de hover

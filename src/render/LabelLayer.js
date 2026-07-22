@@ -116,7 +116,10 @@ export class LabelLayer {
     this.#paint = paint
     this.#boundsPad = boundsPad
     this.#style = style
-    this.#ensurePane(pane)
+    // Asegura (get-or-create) el pane de las etiquetas antes de montar el overlay.
+    const labelPane = this.#map.getPane(pane.name) ?? this.#map.createPane(pane.name)
+    labelPane.style.zIndex = String(pane.zIndex)
+    labelPane.style.pointerEvents = 'none'
     this.#overlay = new CanvasOverlay((ctx, leaflet) => this.#render(ctx, leaflet))
     this.#overlay.options.pane = pane.name
     this.#overlay.addTo(map)
@@ -163,12 +166,6 @@ export class LabelLayer {
     this.#labels = []
     this.#hovered.clear()
     this.#overlay.remove()
-  }
-
-  #ensurePane({ name, zIndex }) {
-    const pane = this.#map.getPane(name) ?? this.#map.createPane(name)
-    pane.style.zIndex = String(zIndex)
-    pane.style.pointerEvents = 'none'
   }
 
   #render(ctx, leaflet) {

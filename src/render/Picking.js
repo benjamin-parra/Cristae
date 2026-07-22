@@ -13,9 +13,7 @@ export class Picking {
 
   #gl            = null
   #program       = null
-  #fbo           = null
-  #depth         = null
-  #colorTex      = null
+  #target        = null   // destino de picking (FBO) — { framebuffer, color, depth }, creado/destruido en bloque
   #pbo           = null
   #buf           = new Uint8Array(PATCH * PATCH * 4)
   #atlasTexture  = null
@@ -97,9 +95,12 @@ export class Picking {
     const gl = this.#gl
     if (!gl) return
     this.abort()
-    gl.deleteFramebuffer(this.#fbo)
-    gl.deleteRenderbuffer(this.#depth)
-    gl.deleteTexture(this.#colorTex)
+    const t = this.#target
+    if (t) {
+      gl.deleteFramebuffer(t.framebuffer)
+      gl.deleteRenderbuffer(t.depth)
+      gl.deleteTexture(t.color)
+    }
     gl.deleteBuffer(this.#pbo)
     this.#gl = null
   }
@@ -113,7 +114,7 @@ export class Picking {
     const sw = Math.min(PATCH, w - sx)
     const sh = Math.min(PATCH, h - sy)
     if (sw <= 0 || sh <= 0) return null
-    gl.bindFramebuffer(gl.FRAMEBUFFER, this.#fbo)
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.#target.framebuffer)
     gl.viewport(0, 0, w, h)
     gl.enable(gl.SCISSOR_TEST)
     gl.scissor(sx, sy, sw, sh)
@@ -160,26 +161,28 @@ export class Picking {
     const prevTex = gl.getParameter(gl.TEXTURE_BINDING_2D)
     const prevRbo = gl.getParameter(gl.RENDERBUFFER_BINDING)
     const prevFbo = gl.getParameter(gl.FRAMEBUFFER_BINDING)
-    if (this.#fbo) {
-      gl.deleteFramebuffer(this.#fbo)
-      gl.deleteTexture(this.#colorTex)
-      gl.deleteRenderbuffer(this.#depth)
+    const old = this.#target
+    if (old) {
+      gl.deleteFramebuffer(old.framebuffer)
+      gl.deleteTexture(old.color)
+      gl.deleteRenderbuffer(old.depth)
     }
-    this.#colorTex = gl.createTexture()
-    gl.bindTexture(gl.TEXTURE_2D, this.#colorTex)
+    const color = gl.createTexture()
+    gl.bindTexture(gl.TEXTURE_2D, color)
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null)
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
-    this.#depth = gl.createRenderbuffer()
-    gl.bindRenderbuffer(gl.RENDERBUFFER, this.#depth)
+    const depth = gl.createRenderbuffer()
+    gl.bindRenderbuffer(gl.RENDERBUFFER, depth)
     gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT16, w, h)
-    this.#fbo = gl.createFramebuffer()
-    gl.bindFramebuffer(gl.FRAMEBUFFER, this.#fbo)
-    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, this.#colorTex, 0)
-    gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, this.#depth)
+    const framebuffer = gl.createFramebuffer()
+    gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer)
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, color, 0)
+    gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, depth)
     gl.bindFramebuffer(gl.FRAMEBUFFER, prevFbo)
     gl.bindRenderbuffer(gl.RENDERBUFFER, prevRbo)
     gl.bindTexture(gl.TEXTURE_2D, prevTex)
+    this.#target = { framebuffer, color, depth }
   }
 
   #compile(visualProgram) {

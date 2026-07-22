@@ -64,13 +64,11 @@ const bySequence = (a, b) => a.sequence - b.sequence
 export class ZoomSnapshotStore {
 
   #entries = []
-  #maxSnapshots
-  #maxSeedSnapshots
+  #limits
   #sequence = 0
 
   constructor({ maxSnapshots = 8, maxSeedSnapshots = 3 } = {}) {
-    this.#maxSnapshots = maxSnapshots
-    this.#maxSeedSnapshots = maxSeedSnapshots
+    this.#limits = { snapshots: maxSnapshots, seeds: maxSeedSnapshots }
   }
 
   add(snapshot, { kind = 'normal' } = {}) {
@@ -138,12 +136,12 @@ export class ZoomSnapshotStore {
   // Recorta por antigüedad: primero el exceso de seeds, luego el exceso global.
   #trim() {
     const seeds = this.#entries.filter((entry) => entry.kind === 'seed').sort(bySequence)
-    seeds.slice(0, Math.max(0, seeds.length - this.#maxSeedSnapshots)).forEach((entry) => this.#remove(entry))
+    seeds.slice(0, Math.max(0, seeds.length - this.#limits.seeds)).forEach((entry) => this.#remove(entry))
 
     this.#entries
       .slice()
       .sort(bySequence)
-      .slice(0, Math.max(0, this.#entries.length - this.#maxSnapshots))
+      .slice(0, Math.max(0, this.#entries.length - this.#limits.snapshots))
       .forEach((entry) => this.#remove(entry))
   }
 

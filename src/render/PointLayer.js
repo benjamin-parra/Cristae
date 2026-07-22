@@ -21,8 +21,7 @@ export class PointLayer {
   #layer       = null
   #binding     = null
   #picking     = null
-  #hoverHits   = []     // hits del último pick de hover, cacheados para resolveHover
-  #hoverSample = null   // muestra del puntero de ese pick (su seq valida el cache)
+  #hoverPick   = { hits: [], sample: null }   // cache del último pick de hover; sample.seq valida hits
 
   // Reusados en rebuild — [0-alloc] entre rebuilds salvo crecimiento del set.
   #positions    = []   // [lat, lng] por slot (data de glify)
@@ -80,14 +79,14 @@ export class PointLayer {
   collectHoverHit() {
     const pick = this.#picking?.collect()
     if (!pick) return null
-    this.#hoverHits = this.#hitsFromSlots(pick.slots)
-    this.#hoverSample = pick.metadata
+    this.#hoverPick.hits = this.#hitsFromSlots(pick.slots)
+    this.#hoverPick.sample = pick.metadata
     return pick.metadata
   }
 
   // resolveHover devuelve el cache solo si corresponde a la muestra vigente (mismo seq).
   resolveHover(baseEvent) {
-    return this.#hoverSample?.seq === baseEvent.seq ? this.#hoverHits : []
+    return this.#hoverPick.sample?.seq === baseEvent.seq ? this.#hoverPick.hits : []
   }
 
   // resolveClick hace un pick síncrono (un tiro) en el punto del evento.

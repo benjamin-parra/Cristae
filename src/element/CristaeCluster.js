@@ -1,8 +1,7 @@
 import { CristaeLayerElement } from './base.js'
+import { makeAutoId } from './autoId.js'
 import { grammar } from './composite.js'
-import { reduceModifier, validate } from '../grammar/index.js'
-
-let clSeq = 0
+import { grammarChildren, reduceModifier, validate } from '../grammar/index.js'
 
 // circle-threshold: un número (umbral círculo→espiral) o "auto"/vacío → null (el motor usa su default).
 const parseCircleThreshold = (v) => {
@@ -106,9 +105,7 @@ export class CristaeCluster extends CristaeLayerElement {
 
   // Listo cuando todos los hijos de gramática (host(s), no la burbuja) tienen su config.
   mountReady() {
-    return [...this.children]
-      .filter(el => el.getAttribute?.('slot') !== 'bubble' && typeof el.cristaeMount === 'function')
-      .every(el => el.mountReady())
+    return grammarChildren(this, grammar.isRegistered).every(el => el.mountReady())
   }
 
   mountLayer(engine) {
@@ -144,7 +141,7 @@ export class CristaeCluster extends CristaeLayerElement {
       if (this.#markedIds?.length) control.setMarked(this.#markedIds)   // re-push: el fold nuevo arranca vacío
     }
 
-    return { id: `cluster-marker-${++clSeq}`, units: this._units, control }
+    return { id: makeAutoId('cluster-marker'), units: this._units, control }
   }
 
   disconnectedCallback() {

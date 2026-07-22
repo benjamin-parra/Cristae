@@ -1,6 +1,5 @@
 import { CristaeLayerElement } from './base.js'
-
-let seq = 0
+import { makeAutoId } from './autoId.js'
 
 // <cristae-line-layer> — capa de líneas GL declarativa. Como point-layer, dos entradas de dato:
 // `data` (array → el elemento posee la Source interna) y `source` (Source compartida del consumidor,
@@ -28,7 +27,7 @@ export class CristaeLineLayer extends CristaeLayerElement {
     this.vector      = false
   }
 
-  layerId() { return this.id || (this._auto ??= `line-${++seq}`) }
+  layerId() { return this.id || (this._auto ??= makeAutoId('line')) }
 
   mountReady() { return !!(this.source || this.accessors) }
 

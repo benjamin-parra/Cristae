@@ -23,6 +23,50 @@ export function stagesFrom(tokens) {
   return { flip: t.has('flip'), shift: t.has('shift'), clip: t.has('clip') }
 }
 
+// Las tres etapas como lambdas de módulo (no se recrean por llamada): reciben la caja en curso + el
+// contexto derivado, la mutan y la devuelven. `computePlacement` las encadena con un reduce.
+
+// 1. LADO — la caja abre encima por defecto; sólo baja si no entra encima y (entra abajo o hay más
+// espacio abajo). `above` es el desempate, así que aquí basta con detectar el vuelco a `below`.
+const flipStage = (box, ctx) => {
+  const fitsAbove = ctx.topAbove >= ctx.pT
+  const fitsBelow = ctx.topBelow + ctx.h <= ctx.pB
+  if (!fitsAbove && (fitsBelow || ctx.pB - ctx.topBelow > ctx.anchorY - ctx.gap - ctx.pT)) {
+    box.side = 'below'
+    box.top = ctx.topBelow
+  }
+  return box
+}
+
+// 2. CLAMP — desliza la caja lo mínimo para entrar en el viewport acolchado; si es más grande que él,
+// manda el borde de entrada (izquierda / arriba).
+const shiftStage = (box, ctx) => {
+  if (box.left + ctx.w > ctx.pR) box.left = ctx.pR - ctx.w
+  if (box.left < ctx.pL) box.left = ctx.pL
+  if (box.top + ctx.h > ctx.pB) box.top = ctx.pB - ctx.h
+  if (box.top < ctx.pT) box.top = ctx.pT
+  return box
+}
+
+// 3. CLIP — residuo de la caja final contra el viewport REAL (sin padding), como insets para clip-path.
+const clipStage = (box, ctx) => {
+  const { viewport, w, h } = ctx
+  const cTop = Math.max(0, viewport.top - box.top)
+  const cRight = Math.max(0, box.left + w - viewport.right)
+  const cBottom = Math.max(0, box.top + h - viewport.bottom)
+  const cLeft = Math.max(0, viewport.left - box.left)
+  if (cTop || cRight || cBottom || cLeft) box.clip = { top: cTop, right: cRight, bottom: cBottom, left: cLeft }
+  return box
+}
+
+// Pipeline en orden fijo LADO → CLAMP → CLIP. `stages` sólo prende cada etapa (por eso el orden de los
+// tokens del atributo es irrelevante); el reduce aplica las prendidas sobre la caja inicial.
+const PLACEMENT_STAGES = [
+  ['flip', flipStage],
+  ['shift', shiftStage],
+  ['clip', clipStage],
+]
+
 /**
  * @param {object}   input
  * @param {{x: number, y: number}} input.anchor    punto anclado
@@ -38,40 +82,17 @@ export function stagesFrom(tokens) {
  */
 export function computePlacement({ anchor, size, viewport, stages, offsetX = 0, gap = 12, paddingX = 20, paddingY = 20 }) {
   const { w, h } = size
-  // Viewport acolchado: sólo para flip/clamp. El clip usa el real.
-  const pL = viewport.left + paddingX, pR = viewport.right - paddingX
-  const pT = viewport.top + paddingY, pB = viewport.bottom - paddingY
-
-  // 1. LADO
-  const cx = anchor.x + offsetX
-  const topAbove = anchor.y - gap - h
-  const topBelow = anchor.y + gap
-  let side = 'above'
-  if (stages.flip) {
-    const fitsAbove = topAbove >= pT
-    const fitsBelow = topBelow + h <= pB
-    if (!fitsAbove && (fitsBelow || pB - topBelow > anchor.y - gap - pT)) side = 'below'
+  // Contexto derivado que comparten las etapas. Viewport acolchado (pL/pR/pT/pB): sólo para
+  // flip/clamp; el clip usa el `viewport` real.
+  const ctx = {
+    w, h,
+    topAbove: anchor.y - gap - h,
+    topBelow: anchor.y + gap,
+    anchorY: anchor.y, gap, viewport,
+    pL: viewport.left + paddingX, pR: viewport.right - paddingX,
+    pT: viewport.top + paddingY, pB: viewport.bottom - paddingY,
   }
-  let left = cx - w / 2
-  let top = side === 'above' ? topAbove : topBelow
-
-  // 2. CLAMP
-  if (stages.shift) {
-    if (left + w > pR) left = pR - w
-    if (left < pL) left = pL
-    if (top + h > pB) top = pB - h
-    if (top < pT) top = pT
-  }
-
-  // 3. CLIP
-  let clip = null
-  if (stages.clip) {
-    const cTop = Math.max(0, viewport.top - top)
-    const cRight = Math.max(0, left + w - viewport.right)
-    const cBottom = Math.max(0, top + h - viewport.bottom)
-    const cLeft = Math.max(0, viewport.left - left)
-    if (cTop || cRight || cBottom || cLeft) clip = { top: cTop, right: cRight, bottom: cBottom, left: cLeft }
-  }
-
-  return { left, top, side, clip }
+  // Caja inicial: anclada, lado `above` (default y desempate del flip), sin clip.
+  const box0 = { left: anchor.x + offsetX - w / 2, top: ctx.topAbove, side: 'above', clip: null }
+  return PLACEMENT_STAGES.reduce((box, [name, stage]) => (stages[name] ? stage(box, ctx) : box), box0)
 }

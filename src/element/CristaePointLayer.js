@@ -1,6 +1,5 @@
 import { CristaeLayerElement } from './base.js'
-
-let seq = 0
+import { makeAutoId } from './autoId.js'
 
 // <cristae-point-layer> — capa de puntos GL declarativa. Dos entradas de dato simétricas:
 // `data` (array plano → el elemento posee la Source interna) y `source` (una Source que el
@@ -35,7 +34,7 @@ export class CristaePointLayer extends CristaeLayerElement {
     this.enabled     = true
   }
 
-  layerId() { return this.id || (this._auto ??= `point-${++seq}`) }
+  layerId() { return this.id || (this._auto ??= makeAutoId('point')) }
 
   // Necesita una Source (que ya trae accessors) o accessors propios (ruta `data`). Sin eso, diferir.
   mountReady() { return !!(this.source || this.accessors) }
