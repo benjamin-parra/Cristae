@@ -20,12 +20,14 @@ export class EventBus {
   #elementIds = new WeakMap()
   #nextElementId = 1
 
-  #globalDemand = new Map()           // canal → conteo de handlers que escuchan todas las capas
-  #layerDemand  = new Map()           // layerId → (canal → conteo)
-  #onDemandChange
+  // Demanda de picking (subsistema FRÍO — sólo alta/baja de suscripción y registro de capa): dos
+  // libros de conteo por canal + el notificador, que se leen y escriben juntos. `global` = handlers
+  // que escuchan todas las capas; `layer` = layerId → (canal → conteo); `onChange` avisa al motor
+  // cuándo recalcular la máscara activa de una capa (null = la demanda global).
+  #demand = { global: new Map(), layer: new Map(), onChange: null }
 
   constructor(onDemandChange = null) {
-    this.#onDemandChange = onDemandChange
+    this.#demand.onChange = onDemandChange
   }
 
   /* ── Suscripción ── */
@@ -60,12 +62,21 @@ export class EventBus {
 
   /* ── Despacho ── */
 
+  // Ruteo del kind de hit → acción (dispatch por tabla en vez de if/else, exhaustivo sobre los kinds
+  // válidos). Tabla construida UNA vez por instancia —no por despacho— con prototipo nulo: un kind
+  // desconocido no resuelve ningún método heredado, sólo el `?.()` no-op. Los arrows cierran sobre
+  // `this` una sola vez; el lookup es 0-alloc, apto para el ritmo de pointermove (hover, pointer:move).
+  #routes = {
+    __proto__: null,
+    'pointer:move': (hits, baseEvent) => this.#emitRaw('pointer:move', baseEvent),
+    'click': (hits, baseEvent) => this.#emit('click', hits, baseEvent),
+    'secondary-click': (hits, baseEvent) => this.#emit('secondary-click', hits, baseEvent),
+    'hover': (hits, baseEvent) => this.#dispatchHover(hits, baseEvent),
+    'hover:out': (hits, baseEvent) => this.#dispatchHoverOut(baseEvent),
+  }
+
   dispatch(kind, hits, baseEvent) {
-    if (kind === 'pointer:move') return this.#emitRaw('pointer:move', baseEvent)
-    if (kind === 'click') return this.#emit('click', hits, baseEvent)
-    if (kind === 'secondary-click') return this.#emit('secondary-click', hits, baseEvent)
-    if (kind === 'hover') return this.#dispatchHover(hits, baseEvent)
-    if (kind === 'hover:out') return this.#dispatchHoverOut(baseEvent)
+    return this.#routes[kind]?.(hits, baseEvent)
   }
 
   // Fuerza hover:end de los elementos de una capa que dejó de ser resoluble (oculta/removida).
@@ -81,8 +92,9 @@ export class EventBus {
   }
 
   demandMaskFor(layerId) {
-    return this.#maskFromCounts(this.#globalDemand)
-      | this.#maskFromCounts(this.#layerDemand.get(layerId))
+    const d = this.#demand
+    return this.#maskFromCounts(d.global)
+      | this.#maskFromCounts(d.layer.get(layerId))
   }
 
   /* ── Internos de hover ── */
@@ -152,19 +164,20 @@ export class EventBus {
 
   #changeDemand(handler, delta) {
     if (!handler.mask) return
+    const d = this.#demand
 
     if (handler.all) {
-      this.#applyCount(this.#globalDemand, handler.mask, delta)
-      this.#onDemandChange?.(null)
+      this.#applyCount(d.global, handler.mask, delta)
+      d.onChange?.(null)
       return
     }
 
     handler.layers.forEach(layerId => {
-      let counts = this.#layerDemand.get(layerId)
-      if (!counts) this.#layerDemand.set(layerId, counts = new Map())
+      let counts = d.layer.get(layerId)
+      if (!counts) d.layer.set(layerId, counts = new Map())
       this.#applyCount(counts, handler.mask, delta)
-      if (!counts.size) this.#layerDemand.delete(layerId)
-      this.#onDemandChange?.(layerId)
+      if (!counts.size) d.layer.delete(layerId)
+      d.onChange?.(layerId)
     })
   }
 

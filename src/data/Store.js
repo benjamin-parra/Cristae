@@ -10,12 +10,16 @@ function reportListenerError(e) {
 // síncrono cero-alloc a los listeners.
 export class Store {
 
-  #baseData       = []
-  #parentFiltered = []
-  #selfFiltered   = []
+  // Version-tracking (co-mutan: idOf/hashOf se fijan una vez; hashes/versions/dirtyIds
+  // se crean juntos al recibir versionTracker). dirtyIds es un Set reusable — nunca se
+  // reasigna (sólo .clear()/.add()), hay un test de identidad que lo verifica.
+  #tracking = { idOf: null, hashOf: null, hashes: null, versions: null, dirtyIds: null }
 
-  #parentFilters = []
-  #selfFilters   = []
+  // Índices id → posición / membresía (Maps/Sets reusados: .clear() por rebuild, nunca reasignados).
+  #index = { base: new Map(), parent: new Map(), parentMembers: new Set(), self: new Map(), selfMembers: new Set() }
+
+  // Capas de dato + sus filtros: base → filtrado por el padre → filtrado propio.
+  #layers = { base: [], parentFiltered: [], selfFiltered: [], parentFilters: [], selfFilters: [] }
 
   #listeners = []
 
@@ -24,32 +28,20 @@ export class Store {
 
   #parent = null
 
-  // Version-tracking
-  #idOf     = null
-  #hashOf   = null
-  #hashes   = null
-  #versions = null
-  #dirtyIds = null              // Set reusable — nunca se reasigna
-
-  // Índices id → posición / membresía
-  #baseIndex     = new Map()
-  #parentIndex   = new Map()
-  #parentMembers = new Set()
-  #selfIndex     = new Map()
-  #selfMembers   = new Set()
-
   constructor(items = [], { versionTracker } = {}) {
     if (!Array.isArray(items)) items = []
-    this.#baseData       = items
-    this.#parentFiltered = items.slice()
-    this.#selfFiltered   = items.slice()
+    const ly = this.#layers
+    ly.base           = items
+    ly.parentFiltered = items.slice()
+    ly.selfFiltered   = items.slice()
 
     if (versionTracker) {
-      this.#idOf     = versionTracker.idOf
-      this.#hashOf   = versionTracker.hashOf
-      this.#hashes   = new Map()
-      this.#versions = new Map()
-      this.#dirtyIds = new Set()
+      const t = this.#tracking
+      t.idOf     = versionTracker.idOf
+      t.hashOf   = versionTracker.hashOf
+      t.hashes   = new Map()
+      t.versions = new Map()
+      t.dirtyIds = new Set()
       this.#scan(items)
       this.#rebuildBaseIndex()
       this.#rebuildIndices()
@@ -60,7 +52,7 @@ export class Store {
 
   update(items = []) {
     if (!Array.isArray(items)) return this
-    this.#baseData = items
+    this.#layers.base = items
     this.#scan(items)
     this.#rebuildBaseIndex()
     this.#hardRegenerate()
@@ -74,13 +66,16 @@ export class Store {
   // El recorrido de dirtyIds es TOTAL: todo id sucio pasa por el scan (hash + version-bump).
   // Un cambio de membresía sólo decide CÓMO queda la vista al final, nunca acorta el recorrido.
   patch(items, dirtyIds) {
-    if (!this.#idOf || !dirtyIds?.size) return this.update(items)
+    const t = this.#tracking
+    if (!t.idOf || !dirtyIds?.size) return this.update(items)
 
-    this.#baseData = items
+    const ix = this.#index
+    const ly = this.#layers
+    ly.base = items
     let needsRegenerate = false
 
     for (const id of dirtyIds) {
-      const baseIdx = this.#baseIndex.get(id)
+      const baseIdx = ix.base.get(id)
       if (baseIdx == null) continue            // id ausente del snapshot → ignorar
       const item = items[baseIdx]
       this.#scanOne(item)
@@ -88,10 +83,10 @@ export class Store {
       // Con la vista ya condenada al regenerado, evaluar filtros y escribir slots es trabajo muerto.
       if (needsRegenerate) continue
 
-      const passesParent = this.#parentFilters.every(F => F.f(item))
-      const passesSelf = passesParent && this.#selfFilters.every(F => F.f(item))
-      const wasParent = this.#parentMembers.has(id)
-      const wasSelf = this.#selfMembers.has(id)
+      const passesParent = ly.parentFilters.every(F => F.f(item))
+      const passesSelf = passesParent && ly.selfFilters.every(F => F.f(item))
+      const wasParent = ix.parentMembers.has(id)
+      const wasSelf = ix.selfMembers.has(id)
 
       if (passesParent !== wasParent || passesSelf !== wasSelf) {
         needsRegenerate = true
@@ -99,12 +94,12 @@ export class Store {
       }
 
       if (passesParent) {
-        const pi = this.#parentIndex.get(id)
-        if (pi != null) this.#parentFiltered[pi] = item
+        const pi = ix.parent.get(id)
+        if (pi != null) ly.parentFiltered[pi] = item
       }
       if (passesSelf) {
-        const si = this.#selfIndex.get(id)
-        if (si != null) this.#selfFiltered[si] = item
+        const si = ix.self.get(id)
+        if (si != null) ly.selfFiltered[si] = item
       }
     }
 
@@ -118,27 +113,30 @@ export class Store {
   /* ── Filtros ── */
 
   addFilter(filter) {
-    this.#selfFilters.push(filter)
-    this.#selfFiltered = this.#selfFiltered.filter(v => filter.f(v))
+    const ly = this.#layers
+    ly.selfFilters.push(filter)
+    ly.selfFiltered = ly.selfFiltered.filter(v => filter.f(v))
     this.#rebuildIndices()
     this.#dataVersion++
     return this
   }
 
   removeFilter(id) {
-    this.#selfFilters = this.#selfFilters.filter(F => F.id !== id)
+    const ly = this.#layers
+    ly.selfFilters = ly.selfFilters.filter(F => F.id !== id)
     this.#softRegenerate()
     this.#dataVersion++
     return this
   }
 
   hasFilter(id) {
-    return this.#selfFilters.some(F => F.id === id)
+    return this.#layers.selfFilters.some(F => F.id === id)
   }
 
   clearFilters() {
-    if (this.#selfFilters.length === 0) return this
-    this.#selfFilters = []
+    const ly = this.#layers
+    if (ly.selfFilters.length === 0) return this
+    ly.selfFilters = []
     this.#softRegenerate()
     this.#dataVersion++
     return this
@@ -157,7 +155,7 @@ export class Store {
   }
 
   notifyChanges() {
-    safeDispatch(this.#listeners, this.#selfFiltered, reportListenerError)
+    safeDispatch(this.#listeners, this.#layers.selfFiltered, reportListenerError)
   }
 
   /* ── Composición ── */
@@ -166,13 +164,13 @@ export class Store {
   reactiveCompose(parent) {
     if (!(parent instanceof Store)) return this
     this.#parent = parent
-    this.#parentFilters = parent.activeFilters
+    this.#layers.parentFilters = parent.activeFilters
 
     const self = this
     parent.addListener({
       id: this.#instanceId,
       callback: () => {
-        self.#parentFilters = parent.activeFilters
+        self.#layers.parentFilters = parent.activeFilters
         self.#hardRegenerate()
         self.notifyChanges()
       },
@@ -189,89 +187,100 @@ export class Store {
     if (this.#parent) this.#parent.removeListener(this.#instanceId)
     this.#parent = null
     this.#listeners = []
-    this.#baseData = []
-    this.#parentFiltered = []
-    this.#selfFiltered = []
+    const ly = this.#layers
+    ly.base = []
+    ly.parentFiltered = []
+    ly.selfFiltered = []
   }
 
   /* ── Lectura (refs estables entre flushes) ── */
 
-  get filtered() { return this.#selfFiltered }
-  get activeFilters() { return [...this.#parentFilters, ...this.#selfFilters] }
+  get filtered() { return this.#layers.selfFiltered }
+  get activeFilters() { return [...this.#layers.parentFilters, ...this.#layers.selfFilters] }
   get dataVersion() { return this.#dataVersion }
-  get elementVersions() { return this.#versions }
-  get dirtyIds() { return this.#dirtyIds }
+  get elementVersions() { return this.#tracking.versions }
+  get dirtyIds() { return this.#tracking.dirtyIds }
 
   version() { return this.#dataVersion }
 
   // item por id en O(1) (índice de selfFiltered). Requiere versionTracker. Habilita el
   // patch incremental O(k) de la capa (resolver el ítem fresco de un id sucio sin escanear).
   get(id) {
-    return this.#selfFiltered[this.#selfIndex.get(id)]   // id ausente → índice undefined → undefined
+    return this.#layers.selfFiltered[this.#index.self.get(id)]   // id ausente → índice undefined → undefined
   }
 
   /* ── Internos ── */
 
   #softRegenerate() {
-    this.#selfFiltered = this.#parentFiltered.filter(v => this.#selfFilters.every(F => F.f(v)))
+    const ly = this.#layers
+    ly.selfFiltered = ly.parentFiltered.filter(v => ly.selfFilters.every(F => F.f(v)))
     this.#rebuildIndices()
   }
 
   #hardRegenerate() {
-    this.#parentFiltered = this.#baseData.filter(v => this.#parentFilters.every(F => F.f(v)))
+    const ly = this.#layers
+    ly.parentFiltered = ly.base.filter(v => ly.parentFilters.every(F => F.f(v)))
     this.#softRegenerate()
   }
 
   // Recolecta los ids cuyo hash cambió en el Set reusable (no se reasigna → cero-alloc).
   #scan(items) {
-    if (!this.#versions) return
-    this.#dirtyIds.clear()
+    const t = this.#tracking
+    if (!t.versions) return
+    t.dirtyIds.clear()
     for (let i = 0; i < items.length; i++) {
       const item = items[i]
-      const id = this.#idOf(item)
-      const hash = this.#hashOf(item)
-      if (this.#hashes.get(id) !== hash) {
-        this.#hashes.set(id, hash)
-        this.#versions.set(id, (this.#versions.get(id) || 0) + 1)
-        this.#dirtyIds.add(id)
+      const id = t.idOf(item)
+      const hash = t.hashOf(item)
+      if (t.hashes.get(id) !== hash) {
+        t.hashes.set(id, hash)
+        t.versions.set(id, (t.versions.get(id) || 0) + 1)
+        t.dirtyIds.add(id)
       }
     }
   }
 
   #scanOne(item) {
-    if (!this.#versions) return
-    const id = this.#idOf(item)
-    const hash = this.#hashOf(item)
-    if (this.#hashes.get(id) !== hash) {
-      this.#hashes.set(id, hash)
-      this.#versions.set(id, (this.#versions.get(id) || 0) + 1)
+    const t = this.#tracking
+    if (!t.versions) return
+    const id = t.idOf(item)
+    const hash = t.hashOf(item)
+    if (t.hashes.get(id) !== hash) {
+      t.hashes.set(id, hash)
+      t.versions.set(id, (t.versions.get(id) || 0) + 1)
     }
   }
 
   #rebuildBaseIndex() {
-    if (!this.#idOf) return
-    this.#baseIndex.clear()
-    for (let i = 0; i < this.#baseData.length; i++) {
-      const id = this.#idOf(this.#baseData[i])
-      if (!this.#baseIndex.has(id)) this.#baseIndex.set(id, i)   // id duplicado → primero
+    const t = this.#tracking
+    if (!t.idOf) return
+    const ix = this.#index
+    const ly = this.#layers
+    ix.base.clear()
+    for (let i = 0; i < ly.base.length; i++) {
+      const id = t.idOf(ly.base[i])
+      if (!ix.base.has(id)) ix.base.set(id, i)   // id duplicado → primero
     }
   }
 
   #rebuildIndices() {
-    if (!this.#idOf) return
-    this.#parentIndex.clear()
-    this.#parentMembers.clear()
-    this.#selfIndex.clear()
-    this.#selfMembers.clear()
-    for (let i = 0; i < this.#parentFiltered.length; i++) {
-      const id = this.#idOf(this.#parentFiltered[i])
-      this.#parentIndex.set(id, i)
-      this.#parentMembers.add(id)
+    const t = this.#tracking
+    if (!t.idOf) return
+    const ix = this.#index
+    const ly = this.#layers
+    ix.parent.clear()
+    ix.parentMembers.clear()
+    ix.self.clear()
+    ix.selfMembers.clear()
+    for (let i = 0; i < ly.parentFiltered.length; i++) {
+      const id = t.idOf(ly.parentFiltered[i])
+      ix.parent.set(id, i)
+      ix.parentMembers.add(id)
     }
-    for (let i = 0; i < this.#selfFiltered.length; i++) {
-      const id = this.#idOf(this.#selfFiltered[i])
-      this.#selfIndex.set(id, i)
-      this.#selfMembers.add(id)
+    for (let i = 0; i < ly.selfFiltered.length; i++) {
+      const id = t.idOf(ly.selfFiltered[i])
+      ix.self.set(id, i)
+      ix.selfMembers.add(id)
     }
   }
 }

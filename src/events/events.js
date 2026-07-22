@@ -16,11 +16,17 @@ export const EVENT_SECONDARY = 4
 // Ver engine/Interaction (#pickDemand / #emitHover) e interaction/LayerRegistry (hasHitForChannels).
 export const PICK_CHANNELS = EVENT_CLICK | EVENT_HOVER
 
-// Tipo de evento → bit de canal. Los tres sabores de hover comparten el canal EVENT_HOVER:
-// 'hover' (estado actual), 'hover:start' y 'hover:end' (deltas). Tipo desconocido → 0 (sin demanda).
-export const maskOfEventType = (eventType) => {
-  if (eventType === 'click') return EVENT_CLICK
-  if (eventType === 'secondary-click') return EVENT_SECONDARY
-  if (eventType === 'hover' || eventType === 'hover:start' || eventType === 'hover:end') return EVENT_HOVER
-  return 0
+// Tipo de evento → bit de canal (dispatch por tabla en vez de if/else). Los tres sabores de hover
+// comparten el canal EVENT_HOVER: 'hover' (estado actual), 'hover:start' y 'hover:end' (deltas).
+// Tabla CONSTANTE de módulo (no se reconstruye por llamada) con prototipo nulo: un tipo desconocido
+// —incluido el nombre de un método heredado como 'toString'— no resuelve nada y cae en el `?? 0`.
+const CHANNEL_OF_EVENT_TYPE = {
+  __proto__: null,
+  'click': EVENT_CLICK,
+  'secondary-click': EVENT_SECONDARY,
+  'hover': EVENT_HOVER,
+  'hover:start': EVENT_HOVER,
+  'hover:end': EVENT_HOVER,
 }
+
+export const maskOfEventType = (eventType) => CHANNEL_OF_EVENT_TYPE[eventType] ?? 0

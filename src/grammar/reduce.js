@@ -47,6 +47,22 @@ export function leafUnits(el, engine, ctx) {
   return [buildUnit(sig.produces[0], el._handle, engine)]
 }
 
+// Estrategia de combinación de un wrapper sobre sus targets, indexada por
+// `sig.combine` (dispatch por tabla en vez de if/else): 'fold' = un solo apply()
+// sobre TODOS los targets; 'map' = un apply() por target. Tabla CONSTANTE de módulo
+// —no se reconstruye por reducción— y exhaustiva sobre los combines válidos.
+const COMBINERS = {
+  fold: (apply, engine, targets, cfg) => apply(engine, targets, cfg) || [],
+  map: (apply, engine, targets, cfg) => {
+    const out = []
+    for (const t of targets) {
+      const r = apply(engine, [t], cfg)
+      if (r) for (let i = 0; i < r.length; i++) out.push(r[i])
+    }
+    return out
+  },
+}
+
 /**
  * Reduce un WRAPPER: monta sus hijos de gramática, junta sus units, separa
  * targets/pass-through por `consumes`, aplica `combine` y devuelve el conjunto
@@ -74,18 +90,8 @@ export function reduceModifier(el, engine, ctx) {
 
   const apply = ctx.applyFor(el.tagName)
   const cfg = el.cristaeConfig ? el.cristaeConfig() : {}
-  const produced = []
-  if (apply && targets.length) {
-    if (sig.combine === 'fold') {
-      const r = apply(engine, targets, cfg)
-      if (r) for (let i = 0; i < r.length; i++) produced.push(r[i])
-    } else if (sig.combine === 'map') {
-      for (const t of targets) {
-        const r = apply(engine, [t], cfg)
-        if (r) for (let i = 0; i < r.length; i++) produced.push(r[i])
-      }
-    }
-  }
+  const combine = COMBINERS[sig.combine]
+  const produced = apply && targets.length && combine ? combine(apply, engine, targets, cfg) : []
 
   const passThrough = sig.passThrough !== false
   const carried = passThrough ? childUnits : childUnits.filter((u) => !consumed.has(u.kind))

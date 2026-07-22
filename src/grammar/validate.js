@@ -48,23 +48,21 @@ export function validateSignature(tag, sig, KINDS) {
     throw new GrammarError('R4', null, `${PFX} <${t}> es wrapper: combine debe ser 'fold' o 'map'.`)
 }
 
-/**
- * `produced(node)` + chequeo R1–R3. Devuelve el Set de kinds que el subárbol aporta.
- * @returns {Set<string>}
- */
-function producedOf(el, ctx) {
-  const sig = ctx.signatureFor(el.tagName)
-  const kids = grammarChildren(el, ctx.isRegistered)
+// ── Juicio por arity (dispatch por tabla en vez de if/else) ──
+// `produced(node)` bifurca según la arity de la firma: una HOJA no envuelve hijos y
+// aporta sus `produces`; un WRAPPER valida R3/R5/R2 recursando sobre sus hijos y suma
+// los kinds que pasa. Ambos comparten firma (el, ctx, sig, kids) para el lookup en JUZGAR.
 
-  // ── Hoja ──
-  if (sig.arity === 'leaf') {
-    if (kids.length)
-      throw new GrammarError('R1', el,
-        `${PFX} <${tagName(el)}> es una hoja (kind '${sig.produces[0]}') y no puede envolver hijos; encontró <${tagName(kids[0])}>.`)
-    return new Set(sig.produces)
-  }
+/** Juzga una HOJA: no puede envolver hijos (R1); aporta sus `produces`. */
+const juzgarHoja = (el, _ctx, sig, kids) => {
+  if (kids.length)
+    throw new GrammarError('R1', el,
+      `${PFX} <${tagName(el)}> es una hoja (kind '${sig.produces[0]}') y no puede envolver hijos; encontró <${tagName(kids[0])}>.`)
+  return new Set(sig.produces)
+}
 
-  // ── Wrapper ──
+/** Juzga un WRAPPER: R3 (≥1 hijo) → R5 (hijo desconocido) → R2 (nadie produce lo consumido). */
+const juzgarWrapper = (el, ctx, sig, kids) => {
   if (kids.length === 0)
     throw new GrammarError('R3', el,
       `${PFX} <${tagName(el)}> es un wrapper y requiere ≥1 hijo que produzca uno de [${sig.consumes.join(',')}].`)
@@ -93,6 +91,19 @@ function producedOf(el, ctx) {
   const out = new Set(sig.produces)
   if (sig.passThrough !== false) for (const k of passKinds) out.add(k)
   return out
+}
+
+/** Tabla constante de módulo: arity → juez. Exhaustiva sobre las arities válidas. */
+const JUZGAR = { leaf: juzgarHoja, wrapper: juzgarWrapper }
+
+/**
+ * `produced(node)` + chequeo R1–R3. Devuelve el Set de kinds que el subárbol aporta.
+ * @returns {Set<string>}
+ */
+function producedOf(el, ctx) {
+  const sig = ctx.signatureFor(el.tagName)
+  const kids = grammarChildren(el, ctx.isRegistered)
+  return JUZGAR[sig.arity](el, ctx, sig, kids)
 }
 
 /**

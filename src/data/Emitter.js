@@ -24,22 +24,24 @@ export class Emitter {
 
   #subs = new Map()
 
-  #ms
-  #cap
-  #timer = null
-
-  #onFlush
-  #defer
-  #pending = null
-  #rafId = null
+  // Eje 6 — dos máquinas de estado agrupadas por co-mutación (ambas por-instancia: el object
+  // literal de un campo se instancia una vez por Emitter, sin estado compartido entre difusores).
+  //   #throttle: el loop por timer (ms/cap/timer se escriben y apagan juntos en interval/destroy).
+  //   #frame: la emisión diferida a rAF (onFlush/mode/pending/rafId son el ciclo del frame).
+  // `pending` (dato agendado para el frame) queda SEPARADO de `#lastData` (último chequeado): son
+  // dos ranuras distintas y el getter `snapshot` lee la segunda — conflacionarlas rompería el test.
+  #throttle = { ms: 0, cap: Infinity, timer: null }
+  #frame = { onFlush: null, mode: 'none', pending: null, rafId: null }
 
   constructor({ source, version, interval = 100, onFlush, defer = 'none', maxInterval = Infinity } = {}) {
     this.#source = source
     this.#version = version
-    this.#cap = maxInterval
-    this.#ms = this.#clamp(interval)
-    this.#onFlush = onFlush
-    this.#defer = defer
+    const t = this.#throttle
+    t.cap = maxInterval
+    t.ms = this.#clamp(interval)              // #clamp lee t.cap → cap primero
+    const f = this.#frame
+    f.onFlush = onFlush
+    f.mode = defer
     this.#startTimer()
   }
 
@@ -58,15 +60,15 @@ export class Emitter {
   /* ── Configuración ── */
 
   set interval(ms) {
-    this.#ms = this.#clamp(ms)
+    this.#throttle.ms = this.#clamp(ms)
     this.#startTimer()
   }
-  get interval() { return this.#ms }
+  get interval() { return this.#throttle.ms }
 
-  get defer() { return this.#defer }
-  set defer(v) { this.#defer = v }
+  get defer() { return this.#frame.mode }
+  set defer(v) { this.#frame.mode = v }
 
-  get reactive() { return this.#ms === 0 }
+  get reactive() { return this.#throttle.ms === 0 }
   get snapshot() { return this.#lastData }
 
   // Avanza el tracker de version sin emitir (tras un rebuild manual).
@@ -74,7 +76,7 @@ export class Emitter {
 
   // Entrada del tunnel reactivo. En modo throttled es no-op (el timer se encarga).
   notify() {
-    if (this.#ms === 0) this.#check()
+    if (this.#throttle.ms === 0) this.#check()
   }
 
   /* ── Lifecycle ── */
@@ -82,11 +84,12 @@ export class Emitter {
   // Deja el emitter INERTE: suelta la fuente (a la que `#check` se guarda) y las suscripciones, y
   // cancela lo agendado. Un `notify()` posterior ya no lee, no emite ni dispara `#onFlush`.
   destroy() {
-    if (this.#timer) { clearInterval(this.#timer); this.#timer = null }
-    if (this.#rafId != null) { cancelRaf(this.#rafId); this.#rafId = null }
-    this.#pending = null
+    const t = this.#throttle, f = this.#frame
+    if (t.timer) { clearInterval(t.timer); t.timer = null }
+    if (f.rafId != null) { cancelRaf(f.rafId); f.rafId = null }
+    f.pending = null
     this.#subs.clear()
-    this.#onFlush = null
+    f.onFlush = null
     this.#source = null
     this.#lastData = null
   }
@@ -99,7 +102,7 @@ export class Emitter {
     if (ver === this.#lastVersion) return            // dirty-skip
     this.#lastVersion = ver
     this.#lastData = this.#source()
-    if (this.#defer === 'raf') this.#scheduleEmit(this.#lastData)
+    if (this.#frame.mode === 'raf') this.#scheduleEmit(this.#lastData)
     else this.#emit(this.#lastData)
   }
 
@@ -107,27 +110,29 @@ export class Emitter {
   // ni a los demás ni al onFlush — esa emisión no se reintenta. El error se reporta, no se traga.
   #emit(data) {
     for (const cb of this.#subs.values()) safe(cb, data, reportSubscriberError)
-    this.#onFlush?.()
+    this.#frame.onFlush?.()
   }
 
   #scheduleEmit(data) {
-    this.#pending = data
-    if (this.#rafId != null) return                  // guard: una sola emisión agendada
-    this.#rafId = raf(() => {
-      this.#rafId = null
-      const next = this.#pending
-      this.#pending = null
+    const f = this.#frame
+    f.pending = data
+    if (f.rafId != null) return                      // guard: una sola emisión agendada
+    f.rafId = raf(() => {
+      f.rafId = null
+      const next = f.pending
+      f.pending = null
       if (next != null) this.#emit(next)
     })
   }
 
   #startTimer() {
-    if (this.#timer) { clearInterval(this.#timer); this.#timer = null }
-    if (this.#ms > 0) this.#timer = setInterval(() => this.#check(), this.#ms)
+    const t = this.#throttle
+    if (t.timer) { clearInterval(t.timer); t.timer = null }
+    if (t.ms > 0) t.timer = setInterval(() => this.#check(), t.ms)
     // interval === 0 → tunnel reactivo, sin loop
   }
 
   #clamp(ms) {
-    return Math.max(0, Math.min(+ms || 0, this.#cap))
+    return Math.max(0, Math.min(+ms || 0, this.#throttle.cap))
   }
 }
