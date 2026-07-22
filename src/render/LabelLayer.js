@@ -1,4 +1,5 @@
 import L from 'leaflet'
+import { withAlpha } from './color.js'
 
 // LabelLayer — etiquetas de texto sobre un canvas overlay.
 // Genérico: una sola capa, sin variantes de dominio.
@@ -212,12 +213,6 @@ const roundedRect = (ctx, x, y, w, h, r) => {
   ctx.arcTo(x, y + h, x, y, r)
   ctx.arcTo(x, y, x + w, y, r)
   ctx.closePath()
-}
-
-const withAlpha = (color, alpha) => {
-  if (!/^#[0-9a-f]{6}$/i.test(color)) return color
-  const n = parseInt(color.slice(1), 16)
-  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`
 }
 
 // Píldora redondeada: fondo de superficie, borde con tinte de acento y, si el label trae `accent`,

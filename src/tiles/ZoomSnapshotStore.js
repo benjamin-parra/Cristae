@@ -5,20 +5,9 @@
 // Los pesos del scoring son deliberados: coverage^4 prioriza fuertemente la cobertura,
 // el factor de centro favorece lo que se ve en medio y zoomQuality penaliza saltos de zoom.
 
+import { rect, area, intersect } from '../geometry/bbox.js'
+
 const MIN_SECONDARY_SCORE = 0.01
-
-const rect = (left, top, right, bottom) => ({ left, top, right, bottom })
-
-const areaOf = (r) =>
-  Math.max(0, r.right - r.left) * Math.max(0, r.bottom - r.top)
-
-const intersectionOf = (a, b) =>
-  rect(
-    Math.max(a.left, b.left),
-    Math.max(a.top, b.top),
-    Math.min(a.right, b.right),
-    Math.min(a.bottom, b.bottom),
-  )
 
 const viewportRect = (size) => rect(0, 0, size.x, size.y)
 
@@ -50,9 +39,9 @@ const projectedFrame = (snapshot, targetZoom, pixelOrigin, zoomScale) => {
 const scoreCandidate = (snapshot, context) => {
   const { targetZoom, pixelOrigin, viewport, center, viewportArea, centerArea, zoomScale } = context
   const frame = projectedFrame(snapshot, targetZoom, pixelOrigin, zoomScale)
-  const visible = intersectionOf(frame, viewport)
-  const coverage = areaOf(visible) / viewportArea
-  const centerCoverage = areaOf(intersectionOf(frame, center)) / centerArea
+  const visible = intersect(frame, viewport)
+  const coverage = area(visible) / viewportArea
+  const centerCoverage = area(intersect(frame, center)) / centerArea
   const zoomQuality = 1 / (1 + Math.abs(snapshot.sourceZoom - targetZoom) * 0.45)
 
   return {
@@ -66,7 +55,7 @@ const scoreCandidate = (snapshot, context) => {
 // El secundario vale por lo que aporta FUERA del primario: residualArea^3 lo hace
 // despreciable salvo que rellene una porción significativa del hueco.
 const secondaryScore = (candidate, primary, viewportArea) => {
-  const residualArea = areaOf(candidate.visible) - areaOf(intersectionOf(candidate.visible, primary.visible))
+  const residualArea = area(candidate.visible) - area(intersect(candidate.visible, primary.visible))
   return (residualArea / viewportArea) ** 3 * candidate.score
 }
 
@@ -113,8 +102,8 @@ export class ZoomSnapshotStore {
       pixelOrigin,
       viewport,
       center,
-      viewportArea: areaOf(viewport),
-      centerArea: areaOf(center),
+      viewportArea: area(viewport),
+      centerArea: area(center),
       zoomScale,
     }
 

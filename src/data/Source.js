@@ -1,16 +1,6 @@
 import { Store } from './Store.js'
 import { Emitter } from './Emitter.js'
-
-const NOOP = () => {}
-
-// Normaliza el teardown que devuelve una librería de reactividad a una función de baja.
-// Tolera: función (Preact effect, Zustand), objeto con `unsubscribe()` (RxJS), objeto con
-// `dispose()` (Solid root) o nada (la baja queda en no-op).
-const toUnsub = (teardown) =>
-  typeof teardown === 'function' ? teardown
-  : teardown && typeof teardown.unsubscribe === 'function' ? () => teardown.unsubscribe()
-  : teardown && typeof teardown.dispose === 'function' ? () => teardown.dispose()
-  : NOOP
+import { toUnsub } from './teardown.js'
 
 // Guard de configuración: valida el contrato del Source una sola vez al definirlo (no es hot path).
 const requireSourceConfig = ({ accessors, getSnapshot, subscribe }) => {

@@ -1,4 +1,5 @@
 import { prepareIndex, nearest, toParts } from '../geometry/polyline.js'
+import { toRGBA, toColorObj, DEFAULT_COLOR } from './color.js'
 
 // Capa de LÍNEAS GL sobre glify.Lines. Hermana de PointLayer: envuelve la instancia glify (su
 // rebuild `setData` y su draw `gl.LINES` intactos) y le AÑADE el color per-vértice para el gradiente
@@ -20,31 +21,8 @@ import { prepareIndex, nearest, toParts } from '../geometry/polyline.js'
 // color per-vértice ES el color visible (no quedan bits para un id). kind 'line', distancePx real.
 
 const DEFAULT_WEIGHT = 3
-const DEFAULT_COLOR = [0.4, 0.4, 0.4, 1]
 const HIT_TOL_PX = 8
 const BYTES = 6
-
-// `#RGB` / `#RGBA` / `#RRGGBB` / `#RRGGBBAA`, o [r,g,b,a?] (0..1) → [r, g, b, a] en 0..1 (para
-// escribir el buffer). El alpha del propio color gana sobre el default. Una entrada que no sea un
-// color cae al DEFAULT en vez de producir NaN: un color inválido debe verse, no desaparecer.
-const HEX = /^#?([0-9a-f]{3,8})$/i
-const toRGBA = (color, alpha = 1) => {
-  if (Array.isArray(color)) return [color[0], color[1], color[2], color[3] ?? alpha]
-  const m = typeof color === 'string' ? HEX.exec(color.trim()) : null
-  const h = m && (m[1].length <= 4 ? [...m[1]].map((c) => c + c).join('') : m[1])
-  if (!h || (h.length !== 6 && h.length !== 8)) return DEFAULT_COLOR
-  const n = Number.parseInt(h, 16)
-  return h.length === 6
-    ? [((n >> 16) & 0xff) / 255, ((n >> 8) & 0xff) / 255, (n & 0xff) / 255, alpha]
-    : [((n >>> 24) & 0xff) / 255, ((n >>> 16) & 0xff) / 255, ((n >>> 8) & 0xff) / 255, (n & 0xff) / 255]
-}
-
-// glify.Lines quiere el color PER-FEATURE como IColor {r,g,b,a} (line-feature-vertices lee color.r…),
-// no un array. Para el gradiente es placeholder (se sobre-escribe por vértice); para plano es el final.
-const toColorObj = (color, alpha) => {
-  const [r, g, b, a] = toRGBA(color, alpha)
-  return { r, g, b, a }
-}
 
 // path point index del vértice v DE UNA PARTE: v=0→0, v=1,2→1, v=3,4→2, … (interiores duplicados).
 const pathIndexOf = (v) => (v + 1) >> 1

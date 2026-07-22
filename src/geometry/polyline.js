@@ -7,6 +7,8 @@
 // distancia a píxeles de pantalla multiplicando por la escala del zoom (world0 · 2^zoom = screen).
 // Módulo puro: sin Leaflet, sin WebGL, testeable con coordenadas conocidas.
 import { projX0, projY0 } from '../render/project.js'
+import { bboxOfPoints } from './bbox.js'
+import { lowerBoundBy } from './binary-search.js'
 
 // Distancia² de (px,py) al segmento (ax,ay)-(bx,by), en world0 px. Inline, sin alloc.
 const distSqToSegment = (px, py, ax, ay, bx, by) => {
@@ -17,19 +19,6 @@ const distSqToSegment = (px, py, ax, ay, bx, by) => {
   const cx = ax + t * dx, cy = ay + t * dy
   const ex = px - cx, ey = py - cy
   return ex * ex + ey * ey
-}
-
-// bbox de un path proyectado [{x,y}, ...] en world0 px.
-const bboxOf = (pts) => {
-  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
-  for (let i = 0; i < pts.length; i++) {
-    const x = pts[i].x, y = pts[i].y
-    if (x < minX) minX = x
-    if (x > maxX) maxX = x
-    if (y < minY) minY = y
-    if (y > maxY) maxY = y
-  }
-  return { minX, maxX, minY, maxY }
 }
 
 // Tramos de vértices finitos CONTIGUOS dentro de una parte; `base` = índice de su primer vértice en
@@ -75,24 +64,16 @@ export const prepareIndex = (items) => ({
   sorted: (items ?? [])
     .flatMap(({ id, parts }) => parts.map(({ path, from }, partIndex) => {
       const pts = path.map(([lat, lng]) => ({ x: projX0(lng), y: projY0(lat) }))
-      return { id, partIndex, from, pts, bbox: bboxOf(pts) }
+      return { id, partIndex, from, pts, bbox: bboxOfPoints(pts) }
     }))
     .sort((a, b) => a.bbox.maxX - b.bbox.maxX),
 })
 
-// Primer índice cuyo bbox.maxX >= value; los previos tienen todo su bbox al oeste de `value`
-// (= px − tol), así que su punto más cercano queda a más de tol → se descartan. El límite es
-// INCLUSIVO (`< value`, no `<=`) para no dejar fuera una línea cuyo borde este está exactamente a
-// tol (el narrow-phase la aceptaría con `best <= tol²`).
-const lowerBound = (sorted, value) => {
-  let lo = 0, hi = sorted.length
-  while (lo < hi) {
-    const mid = (lo + hi) >>> 1
-    if (sorted[mid].bbox.maxX < value) lo = mid + 1
-    else hi = mid
-  }
-  return lo
-}
+// Un item se descarta si su bbox.maxX < value: sus previos tienen todo su bbox al oeste de `value`
+// (= px − tol), así que su punto más cercano queda a más de tol. El límite es INCLUSIVO (`< value`,
+// no `<=`) para no dejar fuera una línea cuyo borde este está exactamente a tol (el narrow-phase la
+// aceptaría con `best <= tol²`). Ese `<` es la única diferencia con el borde del hit-test de polígonos.
+const endsWestOfBand = (entry, value) => entry.bbox.maxX < value
 
 // Rumbo del segmento a→b en grados (0=N, 90=E). En world0 el eje Y crece hacia el SUR → norte = −dy.
 const bearingOf = (a, b) => {
@@ -147,7 +128,7 @@ export const nearest = (lat, lng, index, tol) => {
   const px = projX0(lng), py = projY0(lat)
   const tol2 = tol * tol
   const out = []
-  for (let i = lowerBound(sorted, px - tol); i < sorted.length; i++) {
+  for (let i = lowerBoundBy(sorted, px - tol, endsWestOfBand); i < sorted.length; i++) {
     const entry = sorted[i]
     const b = entry.bbox
     if (px < b.minX - tol || py < b.minY - tol || py > b.maxY + tol) continue

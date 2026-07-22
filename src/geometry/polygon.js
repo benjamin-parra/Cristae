@@ -1,6 +1,8 @@
 // Geometría de polígonos genérica, sin dominio: point-in-poly por ray-casting
 // + índice espacial (bbox ordenado por maxLng, descarte por upper-bound binario).
 // Lo usa la polygon-layer para hit-testing. O(log n + k) por consulta.
+import { bboxOfRings } from './bbox.js'
+import { lowerBoundBy } from './binary-search.js'
 
 // Ray-casting sobre un anillo simple ([[lat,lng], ...]). Primitivas inline → sin alloc.
 const pip = (lat, lng, ring) => {
@@ -24,28 +26,12 @@ export const pointInPoly = (lat, lng, rings) => {
   return pip(lat, lng, rings)
 }
 
-const bboxOf = (rings) => {
-  let minLat = Infinity, maxLat = -Infinity, minLng = Infinity, maxLng = -Infinity
-  const list = Array.isArray(rings[0]?.[0]) ? rings : [rings]
-  for (let r = 0; r < list.length; r++) {
-    const ring = list[r]
-    for (let i = 0; i < ring.length; i++) {
-      const lat = ring[i][0], lng = ring[i][1]
-      if (lat < minLat) minLat = lat
-      if (lat > maxLat) maxLat = lat
-      if (lng < minLng) minLng = lng
-      if (lng > maxLng) maxLng = lng
-    }
-  }
-  return { minLat, maxLat, minLng, maxLng }
-}
-
 // items: [{ id, rings }]. Índice inmutable; reconstruir solo si cambia el set (raro). O(n log n).
 export const prepareIndex = (items) => {
   if (!items?.length) return { sorted: [], maxHeight: 0 }
   let maxHeight = 0
   const sorted = items.map((item) => {
-    const bbox = bboxOf(item.rings)
+    const bbox = bboxOfRings(item.rings)
     const height = bbox.maxLat - bbox.minLat
     if (height > maxHeight) maxHeight = height
     return { item, bbox }
@@ -54,23 +40,16 @@ export const prepareIndex = (items) => {
   return { sorted, maxHeight }
 }
 
-// Primer índice cuyo bbox.maxLng > value; los previos están del todo al oeste del punto.
-const upperBound = (sorted, value) => {
-  let lo = 0, hi = sorted.length
-  while (lo < hi) {
-    const mid = (lo + hi) >>> 1
-    if (sorted[mid].bbox.maxLng <= value) lo = mid + 1
-    else hi = mid
-  }
-  return lo
-}
+// Un item queda del todo al oeste del punto (y se descarta) si su bbox.maxLng <= value: borde
+// EXCLUSIVO — el primer superviviente es el de maxLng ESTRICTAMENTE mayor que el punto.
+const endsWestOfPoint = (entry, value) => entry.bbox.maxLng <= value
 
 // Todos los ids cuyo polígono contiene (lat, lng). O(log n + k), k = supervivientes de bbox.
 export const idsFor = (lat, lng, index) => {
   if (lat == null || lng == null) return []
   const { sorted } = index
   const out = []
-  for (let i = upperBound(sorted, lng); i < sorted.length; i++) {
+  for (let i = lowerBoundBy(sorted, lng, endsWestOfPoint); i < sorted.length; i++) {
     const { item, bbox } = sorted[i]
     if (lng < bbox.minLng || lat < bbox.minLat || lat > bbox.maxLat) continue
     if (pointInPoly(lat, lng, item.rings)) out.push(item.id)
