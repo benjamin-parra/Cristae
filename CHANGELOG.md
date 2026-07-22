@@ -7,6 +7,40 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
 
 ## [Sin publicar]
 
+## [0.13.4] - 2026-07-22
+
+Reestructuración interna de estilo, aplicada a toda la librería. **Sin cambios de API ni de
+comportamiento** — un punto estable antes de las tareas estructurales mayores. Suite 398 → **505 tests,
+0 fail** (la pasada sumó cobertura de paso). Cada cambio preserva el comportamiento (suite verde,
+mutation-verified) y no introduce alocación en los caminos calientes (auditoría adversarial en los
+módulos hot, donde la suite no atrapa la presión de GC).
+
+### Cambiado
+- **Comentarios y espaciado (ejes 9 y 8).** Barrido no-semántico —verificado archivo por archivo con
+  `scripts/verify-nonsemantic.mjs` (el `esbuild --minify` de antes y después es byte-idéntico)— que
+  borra war-stories, menciones a frameworks ajenos y bitácora, conservando invariantes y marcadores
+  `[0-alloc]`, y alinea los bloques tabulares.
+- **Indirección por tabla (eje 11).** Los if-chains sobre strings pasan a tablas constantes de módulo
+  o clase: `maskOfEventType`/`dispatch` del bus, `fold`/`map` y `leaf`/`wrapper` de la gramática,
+  `#resolveParts` del registro de capas, y el puente de eventos `cristae:*` de `<cristae-map>`.
+- **Estado agrupado (eje 6) y closures state-action (eje 7).** Campos sueltos que son un mismo estado
+  → objetos agrupados (con la ref cacheada en los métodos calientes): la sesión de expansión del
+  cluster (limpieza atómica que elimina la clase de bug "sesión zombi"), el hover de `Interaction`, el
+  FBO de picking, la config del cluster-fold, el estado de `PagedTable`. Estado + limpieza dispersa →
+  closures con un solo `dispose`: la ventana de flush de `Source`, el agendador y los observadores de
+  `PagedTable`, el debounce de resize de `<cristae-map>`.
+- **Named lambdas y localización (eje 1).** Privados de un solo uso inlineados en su call-site; pipelines
+  largos partidos en pasos con nombre (el `flip`/`shift`/`clip` de `popupPlacement` como `reduce`).
+
+### Añadido
+- **Desfragmentación por centralización (eje 5).** Duplicaciones reales unificadas en módulos internos
+  agnósticos, cada uno con su test: `render/color.js` (parsers de color), `geometry/bbox.js` (álgebra de
+  bounding-box, antes triplicada), `geometry/binary-search.js`, `element/attrs.js` (coerción de
+  atributos), `data/teardown.js` (`toUnsub`), `element/autoId.js` (los siete `let seq = 0` repetidos).
+- **Cobertura de módulos antes al 0%:** `Atlas`, `IconSet`, `ZoomSnapshotStore.select`, el
+  `resolveHits` del registro, y las utilidades extraídas. `scripts/verify-nonsemantic.mjs` como
+  herramienta de verificación mecánica.
+
 ## [0.13.3] - 2026-07-22
 
 Cierra los dos defectos que la suite de contrato dejaba documentados como `todo`. Suite: 398 tests, 0
