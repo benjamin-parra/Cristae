@@ -13,8 +13,8 @@ export class LayerRegistry {
   #hitResolver
   #entriesByLayerId = new Map()
   #objectsByLayerId = new Map()
-  #overlayLayers = new Set()      // capas overlay (capture/presentAs): ocluyen/proxan en resolveHits
-  #nextDeclOrder = 0
+  #overlayLayers    = new Set()      // capas overlay (capture/presentAs): ocluyen/proxan en resolveHits
+  #nextDeclOrder    = 0
 
   // Acepta un HitResolver ya construido o un map para fabricar el por-defecto sobre Leaflet.
   constructor(hitResolverOrMap) {

@@ -1,11 +1,10 @@
 // Shaders genéricos de la point-layer. Las dimensiones del atlas (cols/rows/tileSize)
 // y el divisor del índice (maxIndex = C-1) son UNIFORMS, no literales horneados en GLSL
-// → el programa se compila UNA vez y nunca recompila al crecer iconos ni en regrow
-// (esto erradica la corrupción de marcadores y el 2º-mapa-en-blanco del IconBuilder legado).
+// → el programa se compila UNA vez y nunca recompila al crecer iconos ni en regrow.
 //
 // Layout de vértice de glify (bytes=7): [x, y, r, g, b, a, size].
 //   r = canal de tile (atlas.tileChannel)   g = ángulo normalizado (heading/360)
-//   b,a = id de picking (16 bits, slot+1)    size = px en pantalla
+//   b,a = id de picking (16 bits, slot+1)   size = px en pantalla
 // Siempre se rota: con g=0 la rotación es identidad → un solo programa, sin variantes.
 
 export const POINT_VERTEX = `
@@ -54,7 +53,7 @@ void main() {
 }
 `
 
-// Visual: pinta el tile (alpha ligeramente atenuado, como el legado).
+// Visual: pinta el tile (alpha ligeramente atenuado).
 export const POINT_FRAGMENT = fragment('gl_FragColor = vec4(tex.rgb, tex.a * 0.95);')
 
 // Picking: emite el id (vColor.b, vColor.a) en vez del color del tile. Comparte el

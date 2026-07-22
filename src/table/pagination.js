@@ -37,9 +37,9 @@ export const paginationModel = (current, totalPages, capacity) => {
   const inner = capacity - 2
   const half = inner >> 1
 
-  let start = 1
-  let end = totalPages - 2
-  let leftEllipsis = false
+  let start         = 1
+  let end           = totalPages - 2
+  let leftEllipsis  = false
   let rightEllipsis = false
 
   if (current <= half + 1) {

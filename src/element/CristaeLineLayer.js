@@ -24,8 +24,8 @@ export class CristaeLineLayer extends CristaeLayerElement {
   constructor() {
     super()
     this.interactive = false
-    this.visible = true
-    this.vector = false
+    this.visible     = true
+    this.vector      = false
   }
 
   layerId() { return this.id || (this._auto ??= `line-${++seq}`) }

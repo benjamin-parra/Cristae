@@ -40,27 +40,27 @@ export class Interaction {
   #containerRect = null
 
   #hoverDemand = false          // demanda del canal HOVER → emitir eventos de hover
-  #pickDemand = false           // demanda de CLICK u HOVER → correr el picking (para el cursor)
+  #pickDemand  = false          // demanda de CLICK u HOVER → correr el picking (para el cursor)
   #interacting = false
-  #hoverDirty = false
+  #hoverDirty  = false
   #hoverLastAt = -Infinity
-  #session = null
-  #generation = 0
-  #rafId = null
-  #cursorOn = false
+  #session     = null
+  #generation  = 0
+  #rafId       = null
+  #cursorOn    = false
 
   #domHandlers = new Map()
   #mapHandlers = new Map()
 
   constructor({ map, registry, bus, container, pickLayers, hoverThrottleMs = 0, onInteractionStart, onInteractionEnd } = {}) {
-    this.#map = map
-    this.#registry = registry
-    this.#bus = bus
-    this.#container = container ?? map.getContainer()
-    this.#pickLayers = pickLayers ?? (() => [])
-    this.#throttleMs = hoverThrottleMs
+    this.#map                = map
+    this.#registry           = registry
+    this.#bus                = bus
+    this.#container          = container ?? map.getContainer()
+    this.#pickLayers         = pickLayers ?? (() => [])
+    this.#throttleMs         = hoverThrottleMs
     this.#onInteractionStart = onInteractionStart
-    this.#onInteractionEnd = onInteractionEnd
+    this.#onInteractionEnd   = onInteractionEnd
     this.#wire()
   }
 

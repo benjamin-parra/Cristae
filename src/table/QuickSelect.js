@@ -9,10 +9,10 @@
 export const qselect = (arr, k, left, right, cmp) => {
   while (right > left) {
     if (right - left > 600) {
-      const n = right - left + 1
-      const m = k - left + 1
-      const z = Math.log(n)
-      const s = 0.5 * Math.exp(2 * z / 3)
+      const n  = right - left + 1
+      const m  = k - left + 1
+      const z  = Math.log(n)
+      const s  = 0.5 * Math.exp(2 * z / 3)
       const sd = 0.5 * Math.sqrt(z * s * (n - s) / n)
                * (m - n / 2 < 0 ? -1 : 1)
       qselect(

@@ -1,7 +1,5 @@
-// Soporte de montaje compuesto: la generalización de `_enclosingCluster` →
-// `_enclosingModifier`. Un hijo de CUALQUIER wrapper de la gramática difiere su
-// auto-montaje; el wrapper que lo envuelve lo monta (su reductor). Con sólo
-// `cristae-cluster` registrado como wrapper, es idéntico a `_enclosingCluster`.
+// Soporte de montaje compuesto de la gramática: un hijo de CUALQUIER wrapper difiere
+// su auto-montaje; el wrapper que lo envuelve lo monta (su reductor).
 
 /**
  * Modificador de la gramática que envuelve a `el` (excluyéndose), parando en

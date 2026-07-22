@@ -24,12 +24,12 @@ export class Cluster {
   #maxZoom
   #minPoints
   #splitThreshold = 16           // N≤esto → spiderfy hojas directas; si no → sub-clusters (~√N de ~√N)
-  #enabled = true                // off → no suprime nada y no emite burbujas (toggle limpio)
-  #features = []
-  #allIds = new Set()
-  #clusteredIds = new Set()      // estable: nunca se reasigna, solo clear()+add()
-  #bubbles = []
-  #signature = null
+  #enabled        = true         // off → no suprime nada y no emite burbujas (toggle limpio)
+  #features       = []
+  #allIds         = new Set()
+  #clusteredIds   = new Set()    // estable: nunca se reasigna, solo clear()+add()
+  #bubbles        = []
+  #signature      = null
   // Expansión llaveada por HOJA-ancla (id de dato del usuario), NO por id de cluster de Supercluster.
   // El cluster_id es efímero: cambia en cada load()/zoom y getLeaves(idViejo) puede lanzar O —peor—
   // devolver hojas EQUIVOCADAS sin lanzar (el id decodifica a otro cluster válido). Por eso el estado
@@ -39,38 +39,36 @@ export class Cluster {
   // Jerarquía ALTURA MÁX 2 codificada en la FORMA del estado (no por guardas): exactamente UN cluster
   // base abierto + a lo sumo UN sub-cluster interno abierto. Abrir otro base cierra el anterior (y su
   // interno); abrir otro interno cierra el anterior.
-  #baseAnchor = null             // hoja-ancla (nearest-centroid) del ÚNICO cluster base abierto, o null
-  #innerAnchor = null            // min leaf-id del ÚNICO sub-cluster interno abierto (depth-2), o null
-  #expandedSig = ''              // firma de (baseAnchor|innerAnchor) para detectar cambios en recluster
+  #baseAnchor     = null         // hoja-ancla (nearest-centroid) del ÚNICO cluster base abierto, o null
+  #innerAnchor    = null         // min leaf-id del ÚNICO sub-cluster interno abierto (depth-2), o null
+  #expandedSig    = ''           // firma de (baseAnchor|innerAnchor) para detectar cambios en recluster
   #expandedGroups = []           // 0-o-1: [{ clusterId, center, slots }] del base abierto
   // SNAPSHOT de la sesión de expansión: las hojas (id + posición) capturadas en el click, congeladas.
-  // La membresía/conteo/partición del base NO se re-derivan del árbol vivo en cada recluster (eso hacía
-  // saltar sub-burbujas↔hojas al cruzar el umbral entre dos generaciones de #sc). Con el set fijo,
-  // #partition es determinista entre reclusters; sólo encoge por bajas reales (que lo re-particionan y
-  // cierran el sub-cluster interno). Un móvil nuevo NO se suma a una espiral abierta (semántica spiderfy).
-  #baseLeaves = null             // [{ properties:{id}, geometry:{coordinates:[lng,lat]} }] | null
+  // La membresía/conteo/partición del base NO se re-derivan del árbol vivo en cada recluster. Con el set
+  // fijo, #partition es determinista entre reclusters; sólo encoge por bajas reales (que lo re-particionan
+  // y cierran el sub-cluster interno). Un móvil nuevo NO se suma a una espiral abierta (semántica spiderfy).
+  #baseLeaves  = null            // [{ properties:{id}, geometry:{coordinates:[lng,lat]} }] | null
   #baseLeafIds = null            // Set(id) del snapshot (supresión/membresía O(1)) | null
   // Marcado: ids de dato que el consumidor quiere señalizados. Las burbujas que contengan alguno
   // se taggean `marked` (variante propia del icon-set) y su colocación queda en #markedHidden.
-  #markedIds = new Set()
+  #markedIds    = new Set()
   #markedHidden = []             // [{ id, center:{lat,lng} }] de los marcados ocultos en una burbuja, por recluster
 
   constructor({ radius = 80, maxZoom = 18, minPoints = 2, enabled = true, splitThreshold = 16 } = {}) {
-    this.#radius = radius
-    this.#maxZoom = maxZoom
-    this.#minPoints = minPoints
+    this.#radius         = radius
+    this.#maxZoom        = maxZoom
+    this.#minPoints      = minPoints
     this.#splitThreshold = splitThreshold
-    this.#enabled = enabled
-    this.#sc = this.#build()
+    this.#enabled        = enabled
+    this.#sc             = this.#build()
   }
 
   get clusteredIds() { return this.#clusteredIds }
   get bubbles() { return this.#bubbles }
-  // Clusters expandidos del último recluster: [{ clusterId, center:{lat,lng}, ids:[...] }]. El motor
-  // los usa para renderizar las hojas en espiral + las líneas (es headless: no calcula píxeles).
-  // 0-o-1 grupo del base abierto: [{ clusterId, center, slots }] donde slots = heterogéneos
-  // ({kind:'leaf',id} | {kind:'subcluster',id,count,ids}). El motor los proyecta a píxeles (headless
-  // no calcula pantalla). Fase 1: todos los slots son 'leaf'.
+  // Clusters expandidos del último recluster (0-o-1 grupo del base abierto):
+  // [{ clusterId, center:{lat,lng}, slots }] donde slots = heterogéneos
+  // ({kind:'leaf',id} | {kind:'subcluster',id,count,ids}). El motor los proyecta a píxeles para
+  // renderizar la espiral + las líneas (headless: no calcula pantalla).
   get expandedGroups() { return this.#expandedGroups }
 
   // Ids marcados (los define el consumidor). Cambiarlos invalida la firma → el próximo recluster
@@ -189,7 +187,7 @@ export class Cluster {
     const anchorId = this.#pickAnchor(leaves)
     const ids = leaves.map(lf => lf.properties.id)
     // Captura la SESIÓN: congela el set de hojas (id + posición) del click. Desde acá la membresía/conteo
-    // del base no se re-derivan del árbol vivo (lo que causaba el flip sub-burbujas↔hojas tras un reindex).
+    // del base no se re-derivan del árbol vivo.
     this.#baseAnchor = anchorId
     this.#innerAnchor = null                // abrir otro base cierra el sub-cluster interno
     this.#baseLeaves = leaves.map(lf => ({ properties: { id: lf.properties.id }, geometry: { coordinates: lf.geometry.coordinates } }))
@@ -334,9 +332,6 @@ export class Cluster {
 
     const results = this.#sc.getClusters(WORLD, Math.round(zoom))
 
-    // En el caso común (nada expandido) la firma es idéntica al código original — sin overhead, ideal
-    // para bursts de zoom. Solo con anclas activas se prefija 'a[...]' para detectar cambios de estado
-    // al mismo zoom (getClusters devuelve lo mismo; solo cambia qué clusters se explotan).
     // Caso común (nada abierto) → firma idéntica al original, cero overhead en bursts de zoom. Con un
     // base abierto se prefija 'a[baseAnchor|innerAnchor]' para detectar cambios de estado al mismo zoom
     // (incluido togglear el sub-cluster interno: getClusters devuelve lo mismo, sólo cambia el bloom).
@@ -357,7 +352,7 @@ export class Cluster {
     let baseFound = false
     // Emite la SESIÓN de expansión (burbuja dim + grupo de slots) centrada en `center`, desde el snapshot
     // CONGELADO #baseLeaves. count y partición salen del snapshot, NO del árbol vivo → invariantes a
-    // reindex (mata el flip). Pocas hojas → directas; muchas → sub-clusters (~√N de ~√N) legibles.
+    // reindex. Pocas hojas → directas; muchas → sub-clusters (~√N de ~√N) legibles.
     const emitBase = (bubbleId, center, liveLeaves) => {
       baseFound = true
       const snap = this.#baseLeaves

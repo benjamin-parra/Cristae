@@ -19,7 +19,7 @@ export class CristaePolygonLayer extends CristaeLayerElement {
   constructor() {
     super()
     this.interactive = true
-    this.visible = true
+    this.visible     = true
   }
 
   layerId() { return this.id || (this._auto ??= `polygon-${++seq}`) }

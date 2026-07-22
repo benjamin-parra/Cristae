@@ -4,7 +4,7 @@ import { prepareIndex, nearest, toParts } from '../geometry/polyline.js'
 // rebuild `setData` y su draw `gl.LINES` intactos) y le AÑADE el color per-vértice para el gradiente
 // escribiendo el buffer interleaved por bufferSubData (bypass, sin fork ni monkey-patch). Igual
 // patrón que PointLayer. El grosor por brocha se normaliza a px (`brushRadius`); su costo de draw
-// cuadrático sigue siendo deuda — se salda con un draw propio por triángulos, no acá.
+// cuadrático es una limitación conocida.
 //
 // Layout glify.Lines: [x, y, r, g, b, a] (bytes=6), buffer 'vertex'. El color se guarda POR
 // vértice pero glify sólo lo ASIGNA por feature (colorFn per-feature); el gradiente sobre-escribe
@@ -59,12 +59,12 @@ export class LineLayer {
 
   #glify; #map; #pane; #source; #interactive
   #accessors
-  #layer = null
-  #styleArr = []                  // por FEATURE: { weight, color:{r,g,b,a} } — glify pide color con featureIndex
-  #weightByPart = []              // por PARTE: glify pide weight con el índice de parte (ver #create)
-  #features = []                  // por feature (orden del buffer): { item, runs: [{ vertOffset, vertCount, from }] }
-  #index = { sorted: [] }         // índice espacial nearest-segment (picking)
-  #maxWeight = DEFAULT_WEIGHT     // grosor máximo vigente → tolerancia de hit (líneas gruesas pican más fácil)
+  #layer        = null
+  #styleArr     = []               // por FEATURE: { weight, color:{r,g,b,a} } — glify pide color con featureIndex
+  #weightByPart = []               // por PARTE: glify pide weight con el índice de parte (ver #create)
+  #features     = []               // por feature (orden del buffer): { item, runs: [{ vertOffset, vertCount, from }] }
+  #index        = { sorted: [] }   // índice espacial nearest-segment (picking)
+  #maxWeight    = DEFAULT_WEIGHT   // grosor máximo vigente → tolerancia de hit (líneas gruesas pican más fácil)
 
   // Espejo del buffer GL (recapturado en cada rebuild — glify reasigna allVerticesTyped).
   #verts = null; #buf = null
@@ -119,7 +119,7 @@ export class LineLayer {
   // set/patch la Source → cae acá. Hoy siempre rebuild (correcto; el coalescing acota a ≤1/flush).
   // El fast-path incremental —cuando el set y los largos no cambian, reescribir sólo los rangos
   // sucios (dirtyIds) por bufferSubData ([0-alloc])— es una optimización INTERNA de este método,
-  // que decide el motor, NO una API imperativa de restyle. Pendiente (etapa 3, tras validar el render).
+  // que decide el motor, NO una API imperativa de restyle.
   #onChange() { this.#rebuild(this.#source.getSnapshot()) }
 
   /* ── Rebuild (O(n); glify.setData rehace el buffer, luego #bind re-captura y pinta el gradiente) ── */

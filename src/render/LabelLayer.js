@@ -1,7 +1,7 @@
 import L from 'leaflet'
 
-// LabelLayer — etiquetas de texto sobre un canvas overlay (port unificado de ConstantLabelLayer).
-// Genérico: una sola capa, sin las tres variantes de dominio (vehicle/place/search) del original.
+// LabelLayer — etiquetas de texto sobre un canvas overlay.
+// Genérico: una sola capa, sin variantes de dominio.
 // El glifo lo pinta un `paint(ctx, point, label, hovered)` inyectable; se incluye `drawLabel` por
 // defecto. El label es opaco salvo {id, lat, lng, text}; el resto de campos los interpreta el painter.
 //
@@ -25,11 +25,11 @@ const DEFAULT_STYLE = Object.freeze({
 class CanvasOverlay extends L.Layer {
 
   #canvas = null
-  #ctx = null
+  #ctx    = null
   #paint
-  #width = 0
+  #width  = 0
   #height = 0
-  #ratio = 1
+  #ratio  = 1
   // Oculto (setVisibility false): no pintar el canvas aunque la Source emita (WS a ~60fps).
   // El guard evita el O(n) fillText por frame en capas que el usuario no ve. Se re-habilita
   // en setVisibility(true), que fuerza un repintado con el estado actual.
@@ -102,8 +102,8 @@ export class LabelLayer {
   #map
   #overlay
   #pane
-  #labels = []
-  #hovered = new Set()
+  #labels        = []
+  #hovered       = new Set()
   #hoveredSource = null
   #paint
   #boundsPad

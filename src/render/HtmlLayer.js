@@ -12,10 +12,10 @@ export class HtmlLayer {
 
   #L; #map; #pane; #source; #interactive
   #accessors
-  #group = null
-  #byId = new Map()               // id → L.marker (para el hit por proximidad)
-  #hitTol = HIT_TOL_PX            // tolerancia de hit vigente (deriva del sizeOf mayor)
-  #unsub = null
+  #group  = null
+  #byId   = new Map()    // id → L.marker (para el hit por proximidad)
+  #hitTol = HIT_TOL_PX   // tolerancia de hit vigente (deriva del sizeOf mayor)
+  #unsub  = null
 
   constructor({ L, map, pane, source, interactive = false }) {
     this.#L = L

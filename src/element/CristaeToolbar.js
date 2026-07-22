@@ -21,7 +21,7 @@ export class CristaeToolbar extends LitElement {
 
   constructor() {
     super()
-    this.items = []
+    this.items       = []
     this.orientation = 'vertical'
   }
 

@@ -16,26 +16,26 @@ const angleNorm = (deg) => (((deg % 360) + 360) % 360) * NORM
 export class PointLayer {
 
   #glify; #map; #pane; #source; #iconSet; #interactive
-  #accessors = null               // accessors de RENDER (override de los de la Source: variantOf/sizeOf/headingOf)
-  #where = null                   // predicado de membresía por-capa (overlay): omite ítems que no matchean
-  #layer = null
-  #binding = null
-  #picking = null
-  #hoverHits = []                 // hits del último pick de hover, cacheados para resolveHover
-  #hoverSample = null             // muestra del puntero de ese pick (su seq valida el cache)
+  #accessors   = null   // accessors de RENDER (override de los de la Source: variantOf/sizeOf/headingOf)
+  #where       = null   // predicado de membresía por-capa (overlay): omite ítems que no matchean
+  #layer       = null
+  #binding     = null
+  #picking     = null
+  #hoverHits   = []     // hits del último pick de hover, cacheados para resolveHover
+  #hoverSample = null   // muestra del puntero de ese pick (su seq valida el cache)
 
   // Reusados en rebuild — [0-alloc] entre rebuilds salvo crecimiento del set.
-  #positions = []                 // [lat, lng] por slot (data de glify)
-  #meta = []                      // { tileIdx, angleNorm, size } por slot
-  #idBySlot = []                  // slot → id (traduce hits de picking)
+  #positions    = []   // [lat, lng] por slot (data de glify)
+  #meta         = []   // { tileIdx, angleNorm, size } por slot
+  #idBySlot     = []   // slot → id (traduce hits de picking)
   #scratchColor = { r: 0, g: 0, b: 0, a: 1 }
 
   // Espejo del buffer GL para el path incremental.
   #verts = null; #buf = null; #cx = 0; #cy = 0
-  #slot = new Map()               // id → slot
-  #count = 0
-  #snapLen = -1                   // tamaño del snapshot del último rebuild (detecta alta/baja)
-  #suppressed = null              // ids a omitir del buffer (p. ej. clusterizados); null = ninguno
+  #slot       = new Map()   // id → slot
+  #count      = 0
+  #snapLen    = -1          // tamaño del snapshot del último rebuild (detecta alta/baja)
+  #suppressed = null        // ids a omitir del buffer (p. ej. clusterizados); null = ninguno
   // Deshabilitada como ENTIDAD (setLayerEnabled): la suscripción a la Source no procesa nada —
   // cero CPU/GPU por emit del WS mientras el pane está oculto (mismo patrón que LabelLayer).
   // refresh() sigue operativo (es el catch-up explícito al re-habilitar).

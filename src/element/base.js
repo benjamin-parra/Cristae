@@ -68,8 +68,7 @@ export class CristaeLayerElement extends LitElement {
   }
 
   // Modificador de la gramática que envuelve a este elemento (cluster/overlay/…). Sus
-  // hijos NO se auto-montan: los monta el modificador (su reductor). Con sólo el cluster
-  // registrado como wrapper, equivale al viejo `_enclosingCluster`.
+  // hijos NO se auto-montan: los monta el modificador (su reductor).
   _enclosingModifier() {
     return enclosingModifier(this, grammar.isWrapper)
   }

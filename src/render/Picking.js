@@ -11,17 +11,17 @@ const PATCH = 6
 
 export class Picking {
 
-  #gl = null
-  #program = null
-  #fbo = null
-  #depth = null
-  #colorTex = null
-  #pbo = null
-  #buf = new Uint8Array(PATCH * PATCH * 4)
-  #atlasTexture = null
-  #attrLocs = []
-  #uMatrix = null
-  #inFlight = null
+  #gl            = null
+  #program       = null
+  #fbo           = null
+  #depth         = null
+  #colorTex      = null
+  #pbo           = null
+  #buf           = new Uint8Array(PATCH * PATCH * 4)
+  #atlasTexture  = null
+  #attrLocs      = []
+  #uMatrix       = null
+  #inFlight      = null
   #visualProgram = null   // programa visual de glify → se restaura tras el pick (glify dibuja con él, sin re-useProgram)
 
   get ready() { return !!this.#gl }

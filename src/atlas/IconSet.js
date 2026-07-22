@@ -44,14 +44,14 @@ export class IconSet {
   ready
 
   constructor({ rotates = false, variants = [], sizes = {}, describe, renderers, prerender } = {}) {
-    this.rotates = rotates
+    this.rotates     = rotates
     this.defaultSize = sizes.default ?? 32
-    this.#tileSize = sizes.canvas ?? 128
-    this.#describe = describe
-    this.#renderers = renderers ?? {}
-    this.#prerender = prerender
-    this.#atlas = new Atlas(capacityFor(variants.length), this.#tileSize)
-    this.ready = this.#init(variants)
+    this.#tileSize   = sizes.canvas ?? 128
+    this.#describe   = describe
+    this.#renderers  = renderers ?? {}
+    this.#prerender  = prerender
+    this.#atlas      = new Atlas(capacityFor(variants.length), this.#tileSize)
+    this.ready       = this.#init(variants)
   }
 
   // El atlas vivo. Su identidad cambia en regrow → el binding re-sube y la capa re-encoda.

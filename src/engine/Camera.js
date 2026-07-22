@@ -1,7 +1,7 @@
 // Camera — la ÚNICA vía de movimiento del viewport tras el montaje (SPECS §9, MODELO §5.4).
 // Todo es acción (imperativo), no estado: no hay prop reactiva de centro. Aplica viewport-insets
 // (UI que ocluye) corriendo el centro para que el objetivo caiga en la región visible, no detrás
-// del panel. followPoint es la pieza nueva: la cámara sigue la posición VIVA de un id leyéndola
+// del panel. followPoint: la cámara sigue la posición VIVA de un id leyéndola
 // del Source en cada flush (ya coalescido a rAF), sin que el consumidor bombee.
 
 const ZERO_INSETS = { top: 0, right: 0, bottom: 0, left: 0 }
@@ -16,10 +16,10 @@ export class Camera {
   #follow = null              // { id, zoom, source, unsub, lastKey }
 
   constructor({ map, L, insets, resolveSource, declusterZoomOf } = {}) {
-    this.#map = map
-    this.#L = L
-    this.#insets = { ...ZERO_INSETS, ...insets }
-    this.#resolveSource = resolveSource ?? (() => null)
+    this.#map             = map
+    this.#L               = L
+    this.#insets          = { ...ZERO_INSETS, ...insets }
+    this.#resolveSource   = resolveSource ?? (() => null)
     this.#declusterZoomOf = declusterZoomOf ?? (() => null)
   }
 

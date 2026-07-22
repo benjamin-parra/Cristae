@@ -8,7 +8,7 @@ import { paginationModel } from './pagination.js'
 // alimenta esta tabla → un dataset filtrado, computado una vez, dos vistas.
 //
 // Render en LIGHT DOM (no shadow): las filas son markup del consumidor (`template`/`binder`), así
-// que sus clases (Phoenix/Tailwind) deben aplicar — la encapsulación las rompería. El elemento solo
+// que sus clases deben aplicar — la encapsulación las rompería. El elemento solo
 // autora su chrome (scroll + pie de paginación + estilo); las filas las posee el engine y Lit no
 // las reconcilia (no hay binding dentro de `.fl-rows`).
 //
@@ -49,20 +49,20 @@ export class CristaeTable extends LitElement {
 
   constructor() {
     super()
-    this.source = null
-    this.data = null
-    this.template = null
-    this.binder = null
-    this.comparator = null
-    this.searchBy = null
+    this.source       = null
+    this.data         = null
+    this.template     = null
+    this.binder       = null
+    this.comparator   = null
+    this.searchBy     = null
     this.searchFilter = null
-    this.rowHeight = 28
-    this.pageSize = 50
-    this.maxButtons = 7
-    this.search = ''
-    this.countLabel = 'elementos'
+    this.rowHeight    = 28
+    this.pageSize     = 50
+    this.maxButtons   = 7
+    this.search       = ''
+    this.countLabel   = 'elementos'
     this.scrollHeight = '40vh'
-    this._pageInfo = { page: 0, pages: 1, total: 0, pageSize: 50, offset: 0 }
+    this._pageInfo    = { page: 0, pages: 1, total: 0, pageSize: 50, offset: 0 }
   }
 
   // Handle imperativo del engine (setPage/setSearch/refresh/…), simétrico con `controls` de las

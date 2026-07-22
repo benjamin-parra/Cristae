@@ -27,16 +27,16 @@ export class PagedTable {
   // Dataset completo + buffers de trabajo. `workingSet` guarda los ÍNDICES del dataset que pasan
   // el filtro y se reordena in-place por quickselect; nunca se reordena el snapshot del Source,
   // que debe mantener su referencia estable.
-  #dataset = []
-  #workingSet = []
+  #dataset      = []
+  #workingSet   = []
   #visibleSlice = []
-  #totalItems = 0
+  #totalItems   = 0
 
-  #pageIndex = 0
-  #searchQuery = ''
+  #pageIndex     = 0
+  #searchQuery   = ''
   #lastPageCount = -1
   #lastPageIndex = -1
-  #lastTotal = -1
+  #lastTotal     = -1
 
   #refs = {
     scrollContainer: null,
@@ -50,12 +50,12 @@ export class PagedTable {
     renderEnd: -1,
   }
 
-  #rafId = 0
-  #refreshPending = false
-  #visible = true
-  #hiddenDirty = false
-  #abort = new AbortController()
-  #resizeObserver = null
+  #rafId                = 0
+  #refreshPending       = false
+  #visible              = true
+  #hiddenDirty          = false
+  #abort                = new AbortController()
+  #resizeObserver       = null
   #intersectionObserver = null
 
   constructor({
@@ -77,10 +77,10 @@ export class PagedTable {
     if (typeof template !== 'string') throw new TypeError('[PagedTable] template (string HTML) es obligatorio')
     if (typeof binder !== 'function') throw new TypeError('[PagedTable] binder es obligatorio')
 
-    this.#options = { container, scrollElement, template, comparator, searchBy, searchFilter, where, onSlice, onPage }
+    this.#options   = { container, scrollElement, template, comparator, searchBy, searchFilter, where, onSlice, onPage }
     this.#rowHeight = rowHeight
-    this.#pageSize = Math.max(1, pageSize | 0)
-    this.#binder = binder
+    this.#pageSize  = Math.max(1, pageSize | 0)
+    this.#binder    = binder
 
     this.#setupLayout()
     this.#bindEvents()
@@ -145,7 +145,7 @@ export class PagedTable {
   // ni a las otras tablas (a diferencia de `source.addFilter`, que es compartido). Se
   // aplica en `#mergeAndFilter` ANTES del text-search. `null` ⇒ sin filtro (todo pasa).
   // Igual disciplina que `setSearch`: resetea el conteo de páginas y corre el pipeline
-  // duro — sin re-render de React (el motor reescribe el pool en su rAF).
+  // duro — sin re-render (el motor reescribe el pool en su rAF).
   setWhere(fn) {
     this.#options.where = fn ?? null
     this.#lastPageCount = -1

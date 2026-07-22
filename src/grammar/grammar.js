@@ -49,10 +49,10 @@ export function defineGrammar({ kinds, mode = 'throw' }) {
   }
 
   const signatureFor = (tag) => reg.get(key(tag))?.signature ?? null
-  const applyFor = (tag) => reg.get(key(tag))?.apply ?? null
+  const applyFor     = (tag) => reg.get(key(tag))?.apply ?? null
   const isRegistered = (tag) => reg.has(key(tag))
-  const isWrapper = (tag) => signatureFor(tag)?.arity === 'wrapper'
-  const isLeaf = (tag) => signatureFor(tag)?.arity === 'leaf'
+  const isWrapper    = (tag) => signatureFor(tag)?.arity === 'wrapper'
+  const isLeaf       = (tag) => signatureFor(tag)?.arity === 'leaf'
 
   return {
     kinds: KINDS,

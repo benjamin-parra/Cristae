@@ -50,8 +50,8 @@ export class HitResolver {
   //   3. getBounds      → basada en área:  ImageOverlay, VideoOverlay, SVGOverlay
   #leafResolver(layer, ref) {
     const hasContainsPoint = typeof layer._containsPoint === 'function'
-    const hasLatLng = typeof layer.getLatLng === 'function'
-    const hasBounds = typeof layer.getBounds === 'function'
+    const hasLatLng        = typeof layer.getLatLng === 'function'
+    const hasBounds        = typeof layer.getBounds === 'function'
 
     const hitRadius = (hasLatLng && !hasContainsPoint)
       ? this.#hitRadiusOf(layer)

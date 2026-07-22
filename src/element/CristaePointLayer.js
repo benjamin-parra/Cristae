@@ -31,8 +31,8 @@ export class CristaePointLayer extends CristaeLayerElement {
   constructor() {
     super()
     this.interactive = false
-    this.visible = true
-    this.enabled = true
+    this.visible     = true
+    this.enabled     = true
   }
 
   layerId() { return this.id || (this._auto ??= `point-${++seq}`) }

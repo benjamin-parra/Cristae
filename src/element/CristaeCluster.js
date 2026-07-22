@@ -91,10 +91,10 @@ export class CristaeCluster extends CristaeLayerElement {
   #offOutsideClick = null
 
   // Botón central (re-clusterizar): nodo HTML flotante anclado al centro del cluster abierto.
-  #centerEl = null
+  #centerEl     = null
   #centerAnchor = null            // { lat, lng } del centro abierto (re-proyecta en cada move)
   #onCenterMove = null
-  #lmap = null
+  #lmap         = null
 
   constructor() {
     super()

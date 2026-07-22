@@ -2,8 +2,7 @@
 // Sin flag mutable compartido: las dos señales son intrínsecas y describen estado real —
 //   regrow  → identidad de objeto distinta (this.#atlas !== atlas)
 //   append  → uploaded < atlas.count
-// Por eso un 2º/3er mapa montado tarde arranca en cursor 0 y converge solo (multi-mapa gratis),
-// y el #dirty consume-once del legado (raíz del 2º-mapa-en-blanco) desaparece. (SPECS §4.2.)
+// Por eso un 2º/3er mapa montado tarde arranca en cursor 0 y converge solo (multi-mapa gratis). (SPECS §4.2.)
 
 const setF = (gl, program, name, v) => gl.uniform1f(gl.getUniformLocation(program, name), v)
 

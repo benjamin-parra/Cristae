@@ -74,21 +74,20 @@ export class CristaeMap extends LitElement {
     `,
   ]
 
-  #engine = null
-  #pending = []
-  #mounted = false
-  #everMounted = false
+  #engine         = null
+  #pending        = []
+  #mounted        = false
+  #everMounted    = false
   #resizeObserver = null
-  #resizeTimer = null          // debounce (trailing) del syncSize: coalesce una ráfaga de resize a una sola corrida
+  #resizeTimer    = null          // debounce (trailing) del syncSize: coalesce una ráfaga de resize a una sola corrida
   #resolveReady
   // Puenteo bajo demanda: nro de listeners DOM por tipo cristae:* (persiste entre reconexiones, porque
   // las registraciones de addEventListener sobreviven al detach) y el unsub del motor activo por tipo
   // (presente solo si hay listeners Y el motor está montado; se descarta al desmontar y se re-cabla).
   #demandCount = new Map()
   #demandUnsub = new Map()
-  // Creada en construcción → `map.ready` está disponible SÍNCRONO apenas existe el elemento (antes
-  // se asignaba dentro de #mount tras un await, así que era undefined al instante). Se resuelve una
-  // sola vez, cuando el motor queda listo.
+  // Creada en construcción → `map.ready` está disponible SÍNCRONO apenas existe el elemento. Se
+  // resuelve una sola vez, cuando el motor queda listo.
   ready = new Promise(resolve => { this.#resolveReady = resolve })
 
   render() {

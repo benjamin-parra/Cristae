@@ -21,10 +21,10 @@ export class LeafletLineLayer {
 
   #L; #map; #pane; #source; #interactive
   #accessors
-  #group = null
-  #index = { sorted: [] }         // índice espacial nearest-segment (picking, uniforme con el backend GL)
+  #group     = null
+  #index     = { sorted: [] }   // índice espacial nearest-segment (picking, uniforme con el backend GL)
   #maxWeight = DEFAULT_WEIGHT
-  #unsub = null
+  #unsub     = null
 
   constructor({ L, map, pane, source, interactive = false }) {
     this.#L = L

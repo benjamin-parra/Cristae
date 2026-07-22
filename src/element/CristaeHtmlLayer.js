@@ -21,7 +21,7 @@ export class CristaeHtmlLayer extends CristaeLayerElement {
   constructor() {
     super()
     this.interactive = false
-    this.visible = true
+    this.visible     = true
   }
 
   layerId() { return this.id || (this._auto ??= `html-${++seq}`) }

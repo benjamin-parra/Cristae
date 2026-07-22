@@ -13,8 +13,8 @@ import { createSource } from '../data/index.js'
 import { prepareIndex, idsFor } from '../geometry/polygon.js'
 import { createTileSnapshotRetention } from '../tiles/TileSnapshotRetention.js'
 
-// MapEngine — orquestador headless (SPECS §6). Framework-agnóstico: sin Lit, sin React, sin
-// dominio. Crea el L.map, deriva panes por orden de declaración (el consumidor no toca z-index),
+// MapEngine — orquestador headless (SPECS §6). Framework-agnóstico, sin dominio. Crea el L.map,
+// deriva panes por orden de declaración (el consumidor no toca z-index),
 // y cablea las piezas: registry + bus + Interaction (picking) + Camera + retención de tiles.
 // Cada capa de puntos posee un Source interno (ruta C) o adopta uno externo (ruta B).
 
@@ -507,7 +507,7 @@ export class MapEngine {
         // de la espiral aunque quede compacta. Un tramo por corrida contigua del MISMO tipo — hojas
         // (individuales 'base' o florecidas 'bloom') → traza índigo; sub-burbujas → traza gris —. Va gruesa
         // y con harta opacidad para SEGUIRLA a simple vista (asoma en el hueco entre marcadores); las patas
-        // al centro (segs) quedan tenues y secundarias. Antes las hojas 'base' no llevaban traza.
+        // al centro (segs) quedan tenues y secundarias.
         let runType = null, runPts = null
         const flushRun = () => {
           if (runPts && runPts.length >= 2) {
@@ -585,10 +585,8 @@ export class MapEngine {
     }
     // Estado de expansión mostrado, para detectar transiciones expandido→colapsado en apply(). apply() es
     // el ÚNICO emisor de 'collapse': cubre TODA causa de cierre (colapso explícito, click-toggle, zoom,
-    // deshabilitar clustering, o el reindex que poda el ancla al salir su móvil de la flota). Sin esto,
-    // los cierres implícitos (enabled=false / ancla podada) cerraban la espiral pero dejaban el botón X
-    // flotando (sólo se ocultaba con el 'collapse' de los caminos explícitos). 'expand' sí es explícito
-    // (lo emiten los handlers de click / la API, con su payload rico: clusterId, center, entities).
+    // deshabilitar clustering, o el reindex que poda el ancla al salir su móvil de la flota). 'expand' sí
+    // es explícito (lo emiten los handlers de click / la API, con su payload rico: clusterId, center, entities).
     // Estado de la última sesión de expansión EMITIDA por este fold: { id, sig } o null (colapsado). El
     // `sig` = id-ancla | count | subgrupo-abierto detecta cambios estructurales (drill de subburbuja,
     // poda/crecimiento) al mismo estado abierto. `dismissReason` es una pista best-effort para el evento
@@ -809,7 +807,7 @@ export class MapEngine {
         this.#map.getPane('cristae-point-' + spiderSubId)?.remove()
         // Teardown del engine: TODO se está removiendo, así que des-suprimir el host y
         // refrescarlo (+ resyncear sus labels/overlays ligados) es trabajo inútil y peligroso
-        // — rebuildearía glify sobre un canvas que se destruye (crash `_redraw` getSize null).
+        // — rebuildearía glify sobre un canvas que se destruye.
         // El `destroy()` de cada capa libera igual. Fuera del teardown (quitar UNA capa) el
         // host SÍ se des-suprime y resyncea normalmente.
         if (this.#destroying) return
@@ -1314,8 +1312,7 @@ export class MapEngine {
     return {
       // feed SINCRÓNICO con el recluster: set() deja el Store al día ya, y refresh() reconstruye
       // buffers + #idBySlot + picking EN EL MISMO TICK (la emisión del Source va a rAF, el rebuild
-      // acá no espera). Sin el refresh, el pick de un click quedaría UNA generación detrás del
-      // estado vivo (ventana rAF): un cluster-id viejo que colisione numéricamente con uno nuevo
+      // acá no espera). Sin el refresh, un cluster-id viejo que colisione numéricamente con uno nuevo
       // (los ids de Supercluster son densos) pasaría la guarda de itemById y getLeaves resolvería
       // OTRO cluster. El #onChange del rAF posterior re-camina los dirty ya escritos (idempotente,
       // n = nº de burbujas). Simétrico con los hosts (apply) y el spider (applySpider).

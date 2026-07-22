@@ -21,7 +21,7 @@ export class EventBus {
   #nextElementId = 1
 
   #globalDemand = new Map()           // canal → conteo de handlers que escuchan todas las capas
-  #layerDemand = new Map()            // layerId → (canal → conteo)
+  #layerDemand  = new Map()           // layerId → (canal → conteo)
   #onDemandChange
 
   constructor(onDemandChange = null) {

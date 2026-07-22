@@ -10,44 +10,44 @@ function reportListenerError(e) {
 // síncrono cero-alloc a los listeners.
 export class Store {
 
-  #baseData = []
+  #baseData       = []
   #parentFiltered = []
-  #selfFiltered = []
+  #selfFiltered   = []
 
   #parentFilters = []
-  #selfFilters = []
+  #selfFilters   = []
 
   #listeners = []
 
-  #instanceId = Symbol('Store')
+  #instanceId  = Symbol('Store')
   #dataVersion = 0
 
   #parent = null
 
   // Version-tracking
-  #idOf = null
-  #hashOf = null
-  #hashes = null
+  #idOf     = null
+  #hashOf   = null
+  #hashes   = null
   #versions = null
   #dirtyIds = null              // Set reusable — nunca se reasigna
 
   // Índices id → posición / membresía
-  #baseIndex = new Map()
-  #parentIndex = new Map()
+  #baseIndex     = new Map()
+  #parentIndex   = new Map()
   #parentMembers = new Set()
-  #selfIndex = new Map()
-  #selfMembers = new Set()
+  #selfIndex     = new Map()
+  #selfMembers   = new Set()
 
   constructor(items = [], { versionTracker } = {}) {
     if (!Array.isArray(items)) items = []
-    this.#baseData = items
+    this.#baseData       = items
     this.#parentFiltered = items.slice()
-    this.#selfFiltered = items.slice()
+    this.#selfFiltered   = items.slice()
 
     if (versionTracker) {
-      this.#idOf = versionTracker.idOf
-      this.#hashOf = versionTracker.hashOf
-      this.#hashes = new Map()
+      this.#idOf     = versionTracker.idOf
+      this.#hashOf   = versionTracker.hashOf
+      this.#hashes   = new Map()
       this.#versions = new Map()
       this.#dirtyIds = new Set()
       this.#scan(items)
@@ -185,7 +185,7 @@ export class Store {
   }
 
   destroy() {
-    // Bug #3 del legado: reactiveCompose dejaba el listener vivo en el padre.
+    // Sin esto, el listener que reactiveCompose registró en el padre quedaría vivo (leak).
     if (this.#parent) this.#parent.removeListener(this.#instanceId)
     this.#parent = null
     this.#listeners = []
