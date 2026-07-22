@@ -7,6 +7,31 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
 
 ## [Sin publicar]
 
+## [0.13.6] - 2026-07-22
+
+Extracción de **ClusterFold** de `MapEngine` a su propio módulo. **Sin cambios de API ni de
+comportamiento** — la superficie pública (`addClusterFold`/`addCluster`, el objeto `control`, los eventos
+`cluster:*`, el descriptor de retorno) es idéntica; verificado con un harness de caracterización
+(9 escenarios, move-equivalencia) + auditoría adversarial. `MapEngine` pasa de ~1400 a **882 líneas**.
+
+### Agregado
+- **Cobertura del fold de cluster (antes cero).** `test/engine/cluster-fold.test.mjs` +
+  `test-helpers/engine-stub.mjs` montan un `MapEngine` REAL contra stubs (Leaflet/glify/canvas) y fijan
+  el comportamiento OBSERVABLE del fold —burbujas + supresión, `cluster:expand/update/dismiss/marked` con
+  payload, espiral, dismiss por zoom, reindex por `enabled`, split en sub-grupos— como oráculo de la
+  extracción. Mutation-verified (rompen ante un payload alterado). Suite 510 → **519**.
+
+### Cambiado
+- **`ClusterFold` es ahora un módulo propio** (`src/cluster/ClusterFold.js`). El fold (~500 líneas:
+  burbujas, spiderfy, eventos `cluster:*`, marcado, dim-rest) vivía como el método `addClusterFold` de
+  `MapEngine`, atado a ~15 de sus privados. Ahora es `createClusterFold(bridge, targets, opts)`: pide los
+  servicios del motor (panes, capas, `focus`, bus, `emit`, proyección) por un `bridge` acotado
+  (`#foldBridge`) en vez de acceder a los privados. Las constantes fold-only (`SPIDER_*`,
+  `MARKED_CENTER_QUANT`, `CLUSTER_REINDEX_THROTTLE_MS`, `spiderfyOffsets`) se mudaron con él; los defaults
+  de burbuja (`#makeBubbleSink`/`#subClusterIconSet` + draws + `SUB_ACCENT`) quedan en `MapEngine`,
+  expuestos por el bridge. Es un cambio de estructura interna: `ClusterFold` NO se exporta desde ningún
+  entry (la golden surface no cambia).
+
 ## [0.13.5] - 2026-07-22
 
 Corrección de tres bugs latentes anotados y consolidación del **eje 3 (acotado)** en el cluster. **Sin
