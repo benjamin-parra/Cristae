@@ -1,5 +1,31 @@
 import { qselect } from './QuickSelect.js'
 
+// Agenda de un solo frame: coalesce las peticiones de refresco a UN rAF, recuerda si la pendiente
+// era "hard" (aunque no llegue a correr, p.ej. estando oculta) y permite cancelar. `schedule(hard,
+// corre)` registra el hard SIEMPRE y sólo programa el frame si `corre` (el guard de visibilidad lo
+// decide el caller) y no hay uno en vuelo. `cancel()` es idempotente. El estado del scheduler
+// (id del frame + flag hard) vive acá, no como campos sueltos del engine.
+const crearAgenda = run => {
+  let rafId = 0
+  let hardPending = false
+  return {
+    schedule(hard, corre) {
+      if (hard) hardPending = true
+      if (!corre || rafId) return
+      rafId = requestAnimationFrame(() => {
+        rafId = 0
+        const wasHard = hardPending
+        hardPending = false
+        run(wasHard)
+      })
+    },
+    cancel() {
+      if (rafId) cancelAnimationFrame(rafId)
+      rafId = 0
+    },
+  }
+}
+
 // PagedTable — tabla paginada con scroll virtual. Engine headless (el análogo de MapEngine para
 // datos tabulares): no es web component, no toca el motor de mapa, no importa Leaflet. Consume el
 // subconjunto de LECTURA del contrato Source (SPECS §2): `getSnapshot()` + `subscribe(cb)`. El
@@ -32,11 +58,13 @@ export class PagedTable {
   #visibleSlice = []
   #totalItems   = 0
 
-  #pageIndex     = 0
-  #searchQuery   = ''
-  #lastPageCount = -1
-  #lastPageIndex = -1
-  #lastTotal     = -1
+  // La consulta del usuario a la vista: qué página mira y qué texto busca (se leen/escriben como
+  // una sola cosa a lo largo del pipeline).
+  #consulta = { page: 0, query: '' }
+
+  // Memo del dirty-skip de #updatePaginationUI: lo último emitido a onPage (páginas, página, total).
+  // Arranca en -1 (imposible) para forzar la primera emisión.
+  #ultimoEmitido = { pages: -1, page: -1, total: -1 }
 
   #refs = {
     scrollContainer: null,
@@ -50,13 +78,10 @@ export class PagedTable {
     renderEnd: -1,
   }
 
-  #rafId                = 0
-  #refreshPending       = false
-  #visible              = true
-  #hiddenDirty          = false
-  #abort                = new AbortController()
-  #resizeObserver       = null
-  #intersectionObserver = null
+  #visible         = true
+  #hiddenDirty     = false
+  #agenda          = crearAgenda(hard => this.#executePipeline(hard))
+  #disposeViewport = null
 
   constructor({
     container,
@@ -106,7 +131,7 @@ export class PagedTable {
   setData(items, hard = true) {
     this.#dataset = items ?? []
     if (hard) {
-      this.#lastPageCount = -1
+      this.#ultimoEmitido.pages = -1
       this.#refs.scrollContainer.scrollTop = 0
     }
     this.#requestUpdate(hard)
@@ -117,8 +142,8 @@ export class PagedTable {
   // porque depende del total vigente. Un índice negativo llegaría al slice como offset negativo.
   setPage(pageIndex) {
     const next = Math.max(0, pageIndex | 0)
-    if (next === this.#pageIndex) return this
-    this.#pageIndex = next
+    if (next === this.#consulta.page) return this
+    this.#consulta.page = next
     this.#refs.scrollContainer.scrollTop = 0
     this.#requestUpdate(false)
     return this
@@ -126,15 +151,15 @@ export class PagedTable {
 
   setPageSize(size) {
     this.#pageSize = Math.max(1, size | 0)
-    this.#lastPageCount = -1
+    this.#ultimoEmitido.pages = -1
     this.#refs.scrollContainer.scrollTop = 0
     this.#requestUpdate(true)
     return this
   }
 
   setSearch(text) {
-    this.#searchQuery = (text ?? '').trim()
-    this.#lastPageCount = -1
+    this.#consulta.query = (text ?? '').trim()
+    this.#ultimoEmitido.pages = -1
     this.#refs.scrollContainer.scrollTop = 0
     this.#requestUpdate(true)
     return this
@@ -148,7 +173,7 @@ export class PagedTable {
   // duro — sin re-render (el motor reescribe el pool en su rAF).
   setWhere(fn) {
     this.#options.where = fn ?? null
-    this.#lastPageCount = -1
+    this.#ultimoEmitido.pages = -1
     this.#refs.scrollContainer.scrollTop = 0
     this.#requestUpdate(true)
     return this
@@ -156,17 +181,17 @@ export class PagedTable {
 
   getPageInfo() {
     return {
-      page: this.#pageIndex,
+      page: this.#consulta.page,
       pageSize: this.#pageSize,
       total: this.#totalItems,
       pages: Math.ceil(this.#totalItems / this.#pageSize) || 1,
-      offset: this.#pageIndex * this.#pageSize,
+      offset: this.#consulta.page * this.#pageSize,
     }
   }
 
   // Ítem de la fila clickeada, resuelto contra el slice visible actual (índice 1-based del DOM).
   itemAtRow(rowIndex) {
-    return this.#visibleSlice[rowIndex - this.#pageIndex * this.#pageSize - 1] ?? null
+    return this.#visibleSlice[rowIndex - this.#consulta.page * this.#pageSize - 1] ?? null
   }
 
   // Posición (0-based) de `item` en la vista filtrada + ordenada vigente, o -1 si no está en el
@@ -179,7 +204,7 @@ export class PagedTable {
   // define), mientras que el render sí desempata por índice del dataset: para un ítem empatado,
   // `pageOf` da la página del inicio del bloque, que puede no ser la que termina mostrándolo.
   indexOf(item) {
-    const query = this.#searchQuery.toLowerCase()
+    const query = this.#consulta.query.toLowerCase()
     if (!this.#matches(item, query)) return -1
 
     const data = this.#dataset
@@ -215,11 +240,8 @@ export class PagedTable {
   refresh() { this.#requestUpdate(false); return this }
 
   destroy() {
-    if (this.#rafId) cancelAnimationFrame(this.#rafId)
-    this.#rafId = 0
-    this.#abort.abort()
-    this.#resizeObserver?.disconnect()
-    this.#intersectionObserver?.disconnect()
+    this.#agenda.cancel()
+    this.#disposeViewport?.()
     this.#detachSource()
 
     this.#options.container.textContent = ''
@@ -235,16 +257,8 @@ export class PagedTable {
   }
 
   #requestUpdate(hard) {
-    if (hard) this.#refreshPending = true
-    if (!this.#visible) { this.#hiddenDirty = true; return }   // guard de visibilidad: se corre al volver
-    if (this.#rafId) return
-
-    this.#rafId = requestAnimationFrame(() => {
-      this.#rafId = 0
-      const wasHard = this.#refreshPending
-      this.#refreshPending = false
-      this.#executePipeline(wasHard)
-    })
+    if (!this.#visible) this.#hiddenDirty = true   // guard de visibilidad: se corre al volver
+    this.#agenda.schedule(hard, this.#visible)
   }
 
   // Membresía de la vista de UN ítem: where primero, luego text-search. `query` llega ya en
@@ -267,7 +281,7 @@ export class PagedTable {
   #mergeAndFilter() {
     const data = this.#dataset
     const { searchBy: selector, searchFilter: predicate, where } = this.#options
-    const query = this.#searchQuery.toLowerCase()
+    const query = this.#consulta.query.toLowerCase()
     const ws = this.#workingSet
     const total = data.length
 
@@ -298,8 +312,9 @@ export class PagedTable {
   }
 
   #executePipeline(hard) {
+    const q = this.#consulta   // se lee/escribe la página varias veces en este camino caliente
     if (hard) {
-      this.#pageIndex = 0
+      q.page = 0
       this.#refs.renderStart = 0
       this.#refs.renderEnd = -1
     }
@@ -309,16 +324,16 @@ export class PagedTable {
 
     const pageSize = this.#pageSize
     const totalPages = Math.ceil(count / pageSize) || 1
-    if (this.#pageIndex >= totalPages) this.#pageIndex = totalPages - 1
+    if (q.page >= totalPages) q.page = totalPages - 1
 
-    const startIndex = this.#pageIndex * pageSize
+    const startIndex = q.page * pageSize
     const endIndex = Math.min(startIndex + pageSize, count)
 
     if (count === 0 || startIndex >= count) {
       this.#visibleSlice.length = 0
       this.#clearViewport()
       this.#updatePaginationUI(totalPages)
-      this.#options.onSlice?.([], { page: this.#pageIndex, pages: totalPages, total: 0, offset: 0 })
+      this.#options.onSlice?.([], { page: q.page, pages: totalPages, total: 0, offset: 0 })
       return
     }
 
@@ -328,7 +343,7 @@ export class PagedTable {
     this.#updatePaginationUI(totalPages)
 
     this.#options.onSlice?.(this.#visibleSlice, {
-      page: this.#pageIndex, pages: totalPages, total: count, offset: startIndex,
+      page: q.page, pages: totalPages, total: count, offset: startIndex,
     })
 
     const ws = this.#workingSet
@@ -392,7 +407,7 @@ export class PagedTable {
     const last = Math.min(len - 1, ((scrollTop + viewH) / rowHeight | 0) + 5)
 
     const binder = this.#binder
-    const offset = this.#pageIndex * this.#pageSize
+    const offset = this.#consulta.page * this.#pageSize
     const pool = refs.pool
 
     for (let i = first; i <= last; ++i) {
@@ -441,11 +456,12 @@ export class PagedTable {
   // de conteo dentro de la misma cantidad de páginas (altas/bajas del dataset, cambio del `where`
   // por ref + refresh()) y la vista mostraría un "de N" congelado hasta cruzar un borde de página.
   #updatePaginationUI(totalPages) {
-    if (totalPages === this.#lastPageCount && this.#pageIndex === this.#lastPageIndex
-      && this.#totalItems === this.#lastTotal) return
-    this.#lastPageCount = totalPages
-    this.#lastPageIndex = this.#pageIndex
-    this.#lastTotal = this.#totalItems
+    const m = this.#ultimoEmitido
+    const page = this.#consulta.page
+    if (totalPages === m.pages && page === m.page && this.#totalItems === m.total) return
+    m.pages = totalPages
+    m.page = page
+    m.total = this.#totalItems
     this.#options.onPage?.(this.getPageInfo())
   }
 
@@ -476,28 +492,37 @@ export class PagedTable {
     refs.viewportHeight = refs.scrollContainer.clientHeight
   }
 
+  // Los tres observadores del viewport (scroll + tamaño + visibilidad) nacen y mueren juntos: se
+  // crean acá, viven en el scope de esta función y se sueltan con el ÚNICO dispose que se guarda en
+  // #disposeViewport (lo llama destroy).
   #bindEvents() {
     const refs = this.#refs
-    const signal = this.#abort.signal
+    const abort = new AbortController()
 
-    refs.scrollContainer.addEventListener('scroll', () => this.#renderVisibleWindow(), { passive: true, signal })
+    refs.scrollContainer.addEventListener('scroll', () => this.#renderVisibleWindow(), { passive: true, signal: abort.signal })
 
-    this.#resizeObserver = new ResizeObserver(entries => {
+    const resize = new ResizeObserver(entries => {
       const entry = entries[0]
       if (!entry) return
       refs.viewportHeight = entry.borderBoxSize?.[0]?.blockSize ?? entry.contentRect.height
       this.#renderVisibleWindow()
     })
-    this.#resizeObserver.observe(refs.scrollContainer)
+    resize.observe(refs.scrollContainer)
 
     // Guard de visibilidad: fuera de pantalla no renderiza; al reaparecer corre una vez si quedó sucio.
-    this.#intersectionObserver = new IntersectionObserver(([entry]) => {
+    const intersection = new IntersectionObserver(([entry]) => {
       this.#visible = entry.isIntersecting
       if (this.#visible && this.#hiddenDirty) {
         this.#hiddenDirty = false
-        this.#requestUpdate(false)   // #refreshPending conserva si el pendiente era hard
+        this.#requestUpdate(false)   // el hard pendiente se conserva en la agenda
       }
     })
-    this.#intersectionObserver.observe(refs.container)
+    intersection.observe(refs.container)
+
+    this.#disposeViewport = () => {
+      abort.abort()
+      resize.disconnect()
+      intersection.disconnect()
+    }
   }
 }

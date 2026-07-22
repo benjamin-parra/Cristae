@@ -39,16 +39,24 @@ export class Cluster {
   // Jerarquía ALTURA MÁX 2 codificada en la FORMA del estado (no por guardas): exactamente UN cluster
   // base abierto + a lo sumo UN sub-cluster interno abierto. Abrir otro base cierra el anterior (y su
   // interno); abrir otro interno cierra el anterior.
-  #baseAnchor     = null         // hoja-ancla (nearest-centroid) del ÚNICO cluster base abierto, o null
-  #innerAnchor    = null         // min leaf-id del ÚNICO sub-cluster interno abierto (depth-2), o null
-  #expandedSig    = ''           // firma de (baseAnchor|innerAnchor) para detectar cambios en recluster
-  #expandedGroups = []           // 0-o-1: [{ clusterId, center, slots }] del base abierto
-  // SNAPSHOT de la sesión de expansión: las hojas (id + posición) capturadas en el click, congeladas.
-  // La membresía/conteo/partición del base NO se re-derivan del árbol vivo en cada recluster. Con el set
-  // fijo, #partition es determinista entre reclusters; sólo encoge por bajas reales (que lo re-particionan
-  // y cierran el sub-cluster interno). Un móvil nuevo NO se suma a una espiral abierta (semántica spiderfy).
-  #baseLeaves  = null            // [{ properties:{id}, geometry:{coordinates:[lng,lat]} }] | null
-  #baseLeafIds = null            // Set(id) del snapshot (supresión/membresía O(1)) | null
+  //
+  // #sesion agrupa TODO el snapshot de la sesión de expansión, o null si no hay ninguna. Limpiar la
+  // sesión es SIEMPRE `this.#sesion = null` — un único punto de verdad, imposible olvidar un campo (antes
+  // eran cinco asignaciones a null copiadas en collapse*/enabled/index/reset; olvidar una = sesión zombi).
+  // Campos:
+  //   · baseAnchor  — hoja-ancla (nearest-centroid) del ÚNICO cluster base abierto.
+  //   · innerAnchor — min leaf-id del ÚNICO sub-cluster interno abierto (depth-2), o null.
+  //   · expandedSig — firma de (baseAnchor|innerAnchor) para detectar cambios de estado en recluster (hot).
+  //   · baseLeaves  — SNAPSHOT congelado en el click: [{ properties:{id}, geometry:{coordinates:[lng,lat]} }].
+  //   · baseLeafIds — Set(id) del snapshot (supresión/membresía O(1)).
+  // El SNAPSHOT (baseLeaves/baseLeafIds) congela membresía/conteo/partición del base: NO se re-derivan del
+  // árbol vivo en cada recluster. Con el set fijo, #partition es determinista entre reclusters; sólo encoge
+  // por bajas reales (que lo re-particionan y cierran el sub-cluster interno). Un móvil nuevo NO se suma a
+  // una espiral abierta (semántica spiderfy).
+  #sesion = null
+  // Producto del recluster (0-o-1 grupo del base abierto), NO parte del snapshot: se reescribe en cada
+  // recluster (junto a #bubbles/#markedHidden), por eso vive FUERA de #sesion.
+  #expandedGroups = []
   // Marcado: ids de dato que el consumidor quiere señalizados. Las burbujas que contengan alguno
   // se taggean `marked` (variante propia del icon-set) y su colocación queda en #markedHidden.
   #markedIds    = new Set()
@@ -90,15 +98,16 @@ export class Cluster {
   //   · ids    = todas las hojas del snapshot congelado (orden espacial), plano
   //   · groups = subburbujas [{ id, count, ids, expanded }] cuando el base se particiona (count > splitThreshold);
   //              [] cuando es plano (hojas directas). `expanded` marca la subburbuja abierta (#innerAnchor).
-  // Sale del SNAPSHOT #baseLeaves → invariante a reindex (mismo criterio que la espiral).
+  // Sale del SNAPSHOT baseLeaves → invariante a reindex (mismo criterio que la espiral).
   get sessionStructure() {
-    if (this.#baseAnchor == null || !this.#baseLeaves) return null
-    const ids = this.#baseLeaves.map(l => l.properties.id)
+    const s = this.#sesion
+    if (!s) return null
+    const ids = s.baseLeaves.map(l => l.properties.id)
     const count = ids.length
-    if (count <= this.#splitThreshold) return { id: this.#baseAnchor, count, ids, groups: [] }
-    const groups = this.#partitionGroups(this.#baseLeaves)
-      .map(g => ({ id: g.id, count: g.ids.length, ids: g.ids, expanded: g.id === this.#innerAnchor }))
-    return { id: this.#baseAnchor, count, ids, groups }
+    if (count <= this.#splitThreshold) return { id: s.baseAnchor, count, ids, groups: [] }
+    const groups = this.#partitionGroups(s.baseLeaves)
+      .map(g => ({ id: g.id, count: g.ids.length, ids: g.ids, expanded: g.id === s.innerAnchor }))
+    return { id: s.baseAnchor, count, ids, groups }
   }
 
   /* ── Expand / collapse de clusters individuales (modelo ANCLA por hoja) ──
@@ -125,8 +134,9 @@ export class Cluster {
 
   // ¿estas hojas contienen el ancla del base abierto? (el base es "este cluster" del frame).
   #hasBaseAnchor(leaves) {
-    if (this.#baseAnchor == null) return false
-    for (const lf of leaves) if (lf.properties.id === this.#baseAnchor) return true
+    const a = this.#sesion?.baseAnchor
+    if (a == null) return false
+    for (const lf of leaves) if (lf.properties.id === a) return true
     return false
   }
 
@@ -163,9 +173,10 @@ export class Cluster {
   // florece en sus hojas spliced EN SU LUGAR → el caracol crece y empuja a los hermanos (`group` las une
   // visualmente); el resto quedan como burbujas {kind:'subcluster'}. Preserva el orden de #partitionGroups.
   #partition(leaves) {
+    const inner = this.#sesion?.innerAnchor
     const slots = []
     for (const g of this.#partitionGroups(leaves)) {
-      if (g.id === this.#innerAnchor) {
+      if (g.id === inner) {
         for (const id of g.ids) slots.push({ kind: 'leaf', id, group: g.id })
       } else {
         slots.push({ kind: 'subcluster', id: g.id, count: g.ids.length, ids: g.ids })
@@ -174,8 +185,11 @@ export class Cluster {
     return slots
   }
 
+  // Recalcula la firma (baseAnchor|innerAnchor) del snapshot vigente. Sólo se llama con una sesión abierta
+  // (tras crearla o togglear sus anclas); limpiar la sesión es `this.#sesion = null`, no pasa por acá.
   #refreshExpandedSig() {
-    this.#expandedSig = (this.#baseAnchor ?? '') + '|' + (this.#innerAnchor ?? '')
+    const s = this.#sesion
+    if (s) s.expandedSig = (s.baseAnchor ?? '') + '|' + (s.innerAnchor ?? '')
   }
 
   // Expande el cluster `clusterId` como BASE (single-open: cierra el base anterior y su interno).
@@ -187,11 +201,14 @@ export class Cluster {
     const anchorId = this.#pickAnchor(leaves)
     const ids = leaves.map(lf => lf.properties.id)
     // Captura la SESIÓN: congela el set de hojas (id + posición) del click. Desde acá la membresía/conteo
-    // del base no se re-derivan del árbol vivo.
-    this.#baseAnchor = anchorId
-    this.#innerAnchor = null                // abrir otro base cierra el sub-cluster interno
-    this.#baseLeaves = leaves.map(lf => ({ properties: { id: lf.properties.id }, geometry: { coordinates: lf.geometry.coordinates } }))
-    this.#baseLeafIds = new Set(ids)
+    // del base no se re-derivan del árbol vivo. innerAnchor arranca null (abrir otro base cierra el interno).
+    this.#sesion = {
+      baseAnchor: anchorId,
+      innerAnchor: null,
+      expandedSig: '',
+      baseLeaves: leaves.map(lf => ({ properties: { id: lf.properties.id }, geometry: { coordinates: lf.geometry.coordinates } })),
+      baseLeafIds: new Set(ids),
+    }
     this.#refreshExpandedSig()
     this.#signature = null
     return { anchorId, ids }
@@ -200,28 +217,22 @@ export class Cluster {
   // Colapsa el cluster base si en este frame contiene el ancla. Devuelve los ids re-clusterizados
   // (para limpiar un panel simétrico al expand), o null si no cambió.
   collapseCluster(clusterId) {
+    const s = this.#sesion
     // Caso ancla-sola: la burbuja dim tiene id sintético 'b:'+ancla → getLeaves lanzaría; atajo directo.
-    if (!(this.#baseAnchor != null && clusterId === 'b:' + this.#baseAnchor)) {
+    if (!(s && clusterId === 'b:' + s.baseAnchor)) {
       let leaves
       try { leaves = this.#leavesOf(clusterId) } catch { return null }
       if (!this.#hasBaseAnchor(leaves)) return null
     }
-    const ids = this.#baseLeafIds ? [...this.#baseLeafIds] : []
-    this.#baseAnchor = null
-    this.#innerAnchor = null
-    this.#baseLeaves = null
-    this.#baseLeafIds = null
-    this.#refreshExpandedSig(); this.#signature = null
+    const ids = s ? [...s.baseLeafIds] : []
+    this.#sesion = null
+    this.#signature = null
     return ids
   }
 
   collapseAll() {
-    if (this.#baseAnchor == null && this.#innerAnchor == null) return false
-    this.#baseAnchor = null
-    this.#innerAnchor = null
-    this.#baseLeaves = null
-    this.#baseLeafIds = null
-    this.#expandedSig = ''
+    if (!this.#sesion) return false
+    this.#sesion = null
     this.#signature = null
     return true
   }
@@ -229,15 +240,17 @@ export class Cluster {
   // Abre/cierra (toggle) el sub-cluster interno cuyo ancla (min leaf-id) es `subId`, dentro del base
   // abierto. Single-open interno: abrir otro cierra el anterior. Devuelve true si quedó abierto.
   expandInner(subId) {
-    if (this.#baseAnchor == null) return false
-    this.#innerAnchor = (this.#innerAnchor === subId) ? null : subId
+    const s = this.#sesion
+    if (!s) return false
+    s.innerAnchor = (s.innerAnchor === subId) ? null : subId
     this.#refreshExpandedSig(); this.#signature = null
-    return this.#innerAnchor != null
+    return s.innerAnchor != null
   }
 
   // ¿El cluster del frame actual es el base abierto? (sus hojas contienen el ancla base).
   isClusterExpanded(clusterId) {
-    if (this.#baseAnchor != null && clusterId === 'b:' + this.#baseAnchor) return true   // dim sintética (ancla-sola)
+    const s = this.#sesion
+    if (s && clusterId === 'b:' + s.baseAnchor) return true   // dim sintética (ancla-sola)
     let leaves
     try { leaves = this.#leavesOf(clusterId) } catch { return false }
     return this.#hasBaseAnchor(leaves)
@@ -249,15 +262,16 @@ export class Cluster {
   // null si el id es stale/desconocido. (El contenido de una SUB-burbuja de la espiral NO se consulta
   // acá — su id es una hoja-ancla, no un cluster de Supercluster — sino en sessionStructure.groups.)
   contents(clusterId) {
-    if (this.#baseAnchor != null && clusterId === 'b:' + this.#baseAnchor)
-      return this.#baseLeaves.map(l => l.properties.id)
+    const s = this.#sesion
+    if (s && clusterId === 'b:' + s.baseAnchor)
+      return s.baseLeaves.map(l => l.properties.id)
     let leaves
     try { leaves = this.#leavesOf(clusterId) } catch { return null }
     // Burbuja dim de la sesión abierta con id VIVO de Supercluster (caso común, no el sintético
     // 'b:'): responde con el snapshot CONGELADO — lo que la burbuja y la espiral renderizan
     // (conteo + hojas del click) — no con el bucket vivo, que puede haber ganado/perdido
     // miembros durante la sesión. Misma atomicidad con-lo-visto que las sub-burbujas.
-    if (this.#hasBaseAnchor(leaves)) return this.#baseLeaves.map(l => l.properties.id)
+    if (this.#hasBaseAnchor(leaves)) return s.baseLeaves.map(l => l.properties.id)
     return leaves.map(lf => lf.properties.id)
   }
 
@@ -272,7 +286,7 @@ export class Cluster {
   set enabled(v) {
     if (v === this.#enabled) return
     this.#enabled = v
-    if (!v) { this.#baseAnchor = null; this.#innerAnchor = null; this.#baseLeaves = null; this.#baseLeafIds = null; this.#refreshExpandedSig() }
+    if (!v) this.#sesion = null
     this.#signature = null
   }
 
@@ -300,17 +314,18 @@ export class Cluster {
     // no existe → colapsa todo. Si sigue, el snapshot sólo ENCOGE por bajas reales (hojas que salieron del
     // dataset); nunca crece (semántica spiderfy: un nuevo móvil no se suma a una espiral abierta). Cualquier
     // baja cierra el sub-cluster interno (re-particiona); si quedó ≤1 hoja → colapsa el base.
-    if (this.#baseAnchor != null && !ids.has(this.#baseAnchor)) {
-      this.#baseAnchor = null; this.#innerAnchor = null; this.#baseLeaves = null; this.#baseLeafIds = null; this.#refreshExpandedSig()
-    } else if (this.#baseLeafIds != null) {
-      if (this.#baseLeaves.some(l => !ids.has(l.properties.id))) {
-        this.#baseLeaves = this.#baseLeaves.filter(l => ids.has(l.properties.id))
-        this.#baseLeafIds = new Set(this.#baseLeaves.map(l => l.properties.id))
-        this.#innerAnchor = null   // una baja real re-particiona el snapshot → cierra el sub-cluster interno
+    const s = this.#sesion
+    if (s && !ids.has(s.baseAnchor)) {
+      this.#sesion = null
+    } else if (s) {
+      if (s.baseLeaves.some(l => !ids.has(l.properties.id))) {
+        s.baseLeaves = s.baseLeaves.filter(l => ids.has(l.properties.id))
+        s.baseLeafIds = new Set(s.baseLeaves.map(l => l.properties.id))
+        s.innerAnchor = null   // una baja real re-particiona el snapshot → cierra el sub-cluster interno
         this.#refreshExpandedSig()
       }
-      if (this.#baseLeaves.length <= 1) {   // sólo quedó el ancla (o nada) → la espiral no tiene sentido
-        this.#baseAnchor = null; this.#innerAnchor = null; this.#baseLeaves = null; this.#baseLeafIds = null; this.#refreshExpandedSig()
+      if (s.baseLeaves.length <= 1) {   // sólo quedó el ancla (o nada) → la espiral no tiene sentido
+        this.#sesion = null
       }
     }
     this.#signature = null          // datos nuevos → fuerza recálculo en el próximo recluster
@@ -335,8 +350,9 @@ export class Cluster {
     // Caso común (nada abierto) → firma idéntica al original, cero overhead en bursts de zoom. Con un
     // base abierto se prefija 'a[baseAnchor|innerAnchor]' para detectar cambios de estado al mismo zoom
     // (incluido togglear el sub-cluster interno: getClusters devuelve lo mismo, sólo cambia el bloom).
-    const hasExpansion = this.#baseAnchor != null
-    let signature = hasExpansion ? zoom + ':a[' + this.#expandedSig + ']:' : zoom + ':'
+    const s = this.#sesion                         // snapshot de sesión cacheado (leído en toda esta ruta caliente)
+    const hasExpansion = s != null
+    let signature = hasExpansion ? zoom + ':a[' + s.expandedSig + ']:' : zoom + ':'
     results.forEach(f => {
       const p = f.properties
       signature += p.cluster ? `c${f.id}:${p.point_count},` : `s${p.id},`
@@ -351,11 +367,11 @@ export class Cluster {
     // el getLeaves del resto).
     let baseFound = false
     // Emite la SESIÓN de expansión (burbuja dim + grupo de slots) centrada en `center`, desde el snapshot
-    // CONGELADO #baseLeaves. count y partición salen del snapshot, NO del árbol vivo → invariantes a
+    // CONGELADO s.baseLeaves. count y partición salen del snapshot, NO del árbol vivo → invariantes a
     // reindex. Pocas hojas → directas; muchas → sub-clusters (~√N de ~√N) legibles.
     const emitBase = (bubbleId, center, liveLeaves) => {
       baseFound = true
-      const snap = this.#baseLeaves
+      const snap = s.baseLeaves
       bubbles.push({ id: bubbleId, lat: center.lat, lng: center.lng, count: snap.length, expanded: true })
       const slots = snap.length <= this.#splitThreshold
         ? snap.map(l => ({ kind: 'leaf', id: l.properties.id }))
@@ -364,7 +380,7 @@ export class Cluster {
       // Miembros VIVOS del bucket base que NO están en el snapshot (un móvil que entró/se desplazó al
       // cluster del base DURANTE la sesión): no se suman a la espiral congelada, pero deben seguir
       // VISIBLES en su posición real → solos (no suprimidos). Sin esto desaparecerían del mapa.
-      if (liveLeaves) for (const lf of liveLeaves) if (!this.#baseLeafIds.has(lf.properties.id)) soloIds.add(lf.properties.id)
+      if (liveLeaves) for (const lf of liveLeaves) if (!s.baseLeafIds.has(lf.properties.id)) soloIds.add(lf.properties.id)
     }
     results.forEach(f => {
       const p = f.properties
@@ -378,13 +394,13 @@ export class Cluster {
       } else {
         soloIds.add(p.id)
         // El ancla puede quedar SOLA a este zoom → centrar la espiral en su posición y emitir la sesión.
-        if (hasExpansion && !baseFound && p.id === this.#baseAnchor) emitBase('b:' + this.#baseAnchor, { lat, lng }, null)
+        if (hasExpansion && !baseFound && p.id === s.baseAnchor) emitBase('b:' + s.baseAnchor, { lat, lng }, null)
       }
     })
 
     // Las hojas del snapshot SIEMPRE quedan suprimidas en el host (se dibujan en la espiral), aunque el
     // árbol vivo marque alguna como `solo` tras moverse → evita verla duplicada (posición real + espiral).
-    if (this.#baseLeafIds != null) this.#baseLeafIds.forEach(id => soloIds.delete(id))
+    if (s) s.baseLeafIds.forEach(id => soloIds.delete(id))
     // allIds − soloIds = los realmente dentro de un cluster (incluidas las hojas expandidas, que
     // siguen suprimidas en el host). Worldwide garantiza que cada id indexado aparece en results.
     this.#clusteredIds.clear()
@@ -399,12 +415,13 @@ export class Cluster {
   /* ── Marcado: señaliza las burbujas que contienen ids marcados ── */
 
   // Marcados OCULTOS en una burbuja colapsada: dentro de clusteredIds pero fuera del snapshot de
-  // espiral (#baseLeafIds, que se dibuja desplegado). Sólo estos necesitan señalización — un
+  // espiral (baseLeafIds, que se dibuja desplegado). Sólo estos necesitan señalización — un
   // marcado solo ya es visible. O(|marcados|), sin tocar el índice.
   #markedOcultos() {
+    const leafIds = this.#sesion?.baseLeafIds
     const ocultos = new Set()
     this.#markedIds.forEach(id => {
-      if (this.#clusteredIds.has(id) && !this.#baseLeafIds?.has(id)) ocultos.add(id)
+      if (this.#clusteredIds.has(id) && !leafIds?.has(id)) ocultos.add(id)
     })
     return ocultos
   }
@@ -464,11 +481,7 @@ export class Cluster {
     this.#bubbles = []
     this.#expandedGroups = []
     this.#markedHidden = []
-    this.#baseAnchor = null
-    this.#innerAnchor = null
-    this.#baseLeaves = null
-    this.#baseLeafIds = null
-    this.#expandedSig = ''
+    this.#sesion = null
     this.#signature = null
     this.#sc = this.#build()
   }
