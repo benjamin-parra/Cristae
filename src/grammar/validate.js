@@ -9,11 +9,11 @@
 // se cumple en cada nodo. Toda invalidez lanza un GrammarError ANTES de tocar el
 // motor (un árbol inválido no crea estado).
 
-import { grammarChildren, tagName } from './util.js'
+import { grammarChildren, firstUnknownChild, tagName } from './util.js'
 
 export class GrammarError extends Error {
   /**
-   * @param {'R1'|'R2'|'R3'|'R4'} code
+   * @param {'R1'|'R2'|'R3'|'R4'|'R5'} code
    * @param {Element|null} node
    * @param {string} message
    */
@@ -68,6 +68,13 @@ function producedOf(el, ctx) {
   if (kids.length === 0)
     throw new GrammarError('R3', el,
       `${PFX} <${tagName(el)}> es un wrapper y requiere ≥1 hijo que produzca uno de [${sig.consumes.join(',')}].`)
+
+  // R5 — un hijo no reconocido (typo de tag, elemento fuera de lugar) se descartaría en silencio y
+  // el error real quedaría enmascarado. Se avisa DESPUÉS de R3: sin ningún hijo válido manda R3.
+  const desconocido = firstUnknownChild(el, ctx.isRegistered)
+  if (desconocido)
+    throw new GrammarError('R5', el,
+      `${PFX} <${tagName(el)}> tiene un hijo no reconocido <${tagName(desconocido)}>: no es un elemento de la gramática ni configuración (¿typo de tag?).`)
 
   const consumed = new Set(sig.consumes)
   const passKinds = new Set()

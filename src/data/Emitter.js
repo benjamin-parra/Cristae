@@ -79,17 +79,22 @@ export class Emitter {
 
   /* ── Lifecycle ── */
 
+  // Deja el emitter INERTE: suelta la fuente (a la que `#check` se guarda) y las suscripciones, y
+  // cancela lo agendado. Un `notify()` posterior ya no lee, no emite ni dispara `#onFlush`.
   destroy() {
     if (this.#timer) { clearInterval(this.#timer); this.#timer = null }
-    if (this.#rafId != null) { cancelRaf(this.#rafId); this.#rafId = null }  // bug: rAF colgado post-destroy
+    if (this.#rafId != null) { cancelRaf(this.#rafId); this.#rafId = null }
     this.#pending = null
     this.#subs.clear()
+    this.#onFlush = null
+    this.#source = null
     this.#lastData = null
   }
 
   /* ── Internos ── */
 
   #check() {
+    if (!this.#source) return          // destruido → inerte
     const ver = this.#version()
     if (ver === this.#lastVersion) return            // dirty-skip
     this.#lastVersion = ver

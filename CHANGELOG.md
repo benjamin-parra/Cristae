@@ -7,6 +7,28 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
 
 ## [Sin publicar]
 
+## [0.13.3] - 2026-07-22
+
+Cierra los dos defectos que la suite de contrato dejaba documentados como `todo`. Suite: 398 tests, 0
+fail, **0 todo**.
+
+### Corregido
+- **El `Emitter` seguía disparando `onFlush` después de `destroy()`.** `destroy()` limpiaba
+  suscriptores y lo agendado, pero un `notify()` posterior volvía a leer la fuente y llamaba a
+  `onFlush` — golpeando a un consumidor ya desmontado. Ahora `destroy()` suelta la fuente y `#check`
+  se guarda contra ese estado: un emitter destruido queda **inerte** (no lee, no emite, no flushea) y
+  además libera la referencia a la fuente.
+
+### Añadido
+- **R5 — un hijo no reconocido dentro de un wrapper de gramática es un error, no un descarte
+  silencioso.** Un `<cristae-cluster>` con un `<div>` o un `<cristae-point-layerr>` (typo de tag) los
+  ignoraba sin avisar, y el error afloraba desfasado (el wrapper "sin hijos" → R3, señalando al lugar
+  equivocado). `validate` ahora lanza `GrammarError('R5')` nombrando al hijo malo. Se chequea **después**
+  de R3 (un wrapper sin ningún hijo válido sigue siendo R3), y `slot="bubble"` (configuración) queda
+  excluido como antes. `grammarChildren` no cambia —sigue filtrando lo que el reductor no debe ver—:
+  la novedad es que la validación avisa en lugar de tragarse el typo. `firstUnknownChild` (interno) es
+  el complemento de `grammarChildren`.
+
 ## [0.13.2] - 2026-07-22
 
 Tanda de correcciones previa a la reestructuración interna. Todos los defectos venían con repro

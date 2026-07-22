@@ -113,23 +113,34 @@ test('isRegistered se consulta con el tagName tal cual lo entrega el DOM (MAYÚS
 // COMPORTAMIENTO DE HOY (el `{ todo }` de abajo es la spec pendiente que lo cambiaría). Va
 // aparte para que la spec pendiente no desactive también esta cobertura: un `{ todo }` apaga
 // el test ENTERO, incluidos los asertos que hoy pasan.
-test('hoy un hijo desconocido junto a uno válido se descarta en silencio y el árbol valida', () => {
+// `grammarChildren` sigue filtrando el <div> (el reductor nunca lo ve); la validación es la que
+// ahora lo rechaza con R5 en vez de dejarlo pasar. Las dos vistas conviven: el filtro para montar,
+// la validación para avisar.
+test('un hijo desconocido junto a uno válido NO llega al reductor, pero la validación lo rechaza', () => {
   const p = P()
   const cl = CL([DIV(), p])
-  assert.equal(validate(cl, vctx), true, 'el <div> no invalida el cluster')
-  assert.deepEqual(hijos(cl), [p], 'y no llega al reductor')
+  assert.deepEqual(hijos(cl), [p], 'grammarChildren descarta el <div>: no llega al reductor')
+  const e = capturar(() => validate(cl, vctx))
+  assert.equal(e?.code, 'R5', 'pero validate lo rechaza en vez de validar en silencio')
 })
 
-test('R5 — un hijo desconocido dentro de un wrapper DEBERÍA ser un error de gramática',
-  { todo: 'R5 — hoy el hijo desconocido se descarta en silencio; ver plan del eje de gramática' }, () => {
-    // Propuesta: <cristae-cluster><div>…</div><cristae-point-layer/></cristae-cluster>
-    // debería avisar en vez de ignorar el <div> (típico typo de tag).
-    // node:test NO falla cuando un {todo} empieza a pasar (lo reporta 'ok # TODO'): buscar
-    // "R5" en este archivo al implementar la regla.
-    const e = capturar(() => validate(CL([DIV(), P()]), vctx))
-    assert.ok(e instanceof GrammarError, 'no reportó nada')
-    assert.equal(e.code, 'R5')
-  })
+test('R5 — un hijo desconocido dentro de un wrapper es un error de gramática', () => {
+  // <cristae-cluster><div>…</div><cristae-point-layer/></cristae-cluster>: el <div> (típico typo de
+  // tag) se avisa en vez de ignorarse. R5 se chequea tras R3, así que el wrapper igual tiene su punto.
+  const cl = CL([DIV(), P()])
+  const e = capturar(() => validate(cl, vctx))
+  assert.ok(e instanceof GrammarError, 'no reportó nada')
+  assert.equal(e.code, 'R5')
+  assert.equal(e.node, cl, 'el error apunta al wrapper que contiene el hijo malo')
+  assert.match(e.message, /no reconocido <div>/)
+})
+
+test('R5 — un cristae-* con typo también se detecta (no sólo DOM plano)', () => {
+  const typo = nodo('cristae-point-layerr')   // capa con typo → no registrada
+  const e = capturar(() => validate(CL([typo, P()]), vctx))
+  assert.ok(e instanceof GrammarError)
+  assert.equal(e.code, 'R5')
+})
 
 test('descartar en silencio puede volver INVÁLIDO a un wrapper que "tiene" hijos', () => {
   // Un cluster cuyo único hijo es desconocido queda sin hijos de gramática → R3.

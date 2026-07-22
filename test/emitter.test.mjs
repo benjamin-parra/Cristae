@@ -393,7 +393,7 @@ test('destroy() deja al difusor mudo para los notify posteriores', () => {
 })
 
 // El aserto del bug, aislado: hoy el check post-destroy sigue corriendo y dispara onFlush.
-test('BUG-EMITTER-FLUSH-POST-DESTROY: tras destroy() el onFlush ya no debería dispararse', { todo: 'el módulo sigue emitiendo el flush tras destroy()' }, () => {
+test('tras destroy() el emitter queda inerte: notify() no emite ni dispara onFlush', () => {
   const { e, est } = banco()
   e.destroy()
   est.mutar(); e.notify()
