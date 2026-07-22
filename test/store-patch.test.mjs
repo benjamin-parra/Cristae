@@ -265,7 +265,7 @@ test('dirtyIds es el MISMO Set entre scans, no una copia', () => {
   assert.equal(s.dirtyIds.size, 0, 'sin cambios de hash el scan lo deja vacío')
 })
 
-test('el regenerado duro deja filtered correcto aunque se corten los bumps', () => {
+test('el regenerado duro deja filtered con los ítems frescos de todo el lote sucio', () => {
   const base = ['a', 'b', 'c', 'd'].map(id => item(id, 1, 0, true))
   const s = new Store(base, TRACKER)
   s.addFilter(makeFilter('activo', it => it.activo))
@@ -274,7 +274,7 @@ test('el regenerado duro deja filtered correcto aunque se corten los bumps', () 
   s.patch(nuevos, new Set(['a', 'b', 'c', 'd']))
 
   assert.deepEqual(s.filtered.map(idOf), ['a', 'c', 'd'])
-  assert.equal(s.get('c'), nuevos[2], 'el ítem fresco entra a la vista aunque su versión no se bumpee')
+  assert.equal(s.get('c'), nuevos[2], 'el ítem fresco entra a la vista por el regenerado')
 })
 
 test('update() y patch bumpean elementVersions sólo del id cuyo hash cambió', () => {
@@ -298,7 +298,7 @@ test('update() y patch bumpean elementVersions sólo del id cuyo hash cambió', 
   assert.equal(s.elementVersions.get('a'), 2, 'un id que no vino en dirtyIds queda como estaba')
 })
 
-/* ── Bug S6: el break del recorrido corta los version-bumps posteriores ── */
+/* ── S6: el recorrido de dirtyIds es TOTAL, un cambio de membresía no lo acorta ── */
 
 // Escenario compartido: 'b' cambia de membresía en la 2ª posición del recorrido de dirtyIds.
 const escenarioS6 = () => {
@@ -310,21 +310,32 @@ const escenarioS6 = () => {
   return s
 }
 
-test('S6 — patch bumpea la versión de TODOS los ids sucios, no sólo hasta el primer cambio de membresía',
-  { todo: 'bug S6 — el break del recorrido corta los version-bumps posteriores' }, () => {
-    const s = escenarioS6()
-    assert.equal(s.elementVersions.get('c'), 2)
-    assert.equal(s.elementVersions.get('d'), 2)
-  })
-
-test('S6 sigue vigente: los ids sucios posteriores al break quedan sin bumpear', () => {
-  // Fija el comportamiento ACTUAL para que el refactor no lo cambie de callado. Si este test
-  // falla, S6 se arregló → sacar el {todo} de arriba (node:test no avisa cuando un todo pasa).
+test('S6 — patch bumpea la versión de TODOS los ids sucios, no sólo hasta el primer cambio de membresía', () => {
   const s = escenarioS6()
-  assert.equal(s.elementVersions.get('a'), 2, 'antes del break sí se bumpea')
-  assert.equal(s.elementVersions.get('b'), 2, 'el ítem que dispara el break también')
-  assert.equal(s.elementVersions.get('c'), 1)
-  assert.equal(s.elementVersions.get('d'), 1)
+  assert.equal(s.elementVersions.get('a'), 2, 'antes del cambio de membresía')
+  assert.equal(s.elementVersions.get('b'), 2, 'el ítem que lo dispara')
+  assert.equal(s.elementVersions.get('c'), 2, 'y los que vienen DESPUÉS: cambiaron igual')
+  assert.equal(s.elementVersions.get('d'), 2)
+})
+
+test('S6 — el cambio de membresía sigue regenerando la vista pese al recorrido completo', () => {
+  const s = escenarioS6()
+  assert.deepEqual(s.filtered.map(idOf), ['a', 'c', 'd'])
+  assert.equal(s.get('b'), undefined)
+})
+
+test('S6 — un id sucio POSTERIOR al cambio de membresía que no cambió de hash tampoco se bumpea', () => {
+  // El recorrido total no es "bumpear todo lo sucio": sigue mandando el hash, ítem por ítem.
+  const base = ['a', 'b', 'c'].map(id => item(id, 1, 0, true))
+  const s = new Store(base, TRACKER)
+  s.addFilter(makeFilter('activo', it => it.activo))
+
+  const nuevos = [base[0], item('b', 1, 0, false), base[2]]   // 'c' llega intacto
+  s.patch(nuevos, new Set(['a', 'b', 'c']))
+
+  assert.equal(s.elementVersions.get('b'), 2, 'el que cambió de membresía cambió de hash')
+  assert.equal(s.elementVersions.get('a'), 1, 'mismo hash, sin bump')
+  assert.equal(s.elementVersions.get('c'), 1, 'mismo hash aunque venga después del regenerado')
 })
 
 /* ── dataVersion, notificación y orden de efectos ── */

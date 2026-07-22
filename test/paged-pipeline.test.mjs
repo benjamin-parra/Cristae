@@ -159,16 +159,33 @@ test('con empates el barrido de páginas igual sirve 75 filas (el conteo no depe
   ok(visto.every(fila => EMPATADO.includes(fila)), 'y todas son referencias del dataset')
 })
 
-test('T1 — recorrer todas las páginas muestra el universo completo, sin duplicados ni perdidos',
-  { todo: 'T1 — comparator con empates duplica y pierde filas entre páginas' }, async () => {
-    const { table, slices } = mount({ pageSize: 10, comparator: (a, b) => a.grupo - b.grupo })
-    table.setData(EMPATADO)
-    await flushRaf()
+test('T1 — recorrer todas las páginas muestra el universo completo, sin duplicados ni perdidos', async () => {
+  const { table, slices } = mount({ pageSize: 10, comparator: (a, b) => a.grupo - b.grupo })
+  table.setData(EMPATADO)
+  await flushRaf()
 
-    const distintos = new Set(ids(await barrerPaginas(table, slices, 8)))
-    is(distintos.size, 75, 'todas distintas (sin duplicados entre páginas)')
-    eq(EMPATADO.filter(d => !distintos.has(d.id)).map(d => d.id), [], 'ninguna fila queda sin mostrarse')
-  })
+  const distintos = new Set(ids(await barrerPaginas(table, slices, 8)))
+  is(distintos.size, 75, 'todas distintas (sin duplicados entre páginas)')
+  eq(EMPATADO.filter(d => !distintos.has(d.id)).map(d => d.id), [], 'ninguna fila queda sin mostrarse')
+})
+
+// El desempate del render es el ÍNDICE DEL DATASET, no cualquiera: la vista con empates es la misma
+// que daría un sort estable del dataset filtrado. Sin fijarlo, un desempate arbitrario (por posición
+// dentro del workingSet ya reordenado, o por identidad) también pasaría el test de universo completo
+// pero devolvería un orden distinto en cada barrido.
+test('T1 — con empates la vista es el sort ESTABLE del dataset (desempate por índice)', async () => {
+  const pageSize = 10
+  const { table, slices } = mount({ pageSize, comparator: (a, b) => a.grupo - b.grupo })
+  table.setData(EMPATADO)
+  await flushRaf()
+
+  // Referencia: sort estable del dataset por grupo (Array#sort es estable desde ES2019).
+  const esperado = EMPATADO.slice().sort((a, b) => a.grupo - b.grupo)
+  eq(ids(await barrerPaginas(table, slices, 8)), ids(esperado), 'el barrido reconstruye el orden estable')
+
+  // Y una segunda pasada da lo mismo: el particionado no arrastra estado entre barridos.
+  eq(ids(await barrerPaginas(table, slices, 8)), ids(esperado), 'segundo barrido idéntico al primero')
+})
 
 test('con desempate el mismo dataset empatado sí cubre el universo exacto', async () => {
   const data = Array.from({ length: 75 }, (_, i) => ({ id: i, grupo: i % 5 }))
@@ -411,16 +428,35 @@ test('vaciar la vista limpia el slice anterior y deja los DOS spacers como ancla
 // negativo el offset queda negativo y `#sortAndSlicePage` llama a qselect con k/left negativos:
 // el comparator recibe `undefined` y REVIENTA dentro del rAF (con comparator null no explota, pero
 // getPageInfo() reporta page:-1 / offset negativo).
-test('T2 — la página se clampea también por abajo',
-  { todo: 'T2 — setPage(-1) no se clampea: revienta en qselect (con comparator) o deja page/offset negativos' }, async () => {
-  const { table } = mount({ pageSize: 5, comparator: POR_VALOR })
-  table.setData(mkDataset(12))
+test('T2 — la página se clampea también por abajo', async () => {
+  const { table, slices } = mount({ pageSize: 5, comparator: POR_VALOR })
+  const data = mkDataset(12)
+  table.setData(data)
   await flushRaf()
 
   table.setPage(-1)
   await flushRaf()
   is(table.getPageInfo().page, 0, 'un índice negativo se corrige a la página 0')
   is(table.getPageInfo().offset, 0, 'y el offset nunca es negativo')
+  eq(ids(slices.at(-1).rows), ids(oraculo(data, { comparator: POR_VALOR }).slice(0, 5)),
+    'y sirve la página 0 real, no un slice corrido')
+
+  // Estando en una página > 0 el clamp también aplica (no es sólo "ya estaba en la 0").
+  table.setPage(2); await flushRaf()
+  table.setPage(-7); await flushRaf()
+  is(table.getPageInfo().page, 0, 'desde la página 2 un índice negativo vuelve a la 0')
+})
+
+// La página es un ÍNDICE: un valor fraccionario dejaría el offset (page × pageSize) fuera de la
+// grilla de páginas y el slice arrancaría a mitad de una.
+test('setPage trunca a entero', async () => {
+  const { table } = mount({ pageSize: 5 })
+  table.setData(mkDataset(12))
+  await flushRaf()
+
+  table.setPage(1.9)
+  await flushRaf()
+  eq([table.getPageInfo().page, table.getPageInfo().offset], [1, 5], 'setPage(1.9) → página 1, offset 5')
 })
 
 // El dirty-skip compara (páginas, página, TOTAL): comparar sólo totalPages congelaría el "de N"

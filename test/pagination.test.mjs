@@ -71,11 +71,21 @@ test('todo descriptor tiene exactamente las claves { label, pageIndex, isCurrent
   }), { capMin: 1, capMax: 20 }), 36600)
 })
 
-test('el primer botón apunta a la primera página y el último a la última', () => {
+// Los extremos se anclan mientras haya presupuesto para el andamiaje `1 … ventana … N`; con menos
+// de 5 botones el modelo degrada a una ventana corrida (ver la sección de presupuestos chicos).
+test('el primer botón apunta a la primera página y el último a la última (capacity ≥ 5)', () => {
   exigir(barrido((m, { totalPages }) =>
     m[0].pageIndex === 0 && m[0].label === 1
     && m[m.length - 1].pageIndex === totalPages - 1 && m[m.length - 1].label === totalPages,
-  { capMin: 1, capMax: 20 }), 36600)
+  { capMin: 5, capMax: 20 }), 29280)
+})
+
+test('el primer botón apunta a la primera y el último a la última cuando todas las páginas entran (capacity ≤ 4)', () => {
+  exigir(barrido((m, ctx) => entranTodas(ctx)
+    ? m[0].pageIndex === 0 && m[0].label === 1
+      && m[m.length - 1].pageIndex === ctx.totalPages - 1 && m[m.length - 1].label === ctx.totalPages
+    : null,
+  { capMin: 1, capMax: 4 }), 20)
 })
 
 test('cada botón de página lleva la etiqueta 1-based de su pageIndex', () => {
@@ -115,7 +125,8 @@ test('el modelo nunca excede la capacidad pedida cuando todas las páginas entra
     { capMin: 1, capMax: 3 }), 10)
 })
 
-test('[T1] el modelo nunca excede la capacidad pedida con elipsis (capacity ≤ 3)', { todo: 'T1 — capacity ≤ 3 emite igual los 2 extremos + hasta 2 elipsis: 4 botones para un presupuesto de 1, 2 o 3 (hallazgo del barrido; primer caso capacity 1, totalPages 2)' }, () => {
+// [T1] Antes emitía igual los 2 extremos + hasta 2 elipsis: 4 botones para un presupuesto de 1.
+test('[T1] el modelo nunca excede la capacidad pedida cuando no entran todas (capacity ≤ 3)', () => {
   exigir(barrido((m, ctx) => entranTodas(ctx) ? null : m.length <= ctx.capacity,
     { capMin: 1, capMax: 3 }), 5480)
 })
@@ -132,7 +143,8 @@ test('exactamente un botón queda marcado como actual cuando todas las páginas 
     { capMin: 1, capMax: 4 }), 20)
 })
 
-test('[T2] exactamente un botón queda marcado como actual con elipsis (capacity ≤ 4)', { todo: 'T2 — con capacity ≤ 4 la ventana interna se vacía y la página actual no entra en el modelo: NINGÚN descriptor queda con isCurrent (umbral real ≤ 4; en el barrido tp 1..20 son 171 casos con capacity 1 y 2, 170 con 3 y 136 con 4)' }, () => {
+// [T2] Antes la ventana interna se vaciaba y la actual no entraba: NINGÚN descriptor con isCurrent.
+test('[T2] exactamente un botón queda marcado como actual cuando no entran todas (capacity ≤ 4)', () => {
   exigir(barrido((m, ctx) => entranTodas(ctx) ? null : m.filter(d => d.isCurrent).length === 1,
     { capMin: 1, capMax: 4 }), 7300)
 })
@@ -147,13 +159,8 @@ test('todos los pageIndex caen dentro del rango de páginas (capacity ≥ 2)', (
   { capMin: 2, capMax: 20 }), 34770)
 })
 
-test('los pageIndex de los botones de página caen dentro del rango (capacity 1)', () => {
-  exigir(barrido((m, { totalPages }) =>
-    paginas(m).every(d => Number.isInteger(d.pageIndex) && d.pageIndex >= 0 && d.pageIndex <= totalPages - 1),
-  { capMin: 1, capMax: 1 }), 1830)
-})
-
-test('[T3] también los pageIndex de las elipsis caen dentro del rango (capacity 1)', { todo: 'T3 — capacity 1 con totalPages 2 emite una elipsis con pageIndex -1 (hallazgo del barrido: único caso fuera de rango en cap 1, tp 1..60)' }, () => {
+// [T3] Antes capacity 1 con totalPages 2 emitía una elipsis con pageIndex -1.
+test('[T3] todos los pageIndex caen dentro del rango de páginas (capacity 1)', () => {
   exigir(barrido((m, { totalPages }) =>
     m.every(d => d.pageIndex >= 0 && d.pageIndex <= totalPages - 1),
   { capMin: 1, capMax: 1 }), 1830)
@@ -164,14 +171,8 @@ test('los pageIndex no decrecen a lo largo del modelo (capacity ≥ 2)', () => {
     { capMin: 2, capMax: 20 }), 34770)
 })
 
-test('los pageIndex de los botones de página no decrecen (capacity 1)', () => {
-  exigir(barrido(m => {
-    const idx = paginas(m).map(d => d.pageIndex)
-    return idx.every((v, i) => i === 0 || v >= idx[i - 1])
-  }, { capMin: 1, capMax: 1 }), 1830)
-})
-
-test('[T4] tampoco decrecen contando las elipsis (capacity 1)', { todo: 'T4 — capacity 1 produce secuencias que retroceden, p.ej. totalPages 2 → [0,-1,1] y current 1 → [0,1,0,1] (hallazgo del barrido)' }, () => {
+// [T4] Antes capacity 1 retrocedía, p.ej. totalPages 2 → [0,-1,1] y current 1 → [0,1,0,1].
+test('[T4] los pageIndex no decrecen a lo largo del modelo (capacity 1)', () => {
   exigir(barrido(m => m.every((d, i) => i === 0 || d.pageIndex >= m[i - 1].pageIndex),
     { capMin: 1, capMax: 1 }), 1830)
 })

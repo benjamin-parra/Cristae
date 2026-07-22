@@ -3,10 +3,11 @@
 // expone el motor headless `PagedTable` + `paginationModel` + el núcleo de datos.
 // Mantener sincronizado con src/table/.
 
-import type { CristaeSource } from "./core";
+import type { CristaeReadSource } from "./core";
 
 export type {
   SourceAccessors,
+  CristaeReadSource,
   CristaeSource,
   CristaeFilter,
   CristaeListener,
@@ -73,8 +74,9 @@ export interface PagedTableOptions<T = unknown> {
 /** Motor imperativo de la tabla (scroll virtual con pool de DOM, [0-alloc] en estable). */
 export class PagedTable<T = unknown> {
   constructor(options: PagedTableOptions<T>);
-  /** Adjunta un Source vivo: snapshot inicial (hard) + re-read suave por notify. */
-  attach(source: CristaeSource<T>): this;
+  /** Adjunta un Source vivo: snapshot inicial (hard) + re-read suave por notify.
+   *  Pide sólo LECTURA: la tabla nunca muta la Source. */
+  attach(source: CristaeReadSource<T>): this;
   /** Ruta plana sin reactividad. `hard` resetea página + scroll. */
   setData(items: T[], hard?: boolean): this;
   setPage(page: number): this;

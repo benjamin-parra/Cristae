@@ -263,6 +263,11 @@ capas hermanas que presentan los **mismos** datos, idealmente la misma instancia
 **anclado al item** (ancla viva: sigue sus `move`/`patch`) y se reubica en viewport/scroll. Cierra al
 click fuera, con `Escape`, o solo si el id sale del dataset.
 
+> El `for` debe apuntar a una capa que **resuelva ítems por id** (puntos, líneas, html — las que
+> exponen una `Source` con `itemById`). Una capa de **polígonos** es render + hit-test y no tiene ese
+> modelo de datos: un `for` que la apunte no puede vincular contenido, y el popup lo **avisa por
+> consola** (una vez por capa) en lugar de no abrir sin explicación.
+
 | Miembro | Tipo | Atributo / prop |
 |---|---|---|
 | `for` | string (ids de capa que lo abren, token-list) | atributo |

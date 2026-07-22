@@ -154,11 +154,11 @@ export class PointLayer {
     const moves = this.#source.moveDirtyIds?.()        // solo posición → 2 floats
     if (moves && moves.size) {
       for (const id of moves) {
-        // overlay: si el ítem no es de esta capa (where) NO está en el buffer → ignorar el
-        // move (si no, un move de un ítem ajeno forzaría un rebuild por slot inexistente).
-        if (this.#where && !this.#where(byId(id))) continue
         const s = this.#slot.get(id)
-        if (s === undefined) return this.#rebuild(snap)
+        if (s === undefined) {
+          if (this.#absentByPolicy(id, byId(id))) continue   // no está en el buffer a propósito
+          return this.#rebuild(snap)                         // desconocido → el buffer no está al día
+        }
         this.#writePosition(s, a.positionOf(byId(id)))
       }
       // No se limpia acá: el Source acumula por ventana y limpia al abrir la siguiente
@@ -168,9 +168,11 @@ export class PointLayer {
     const dirty = this.#source.dirtyIds?.()            // posición + color + size → 7 floats
     if (dirty && dirty.size) {
       for (const id of dirty) {
-        if (this.#where && !this.#where(byId(id))) continue   // ajeno a esta capa → ignorar
         const s = this.#slot.get(id)
-        if (s === undefined) return this.#rebuild(snap)
+        if (s === undefined) {
+          if (this.#absentByPolicy(id, byId(id))) continue
+          return this.#rebuild(snap)
+        }
         this.#writeSlot(s, byId(id))
         if (this.#iconSet.atlas !== atlas0) return this.#rebuild(snap)   // regrow → re-encode todo
       }
@@ -189,6 +191,27 @@ export class PointLayer {
     return base * this.#iconSet.tileScale(tileIdx)
   }
 
+  /* ── Política de membresía del buffer (punto único: rebuild e incremental la comparten) ── */
+
+  // Un ítem NO entra al buffer si es ajeno a esta capa (`where`), si el cluster lo suprime o si su
+  // posición no es finita (§15.2). Devuelve la posición a renderizar, o null si se omite.
+  // Se consulta en CADA lectura (nunca se cachea la decisión): el ítem que recupera posición o sale
+  // del cluster vuelve solo, sin depender de qué clase de omisión lo dejó afuera.
+  #renderablePos(item, id) {
+    if (this.#where && !this.#where(item)) return null
+    if (this.#suppressed?.has(id)) return null
+    const pos = this.#accessors.positionOf(item)
+    return pos && Number.isFinite(pos.lat) && Number.isFinite(pos.lng) ? pos : null
+  }
+
+  // Ausencia ESPERADA (el ítem existe pero la política lo deja fuera del buffer) vs. id desconocido
+  // (el buffer no está al día → rebuild). Sin esta distinción, el path incremental muere en cuanto
+  // el cluster suprime al set: cada move de un punto clusterizado dispararía un rebuild O(n).
+  // El duplicado (§15.2) no es caso de ausencia: su id SÍ tiene slot, nunca llega hasta acá.
+  #absentByPolicy(id, item) {
+    return item != null && this.#renderablePos(item, id) === null
+  }
+
   /* ── Rebuild (O(n), reusa arrays) ── */
 
   #rebuild(snap) {
@@ -197,19 +220,18 @@ export class PointLayer {
     this.#slot.clear()
     for (let i = 0; i < snap.length; i++) {
       const item = snap[i]
-      if (this.#where && !this.#where(item)) continue                  // overlay: ítem sin badge → fuera de esta capa
-      const pos = a.positionOf(item)
-      if (!pos || !Number.isFinite(pos.lat) || !Number.isFinite(pos.lng)) continue   // §15.2 no-finito → omitir
       const id = a.idOf(item)
-      if (this.#suppressed?.has(id)) continue                          // clusterizado → omitir del buffer
-      if (this.#slot.has(id)) continue                                 // §15.2 duplicado → primero
+      if (this.#slot.has(id)) continue                                 // §15.2 duplicado → gana el primero
+      const pos = this.#renderablePos(item, id)
+      if (!pos) continue
+      const { lat, lng } = pos     // copia inmediata: el objeto de `positionOf` puede ser scratch reusado
 
       const tileIdx = this.#iconSet.resolve(a.variantOf ? a.variantOf(item) : DEFAULT_VARIANT)
       const an = (this.#iconSet.rotates && a.headingOf) ? angleNorm(a.headingOf(item)) : 0
       const sz = this.#sizeFor(item, tileIdx)
 
       const p = this.#positions[idx]
-      if (p) { p[0] = pos.lat; p[1] = pos.lng } else this.#positions[idx] = [pos.lat, pos.lng]
+      if (p) { p[0] = lat; p[1] = lng } else this.#positions[idx] = [lat, lng]
       const m = this.#meta[idx]
       if (m) { m.tileIdx = tileIdx; m.angleNorm = an; m.size = sz }
       else this.#meta[idx] = { tileIdx, angleNorm: an, size: sz }
@@ -304,21 +326,21 @@ export class PointLayer {
   // que es estable → se reescribe igual sin coste extra.
   #writeSlot(s, item) {
     const a = this.#accessors
-    const pos = a.positionOf(item)
+    const { lat, lng } = a.positionOf(item)   // copia inmediata: los accessors de abajo pueden reusar el objeto
     const tileIdx = this.#iconSet.resolve(a.variantOf ? a.variantOf(item) : DEFAULT_VARIANT)
     const an = (this.#iconSet.rotates && a.headingOf) ? angleNorm(a.headingOf(item)) : 0
     const sz = this.#sizeFor(item, tileIdx)
     const p = this.#positions[s]
-    p[0] = pos.lat
-    p[1] = pos.lng
+    p[0] = lat
+    p[1] = lng
     const m = this.#meta[s]
     m.tileIdx = tileIdx
     m.angleNorm = an
     m.size = sz
     const v = this.#verts
     const base = s * 7
-    v[base] = projX0(pos.lng) - this.#cx
-    v[base + 1] = projY0(pos.lat) - this.#cy
+    v[base] = projX0(lng) - this.#cx
+    v[base + 1] = projY0(lat) - this.#cy
     v[base + 2] = this.#iconSet.atlas.tileChannel(tileIdx)
     v[base + 3] = an
     const id = s + 1

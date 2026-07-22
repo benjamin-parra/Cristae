@@ -202,49 +202,36 @@ test('patch itera dirtyIds sin guard: omitirlo es un TypeError', () => {
   assert.throws(() => src.patch([{ id: 1, lat: 1, lng: 1 }]), TypeError)
 })
 
-/* ── S3: types/core.d.ts describe otra cosa que el runtime ── */
+/* ── S3 (corregido): el .d.ts parte el contrato en LECTURA + DUEÑO ── */
 
-// Miembros declarados en la interfaz CristaeSource del .d.ts (lectura, nunca escritura).
-// El match se asevera: si el .d.ts cambia de forma, esto FALLA en vez de tirar TypeError adentro
-// de un `todo` (que node computa como fail 0 y deja el error invisible).
-const miembrosDeclarados = () => {
+// Miembros del cuerpo PROPIO de una interfaz del .d.ts (los heredados por `extends` no cuentan).
+// El match se asevera: si el tipo cambia de forma, FALLA en vez de tirar TypeError invisible.
+const miembrosDeclarados = (nombre) => {
   const d = readFileSync(new URL('../types/core.d.ts', import.meta.url), 'utf8')
-  const m = d.match(/interface CristaeSource<[^>]*>\s*\{([\s\S]*?)\n\}/)
-  assert.ok(m, 'types/core.d.ts ya no declara `interface CristaeSource<…> { … }` con esta forma')
-  const cuerpo = m[1]
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/\/\/.*$/gm, '')
-  return [...cuerpo.matchAll(/^\s*(\w+)\s*[(:]/gm)].map(m => m[1]).sort()
+  const m = d.match(new RegExp(String.raw`interface ${nombre}\b[^{]*\{`))
+  assert.ok(m, `types/core.d.ts ya no declara interface ${nombre}`)
+  const abre = d.indexOf('{', m.index)
+  let prof = 0, fin = abre
+  for (; fin < d.length; fin++) { if (d[fin] === '{') prof++; else if (d[fin] === '}' && --prof === 0) break }
+  const cuerpo = d.slice(abre + 1, fin).replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
+  return [...cuerpo.matchAll(/^\s*(\w+)\??\s*[(:]/gm)].map(m => m[1]).sort()
 }
 
-// El parseo del .d.ts vive fuera de los `todo`: es lo que HOY pasa y debe tener red propia.
-test('S3 — el .d.ts declara exactamente estos miembros en CristaeSource', () => {
-  assert.deepEqual(miembrosDeclarados(), [
-    'accessors', 'addFilter', 'destroy', 'getSnapshot', 'itemById', 'move',
-    'patch', 'remove', 'removeFilter', 'set', 'subscribe',
-  ])
+test('S3 — la LECTURA (lo que el motor consume) vive en CristaeReadSource', () => {
+  assert.deepEqual(miembrosDeclarados('CristaeReadSource'),
+    ['accessors', 'dirtyIds', 'getSnapshot', 'itemById', 'moveDirtyIds', 'subscribe', 'variants', 'version'])
 })
 
-// Aserto POSITIVO sobre el desajuste vigente: falla el día que el .d.ts se arregle (a diferencia
-// del `todo` de abajo, que node reporta `ok # TODO` sin avisar que empezó a pasar).
-test('S3 — createSource devuelve 4 miembros que el .d.ts NO declara (desajuste vigente)', () => {
-  const declarados = new Set(miembrosDeclarados())
-  const faltantes = miembros(createSource({ idOf, positionOf }, [])).filter(k => !declarados.has(k))
-  assert.deepEqual(faltantes, ['dirtyIds', 'moveDirtyIds', 'variants', 'version'],
-    'si el .d.ts se arregló: borrar este test y sacarle el `todo` a "S3 — el .d.ts declara los miembros…"')
+// El desajuste ya no existe: createSource no expone NADA fuera de lo declarado (lectura ∪ dueño).
+test('S3 — createSource no devuelve ningún miembro fuera del tipo', () => {
+  const declarados = new Set([...miembrosDeclarados('CristaeReadSource'), ...miembrosDeclarados('CristaeSource')])
+  const fuera = miembros(createSource({ idOf, positionOf }, [])).filter(k => !declarados.has(k))
+  assert.deepEqual(fuera, [], 'createSource expone miembros que el .d.ts no declara')
 })
 
-test('S3 — el .d.ts declara los miembros que createSource devuelve de verdad',
-  { todo: 'S3 — el tipo omite version/variants/dirtyIds/moveDirtyIds' }, () => {
-    const declarados = new Set(miembrosDeclarados())
-    assert.deepEqual(miembros(createSource({ idOf, positionOf }, [])).filter(k => !declarados.has(k)), [])
-  })
-
-// El aserto que HOY pasa (la ruta B no expone ninguno de los 7 métodos de dueño) ya tiene su test
-// normal arriba: 'defineSource devuelve los 7 miembros de LECTURA y ninguno de dueño'.
-test('S3 — defineSource devuelve los métodos de dueño que el .d.ts promete',
-  { todo: 'S3 — el .d.ts la tipa como CristaeSource pero la ruta B es sólo lectura' }, () => {
-    const src = defineSource(configB())
-    for (const dueño of ['set', 'move', 'patch', 'remove', 'addFilter', 'removeFilter', 'destroy'])
-      assert.equal(typeof src[dueño], 'function', `${dueño} declarado en CristaeSource`)
-  })
+// La ruta B es SÓLO lectura, y ahora el tipo lo dice (devuelve CristaeReadSource): ni un método de dueño.
+test('S3 — defineSource (ruta B) no expone ningún método de dueño', () => {
+  const src = defineSource(configB())
+  for (const dueño of ['set', 'move', 'patch', 'remove', 'addFilter', 'removeFilter', 'destroy'])
+    assert.equal(src[dueño], undefined, `la ruta B no debe exponer ${dueño}`)
+})

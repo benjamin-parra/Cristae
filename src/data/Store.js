@@ -71,6 +71,8 @@ export class Store {
 
   // Patch O(k): solo re-evalúa los ítems sucios. Cae a regenerado completo únicamente
   // si un ítem sucio cambia de membresía (entra/sale de un filtro).
+  // El recorrido de dirtyIds es TOTAL: todo id sucio pasa por el scan (hash + version-bump).
+  // Un cambio de membresía sólo decide CÓMO queda la vista al final, nunca acorta el recorrido.
   patch(items, dirtyIds) {
     if (!this.#idOf || !dirtyIds?.size) return this.update(items)
 
@@ -83,6 +85,9 @@ export class Store {
       const item = items[baseIdx]
       this.#scanOne(item)
 
+      // Con la vista ya condenada al regenerado, evaluar filtros y escribir slots es trabajo muerto.
+      if (needsRegenerate) continue
+
       const passesParent = this.#parentFilters.every(F => F.f(item))
       const passesSelf = passesParent && this.#selfFilters.every(F => F.f(item))
       const wasParent = this.#parentMembers.has(id)
@@ -90,7 +95,7 @@ export class Store {
 
       if (passesParent !== wasParent || passesSelf !== wasSelf) {
         needsRegenerate = true
-        break
+        continue
       }
 
       if (passesParent) {

@@ -3,10 +3,17 @@
 //   tunnel reactivo (interval === 0): sin loop; el productor llama notify() tras mutar.
 // `defer: 'raf'` coalesce la emisión a UN requestAnimationFrame.
 
+import { safe } from './safe.js'
+
 const noRaf = (cb) => setTimeout(cb, 0)
 const hasRaf = typeof requestAnimationFrame === 'function'
 const raf = hasRaf ? requestAnimationFrame : noRaf
 const cancelRaf = hasRaf ? cancelAnimationFrame : clearTimeout
+
+// Ref de módulo estable → safe no aloca por emisión (solo se invoca si un subscriber tira).
+function reportSubscriberError(e) {
+  console.error('[Emitter] subscriber lanzó', e)
+}
 
 export class Emitter {
 
@@ -91,8 +98,10 @@ export class Emitter {
     else this.#emit(this.#lastData)
   }
 
+  // Reparto aislado: la versión ya se consumió, así que un subscriber que lanza no puede llevarse
+  // ni a los demás ni al onFlush — esa emisión no se reintenta. El error se reporta, no se traga.
   #emit(data) {
-    for (const cb of this.#subs.values()) cb(data)
+    for (const cb of this.#subs.values()) safe(cb, data, reportSubscriberError)
     this.#onFlush?.()
   }
 

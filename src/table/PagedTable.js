@@ -24,9 +24,9 @@ export class PagedTable {
 
   #unsubscribe = null
 
-  // Dataset completo + buffers de trabajo. `workingSet` se reordena in-place por quickselect,
-  // por eso es una COPIA de refs del dataset (nunca se reordena el snapshot del Source, que debe
-  // mantener su referencia estable).
+  // Dataset completo + buffers de trabajo. `workingSet` guarda los ÍNDICES del dataset que pasan
+  // el filtro y se reordena in-place por quickselect; nunca se reordena el snapshot del Source,
+  // que debe mantener su referencia estable.
   #dataset = []
   #workingSet = []
   #visibleSlice = []
@@ -113,9 +113,12 @@ export class PagedTable {
     return this
   }
 
+  // La página vive en [0, pages): acá se fija el piso (y el entero), el techo lo pone el pipeline
+  // porque depende del total vigente. Un índice negativo llegaría al slice como offset negativo.
   setPage(pageIndex) {
-    if (pageIndex === this.#pageIndex) return this
-    this.#pageIndex = pageIndex
+    const next = Math.max(0, pageIndex | 0)
+    if (next === this.#pageIndex) return this
+    this.#pageIndex = next
     this.#refs.scrollContainer.scrollTop = 0
     this.#requestUpdate(false)
     return this
@@ -172,8 +175,9 @@ export class PagedTable {
   // ser una referencia del dataset vigente (la que entregan `getSnapshot()`/`itemAtRow`). Con orden
   // (`comparator`) el rango es el nº de filas visibles que ordenan estrictamente antes; sin orden es
   // el nº de filas visibles previas en el dataset. Determinista mientras `comparator` sea un orden
-  // total; con empates, la posición dentro del bloque empatado no está definida (mismo criterio que
-  // el particionado por quickselect del render).
+  // total; con empates devuelve el rango del BLOQUE empatado (la posición dentro del bloque no la
+  // define), mientras que el render sí desempata por índice del dataset: para un ítem empatado,
+  // `pageOf` da la página del inicio del bloque, que puede no ser la que termina mostrándolo.
   indexOf(item) {
     const query = this.#searchQuery.toLowerCase()
     if (!this.#matches(item, query)) return -1
@@ -257,8 +261,9 @@ export class PagedTable {
       : String(val ?? '').toLowerCase().includes(query)
   }
 
-  // Filtra el dataset en `workingSet` (reusado). Sin búsqueda → copia de refs directa. Devuelve el
-  // conteo de coincidencias. Nunca reordena `dataset`: el reorder vive en `workingSet`.
+  // Filtra el dataset en `workingSet` (reusado), que guarda ÍNDICES del dataset en orden creciente:
+  // el índice identifica la fila y, de paso, es su desempate estable al ordenar (#sortAndSlicePage).
+  // Devuelve el conteo de coincidencias. Nunca reordena `dataset`: el reorder vive en `workingSet`.
   #mergeAndFilter() {
     const data = this.#dataset
     const { searchBy: selector, searchFilter: predicate, where } = this.#options
@@ -280,15 +285,14 @@ export class PagedTable {
         const match = predicate
           ? predicate(query, item, val)
           : String(val ?? '').toLowerCase().includes(query)
-        if (match) ws[cursor++] = item
+        if (match) ws[cursor++] = i
       }
     } else if (where) {
       for (let i = 0; i < total; ++i) {
-        const item = data[i]
-        if (where(item)) ws[cursor++] = item
+        if (where(data[i])) ws[cursor++] = i
       }
     } else {
-      for (let i = 0; i < total; ++i) ws[cursor++] = data[i]
+      for (let i = 0; i < total; ++i) ws[cursor++] = i
     }
     return cursor
   }
@@ -333,17 +337,27 @@ export class PagedTable {
 
   // Quickselect deja los bordes [start, end) particionados en O(n); solo se ordena el slice de la
   // página (no el dataset entero, que sería O(n·log n)).
+  //
+  // Se particiona por un orden TOTAL: el comparador del consumidor desempatado por el índice del
+  // dataset. Es la invariante que hace que las páginas sean una partición del universo — sin ella
+  // dos páginas contiguas eligen representantes distintos del bloque empatado y hay filas que
+  // salen dos veces mientras otras no salen nunca.
   #sortAndSlicePage(start, end, total) {
     const buffer = this.#workingSet
+    const data = this.#dataset
     const comparator = this.#options.comparator
+    const byRank = comparator && ((a, b) => comparator(data[a], data[b]) || a - b)
 
-    if (comparator) {
-      if (start > 0) qselect(buffer, start, 0, total - 1, comparator)
-      if (end - 1 > start && end < total) qselect(buffer, end - 1, start, total - 1, comparator)
+    if (byRank) {
+      if (start > 0) qselect(buffer, start, 0, total - 1, byRank)
+      if (end - 1 > start && end < total) qselect(buffer, end - 1, start, total - 1, byRank)
     }
 
-    const slice = buffer.slice(start, end)
-    if (comparator) slice.sort(comparator)
+    const page = buffer.slice(start, end)
+    if (byRank) page.sort(byRank)
+
+    const slice = new Array(page.length)
+    for (let i = 0; i < page.length; ++i) slice[i] = data[page[i]]
     this.#visibleSlice = slice
   }
 

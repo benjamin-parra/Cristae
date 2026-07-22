@@ -2,8 +2,12 @@
 // Importarlo REGISTRA los custom elements <cristae-*> (side effect). Mantener
 // sincronizado con src/index.js; el núcleo de datos vive en ./core.d.ts.
 
+// El re-export de abajo NO liga los nombres en este archivo: lo que se usa acá se importa.
+import type { CristaeReadSource } from "./core";
+
 export type {
   SourceAccessors,
+  CristaeReadSource,
   CristaeSource,
   CristaeFilter,
   CristaeListener,
@@ -109,7 +113,8 @@ export interface LineAccessors<T> {
  *  set/patch la Source; NO hay `setStyle` imperativo. */
 export interface LineHandle<T = unknown> {
   readonly id: string;
-  readonly source: CristaeSource<T>;
+  /** Lectura: el handle expone la Source que la capa consume, no la del dueño. */
+  readonly source: CristaeReadSource<T>;
   /** Reemplaza el conjunto de líneas (ruta `data`; rebuild O(n)). */
   set(items: T[]): void;
   setVisible(visible: boolean): void;
@@ -166,7 +171,7 @@ export interface HtmlAccessors<T> {
 /** Handle de una html-layer (retorno de `MapEngine.addHtmlLayer`) — sólo acciones. */
 export interface HtmlHandle<T = unknown> {
   readonly id: string;
-  readonly source: CristaeSource<T>;
+  readonly source: CristaeReadSource<T>;
   set(items: T[]): void;
   setVisible(visible: boolean): void;
 }

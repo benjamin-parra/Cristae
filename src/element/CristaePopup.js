@@ -1,6 +1,7 @@
 import { LitElement, nothing } from 'lit'
 import { safe } from '../data/safe.js'
 import { computePlacement, stagesFrom } from './popupPlacement.js'
+import { resolvePopupHit } from './popupResolution.js'
 
 const ZERO_INSETS = { top: 0, right: 0, bottom: 0, left: 0 }
 // La tarjeta se ancla por su base-centro al punto (su pico apunta al dato). Si cambia este transform,
@@ -132,6 +133,7 @@ export class CristaePopup extends LitElement {
   // w, h, ro, unsub }. lat/lng son copia numérica del ancla (el override de `move()` se muta in
   // place; una ref compartida rompería la comparación de cambio).
   #popups = new Map()
+  #warned = new Set()      // capas `for` no resolubles ya avisadas (un warning por capa)
   #onClick = (e) => this.#openFromHit(e.detail.hits)
   #onViewport = () => this.#popups.forEach((p) => this.#place(p))
   #onReady = () => this.#bindLeafletMove()
@@ -339,11 +341,24 @@ export class CristaePopup extends LitElement {
   // el item se resuelve contra la Source de la capa del hit.
   #openFromHit(hits) {
     const hit = parseTokens(this.for).includes(hits[0]?.layerId) ? hits[0] : null
-    const item = hit && this.#map.getLayer(hit.layerId)?.source?.itemById?.(hit.id)
-    if (item == null) { this.close(); return }
+    if (!hit) { this.close(); return }
+    // Una capa `for` que no resuelve ítems por id (p. ej. polígonos) no puede vincular contenido:
+    // se avisa UNA vez y se cierra, en vez de no abrir nunca sin explicación.
+    const res = resolvePopupHit(this.#map.getLayer(hit.layerId), hit.id)
+    if (res.action === 'unresolvable') this.#warnUnresolvable(hit.layerId)
+    if (res.action !== 'open') { this.close(); return }
     // Hit con posición propia (overlay que presenta una hoja en su lugar desplegado) → ancla ahí,
     // congelada; sin ella → ancla viva del item.
-    this.open(item, hit.latlng)
+    this.open(res.item, hit.latlng)
+  }
+
+  // Aviso por capa (una sola vez): un `for` mal apuntado no debe inundar la consola por click.
+  #warnUnresolvable(layerId) {
+    if (this.#warned.has(layerId)) return
+    this.#warned.add(layerId)
+    console.warn(`[cristae-popup] la capa "${layerId}" del atributo \`for\` no resuelve ítems por id ` +
+      `(sin Source.itemById — p. ej. una capa de polígonos): el popup no puede vincular su contenido. ` +
+      '`for` requiere una capa de puntos, líneas o html.')
   }
 
   /* ── Colocación ── */

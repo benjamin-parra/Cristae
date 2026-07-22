@@ -162,7 +162,7 @@ test('el mapa exports congela las 4 rutas públicas más ./package.json', () => 
     './core': { types: './types/core.d.ts', default: './src/data/index.js' },
     './table': { types: './types/table.d.ts', default: './src/table/index.js' },
     './map': { types: './types/map.d.ts', default: './src/index.js' },
-    './grammar': './src/grammar/index.js',
+    './grammar': { types: './types/grammar.d.ts', default: './src/grammar/index.js' },
     './package.json': './package.json',
   })
 })
@@ -178,7 +178,7 @@ const DESTINOS = [
   './types/core.d.ts', './src/data/index.js',
   './types/table.d.ts', './src/table/index.js',
   './types/map.d.ts', './src/index.js',
-  './src/grammar/index.js',
+  './types/grammar.d.ts', './src/grammar/index.js',
   './package.json',
 ]
 
@@ -195,12 +195,10 @@ test('el paquete es ESM y publica src + types', () => {
   for (const carpeta of ['src', 'types']) assert.ok(pkg.files.includes(carpeta), `files sin ${carpeta}`)
 })
 
-// ── S3: types/core.d.ts vs. lo que realmente devuelven los factories ──
-// El .d.ts declara que ambos devuelven CristaeSource<T>; en runtime defineSource devuelve 7
-// miembros de LECTURA (sin set/move/patch/remove/addFilter/removeFilter/destroy) y createSource
-// devuelve además version/variants/dirtyIds/moveDirtyIds, que el tipo no menciona. Se compara
-// el tipo declarado contra el objeto real: el día que se sincronice cualquiera de los dos lados,
-// el test se destilda solo.
+// ── S3 (corregido): el .d.ts parte el contrato en LECTURA + DUEÑO ──
+// defineSource devuelve CristaeReadSource (lo que el motor consume); createSource devuelve
+// CristaeSource, que extiende la lectura con la mutación. Se contrasta el tipo declarado contra el
+// objeto real: si alguno de los dos lados se mueve y vuelve a divergir, estos tests suenan.
 
 const dtsCore = readFileSync(raiz('types/core.d.ts'), 'utf8')
 
@@ -231,19 +229,21 @@ const fuenteDefinida = () => core.defineSource({
   subscribe: () => () => {},
 })
 
-// Miembros que el .d.ts declara HOY en CristaeSource, a mano. Congelarlos acá (y no sólo
-// contrastarlos con el runtime dentro de un `todo`) es lo que hace ruido si el .d.ts se mueve
-// solo: si el tipo declarado como retorno pasa a ser uno que no existe en el archivo, el
-// `miembrosDeclarados` de abajo revienta EN UN TEST QUE SÍ CUENTA.
-const MIEMBROS_CRISTAE_SOURCE = [
-  'accessors', 'addFilter', 'destroy', 'getSnapshot', 'itemById',
-  'move', 'patch', 'remove', 'removeFilter', 'set', 'subscribe',
+// Miembros declarados a mano en cada interfaz del .d.ts. Congelarlos acá (no derivarlos del
+// archivo) es lo que hace ruido si el tipo se mueve: LECTURA = lo que el motor consume, DUEÑO =
+// el cuerpo PROPIO de CristaeSource (los heredados no se repiten en su bloque).
+const MIEMBROS_READ_SOURCE = [
+  'accessors', 'dirtyIds', 'getSnapshot', 'itemById', 'moveDirtyIds', 'subscribe', 'variants', 'version',
+]
+const MIEMBROS_OWNER_SOURCE = [
+  'addFilter', 'destroy', 'dirtyIds', 'itemById', 'move', 'moveDirtyIds', 'patch', 'remove', 'removeFilter', 'set',
 ]
 
-test('el .d.ts declara CristaeSource como retorno de AMBOS factories, con sus 11 miembros', () => {
+test('el .d.ts parte el contrato: defineSource devuelve lectura, createSource dueño', () => {
   assert.equal(retornoDeclarado(dtsCore, 'createSource'), 'CristaeSource')
-  assert.equal(retornoDeclarado(dtsCore, 'defineSource'), 'CristaeSource')
-  assert.deepEqual(miembrosDeclarados(dtsCore, 'CristaeSource'), MIEMBROS_CRISTAE_SOURCE)
+  assert.equal(retornoDeclarado(dtsCore, 'defineSource'), 'CristaeReadSource')
+  assert.deepEqual(miembrosDeclarados(dtsCore, 'CristaeReadSource'), MIEMBROS_READ_SOURCE)
+  assert.deepEqual(miembrosDeclarados(dtsCore, 'CristaeSource'), MIEMBROS_OWNER_SOURCE)
 })
 
 // Lista literal del retorno de createSource — hermano NO-todo del de defineSource que está más
@@ -263,19 +263,22 @@ test('el retorno de createSource son exactamente estos 15 miembros, ni uno más'
   assert.deepEqual(reales, MIEMBROS_CREATE_SOURCE)
 })
 
-// ── Los dos `todo` de S3: SÓLO el aserto del desajuste, nada más ──
-// OJO: node:test NO falla cuando un `todo` empieza a pasar (lo reporta `ok … # TODO`). El día
-// que S3 se arregle, esto no avisa solo: buscar "S3" en la suite y destildarlos a mano.
+// ── S3 corregido: el tipo ya no miente sobre lo que devuelve cada factory ──
+// Antes eran dos `todo` (el .d.ts prometía métodos de dueño en la ruta B y ocultaba 4 miembros de
+// createSource). Con el contrato partido, el runtime cae exactamente dentro de lo declarado.
 
-test('S3 — defineSource devuelve los miembros que su tipo declara', { todo: 'bug S3 — types/core.d.ts tipa la ruta B como CristaeSource, pero es sólo lectura' }, () => {
-  assert.deepEqual(Object.keys(fuenteDefinida()).sort(), MIEMBROS_CRISTAE_SOURCE)
+test('S3 — defineSource sólo expone miembros de CristaeReadSource (ruta B = lectura)', () => {
+  const reales = Object.keys(fuenteDefinida()).sort()
+  // El runtime puede OMITIR opcionales (moveDirtyIds), pero no exponer nada fuera de la lectura.
+  for (const k of reales) assert.ok(MIEMBROS_READ_SOURCE.includes(k), `defineSource expone ${k}, ausente del tipo de lectura`)
 })
 
-test('S3 — createSource devuelve los miembros que su tipo declara', { todo: 'bug S3 — createSource expone version/variants/dirtyIds/moveDirtyIds fuera del tipo' }, () => {
+test('S3 — createSource devuelve exactamente lectura + dueño, sin miembros fuera del tipo', () => {
   const src = core.createSource({ idOf: (it) => it.id, positionOf: (it) => it })
   const reales = Object.keys(src).sort()
   src.destroy()
-  assert.deepEqual(reales, MIEMBROS_CRISTAE_SOURCE)
+  const declarados = [...new Set([...MIEMBROS_READ_SOURCE, ...MIEMBROS_OWNER_SOURCE])].sort()
+  assert.deepEqual(reales, declarados)
 })
 
 test('el retorno de defineSource cumple al menos el subconjunto de LECTURA del contrato', () => {

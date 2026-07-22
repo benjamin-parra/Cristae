@@ -64,6 +64,7 @@ export class HtmlLayer {
       const item = snap[i]
       const pos = a.positionOf(item)
       if (!pos || !Number.isFinite(pos.lat) || !Number.isFinite(pos.lng)) continue
+      const { lat, lng } = pos     // copia inmediata: el objeto de `positionOf` puede ser scratch reusado
       const id = a.idOf(item)
       const size = a.sizeOf ? a.sizeOf(item) : null           // [w,h] px, o null = tamaño por CSS
       const anchor = a.anchorOf ? a.anchorOf(item) : (size ? [size[0] / 2, size[1] / 2] : undefined)
@@ -80,7 +81,7 @@ export class HtmlLayer {
         iconSize: size,
         iconAnchor: anchor,
       })
-      const marker = this.#L.marker([pos.lat, pos.lng], { pane: this.#pane, icon, interactive: false })
+      const marker = this.#L.marker([lat, lng], { pane: this.#pane, icon, interactive: false })
       marker.addTo(this.#group)
       this.#byId.set(id, marker)
     }

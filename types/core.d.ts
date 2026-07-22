@@ -19,11 +19,34 @@ export interface SourceAccessors<T> {
 }
 
 /**
- * Fuente de datos viva: los consumidores (capas del mapa, tablas) se suscriben y el
- * dato se muta por acá — `set` (rebuild O(n)) para alta/baja del conjunto, `move`/
- * `patch` (O(1)/O(k)) para el tiempo real sin reconstruir buffers.
+ * Contrato de LECTURA: lo ÚNICO que el motor consume de una Source (capas del mapa,
+ * tablas). Lo cumplen las dos primitivas y también un adaptador propio del consumidor,
+ * por eso es el tipo que piden las vistas (`layer.source`, `PagedTable.attach`).
+ * Los opcionales degradan: sin `itemById`/`dirtyIds` el consumidor rebuildea O(n).
  */
-export interface CristaeSource<T = unknown> {
+export interface CristaeReadSource<T = unknown> {
+  accessors: SourceAccessors<T>;
+  /** Conjunto vigente, ya filtrado. */
+  getSnapshot(): T[];
+  /** Alta de suscriptor; devuelve la baja. */
+  subscribe(cb: () => void): () => void;
+  /** Monótona: avanza en cada cambio observable (dirty-check de quien la observe). */
+  version(): number;
+  /** Variantes preseed del atlas. */
+  variants?: string[];
+  itemById?(id: string | number): T | undefined;
+  /** Ids con cambio estructural de la ventana vigente → patch incremental O(k). */
+  dirtyIds?(): Set<string | number> | null;
+  /** Ids sólo movidos: la capa reescribe el slot de posición sin rebuild. */
+  moveDirtyIds?(): Set<string | number> | null;
+}
+
+/**
+ * Fuente de datos viva del DUEÑO: extiende la lectura con la mutación — `set`
+ * (rebuild O(n)) para alta/baja del conjunto, `move`/`patch` (O(1)/O(k)) para el
+ * tiempo real sin reconstruir buffers. Sólo la devuelve `createSource`.
+ */
+export interface CristaeSource<T = unknown> extends CristaeReadSource<T> {
   /** Reemplaza el conjunto completo (rebuild O(n)). */
   set(items: T[]): void;
   /** Mueve un punto en O(1) sin reconstruir el buffer GPU. */
@@ -33,19 +56,18 @@ export interface CristaeSource<T = unknown> {
   patch(items: T[], dirtyIds: Set<string | number>): void;
   /** Quita un id del conjunto (rebuild). */
   remove(id: string | number): void;
-  itemById(id: string | number): T | undefined;
-  getSnapshot(): T[];
-  subscribe(cb: () => void): () => void;
   /** Agrega un filtro de MEMBRESÍA compartido: afecta a TODOS los consumidores de la
    *  Source (mapa + tablas quedan sincronizados con un solo cómputo). */
   addFilter(filter: CristaeFilter<T>): void;
   removeFilter(filterId: string): void;
   /** Libera buffers y suscripciones. Llamar al desmontar al dueño de la Source. */
   destroy(): void;
-  accessors: SourceAccessors<T>;
+  itemById(id: string | number): T | undefined;
+  dirtyIds(): Set<string | number>;
+  moveDirtyIds(): Set<string | number>;
 }
 
-/** Crea una Source house-first (Store + Emitter propios del núcleo). */
+/** Crea una Source house-first (Store + Emitter propios del núcleo): lectura + dueño. */
 export function createSource<T = unknown>(
   accessors: SourceAccessors<T>,
   variants?: string[],
@@ -53,7 +75,8 @@ export function createSource<T = unknown>(
 
 /**
  * Ruta B genérica: adapta CUALQUIER librería de reactividad al contrato Source —
- * `subscribe` es el punto de intercepción de señales y `getSnapshot` el read.
+ * `subscribe` es el punto de intercepción de señales y `getSnapshot` el read. La
+ * mutación queda del lado de esa librería, así que devuelve SÓLO lectura.
  */
 export function defineSource<T = unknown>(config: {
   accessors: SourceAccessors<T>;
@@ -63,7 +86,7 @@ export function defineSource<T = unknown>(config: {
   version?: () => number;
   dirtyIds?: () => Set<string | number> | null;
   itemById?: (id: string | number) => T | undefined;
-}): CristaeSource<T>;
+}): CristaeReadSource<T>;
 
 // ── Filtros / listeners (src/data/filters.js) ──
 export interface CristaeFilter<T = unknown> {

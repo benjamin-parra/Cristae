@@ -1,7 +1,8 @@
 // Contrato del Emitter (src/data/Emitter.js) — el coalescing del que depende "1 emit por frame".
 // Congela: dirty-skip por versión, defer:'raf' (N notify → 1 emit), orden subscribers → onFlush,
 // identidad referencial del snapshot ([0-alloc]), teardown completo de destroy() (frame + timer),
-// modo throttled (manda el timer, notify() es no-op) y clamp del intervalo.
+// aislamiento del reparto (un subscriber que lanza no se lleva al resto), modo throttled
+// (manda el timer, notify() es no-op) y clamp del intervalo.
 // Corre con: node --test test/emitter.test.mjs
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -294,22 +295,60 @@ test('el emit en curso sigue repartiendo SU dato a los subscribers posteriores a
   assert.deepEqual(est.recibido, ['d1', 'd2', 'c:d2', 'c:d1'])
 })
 
-/* ── Aislamiento (el que NO hay) ── */
+/* ── Aislamiento del reparto ── */
 
-// Hoy el reparto no aísla al subscriber que lanza: corta la iteración, se come el onFlush y la
-// excepción escapa por notify(). Además el tracker de versión YA avanzó, así que esa emisión se
-// pierde para siempre. Queda congelado para que envolverlo en try/catch sea un cambio deliberado.
-test('un subscriber que lanza corta el reparto, se come el onFlush y pierde esa emisión', () => {
+// Cada subscriber corre aislado (safe + onError de módulo): el que lanza no se lleva a los que
+// vienen detrás ni al onFlush, y notify() no propaga. El error se REPORTA por console.error —
+// mismo canal que Store.notifyChanges — para que un consumidor roto no quede en silencio.
+const espiarConsola = (t) => {
+  const errores = []
+  const original = console.error
+  console.error = (...a) => errores.push(a)
+  t.after(() => { console.error = original })
+  return errores
+}
+
+test('un subscriber que lanza no corta el reparto ni se come el onFlush', (t) => {
+  const errores = espiarConsola(t)
   const { e, est } = banco({ defer: 'none' })
   e.subscribe('b', () => { throw new Error('boom') })
   e.subscribe('c', () => est.orden.push('sub:c'))
   est.mutar()
-  assert.throws(() => e.notify(), /boom/)
-  assert.deepEqual(est.orden, ['sub:a'])       // ni 'sub:c' ni 'flush'
-  assert.equal(est.flushes, 0)
-  e.subscribe('b', () => {})                   // reemplaza al que lanzaba
-  e.notify()
-  assert.deepEqual(est.orden, ['sub:a'])       // la versión ya fue consumida: no hay reintento
+
+  assert.doesNotThrow(() => e.notify())
+  assert.deepEqual(est.orden, ['sub:a', 'sub:c', 'flush'])
+  assert.equal(est.flushes, 1)
+  assert.equal(errores.length, 1, 'el error se reporta, no se traga')
+  assert.match(String(errores[0].at(-1)), /boom/)
+})
+
+// El aislamiento no resucita la emisión: la versión ya fue consumida por el check.
+test('el subscriber que lanza pierde SU dato: la emisión no se reintenta', (t) => {
+  espiarConsola(t)
+  const { e, est } = banco({ defer: 'none' })
+  const vistos = []
+  e.subscribe('b', (d) => { if (d === 'd1') throw new Error('boom'); vistos.push(d) })
+  est.mutar(); e.notify()
+  assert.deepEqual(vistos, [])
+
+  e.notify()                                   // versión intacta → dirty-skip, sin reintento
+  assert.deepEqual(vistos, [])
+  est.mutar(); e.notify()                      // recién el cambio siguiente le llega
+  assert.deepEqual(vistos, ['d2'])
+})
+
+// En modo diferido el reparto corre dentro del frame: sin aislamiento la excepción no tiene a
+// quién escapar y se vuelve un error no capturado del turno.
+test('con defer:"raf" un subscriber que lanza tampoco rompe el frame', async (t) => {
+  const errores = espiarConsola(t)
+  const { e, est } = banco({ defer: 'raf' })
+  e.subscribe('b', () => { throw new Error('boom') })
+  e.subscribe('c', () => est.orden.push('sub:c'))
+  est.mutar(); e.notify()
+  await tick()
+
+  assert.deepEqual(est.orden, ['sub:a', 'sub:c', 'flush'])
+  assert.equal(errores.length, 1)
 })
 
 /* ── destroy() ── */

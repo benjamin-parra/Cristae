@@ -7,7 +7,72 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
 
 ## [Sin publicar]
 
-## [0.13.1] - 2026-07-21
+## [0.13.2] - 2026-07-22
+
+Tanda de correcciones previa a la reestructuración interna. Todos los defectos venían con repro
+ejecutado y cada arreglo entra con su test de regresión (verificado que falla sin el fix).
+
+### Corregido
+- **`Store.patch` bumpeaba la versión sólo hasta el primer cambio de membresía.** El `break` del
+  recorrido cortaba en cuanto un id sucio entraba/salía de un filtro, así que los ids sucios
+  posteriores quedaban sin su version-bump: un observador que dependiera de `elementVersions` no se
+  enteraba de esos cambios. El recorrido pasa a ser TOTAL (`continue`); el cambio de membresía sólo
+  decide si la vista se regenera al final, nunca acorta el recorrido. Sin costo extra: en el camino ya
+  condenado al regenerado se saltan la evaluación de filtros y la escritura de slots (trabajo muerto),
+  pero el `scanOne` —hash + version-bump— corre para todo id.
+- **El reparto del `Emitter` no aislaba al suscriptor que lanzaba.** Un `subscribe` cuyo callback
+  tiraba cortaba a los suscriptores siguientes, se comía el `onFlush` y propagaba la excepción dentro
+  del rAF; además esa emisión se perdía (la versión ya estaba consumida). Ahora cada suscriptor corre
+  con `safe` + un reporter de módulo — mismo canal que `Store.notifyChanges`: un consumidor roto no se
+  lleva a los demás y **el error se reporta por `console.error`, no se traga**. Cambio observable: una
+  excepción en un callback de `subscribe` ya no escapa por `notify()`.
+- **`PagedTable` con un comparador CON EMPATES duplicaba y perdía filas entre páginas.** El
+  particionado por quickselect se recalculaba por página sobre un working-set de referencias; con
+  empates, las fronteras de dos páginas contiguas elegían representantes distintos del bloque empatado,
+  así que había filas que salían dos veces y otras que no salían nunca. El working-set pasa a guardar
+  ÍNDICES del dataset, que sirven de desempate estable (`comparator(a, b) || a - b`): con orden TOTAL,
+  las páginas vuelven a ser una partición del universo. Sin regresión de rendimiento (una resta por
+  comparación, un remapeo índice→ítem del tamaño de la página).
+- **`PagedTable.setPage(-1)` no se clampeaba por abajo** y llegaba a `qselect` como offset negativo.
+  Se fija el piso (`Math.max(0, pageIndex | 0)`, que además descarta no-enteros); el techo lo sigue
+  poniendo el pipeline, que depende del total vigente.
+- **`paginationModel` con `capacity` chico rompía tres invariantes**: con `capacity ≤ 4` ningún botón
+  quedaba marcado como página actual; con `capacity ≤ 3` el modelo excedía la capacidad pedida (los dos
+  extremos + dos elipsis); con `capacity 1` emitía una elipsis con `pageIndex` fuera de rango y
+  secuencias que retrocedían. El andamiaje `1 … ventana … N` cuesta cinco slots; con menos presupuesto,
+  el modelo degrada a una **ventana corrida** de páginas contiguas centrada en la actual y encajada en
+  el rango (sin extremos ni elipsis). Nunca excede la capacidad, nunca sale de rango, nunca retrocede y
+  siempre marca la actual.
+- **El camino incremental de `PointLayer` moría en modo cluster.** `#onChange` trataba "punto
+  suprimido por el cluster" como "id desconocido" y caía al rebuild O(n): con la flota clusterizada y
+  moviéndose, cada frame disparaba un `setData` completo. Ahora la membresía del buffer vive en un
+  ÚNICO punto de política (`#renderablePos`) que comparten el rebuild y el incremental: un id ausente
+  POR DISEÑO —fuera del `where`, suprimido por el cluster o con posición no finita— no rebuildea; sólo
+  un id desconocido (el buffer no está al día) lo hace. Incluye el caso de un móvil sin fix GPS
+  (posición no finita), que un arreglo parcial habría dejado rebuildeando igual.
+- **`positionOf` del consumidor podía verse pisado dentro de un rebuild.** `PointLayer.#rebuild`,
+  `#writeSlot` y `HtmlLayer.#rebuild` retenían el objeto devuelto por `positionOf` mientras corrían
+  otros accessors del consumidor (`variantOf`, `headingOf`, `sizeOf`, `htmlOf`); si `positionOf` reusa
+  un objeto scratch, las coordenadas de dos ítems podían intercambiarse. Se copia `lat`/`lng` a locales
+  apenas pasado el guard de finitud (0 alocaciones), cerrando la ventana.
+- **Un `<cristae-popup for="…">` apuntando a una capa sin `Source.itemById` (p. ej. polígonos) no
+  abría nunca, en silencio.** Ahora la resolución del hit distingue "capa que no resuelve ítems por id"
+  de "id ausente" (`src/element/popupResolution.js`, pura) y **avisa por consola una vez por capa** en
+  lugar de cerrar sin explicación; `docs/elements.md` documenta que `for` requiere una capa de
+  puntos / líneas / html.
+
+### Cambiado
+- **Tipos publicados: el contrato de `Source` se parte en lectura + dueño.** `types/core.d.ts` declaraba
+  que `defineSource` y `createSource` devolvían ambos `CristaeSource<T>`; en realidad `defineSource`
+  (ruta B) devuelve sólo lectura y `createSource` expone además `version`/`variants`/`dirtyIds`/
+  `moveDirtyIds`. Con `tsc --strict`, `defineSource(...).set([])` compilaba y reventaba en runtime. Se
+  introduce `CristaeReadSource<T>` (lo que el motor consume) y `CristaeSource<T> extends
+  CristaeReadSource<T>` (añade la mutación); `defineSource` devuelve el de lectura, `createSource` el de
+  dueño. Los tres puntos que exigían el tipo de escritura sin necesitarlo —`LineHandle.source`,
+  `HtmlHandle.source` y `PagedTable.attach`— pasan a lectura, así el `createSource` de los consumidores
+  sigue asignando sin cambios (el dueño extiende la lectura). Cambio de tipos, no de runtime.
+- **`./grammar` deja de ser la única ruta pública sin `.d.ts`.** Se publica `types/grammar.d.ts` y la
+  entrada de `exports` pasa a `{ types, default }`.
 
 Suite de contrato previa a la reestructuración interna. No cambia una línea de `src/`: sólo agrega la
 red que el refactor necesita para no romper la API pública en silencio.
