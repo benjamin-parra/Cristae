@@ -108,31 +108,34 @@ export class LineLayer {
     const snap = this.#source.getSnapshot()
     if (!this.#layer || snap.length !== this.#snapLen) return this.#rebuild(snap)
 
-    const byId = this.#source.itemById
+    const byId  = this.#source.itemById
     const dirty = this.#source.dirtyIds?.()
     if (!byId || !dirty) return this.#rebuild(snap)          // sin lookup O(1) o sin traza de sucios → rebuild seguro
     if (!dirty.size) { this.#layer.layer.redraw(); return }  // notify redundante → sólo repintar
 
     const a = this.#accessors
-    let geomDirty = false
-    for (const id of dirty) {
+    // Esclusa reusada: `needsRebuild` corta el barrido a un rebuild íntegro; `geomDirty` acumula el
+    // re-index del picking. El guard inicial deja de escribir features en cuanto se decide el rebuild.
+    const scan = { needsRebuild: false, geomDirty: false }
+    dirty.forEach((id) => {
+      if (scan.needsRebuild) return
       const f = this.#featureById.get(id)
-      if (f === undefined) return this.#rebuild(snap)        // id nuevo / cambió la membresía del set
+      if (f === undefined) { scan.needsRebuild = true; return }   // id nuevo / cambió la membresía del set
       const item = byId(id)
-      if (item == null) return this.#rebuild(snap)           // id sin ítem (removido) → el buffer no está al día
+      if (item == null) { scan.needsRebuild = true; return }      // id sin ítem (removido) → el buffer no está al día
       const parts = toParts(a.pathOf(item))
-      const runs = this.#features[f].runs
+      const runs  = this.#features[f].runs
       // Re-encode seguro: si cambió el nº de partes o el nº de vértices de alguna, los vertOffset de los
       // features SIGUIENTES ya no calzan con el buffer → rebuild (glify re-tabula el buffer entero).
       if (parts.length !== runs.length
-        || parts.some((p, i) => runs[i].vertCount !== 2 * (p.path.length - 1)))
-        return this.#rebuild(snap)
-      if (this.#writeFeature(f, item, parts)) geomDirty = true
-    }
+        || parts.some((p, i) => runs[i].vertCount !== 2 * (p.path.length - 1))) { scan.needsRebuild = true; return }
+      if (this.#writeFeature(f, item, parts)) scan.geomDirty = true
+    })
+    if (scan.needsRebuild) return this.#rebuild(snap)
 
     // El picking indexa la GEOMETRÍA: sólo hay que rehacerlo si algún vértice se movió (un restyle
     // puro no lo toca). O(n) de CPU, no el realloc GPU de setData que este path justamente evita.
-    if (geomDirty && this.#interactive)
+    if (scan.geomDirty && this.#interactive)
       this.#index = prepareIndex(
         snap.map((it) => ({ id: a.idOf(it), parts: toParts(a.pathOf(it)) })).filter(({ parts }) => parts.length),
       )
@@ -146,11 +149,11 @@ export class LineLayer {
   // Devuelve si la geometría cambió, para decidir el re-index del picking. Precondición: `parts` calza
   // en nº de partes y de vértices con los runs guardados (lo valida el caller).
   #writeFeature(f, item, parts) {
-    const a = this.#accessors
-    const v = this.#verts
-    const feat = this.#features[f]
+    const a     = this.#accessors
+    const v     = this.#verts
+    const feat  = this.#features[f]
     const style = this.#styleArr[f]
-    const st = a.styleOf?.(item)
+    const st    = a.styleOf?.(item)
     style.weight = st?.weight ?? DEFAULT_WEIGHT
     // Color plano: una sola vez por feature (misma ref en todos sus vértices). En gradiente el color
     // per-feature es placeholder → se resuelve por vértice más abajo.
@@ -180,8 +183,8 @@ export class LineLayer {
 
     const first = feat.runs[0], last = feat.runs[feat.runs.length - 1]
     const start = first.vertOffset * BYTES
-    const len = (last.vertOffset + last.vertCount) * BYTES - start
-    const gl = this.#layer.gl
+    const len   = (last.vertOffset + last.vertCount) * BYTES - start
+    const gl    = this.#layer.gl
     gl.bindBuffer(gl.ARRAY_BUFFER, this.#buf)
     gl.bufferSubData(gl.ARRAY_BUFFER, start * 4, v, start, len)      // [0-alloc]: forma de 5 args, sin subarray
 

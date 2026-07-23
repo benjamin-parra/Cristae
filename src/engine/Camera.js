@@ -81,7 +81,7 @@ export class Camera {
     const source = this.#resolveSource(layerId)
     if (!source) return this
     const positionOf = source.accessors.positionOf
-    const bounds = this.#L.latLngBounds([]);
+    const bounds     = this.#L.latLngBounds([]);
     (ids ?? []).forEach(id => {
       const item = source.itemById?.(id)
       const p = item && positionOf(item)

@@ -148,11 +148,11 @@ export class IconSet {
     const prev = this.#atlas
     if (prev.count === 0) return                 // nada resuelto aún (p. ej. prerender siembra después)
     const next = new Atlas(prev.capacity, this.#tileSize, prev.generation + 1)
-    for (let i = 0; i < prev.count; i++) {
-      const { bitmap, scale } = this.#rasterize(this.#variants[i])
-      next.append(this.#variants[i], bitmap)
+    this.#variants.slice(0, prev.count).forEach((variant, i) => {
+      const { bitmap, scale } = this.#rasterize(variant)
+      next.append(variant, bitmap)
       this.#scales[i] = scale
-    }
+    })
     this.#atlas = next
     this.#onRefresh.forEach(fn => fn())
   }

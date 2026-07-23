@@ -134,7 +134,7 @@ export class CristaeMap extends LitElement {
   // el recómputo. Las capas se dan de alta/baja solas por `cristaeLayerMounted`/`cristaeLayerUnmounted`
   // (las llama cada capa al montar/desmontar); el recómputo lee el snapshot de cada Source.
   #dataLayers = new Map()
-  #emptyRaf    = 0
+  #emptyRaf   = 0
   // Creada en construcción → `map.ready` está disponible SÍNCRONO apenas existe el elemento. Se
   // resuelve una sola vez, cuando el motor queda listo.
   ready = new Promise(resolve => { this.#resolveReady = resolve })
@@ -246,11 +246,10 @@ export class CristaeMap extends LitElement {
   // pero el estado vacío sólo transiciona de tanto en tanto — recomputar una vez por frame basta.
   #scheduleEmpty() {
     if (this.#emptyRaf) return
-    this.#emptyRaf = requestAnimationFrame(() => { this.#emptyRaf = 0; this.#refreshEmpty() })
-  }
-
-  #refreshEmpty() {
-    this._empty = dataLayersEmpty([...this.#dataLayers.keys()])   // Lit deduplica: sin cambio de valor, sin re-render
+    this.#emptyRaf = requestAnimationFrame(() => {
+      this.#emptyRaf = 0
+      this._empty    = dataLayersEmpty([...this.#dataLayers.keys()])   // Lit deduplica: sin cambio de valor, sin re-render
+    })
   }
 
   // `viewport-insets` es reactivo: las franjas del contenedor ocluidas por UI del consumidor

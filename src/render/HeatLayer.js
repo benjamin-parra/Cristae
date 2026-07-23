@@ -21,14 +21,14 @@ import { toRGBA } from './color.js'
 // accessors: { idOf, positionOf, weightOf? }. `weightOf` (o 1) es el peso del punto; se NORMALIZA por el
 // peso máximo del snapshot y se escala por `intensity`. Agnóstico: sin dominio, sin React, sin Wing.
 
-const DEFAULT_RADIUS = 25          // px del núcleo sólido de la brocha
-const DEFAULT_BLUR = 15            // px de caída (núcleo → transparente)
-const DEFAULT_INTENSITY = 1        // multiplicador del aporte por punto (1 = default; >1 satura antes)
-const POINT_ALPHA = 0.12           // techo del alpha que aporta UN punto de peso pleno: ~1/POINT_ALPHA
-                                   // puntos superpuestos llevan el campo al tope de la rampa. <1 para
-                                   // que source-over ACUMULE (densidad) en vez de saturar a disco sólido
-const MIN_OPACITY = 0.05           // piso de alpha por punto (un punto aislado igual se ve)
-const GRAD_STEPS = 256             // resolución de la paleta (alpha 0..255 indexa 1:1)
+const DEFAULT_RADIUS    = 25     // px del núcleo sólido de la brocha
+const DEFAULT_BLUR      = 15     // px de caída (núcleo → transparente)
+const DEFAULT_INTENSITY = 1      // multiplicador del aporte por punto (1 = default; >1 satura antes)
+const POINT_ALPHA       = 0.12   // techo del alpha que aporta UN punto de peso pleno: ~1/POINT_ALPHA
+                                 // puntos superpuestos llevan el campo al tope de la rampa. <1 para
+                                 // que source-over ACUMULE (densidad) en vez de saturar a disco sólido
+const MIN_OPACITY       = 0.05   // piso de alpha por punto (un punto aislado igual se ve)
+const GRAD_STEPS        = 256    // resolución de la paleta (alpha 0..255 indexa 1:1)
 
 const nonNeg = (v, dflt) => (v == null ? dflt : Math.max(0, v))   // radius/blur < 0 romperían createRadialGradient
 
@@ -62,13 +62,13 @@ const defaultRamp = (t) => interpStops(DEFAULT_STOPS, t)
 export class HeatLayer {
 
   #map; #paneName; #source; #accessors
-  #canvas = null
-  #ctx = null
-  #brush = null                 // canvas offscreen con el degradado radial (la "brocha" reusada por punto)
+  #canvas  = null
+  #ctx     = null
+  #brush   = null               // canvas offscreen con el degradado radial (la "brocha" reusada por punto)
   #palette = null               // Uint8ClampedArray(GRAD_STEPS*4): rampa pre-muestreada, alpha → color
   #radius; #blur; #intensity; #colorRamp
   #agendado = false             // ya hay un redibujo pedido para este frame (coalescing)
-  #unsub = null
+  #unsub    = null
 
   // Handlers estables (misma ref en on/off). Campos-flecha: se inicializan antes del cuerpo del
   // constructor, así ya existen cuando se registran los eventos del mapa.
@@ -78,12 +78,12 @@ export class HeatLayer {
   // `glify` viaja en el cfg (espejo de PointLayer) pero este backend NO lo usa — no se desestructura
   // para no dejar una var sin uso; el call-site lo pasa igual, listo para un futuro backend GL.
   constructor({ map, pane, source, accessors = null, radius, blur, intensity, colorRamp } = {}) {
-    this.#map = map
-    this.#paneName = pane
-    this.#source = source
+    this.#map       = map
+    this.#paneName  = pane
+    this.#source    = source
     this.#accessors = accessors ?? source.accessors
-    this.#radius = nonNeg(radius, DEFAULT_RADIUS)
-    this.#blur = nonNeg(blur, DEFAULT_BLUR)
+    this.#radius    = nonNeg(radius, DEFAULT_RADIUS)
+    this.#blur      = nonNeg(blur, DEFAULT_BLUR)
     this.#intensity = intensity ?? DEFAULT_INTENSITY
     this.#colorRamp = colorRamp ?? defaultRamp
 
@@ -159,12 +159,12 @@ export class HeatLayer {
     this.#resize(w, h)
     ctx.clearRect(0, 0, w, h)
 
-    const a = this.#accessors
-    const items = this.#source.getSnapshot()
+    const a        = this.#accessors
+    const items    = this.#source.getSnapshot()
     const weightOf = a.weightOf
     // Normaliza por el peso máximo del snapshot: la escala del campo no depende de las unidades del peso.
-    const maxW = weightOf ? (items.reduce((m, it) => Math.max(m, weightOf(it) || 0), 0) || 1) : 1
-    const R = this.#radius + this.#blur      // medio-lado de la brocha = alcance de un punto en px
+    const maxW  = weightOf ? (items.reduce((m, it) => Math.max(m, weightOf(it) || 0), 0) || 1) : 1
+    const R     = this.#radius + this.#blur      // medio-lado de la brocha = alcance de un punto en px
     const brush = this.#brush
 
     items.forEach((item) => {
@@ -187,8 +187,8 @@ export class HeatLayer {
   // del punto se toma de la paleta y el alpha final se atenúa por el alpha de la rampa (una rampa que
   // arranca transparente desvanece las densidades bajas).
   #colorize(w, h) {
-    const ctx = this.#ctx
-    const img = ctx.getImageData?.(0, 0, w, h)
+    const ctx  = this.#ctx
+    const img  = ctx.getImageData?.(0, 0, w, h)
     const data = img?.data
     if (!data) return
     const pal = this.#palette
@@ -227,12 +227,12 @@ export class HeatLayer {
   // Brocha: círculo gris con degradado radial opaco-al-centro → transparente-al-borde. Se estampa por
   // punto con globalAlpha variable; el alpha se acumula por composición → densidad.
   #buildBrush() {
-    const R = this.#radius + this.#blur
-    const size = Math.max(R * 2, 1)
+    const R      = this.#radius + this.#blur
+    const size   = Math.max(R * 2, 1)
     const canvas = document.createElement('canvas')
-    canvas.width = size
+    canvas.width  = size
     canvas.height = size
-    const ctx = canvas.getContext('2d')
+    const ctx  = canvas.getContext('2d')
     const grad = ctx.createRadialGradient?.(R, R, 0, R, R, R)
     if (grad) {
       // R>0 evita el 0/0 (NaN → addColorStop throwea) cuando radius y blur son ambos 0.
@@ -250,14 +250,15 @@ export class HeatLayer {
   // normaliza el retorno de la rampa (hex string o [r,g,b,a] en 0..1) a 0..1; se escala a 0..255.
   #buildPalette() {
     const pal = this.#palette ?? new Uint8ClampedArray(GRAD_STEPS * 4)
-    for (let i = 0; i < GRAD_STEPS; i++) {
+    // Sólo corre al (re)construir la paleta, nunca por frame → el array de rango es inofensivo.
+    Array.from({ length: GRAD_STEPS }, (_, i) => i).forEach((i) => {
       const [r, g, b, alpha] = toRGBA(this.#colorRamp(i / (GRAD_STEPS - 1)))
       const o = i * 4
       pal[o]     = r * 255
       pal[o + 1] = g * 255
       pal[o + 2] = b * 255
       pal[o + 3] = alpha * 255
-    }
+    })
     this.#palette = pal
   }
 }

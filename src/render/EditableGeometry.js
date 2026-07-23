@@ -16,11 +16,11 @@
 //   · rectangle → bounds: [[sur,oeste],[norte,este]]  (o null mientras no se dibujó)
 
 const MIN_VERTICES = { polygon: 3, polyline: 2 }   // mínimo bajo el cual el borrado por dblclick se ignora
-const KINDS = new Set(['polygon', 'rectangle', 'polyline', 'point'])
+const KINDS        = new Set(['polygon', 'rectangle', 'polyline', 'point'])
 
-const toPair = (c) => (Array.isArray(c) ? [c[0], c[1]] : [c.lat, c.lng])
+const toPair    = (c) => (Array.isArray(c) ? [c[0], c[1]] : [c.lat, c.lng])
 const clonePair = (p) => [p[0], p[1]]
-const midpoint = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]
+const midpoint  = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]
 const samePoint = (a, b) => !!a && !!b && a[0] === b[0] && a[1] === b[1]
 
 // Un par [lat,lng] finito (rechaza NaN/Infinity/undefined). Garbage-in: se descarta, no se propaga.
@@ -44,28 +44,28 @@ const isMultiRing = (value) =>
 export class EditableGeometry {
 
   #L; #map; #pane; #kind; #onChange
-  #group      = null
-  #mode       = 'edit'
-  #geom       = null                       // representación interna viva (mutada in place por los handles)
-  #simpleRing = true                       // polygon: recordar si la entrada era anillo simple (para la salida)
-  #pathRecs   = []                         // por-anillo/path: { coords, closed, vMarkers, mMarkers }
+  #group       = null
+  #mode        = 'edit'
+  #geom        = null                      // representación interna viva (mutada in place por los handles)
+  #simpleRing  = true                      // polygon: recordar si la entrada era anillo simple (para la salida)
+  #pathRecs    = []                        // por-anillo/path: { coords, closed, vMarkers, mMarkers }
   #rectMarkers = []                        // rectangle: 4 esquinas [SW, NW, NE, SE]
-  #drawAnchor = null                       // rectangle draw: primera esquina fijada por click
-  #vertexIcon = null
-  #midIcon    = null
+  #drawAnchor  = null                      // rectangle draw: primera esquina fijada por click
+  #vertexIcon  = null
+  #midIcon     = null
 
   constructor({ L, map, pane, kind = 'polygon', value = null, mode = 'edit', onChange } = {}) {
     if (!KINDS.has(kind)) throw new Error(`EditableGeometry: kind inválido "${kind}"`)
-    this.#L = L
-    this.#map = map
-    this.#pane = pane
-    this.#kind = kind
-    this.#onChange = onChange
-    this.#group = L.layerGroup([], pane ? { pane } : {}).addTo(map)
+    this.#L          = L
+    this.#map        = map
+    this.#pane       = pane
+    this.#kind       = kind
+    this.#onChange   = onChange
+    this.#group      = L.layerGroup([], pane ? { pane } : {}).addTo(map)
     this.#vertexIcon = L.divIcon({ className: 'cristae-edit-vertex', iconSize: [12, 12], iconAnchor: [6, 6] })
-    this.#midIcon = L.divIcon({ className: 'cristae-edit-midpoint', iconSize: [10, 10], iconAnchor: [5, 5] })
-    this.#geom = this.#ingest(value)
-    this.#mode = mode
+    this.#midIcon    = L.divIcon({ className: 'cristae-edit-midpoint', iconSize: [10, 10], iconAnchor: [5, 5] })
+    this.#geom       = this.#ingest(value)
+    this.#mode       = mode
     if (mode === 'draw') this.#attachMap()
     this.#rebuild()
   }
@@ -161,7 +161,7 @@ export class EditableGeometry {
   // Leaflet emite uno o dos `click` en la misma posición junto al `dblclick` — el dedup de handleMapClick ya
   // los neutraliza, así que acá sólo se colapsa cualquier duplicado final que se haya colado y se emite
   // SÓLO si de verdad cambió algo (nunca una re-emisión de una geometría idéntica).
-  #onMapClick = (e) => this.handleMapClick(e?.latlng)
+  #onMapClick    = (e) => this.handleMapClick(e?.latlng)
   #onMapDblClick = (e) => {
     if (this.#mode !== 'draw') return
     if (this.#kind !== 'polygon' && this.#kind !== 'polyline') return
@@ -210,11 +210,11 @@ export class EditableGeometry {
       rec.vMarkers.push(m)
     })
     const segCount = closed ? coords.length : coords.length - 1
-    for (let s = 0; s < segCount; s++) {
+    rec.mMarkers = Array.from({ length: segCount }, (_, s) => {
       const mm = this.#marker(midpoint(coords[s], coords[(s + 1) % coords.length]), this.#midIcon, false)
       mm.on('click', () => this.#onMidInsert(rec, s))
-      rec.mMarkers.push(mm)
-    }
+      return mm
+    })
     this.#pathRecs.push(rec)
   }
 

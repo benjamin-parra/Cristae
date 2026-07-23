@@ -26,13 +26,13 @@ export class CircleLayer {
   // `map` sólo ancla el layerGroup en el constructor (el picking es en espacio latlng, sin escala de
   // zoom); no se retiene como campo — como PolygonLayer.
   constructor({ L, map, pane, source, interactive = false }) {
-    this.#L = L
-    this.#pane = pane
-    this.#source = source
-    this.#accessors = source.accessors
+    this.#L           = L
+    this.#pane        = pane
+    this.#source      = source
+    this.#accessors   = source.accessors
     this.#interactive = interactive
-    this.#group = L.layerGroup([], { pane }).addTo(map)
-    this.#unsub = source.subscribe(() => this.#onChange())
+    this.#group       = L.layerGroup([], { pane }).addTo(map)
+    this.#unsub       = source.subscribe(() => this.#onChange())
     this.#onChange()
   }
 
@@ -53,11 +53,9 @@ export class CircleLayer {
   #hitsAt(baseEvent) {
     if (!this.#interactive || !baseEvent?.latlng || !this.#byId.size) return []
     const { lat, lng } = baseEvent.latlng
-    const hits = []
-    this.#byId.forEach((rec, id) => {
-      if (this.#contiene(lat, lng, rec)) hits.push({ ref: id, id, distancePx: 0 })
-    })
-    return hits
+    return [...this.#byId]
+      .filter(([, rec]) => this.#contiene(lat, lng, rec))
+      .map(([id]) => ({ ref: id, id, distancePx: 0 }))
   }
 
   // Distancia geográfica centro→punto por equirectangular local: los grados de longitud se acortan por
@@ -77,10 +75,10 @@ export class CircleLayer {
   // `?.size` para no tocar nada en un flush vacío. Si el set cambió (altas/bajas) o falta itemById,
   // rebuild O(n). En ambas suciedades `positionOf` ya resuelve el override del move.
   #onChange() {
-    const snap = this.#source.getSnapshot()
+    const snap     = this.#source.getSnapshot()
     const itemById = this.#source.itemById
-    const dirty = this.#source.dirtyIds?.()
-    const moves = this.#source.moveDirtyIds?.()
+    const dirty    = this.#source.dirtyIds?.()
+    const moves    = this.#source.moveDirtyIds?.()
     if (this.#group && itemById && (dirty?.size || moves?.size) && this.#mismoSet(snap)) {
       if (dirty?.size) this.#patchStructs(dirty, itemById)
       if (moves?.size) this.#patchMoves(moves, itemById)
@@ -98,34 +96,34 @@ export class CircleLayer {
   // Cambios estructurales: re-aplica centro + radio + estilo del ítem sucio sobre su L.circle vivo.
   #patchStructs(dirty, itemById) {
     const a = this.#accessors
-    for (const id of dirty) {
-      const rec = this.#byId.get(id)
+    dirty.forEach(id => {
+      const rec  = this.#byId.get(id)
       const item = itemById(id)
-      if (!rec || item == null) continue
+      if (!rec || item == null) return
       const pos = a.positionOf(item)
-      if (!pos || !Number.isFinite(pos.lat) || !Number.isFinite(pos.lng)) continue
+      if (!pos || !Number.isFinite(pos.lat) || !Number.isFinite(pos.lng)) return
       const radius = a.radiusMetersOf(item)
-      if (!Number.isFinite(radius) || radius <= 0) continue
+      if (!Number.isFinite(radius) || radius <= 0) return
       rec.lat = pos.lat; rec.lng = pos.lng; rec.radius = radius
       rec.circle.setLatLng([pos.lat, pos.lng])
       rec.circle.setRadius(radius)
       const st = a.styleOf?.(item)
       if (st) rec.circle.setStyle(st)
-    }
+    })
   }
 
   // Reubicaciones O(1): sólo el centro cambia (el override lo trae `positionOf`); radio/estilo intactos.
   #patchMoves(moves, itemById) {
     const a = this.#accessors
-    for (const id of moves) {
-      const rec = this.#byId.get(id)
+    moves.forEach(id => {
+      const rec  = this.#byId.get(id)
       const item = itemById(id)
-      if (!rec || item == null) continue
+      if (!rec || item == null) return
       const pos = a.positionOf(item)
-      if (!pos || !Number.isFinite(pos.lat) || !Number.isFinite(pos.lng)) continue
+      if (!pos || !Number.isFinite(pos.lat) || !Number.isFinite(pos.lng)) return
       rec.lat = pos.lat; rec.lng = pos.lng
       rec.circle.setLatLng([pos.lat, pos.lng])
-    }
+    })
   }
 
   #rebuild(snap) {

@@ -32,13 +32,13 @@ export class PolygonLayer {
   // `map` sólo hace falta para anclar el layerGroup; el picking es en espacio latlng (sin escala de
   // zoom, a diferencia de las líneas), así que no se retiene.
   constructor({ L, map, pane, source, interactive = false }) {
-    this.#L = L
-    this.#pane = pane
-    this.#source = source
-    this.#accessors = source.accessors
+    this.#L           = L
+    this.#pane        = pane
+    this.#source      = source
+    this.#accessors   = source.accessors
     this.#interactive = interactive
-    this.#group = L.layerGroup([], { pane }).addTo(map)
-    this.#unsub = source.subscribe(() => this.#onChange())
+    this.#group       = L.layerGroup([], { pane }).addTo(map)
+    this.#unsub       = source.subscribe(() => this.#onChange())
     this.#onChange()
   }
 
@@ -83,15 +83,15 @@ export class PolygonLayer {
   // deja al caller rebuildear— si algún id sucio no resuelve a un polígono montado o desapareció del
   // Source (membresía cambiada sin cambio de tamaño): la red de seguridad no re-estila a medias.
   #patch(snap, dirty, itemById) {
-    for (const id of dirty) if (!this.#byId.has(id) || itemById(id) == null) return false
+    if ([...dirty].some(id => !this.#byId.has(id) || itemById(id) == null)) return false
     const a = this.#accessors
-    for (const id of dirty) {
+    dirty.forEach(id => {
       const item = itemById(id)
       const poly = this.#byId.get(id)
-      const st = a.styleOf?.(item)
+      const st   = a.styleOf?.(item)
       if (st) poly.setStyle(st)
       poly.setLatLngs(a.ringsOf(item))
-    }
+    })
     this.#reindex(snap)
     return true
   }

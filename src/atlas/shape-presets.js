@@ -24,7 +24,7 @@ const dot = (ctx, size, d) => {
 
 // Anillo (círculo hueco): trazo grueso, centro transparente.
 const circle = (ctx, size, d) => {
-  const c = size / 2
+  const c      = size / 2
   const grosor = size * 0.16
   ctx.beginPath()
   ctx.arc(c, c, size * 0.42 - grosor / 2, 0, Math.PI * 2)
@@ -41,10 +41,10 @@ const circle = (ctx, size, d) => {
 // vértice que marca el punto — debe caer en el CENTRO del tile (size/2, size/2), igual que el dot/circle
 // se centran ahí. El bulbo queda ARRIBA de la punta, dentro de la mitad superior del tile.
 const pin = (ctx, size, d) => {
-  const cx = size / 2
-  const tipY = size / 2                // la punta marca el punto → centro exacto del tile
-  const cy = size * 0.24               // bulbo arriba de la punta
-  const r = size * 0.2
+  const cx    = size / 2
+  const tipY  = size / 2               // la punta marca el punto → centro exacto del tile
+  const cy    = size * 0.24            // bulbo arriba de la punta
+  const r     = size * 0.2
   const alpha = Math.acos(Math.min(1, r / (tipY - cy)))
   ctx.beginPath()
   // Arco mayor: del flanco izquierdo por arriba al derecho (sentido horario cubre el tope del bulbo).
@@ -65,9 +65,9 @@ export const shapePresetIconSet = ({ shape = 'dot', size } = {}) => {
   const render = RENDERERS[shape]
   if (!render) throw new Error(`[shapePresetIconSet] forma desconocida '${shape}' (usar ${Object.keys(RENDERERS).join('/')})`)
   return defineIconSet({
-    rotates: false,                    // una forma coloreada no tiene rumbo: nunca rota
-    sizes: size ? { default: size } : undefined,
-    describe: (variant) => ({ shape, color: variant }),
+    rotates:   false,                  // una forma coloreada no tiene rumbo: nunca rota
+    sizes:     size ? { default: size } : undefined,
+    describe:  (variant) => ({ shape, color: variant }),
     renderers: { [shape]: render },
   })
 }

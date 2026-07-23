@@ -32,14 +32,14 @@ export class CristaeLabelLayer extends CristaeLayerElement {
 
   mountLayer(engine) {
     const handle = engine.addLabelLayer({
-      id: this.layerId(),
-      bindTo: this.bindTo,
-      source: this.source,
+      id:        this.layerId(),
+      bindTo:    this.bindTo,
+      source:    this.source,
       accessors: this.accessors,
-      textOf: this.textOf,
-      paint: this.paint,
-      style: this.style,
-      visible: this.visible,
+      textOf:    this.textOf,
+      paint:     this.paint,
+      style:     this.style,
+      visible:   this.visible,
     })
     // El alta del motor SIEMPRE nace visible (ignora `visible` de cfg). Si la capa se declaró oculta,
     // lo honramos por el handle en el propio montaje —no sólo ante un CAMBIO posterior de la prop— así
