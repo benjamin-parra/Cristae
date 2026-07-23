@@ -14,6 +14,11 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   sprite. Agnóstico: el consumidor pasa `drawHighlight(ctx, size, key)` + `setHighlighted(Map<id,key>)`. O(K)
   por redibujo; el feed sólo lo despierta si un id resaltado cambió. Demo/benchmark en
   `examples/highlight-overlay-demo.html`.
+- **Tipos del motor publicados** (`types/map.d.ts`): `MapEngine` con las firmas reales de
+  `addPointLayer`/`addLineLayer`/`addPolygonLayer`/`addHtmlLayer`/`addLabelLayer`/`addOverlay`/
+  `addHighlightOverlay`/`addCluster`/`focus`/… + interfaz `Camera` + los handles tipados (`PointHandle`,
+  `HighlightOverlayHandle`, `PolygonHandle`, `LabelHandle`, `OverlayHandle`, `ClusterControl`). Reemplaza las
+  declaraciones mínimas — habilita consumir el motor sin tipos-sombra. Verificado con `tsc --strict`.
 
 ### Corregido
 - **Leak de contexto WebGL al destruir una capa GL.** `destroy()` de `PointLayer`/`LineLayer` ahora libera el

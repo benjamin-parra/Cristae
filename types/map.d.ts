@@ -3,7 +3,7 @@
 // sincronizado con src/index.js; el núcleo de datos vive en ./core.d.ts.
 
 // El re-export de abajo NO liga los nombres en este archivo: lo que se usa acá se importa.
-import type { CristaeReadSource } from "./core";
+import type { CristaeReadSource, CristaeSource, CristaeFilter } from "./core";
 
 export type {
   SourceAccessors,
@@ -192,20 +192,261 @@ export const tilePresets: Record<
   { url: string; maxZoom?: number; attribution?: string }
 >;
 
+// ── Puntos (addPointLayer / <cristae-point-layer>) ──────────────────────────
+export interface PointAccessors<T> {
+  idOf: (item: T) => string | number;
+  positionOf: (item: T) => { lat: number; lng: number };
+  /** Variante (string opaca) → tile del atlas. El core no la interpreta. */
+  variantOf?: (item: T) => string;
+  /** Tamaño en pantalla del sprite (px). Default = `iconSet.defaultSize`. */
+  sizeOf?: (item: T) => number;
+  /** Rumbo en grados (0=N, 90=E). Sólo si el iconSet `rotates`. */
+  headingOf?: (item: T) => number;
+  /** Hash de cambio (default = idOf). Inclúyelo si el sprite depende de más que el id. */
+  hashOf?: (item: T) => string | number;
+}
+
+export interface ClusterConfig {
+  radius?: number;
+  maxZoom?: number;
+  minPoints?: number;
+  bubble?: Record<string, unknown>;
+}
+
+export interface PointLayerConfig<T> {
+  id: string;
+  accessors: PointAccessors<T>;
+  iconSet: IconSet | string;
+  /** Ruta `data` (el motor posee la Source) — mutuamente excluyente con `source`. */
+  data?: T[];
+  /** Ruta `source` (el consumidor posee la Source; el motor sólo lee). */
+  source?: CristaeSource<T>;
+  interactive?: boolean;
+  pane?: string;
+  z?: number;
+  visible?: boolean;
+  enabled?: boolean;
+  where?: (item: T) => boolean;
+  filters?: CristaeFilter<T>[];
+  cluster?: ClusterConfig;
+}
+
+/** Handle de una point-layer (retorno de `MapEngine.addPointLayer`). Acciones sobre la Source que el
+ *  motor posee (ruta `data`); con ruta `source` los mutadores son no-op (el dueño es el consumidor). */
+export interface PointHandle<T = unknown> {
+  readonly id: string;
+  readonly source: CristaeReadSource<T>;
+  readonly layer: unknown;
+  set(items: T[]): void;
+  patch(items: T[], dirtyIds: Set<string | number>): void;
+  move(id: string | number, lat: number, lng: number): void;
+  remove(id: string | number): void;
+  addFilter(filter: CristaeFilter<T>): void;
+  removeFilter(filterId: unknown): void;
+  /** Membresía por-capa: reconstruye SOLO esta capa (no toca la Source compartida). */
+  setWhere(fn: ((item: T) => boolean) | null): void;
+  preloadIcons(variants: string[]): void;
+  refresh(): void;
+  setVisible(visible: boolean): void;
+  /** Membresía de la ENTIDAD (ortogonal a visible): off → aporta ∅ a sus modificadores. */
+  setEnabled(enabled: boolean): void;
+}
+
+// ── Configs y handles de las demás capas ────────────────────────────────────
+export interface PolygonLayerConfig<T> {
+  id: string;
+  accessors: PolygonAccessors<T>;
+  data?: T[];
+  pane?: string;
+  z?: number;
+  interactive?: boolean;
+  visible?: boolean;
+}
+export interface PolygonHandle<T = unknown> {
+  readonly id: string;
+  set(items: T[]): void;
+  setVisible(visible: boolean): void;
+}
+
+export interface LineLayerConfig<T> {
+  id: string;
+  accessors: LineAccessors<T>;
+  data?: T[];
+  source?: CristaeSource<T>;
+  interactive?: boolean;
+  pane?: string;
+  z?: number;
+  visible?: boolean;
+  /** Backend Leaflet-nativo (dash real) en vez de GL. */
+  vector?: boolean;
+}
+
+export interface HtmlLayerConfig<T> {
+  id: string;
+  accessors: HtmlAccessors<T>;
+  data?: T[];
+  source?: CristaeSource<T>;
+  interactive?: boolean;
+  pane?: string;
+  z?: number;
+  visible?: boolean;
+}
+
+export interface LabelLayerConfig<T = unknown> {
+  id: string;
+  /** Id de la capa host cuyos ítems etiqueta (o standalone con `accessors`+`source`). */
+  bindTo?: string;
+  pane?: string;
+  z?: number;
+  paint?: unknown;
+  style?: Record<string, unknown>;
+  textOf?: (item: T) => string;
+  accessors?: { idOf: (item: T) => string | number; positionOf: (item: T) => { lat: number; lng: number } };
+  source?: CristaeSource<T>;
+}
+export interface LabelHandle {
+  readonly id: string;
+  setLabels(labels: Array<{ id: string | number; lat: number; lng: number; text: string }>): void;
+  setHovered(ids: Iterable<string | number>): void;
+  setVisible(visible: boolean): void;
+}
+
+export interface OverlayConfig<T> {
+  id: string;
+  /** Id del host de puntos: comparte su Source (posición viva) y su supresión de cluster. */
+  hostId: string;
+  iconSet: IconSet | string;
+  variantOf?: (item: T) => string;
+  sizeOf?: (item: T) => number;
+  where?: (item: T) => boolean;
+  visible?: boolean;
+}
+export interface OverlayHandle<T = unknown> {
+  readonly id: string;
+  readonly source: CristaeReadSource<T>;
+  readonly layer: unknown;
+  refresh(): void;
+  setWhere(fn: ((item: T) => boolean) | null): void;
+  setVisible(visible: boolean): void;
+}
+
+// ── Overlay de interacción (addHighlightOverlay) ────────────────────────────
+// El realce por-id (anillo/retículo de selección/seguimiento) como PASE DE COMPOSICIÓN SEPARADO: un
+// canvas 2D anclado a la posición viva del host, O(K), SIN variantes de atlas ni acoplamiento a la
+// rotación del sprite. Agnóstico: la CLAVE (p. ej. "select"/"follow") es opaca; el dibujo lo da el consumidor.
+export interface HighlightOverlayConfig {
+  id: string;
+  /** Id de la capa de puntos host (comparte su Source → posición viva, sin desincronía). */
+  layerId: string;
+  /** Dibuja el tratamiento de una clave, con el ctx ya trasladado al punto proyectado. */
+  drawHighlight: (ctx: CanvasRenderingContext2D, size: number, key: string) => void;
+  z?: number;
+}
+export interface HighlightOverlayHandle {
+  readonly id: string;
+  /** Ids resaltados → clave opaca. `null`/Map vacío = ninguno. Deriva de selectedIds/focus. */
+  setHighlighted(highlighted: Map<string | number, string> | null): void;
+  redraw(): void;
+  resize(): void;
+  destroy(): void;
+}
+
+/** Control del cluster (retorno de `addCluster`): sesión de expansión (spiderfy), eje `marked`, etc.
+ *  Superficie rica y en evolución por eje — el consumidor la castea según lo que use (ver docs/cluster.md). */
+export type ClusterControl = Record<string, unknown>;
+
+// ── Cámara (MapEngine.camera) ────────────────────────────────────────────────
+export interface Insets {
+  top?: number;
+  right?: number;
+  bottom?: number;
+  left?: number;
+}
+export type LatLngLike = [number, number] | { lat: number; lng: number };
+
+/** Cámara: la ÚNICA vía de movimiento del viewport tras el montaje. Todo es ACCIÓN (imperativo). */
+export interface Camera {
+  setView(latlng: LatLngLike, zoom?: number): this;
+  panTo(latlng: LatLngLike): this;
+  flyTo(latlng: LatLngLike, zoom?: number, options?: Record<string, unknown>): this;
+  fitBounds(bounds: unknown, options?: { insets?: Insets }): this;
+  fitToLayer(layerId: string, options?: { insets?: Insets; maxZoom?: number }): this;
+  /** Enfoca un punto dejándolo visible (des-clusteriza subiendo el zoom si hace falta). */
+  revealPoint(layerId: string, id: string | number, options?: { zoom?: number }): this;
+  /** Sigue la posición VIVA de un id (re-centra en cada flush). `reveal` des-clusteriza al iniciar. */
+  followPoint(layerId: string, id: string | number, options?: { zoom?: number; reveal?: boolean }): this;
+  stopFollow(): this;
+  getCenter(): { lat: number; lng: number };
+  getZoom(): number;
+  getBounds(): unknown;
+  zoomIn(delta?: number): this;
+  zoomOut(delta?: number): this;
+  setZoom(zoom: number): this;
+  panBy(offset: [number, number], options?: Record<string, unknown>): this;
+  /** Proyección geográfica → píxel de contenedor (anclar overlays propios sin bajar a Leaflet). */
+  latLngToContainerPoint(latlng: LatLngLike): { x: number; y: number };
+  containerPointToLatLng(point: { x: number; y: number }): { lat: number; lng: number };
+}
+
 // ── Motor y custom elements ──────────────────────────────────────────────────
-// Declaraciones MÍNIMAS: la superficie rica de instancia (props por ref, eventos del
-// bus, sesión de cluster, eje marked) es amplia y evoluciona con cada eje — el
-// consumidor la tipa/castea según lo que use (ver docs/ y SKILL.md). Acá se garantiza
-// la identidad de las clases exportadas.
+export interface MapEngineOptions {
+  leaflet: unknown;
+  glify: unknown;
+  container?: HTMLElement;
+  /** Mapa Leaflet existente a adoptar (en vez de crear uno con `container`). */
+  map?: unknown;
+  mapOptions?: Record<string, unknown>;
+  insets?: Insets;
+  hoverThrottleMs?: number;
+  zoomAnimation?: "none" | "in-only" | "on";
+  zoomControl?: boolean;
+}
+
+// Orquestador headless: crea el L.map, deriva panes por orden de declaración (el consumidor no toca z)
+// y cablea registry + bus + Interaction (picking) + Camera. La superficie de INSTANCIA de las capas
+// (props por ref del custom element, sesión de cluster) sigue siendo rica; el consumidor la castea
+// según el eje que use (ver docs/ y SKILL.md).
 export class MapEngine {
-  constructor(options: Record<string, unknown>);
-  readonly ready: Promise<unknown>;
-  readonly camera: unknown;
-  setTileProvider(tile: Record<string, unknown>): void;
-  getLeafletMap(): unknown;
+  constructor(options: MapEngineOptions);
+  readonly ready: Promise<MapEngine>;
+  readonly camera: Camera;
+
+  addPointLayer<T>(config: PointLayerConfig<T>): PointHandle<T>;
+  addPolygonLayer<T>(config: PolygonLayerConfig<T>): PolygonHandle<T>;
+  addLineLayer<T>(config: LineLayerConfig<T>): LineHandle<T>;
+  addHtmlLayer<T>(config: HtmlLayerConfig<T>): HtmlHandle<T>;
+  addLabelLayer<T>(config: LabelLayerConfig<T>): LabelHandle;
+  addOverlay<T>(config: OverlayConfig<T>): OverlayHandle<T> | null;
+  addHighlightOverlay(config: HighlightOverlayConfig): HighlightOverlayHandle | null;
+  addCluster(config: { hostId: string } & ClusterConfig): ClusterControl | null;
+
+  attachSource(id: string, source: CristaeSource): this;
   getLayer(id: string): unknown;
+  removeLayer(id: string): boolean;
+  setLayerVisibility(id: string, visible: boolean): boolean;
+  setLayerEnabled(id: string, enabled: boolean): boolean;
+  setLayerOpacity(id: string, alpha: number): void;
+
+  /** Deja `ids` a opacidad plena y atenúa el resto (`kinds` acota qué capas se atenúan). */
+  focus(ids: Iterable<string>, options?: { opacity?: number; kinds?: string[] }): void;
+  unfocus(ids: Iterable<string>): void;
+  unfocusAll(): void;
+
+  on(
+    event: string,
+    layerIdOrCb: string | ((detail: unknown) => void),
+    maybeCb?: (detail: unknown) => void,
+  ): () => void;
+  registerIconSet(name: string, set: IconSet): this;
+  createIcon(config: { size?: number; draw?: (ctx: CanvasRenderingContext2D, size: number) => void }): HTMLCanvasElement;
+  setTileProvider(tile: { url: string; [k: string]: unknown }): this;
+
+  getLeafletMap(): unknown;
+  /** Escape genérico al handler subyacente (Leaflet map, hoy). Usar sólo si falta una capacidad. */
+  getUnsafeHandler(): unknown;
   syncSize(): void;
-  on(event: string, ...args: unknown[]): () => void;
+  invalidateCanvas(): void;
+  destroy(): void;
 }
 
 export class CristaeMap extends HTMLElement {}
