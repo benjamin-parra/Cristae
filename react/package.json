@@ -6,8 +6,8 @@
   "description": "Binding React de Cristae: componentes tipados sobre los custom elements <cristae-*>, con el DATO por propiedad (sin reconciliación de React en el hot-path).",
   "license": "MIT",
   "peerDependencies": {
-    "react": ">=18",
-    "cristae": "*"
+    "cristae": "*",
+    "react": ">=18"
   },
   "exports": {
     ".": {
@@ -15,8 +15,20 @@
       "default": "./src/index.js"
     }
   },
-  "files": ["src", "types", "README.md"],
+  "files": [
+    "src",
+    "types",
+    "README.md"
+  ],
   "scripts": {
-    "test": "node --test test"
+    "test": "node --test \"test/*.test.mjs\"",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.17",
+    "jsdom": "^29.1.1",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "typescript": "^7.0.2"
   }
 }

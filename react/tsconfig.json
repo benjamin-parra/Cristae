@@ -1,0 +1,18 @@
+{
+  "compilerOptions": {
+    "strict": true,
+    "noEmit": true,
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "skipLibCheck": true,
+    "paths": {
+      "cristae/map": ["../types/map"],
+      "cristae/core": ["../types/core"],
+      "@cristae/react": ["./types/index"]
+    }
+  },
+  "include": ["types/index.d.ts", "typecheck/**/*.ts", "typecheck/**/*.tsx"]
+}
