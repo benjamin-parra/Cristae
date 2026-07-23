@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Cristae · Soak 1.0 — capacidades nuevas sobre el motor real</title>
+<style>
+  :root { --accent: #6366f1; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #0b1020; color: #e5e7eb;
+    font: 13px/1.5 ui-sans-serif, system-ui, -apple-system, sans-serif; overflow: hidden; }
+  #map { position: fixed; inset: 0; z-index: 0; background: #0b1020; }
+  .leaflet-container { background: #0b1020; }
+  #panel { position: fixed; top: 14px; left: 14px; z-index: 1000; width: 320px; max-height: calc(100vh - 28px);
+    overflow: auto; background: rgba(15,20,33,.92); border: 1px solid #263043; border-radius: 12px;
+    padding: 12px 14px; backdrop-filter: blur(8px); }
+  h1 { font-size: 13px; margin: 0 0 2px; letter-spacing: .02em; }
+  .sub { color: #94a3b8; font-size: 11px; margin-bottom: 10px; }
+  .card { border-top: 1px solid #263043; padding: 9px 0 7px; }
+  .card h2 { font-size: 11.5px; margin: 0 0 6px; color: #cbd5e1; text-transform: uppercase; letter-spacing: .04em; }
+  .card .exp { color: #64748b; font-size: 10.5px; margin: 0 0 7px; line-height: 1.4; }
+  .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 5px 0; }
+  .row label { color: #94a3b8; font-size: 11px; min-width: 42px; }
+  input[type=range] { flex: 1; min-width: 90px; accent-color: var(--accent); }
+  .val { color: #fff; min-width: 30px; text-align: right; font-variant-numeric: tabular-nums; }
+  button { background: #1f2937; color: #e5e7eb; border: 1px solid #374151; border-radius: 8px;
+    padding: 5px 11px; cursor: pointer; font: inherit; font-size: 12px; }
+  button:hover { border-color: #4b5563; }
+  button[aria-pressed=true] { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .meta { display: flex; justify-content: space-between; color: #64748b; font-size: 10.5px; margin-top: 8px; }
+  .meta b { color: #cbd5e1; font-variant-numeric: tabular-nums; }
+  #log { margin-top: 8px; padding-top: 8px; border-top: 1px solid #263043; white-space: pre-wrap;
+    font: 10.5px/1.45 ui-monospace, Menlo, monospace; color: #94a3b8; max-height: 150px; overflow: auto; }
+  /* Handles del editor (divIcon sin CSS = invisibles) */
+  .cristae-edit-vertex { background: #fff; border: 2px solid var(--accent); border-radius: 50%; cursor: grab; }
+  .cristae-edit-midpoint { background: rgba(255,255,255,.55); border: 1px solid var(--accent); border-radius: 50%; cursor: copy; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+
+<div id="panel">
+  <h1>Soak 1.0 · capacidades nuevas</h1>
+  <div class="sub">Motor real + Leaflet + OSM. Cada sección dice qué verificar a ojo.</div>
+
+  <div class="card">
+    <h2>1 · Flota + realce + focus</h2>
+    <p class="exp">El retículo SIGUE al punto en pan/zoom, es screen-space (no rota) y su costo escala con K, no con la flota.</p>
+    <div class="row"><label>Realce K</label><input id="k" type="range" min="0" max="120" step="1" value="8"><span class="val" id="kv">8</span></div>
+    <div class="row">
+      <button id="focus" aria-pressed="false">focus resto</button>
+      <button id="move" aria-pressed="true">movim.</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>2 · Polígono-Source (patch)</h2>
+    <p class="exp">Recolorea SÓLO el polígono del medio (restyle O(1) por patch de 1 id), sin re-crear los otros.</p>
+    <div class="row"><button id="restyle">recolorear #2</button></div>
+  </div>
+
+  <div class="card">
+    <h2>3 · Círculo en metros</h2>
+    <p class="exp">Hacé zoom in: el círculo verde del centro CRECE (radio 800 m, no sprite fijo).</p>
+  </div>
+
+  <div class="card">
+    <h2>4 · Heatmap (GPU)</h2>
+    <p class="exp">3 focos calientes con blend aditivo (no discos opacos apilados).</p>
+    <div class="row"><button id="heat" aria-pressed="false">heat</button>
+      <label>radio</label><input id="heatR" type="range" min="12" max="60" step="1" value="30"><span class="val" id="heatRv">30</span></div>
+  </div>
+
+  <div class="card">
+    <h2>5 · Edición reactiva</h2>
+    <p class="exp">Arrastrá los vértices blancos; clic en punto medio inserta; dblclick borra. onChange loguea el conteo.</p>
+  </div>
+
+  <div class="card">
+    <h2>6 · fit=all + leak GL</h2>
+    <p class="exp">fit encuadra todo. Leak: 20 ciclos add/removeLayer GL — el mapa debe seguir vivo (0.13.7 loseContext).</p>
+    <div class="row"><button id="fit">fit=all</button><button id="leak">leak test ×20</button></div>
+  </div>
+
+  <div class="meta"><span>zoom <b id="zoom">13</b></span><span>flota <b id="nfleet">250</b></span></div>
+  <div id="log"></div>
+</div>
+
+<script type="module" src="./soak-1.0.js"></script>
+</body>
+</html>
