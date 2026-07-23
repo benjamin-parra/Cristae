@@ -57,28 +57,42 @@ const GL_CONSTS = {
   TEXTURE_WRAP_S: 11, TEXTURE_WRAP_T: 12, CURRENT_PROGRAM: 13,
   drawingBufferWidth: 800, drawingBufferHeight: 600,
 }
-const makeGl = () => new Proxy({ ...GL_CONSTS }, {
-  get: (t, p) => (p in t ? t[p] : () => ({})),
+// `onLose`: spy de WEBGL_lose_context.loseContext() (para caracterizar el teardown de contexto GL).
+// getExtension('WEBGL_lose_context') → { loseContext: onLose }; cualquier otra extensión → {} (como
+// antes). El resto de métodos/constantes cae al no-op del Proxy.
+const makeGl = (onLose) => new Proxy({ ...GL_CONSTS }, {
+  get: (t, p) => {
+    if (p === 'getExtension') return (name) => (name === 'WEBGL_lose_context' ? { loseContext: onLose ?? (() => {}) } : {})
+    return p in t ? t[p] : () => ({})
+  },
 })
 
 // UN glify por engine; cada points() devuelve una capa nueva (el fold crea host/burbuja/spider/sub).
-export const makeGlify = () => ({
-  points({ data }) {
-    const layer = {
-      gl: makeGl(),
-      bytes: 7,
-      program: {},
-      typedVertices: new Float32Array(Math.max(data.length, 1) * 7),
-      mapMatrix: { array: new Float32Array(16) },
-      mapCenterPixels: { x: 0, y: 0 },
-      getBuffer: () => ({}),
-      setData(next) { layer.typedVertices = new Float32Array(Math.max(next.length, 1) * 7) },
-      layer: { redraw() {}, _reset() {} },
-      remove() {},
-    }
-    return layer
-  },
-})
+// `layers` expone las capas creadas (con `_lost`, que el spy de loseContext marca) para caracterizar
+// que destroy() libera el contexto GL.
+export const makeGlify = () => {
+  const layers = []
+  return {
+    layers,
+    points({ data }) {
+      const layer = {
+        _lost: false,
+        bytes: 7,
+        program: {},
+        typedVertices: new Float32Array(Math.max(data.length, 1) * 7),
+        mapMatrix: { array: new Float32Array(16) },
+        mapCenterPixels: { x: 0, y: 0 },
+        getBuffer: () => ({}),
+        setData(next) { layer.typedVertices = new Float32Array(Math.max(next.length, 1) * 7) },
+        layer: { redraw() {}, _reset() {} },
+        remove() {},
+      }
+      layer.gl = makeGl(() => { layer._lost = true })
+      layers.push(layer)
+      return layer
+    },
+  }
+}
 
 // IconSet stub para los HOSTS (el fold no lo rasteriza; sólo direcciona). Atlas mínimo como en
 // pointlayer.test. Las burbujas/sub-clusters usan el defineClusterIconSet REAL (canvas stub abajo).

@@ -2,6 +2,7 @@ import { POINT_VERTEX, POINT_FRAGMENT } from './shaders.js'
 import { GpuAtlasBinding } from '../atlas/GpuAtlasBinding.js'
 import { Picking } from './Picking.js'
 import { projX0, projY0 } from './project.js'
+import { loseGlContext } from './gl-teardown.js'
 
 // Capa de puntos GL sobre glify. Dos paths (MODELO §17):
 //   rebuild   → glify.setData (O(n), aloca; set/filtro/cluster/regrow). Reusa arrays + trunca length.
@@ -133,6 +134,7 @@ export class PointLayer {
     this.#picking?.detach()
     this.#binding?.destroy()
     this.#layer?.remove()
+    loseGlContext(this.#layer)        // libera el contexto WebGL (glify.remove no lo hace → leak acumulativo)
     this.#layer = null
   }
 

@@ -7,6 +7,21 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
 
 ## [Sin publicar]
 
+### Agregado
+- **Overlay de interacción** (`MapEngine.addHighlightOverlay` + `src/render/HighlightOverlay.js`): el realce
+  por-id (anillo/retículo de selección/seguimiento) como **pase de composición separado** sobre un canvas 2D
+  propio, anclado a la posición VIVA del host — sin variantes de atlas ni acoplamiento a la rotación del
+  sprite. Agnóstico: el consumidor pasa `drawHighlight(ctx, size, key)` + `setHighlighted(Map<id,key>)`. O(K)
+  por redibujo; el feed sólo lo despierta si un id resaltado cambió. Demo/benchmark en
+  `examples/highlight-overlay-demo.html`.
+
+### Corregido
+- **Leak de contexto WebGL al destruir una capa GL.** `destroy()` de `PointLayer`/`LineLayer` ahora libera el
+  contexto (`WEBGL_lose_context.loseContext()`, helper `src/render/gl-teardown.js`): `glify.remove()` sacaba el
+  canvas del DOM pero dejaba el contexto vivo → el techo (~16 contextos) se agotaba **acumulativamente** al
+  montar/desmontar capas (crítico para migrar decenas de mapas). Regresión cubierta en
+  `test/render/gl-teardown.test.mjs`.
+
 ## [0.13.6] - 2026-07-22
 
 Extracción de **ClusterFold** de `MapEngine` a su propio módulo. **Sin cambios de API ni de
