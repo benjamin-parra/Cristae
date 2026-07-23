@@ -19,6 +19,12 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   `addHighlightOverlay`/`addCluster`/`focus`/… + interfaz `Camera` + los handles tipados (`PointHandle`,
   `HighlightOverlayHandle`, `PolygonHandle`, `LabelHandle`, `OverlayHandle`, `ClusterControl`). Reemplaza las
   declaraciones mínimas — habilita consumir el motor sin tipos-sombra. Verificado con `tsc --strict`.
+- **`@cristae/react` (fundación)** — paquete adaptador React aparte (el core sigue agnóstico, sin React).
+  Núcleo **tested** `applyElementProps` (`react/src/apply-props.js`): aplica props al custom element
+  (atributo / propiedad / evento) diffeando contra el render anterior; el **dato** entra por **propiedad**
+  → el core reactivo maneja los updates FUERA de React (sin reconciliación en el hot-path). + hook
+  `useCristaeElement` y componentes (`CristaeMap`/`CristaePointLayer`/…) como scaffold. Tests de render
+  React + props tipadas por componente: próxima pasada. Ver `react/README.md`.
 
 ### Corregido
 - **Leak de contexto WebGL al destruir una capa GL.** `destroy()` de `PointLayer`/`LineLayer` ahora libera el

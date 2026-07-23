@@ -1,0 +1,22 @@
+{
+  "name": "@cristae/react",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Binding React de Cristae: componentes tipados sobre los custom elements <cristae-*>, con el DATO por propiedad (sin reconciliación de React en el hot-path).",
+  "license": "MIT",
+  "peerDependencies": {
+    "react": ">=18",
+    "cristae": "*"
+  },
+  "exports": {
+    ".": {
+      "types": "./types/index.d.ts",
+      "default": "./src/index.js"
+    }
+  },
+  "files": ["src", "types", "README.md"],
+  "scripts": {
+    "test": "node --test test"
+  }
+}
