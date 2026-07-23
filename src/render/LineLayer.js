@@ -1,5 +1,6 @@
 import { prepareIndex, nearest, toParts } from '../geometry/polyline.js'
 import { toRGBA, toColorObj, DEFAULT_COLOR } from './color.js'
+import { projX0, projY0 } from './project.js'
 import { loseGlContext } from './gl-teardown.js'
 
 // Capa de LÍNEAS GL sobre glify.Lines. Hermana de PointLayer: envuelve la instancia glify (su
@@ -41,7 +42,9 @@ export class LineLayer {
   #layer        = null
   #styleArr     = []               // por FEATURE: { weight, color:{r,g,b,a} } — glify pide color con featureIndex
   #weightByPart = []               // por PARTE: glify pide weight con el índice de parte (ver #create)
-  #features     = []               // por feature (orden del buffer): { item, runs: [{ vertOffset, vertCount, from }] }
+  #features     = []               // por feature (orden del buffer): { item, runs: [{ vertOffset, vertCount, from }], partStart }
+  #featureById  = new Map()        // id → índice de feature (traduce los dirtyIds al slot del buffer)
+  #snapLen      = -1               // tamaño del snapshot del último rebuild (detecta alta/baja → fast-path vs rebuild)
   #index        = { sorted: [] }   // índice espacial nearest-segment (picking)
   #maxWeight    = DEFAULT_WEIGHT   // grosor máximo vigente → tolerancia de hit (líneas gruesas pican más fácil)
 
@@ -96,11 +99,97 @@ export class LineLayer {
 
   /* ── Reacción al Source (ya coalescida a rAF por el Emitter) ── */
   // El estilo y la geometría son ESTADO (accessors styleOf/pathOf); cambiarlos = mutar el item y
-  // set/patch la Source → cae acá. Hoy siempre rebuild (correcto; el coalescing acota a ≤1/flush).
-  // El fast-path incremental —cuando el set y los largos no cambian, reescribir sólo los rangos
-  // sucios (dirtyIds) por bufferSubData ([0-alloc])— es una optimización INTERNA de este método,
-  // que decide el motor, NO una API imperativa de restyle.
-  #onChange() { this.#rebuild(this.#source.getSnapshot()) }
+  // set/patch la Source → cae acá. Dos caminos (igual que PointLayer §17):
+  //   rebuild     → glify.setData (O(n), aloca; alta/baja del set, filtros, sin lookup O(1)).
+  //   incremental → reescribe SÓLO los features sucios (dirtyIds) por bufferSubData, sin setData.
+  // El incremental es una optimización INTERNA de este método, que decide el motor, NO una API
+  // imperativa de restyle.
+  #onChange() {
+    const snap = this.#source.getSnapshot()
+    if (!this.#layer || snap.length !== this.#snapLen) return this.#rebuild(snap)
+
+    const byId = this.#source.itemById
+    const dirty = this.#source.dirtyIds?.()
+    if (!byId || !dirty) return this.#rebuild(snap)          // sin lookup O(1) o sin traza de sucios → rebuild seguro
+    if (!dirty.size) { this.#layer.layer.redraw(); return }  // notify redundante → sólo repintar
+
+    const a = this.#accessors
+    let geomDirty = false
+    for (const id of dirty) {
+      const f = this.#featureById.get(id)
+      if (f === undefined) return this.#rebuild(snap)        // id nuevo / cambió la membresía del set
+      const item = byId(id)
+      if (item == null) return this.#rebuild(snap)           // id sin ítem (removido) → el buffer no está al día
+      const parts = toParts(a.pathOf(item))
+      const runs = this.#features[f].runs
+      // Re-encode seguro: si cambió el nº de partes o el nº de vértices de alguna, los vertOffset de los
+      // features SIGUIENTES ya no calzan con el buffer → rebuild (glify re-tabula el buffer entero).
+      if (parts.length !== runs.length
+        || parts.some((p, i) => runs[i].vertCount !== 2 * (p.path.length - 1)))
+        return this.#rebuild(snap)
+      if (this.#writeFeature(f, item, parts)) geomDirty = true
+    }
+
+    // El picking indexa la GEOMETRÍA: sólo hay que rehacerlo si algún vértice se movió (un restyle
+    // puro no lo toca). O(n) de CPU, no el realloc GPU de setData que este path justamente evita.
+    if (geomDirty && this.#interactive)
+      this.#index = prepareIndex(
+        snap.map((it) => ({ id: a.idOf(it), parts: toParts(a.pathOf(it)) })).filter(({ parts }) => parts.length),
+      )
+    this.#layer.layer.redraw()
+  }
+
+  // Reescribe SÓLO los vértices de un feature sucio en el espejo #verts y sube su rango CONTIGUO por
+  // bufferSubData (las partes de un feature son contiguas en el buffer). Reescribe geometría (x,y
+  // proyectados, mismo marco world0 que glify: project(latLng,0) − mapCenterPixels) y color (gradiente
+  // per-vértice, o plano per-feature), y actualiza el peso por parte (glify lo lee en cada draw).
+  // Devuelve si la geometría cambió, para decidir el re-index del picking. Precondición: `parts` calza
+  // en nº de partes y de vértices con los runs guardados (lo valida el caller).
+  #writeFeature(f, item, parts) {
+    const a = this.#accessors
+    const v = this.#verts
+    const feat = this.#features[f]
+    const style = this.#styleArr[f]
+    const st = a.styleOf?.(item)
+    style.weight = st?.weight ?? DEFAULT_WEIGHT
+    // Color plano: una sola vez por feature (misma ref en todos sus vértices). En gradiente el color
+    // per-feature es placeholder → se resuelve por vértice más abajo.
+    const flat = this.#gradient ? null : toRGBA(st?.color ?? DEFAULT_COLOR, st?.opacity ?? 1)
+    if (flat) { const c = style.color;[c.r, c.g, c.b, c.a] = flat }   // mantener coherente el color per-feature
+    const wr = brushRadius(style.weight)
+    const cx = this.#layer.mapCenterPixels.x
+    const cy = this.#layer.mapCenterPixels.y
+
+    let geomChanged = false
+    feat.runs.forEach((run, i) => {
+      this.#weightByPart[feat.partStart + i] = wr
+      const { path, from } = parts[i]
+      for (let k = 0; k < run.vertCount; k++) {
+        const pIdx = pathIndexOf(k)
+        const pt = path[pIdx]
+        const o = (run.vertOffset + k) * BYTES
+        // El espejo es Float32 → comparar en fround, si no el redondeo del double marca "movido" siempre.
+        const x = Math.fround(projX0(pt[1]) - cx)
+        const y = Math.fround(projY0(pt[0]) - cy)
+        if (v[o] !== x || v[o + 1] !== y) geomChanged = true
+        v[o] = x; v[o + 1] = y
+        const c = flat ?? toRGBA(a.colorRamp(a.scalarOf(item, from + pIdx)))
+        v[o + 2] = c[0]; v[o + 3] = c[1]; v[o + 4] = c[2]; v[o + 5] = c[3]
+      }
+    })
+
+    const first = feat.runs[0], last = feat.runs[feat.runs.length - 1]
+    const start = first.vertOffset * BYTES
+    const len = (last.vertOffset + last.vertCount) * BYTES - start
+    const gl = this.#layer.gl
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.#buf)
+    gl.bufferSubData(gl.ARRAY_BUFFER, start * 4, v, start, len)      // [0-alloc]: forma de 5 args, sin subarray
+
+    feat.item = item
+    // Sólo crece: una tolerancia de hit generosa nunca pierde un click; el rebuild la recalcula exacta.
+    this.#maxWeight = Math.max(this.#maxWeight, style.weight)
+    return geomChanged
+  }
 
   /* ── Rebuild (O(n); glify.setData rehace el buffer, luego #bind re-captura y pinta el gradiente) ── */
 
@@ -131,7 +220,14 @@ export class LineLayer {
       vertOffset += run.vertCount
       return run
     })
-    this.#features = built.map(({ item, parts }) => ({ item, runs: runsOf(parts) }))
+    let partStart = 0
+    this.#features = built.map(({ item, parts }) => {
+      const feat = { item, runs: runsOf(parts), partStart }   // partStart: 1ª parte del feature en #weightByPart
+      partStart += parts.length
+      return feat
+    })
+    this.#featureById = new Map(built.map(({ id }, f) => [id, f]))  // dirtyIds → slot; el fast-path lo consulta
+    this.#snapLen = snap.length
 
     const fc = {
       type: 'FeatureCollection',

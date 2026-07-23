@@ -41,6 +41,7 @@ define('cristae-popup', CristaePopup)
 
 export { MapEngine } from './engine/MapEngine.js'
 export { defineIconSet, defineClusterIconSet, IconSet, prerenderFonts } from './atlas/IconSet.js'
+export { shapePresetIconSet, RENDERERS as shapeRenderers } from './atlas/shape-presets.js'   // presets de forma agnósticos
 export { defineSource, createSource, makeFilter, makeListener } from './data/index.js'   // núcleo
 export { drawLabel } from './render/LabelLayer.js'
 // Geometría pura de polilínea: `toParts` normaliza un path a partes (la misma convención de corte

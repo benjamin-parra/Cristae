@@ -5,13 +5,16 @@ import { Camera } from './Camera.js'
 import { PointLayer } from '../render/PointLayer.js'
 import { LineLayer } from '../render/LineLayer.js'
 import { LeafletLineLayer } from '../render/LeafletLineLayer.js'
+import { PolygonLayer } from '../render/PolygonLayer.js'
+import { CircleLayer } from '../render/CircleLayer.js'
+import { HeatLayer } from '../render/HeatLayer.js'
+import { EditableGeometry } from '../render/EditableGeometry.js'
 import { HtmlLayer } from '../render/HtmlLayer.js'
 import { LabelLayer } from '../render/LabelLayer.js'
 import { createHighlightOverlay } from '../render/HighlightOverlay.js'
 import { createClusterFold } from '../cluster/ClusterFold.js'
 import { defineClusterIconSet } from '../atlas/IconSet.js'
 import { createSource } from '../data/index.js'
-import { prepareIndex, idsFor } from '../geometry/polygon.js'
 import { createTileSnapshotRetention } from '../tiles/TileSnapshotRetention.js'
 
 // MapEngine — orquestador headless (SPECS §6). Framework-agnóstico, sin dominio. Crea el L.map,
@@ -94,6 +97,7 @@ export class MapEngine {
 
   #layers = new Map()             // id → record { kind, source, layer, controls, paneName, order }
   #highlightOverlays = new Set()  // overlays de interacción (canvas 2D fijo al contenedor) → dispose en destroy
+  #fontHooked = new WeakSet()     // iconSets ya cableados al font-gate (evita re-suscribir por cada capa)
   #pickLayers = []                // capas de puntos interactivas (para la sesión de picking)
   #glLayers = new Set()           // capas GL (canvas glify propio) a reproyectar en move/zoom/resize
   #pendingBinds = []              // label-layers cuyo host aún no existía (resolución por nombre)
@@ -167,6 +171,7 @@ export class MapEngine {
     this.#ensurePane(paneName, zIndex)
 
     const set = this.#resolveIconSet(iconSet)
+    this.#hookFontGate(set)                      // re-encode al re-rasterizar el atlas (font-gate)
     // `controls` = la Source que posee el motor (ruta A/data); con `cfg.source` el dueño es el
     // consumidor → el motor solo lee, no escribe. El objeto ES el Source (handle colapsado).
     const controls = cfg.source ? null : createSource(accessors, set?.variants)
@@ -200,32 +205,29 @@ export class MapEngine {
 
   /* ── Capas de polígonos (display Leaflet + hit-testing por índice geométrico) ── */
 
+  // Polígonos REACTIVOS a una Source (styleOf + fast-path por dirtyIds), sustrato Leaflet-native (0
+  // contextos WebGL). Como línea/vector: no va a #glLayers (Leaflet reproyecta solo), picking síncrono.
   addPolygonLayer(cfg) {
-    const { id, data = [], accessors, pane, z, interactive = true, visible = true } = cfg
-    const { idOf, ringsOf, styleOf } = accessors
+    const { id, data, accessors, pane, z, interactive = true, visible = true } = cfg
     const order = this.#order++
     const paneName = pane ?? `cristae-polygon-${id}`
     const zIndex = z ?? (BASE_Z + order * Z_STEP)
-    this.#ensurePane(paneName, zIndex, false)
+    this.#ensurePane(paneName, zIndex, false)          // display puro; picking propio por índice
 
-    const group = this.#L.layerGroup([], { pane: paneName }).addTo(this.#map)
-    let index = prepareIndex([])
-    const render = (items) => {
-      group.clearLayers()
-      items.forEach(item => this.#L.polygon(ringsOf(item), { pane: paneName, ...styleOf?.(item) }).addTo(group))
-      index = prepareIndex(items.map(item => ({ id: idOf(item), rings: ringsOf(item) })))
-    }
-    render(data)
+    const controls = cfg.source ? null : createSource(accessors)   // dueño motor (data) vs consumidor (cfg.source)
+    const source = cfg.source ?? controls
+    const layer = new PolygonLayer({ L: this.#L, map: this.#map, pane: paneName, source, interactive })
 
-    if (interactive) {
-      const resolve = (e) => e?.latlng ? idsFor(e.latlng.lat, e.latlng.lng, index).map(hid => ({ ref: hid, id: hid, distancePx: 0 })) : []
-      this.#registerResolver(id, 'polygon', zIndex, order, resolve, resolve)
-    }
-    const record = { kind: 'polygon', group, paneName, order, render }
+    const record = { kind: 'polygon', source, layer, controls, paneName, order, interactive, visible }
     this.#layers.set(id, record)
+
+    if (interactive)   // resolvers leen record.layer (no capturan). Síncrono, no va a #pickLayers (como línea).
+      this.#registerResolver(id, 'polygon', zIndex, order, e => record.layer.resolveClick(e), e => record.layer.resolveHover(e))
     this.#applyVisibility(id, paneName, visible)
 
-    return { id, set: (items) => render(items), setVisible: (v) => this.setLayerVisibility(id, v) }
+    if (data && controls) controls.set(data)
+    this.#flushPendingBinds()
+    return { id, source, set: (items) => controls?.set(items), setVisible: (v) => this.setLayerVisibility(id, v) }
   }
 
   /* ── Capas de líneas (GL glify.Lines + hit-testing nearest-segment CPU) ── */
@@ -294,6 +296,81 @@ export class MapEngine {
       source,
       set: (items) => controls?.set(items),
       setVisible: (v) => this.setLayerVisibility(id, v),
+    }
+  }
+
+  /* ── Círculos en METROS (Leaflet-native L.circle — escala con el zoom, a diferencia del sprite px) ── */
+
+  addCircleLayer(cfg) {
+    const { id, data, accessors, interactive = true, pane, z, visible = true } = cfg
+    const order = this.#order++
+    const paneName = pane ?? `cristae-circle-${id}`
+    const zIndex = z ?? (BASE_Z + order * Z_STEP)
+    this.#ensurePane(paneName, zIndex, false)          // display puro; picking propio (point-in-circle CPU)
+
+    const controls = cfg.source ? null : createSource(accessors)
+    const source = cfg.source ?? controls
+    const layer = new CircleLayer({ L: this.#L, map: this.#map, pane: paneName, source, interactive })
+
+    const record = { kind: 'circle', source, layer, controls, paneName, order, interactive, visible }
+    this.#layers.set(id, record)
+    if (interactive)
+      this.#registerResolver(id, 'circle', zIndex, order, e => record.layer.resolveClick(e), e => record.layer.resolveHover(e))
+    this.#applyVisibility(id, paneName, visible)
+
+    if (data && controls) controls.set(data)
+    this.#flushPendingBinds()
+    return { id, source, set: (items) => controls?.set(items), setVisible: (v) => this.setLayerVisibility(id, v) }
+  }
+
+  /* ── Heatmap (canvas 2D, densidad acumulada; NO GL — se auto-reproyecta por eventos del mapa) ── */
+
+  addHeatLayer(cfg) {
+    const { id, data, accessors, pane, z, visible = true, radius, blur, intensity, colorRamp } = cfg
+    const order = this.#order++
+    const paneName = pane ?? `cristae-heat-${id}`
+    const zIndex = z ?? (BASE_Z + order * Z_STEP)
+    this.#ensurePane(paneName, zIndex)
+
+    const controls = cfg.source ? null : createSource(accessors)
+    const source = cfg.source ?? controls
+    const layer = new HeatLayer({ glify: this.#glify, map: this.#map, pane: paneName, source, radius, blur, intensity, colorRamp })
+
+    const record = { kind: 'heat', source, layer, controls, paneName, order, interactive: false, visible }
+    this.#layers.set(id, record)
+    this.#applyVisibility(id, paneName, visible)
+
+    if (data && controls) controls.set(data)
+    return {
+      id, source,
+      set: (items) => controls?.set(items),
+      setVisible: (v) => this.setLayerVisibility(id, v),
+      setRadius: (r) => { layer.radius = r },
+      setBlur: (b) => { layer.blur = b },
+      setIntensity: (i) => { layer.intensity = i },
+      setColorRamp: (fn) => { layer.colorRamp = fn },
+    }
+  }
+
+  /* ── Edición de geometría como INPUT CONTROLADO (Leaflet-native): value entra, cambios salen por
+       onChange. No es capa de Source; el DISPLAY se ata con addPolygonLayer/addLineLayer al mismo value. ── */
+
+  addEditableLayer(cfg) {
+    const { id, kind = 'polygon', value = null, mode = 'edit', onChange, pane, z } = cfg
+    const order = this.#order++
+    const paneName = pane ?? `cristae-edit-${id}`
+    const zIndex = z ?? (BASE_Z + order * Z_STEP + LABEL_Z_OFFSET)   // handles por encima de las capas
+    this.#ensurePane(paneName, zIndex, false)                        // markers interactivos → pane con puntero
+    const editor = new EditableGeometry({ L: this.#L, map: this.#map, pane: paneName, kind, value, mode, onChange })
+    const record = { kind: 'editable', editor, paneName, order }
+    this.#layers.set(id, record)
+    return {
+      id,
+      setValue: (v) => editor.setValue(v),
+      setMode: (m) => editor.setMode(m),
+      getValue: () => editor.getValue(),
+      handleMapClick: (ll) => editor.handleMapClick(ll),
+      destroy: () => this.removeLayer(id),
     }
   }
 
@@ -515,6 +592,7 @@ export class MapEngine {
     if (!record) return false
     record.unsub?.()                      // bind de labels / suscripción de la capa
     record.layer?.destroy?.()
+    record.editor?.destroy?.()            // editor de geometría (input controlado, sin record.layer)
     record.group?.remove()
     record.controls?.destroy()
     record.cluster?.dispose()             // libera burbujas + sibling y su listener de zoom
@@ -724,6 +802,15 @@ export class MapEngine {
     const ids = layerId == null ? this.#registry.layerIds() : [layerId]
     ids.forEach(id => this.#registry.setLayerDemandMask(id, this.#bus.demandMaskFor(id)))
     this.#interaction.syncHoverDemand()
+  }
+
+  // Cablea UNA vez por iconSet: cuando el font-gate re-rasteriza el atlas (una fuente web terminó de
+  // cargar) las capas GL re-encodan para subir la generación nueva a la GPU — sin esto la corrección del
+  // atlas queda sólo en CPU. onAtlasRefresh sólo existe en iconSets con font-gate (guard por `?.`).
+  #hookFontGate(set) {
+    if (!set || this.#fontHooked.has(set)) return
+    this.#fontHooked.add(set)
+    set.onAtlasRefresh?.(() => this.#forEachGlLayer(l => l.refresh?.()))
   }
 
   #ensurePane(name, zIndex, noPointer = true) {

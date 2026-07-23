@@ -25,6 +25,21 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   → el core reactivo maneja los updates FUERA de React (sin reconciliación en el hot-path). + hook
   `useCristaeElement` y componentes (`CristaeMap`/`CristaePointLayer`/…) como scaffold. Tests de render
   React + props tipadas por componente: próxima pasada. Ver `react/README.md`.
+- **Capas nuevas del mapa (tanda 1.0)**: `addCircleLayer` (círculos en METROS, Leaflet-native, escalan con
+  el zoom), `addHeatLayer` (heatmap canvas 2D con densidad acumulada + `radius`/`blur`/`intensity`/
+  `colorRamp`), `addEditableLayer` (edición de geometría como INPUT CONTROLADO: `value`/`onChange`/`draw`,
+  Leaflet-native, 0 contextos WebGL), `shapePresetIconSet` (presets de forma agnósticos dot/pin/circle — la
+  variante es el color, sin escribir renderer canvas) y `camera.getMaxZoom()`. Tipados en `types/map.d.ts`
+  (`tsc --strict` verde).
+
+### Cambiado
+- **`addPolygonLayer` ahora es REACTIVO a una Source** (antes: imperativo con `clearLayers`+re-add): capa
+  `PolygonLayer` con `styleOf` por feature + fast-path por `dirtyIds` (re-estila sólo los sucios), Leaflet-native.
+- **`LineLayer` gana el fast-path incremental** (`dirtyIds` → `bufferSubData` sin `setData`), como `PointLayer`;
+  transparente (misma API), con fallback a rebuild seguro (cambia el tamaño / nº de vértices).
+- **Font-gate en el atlas** (`IconSet`): si una fuente web aún no cargó, al `document.fonts.ready` se re-rasterizan
+  los tiles afectados (generación nueva del atlas) y se avisa vía `onAtlasRefresh` para que las capas GL
+  re-encoden — `resolve()`/`set()` seguros en cualquier momento, sin "tofu" permanente.
 
 ### Corregido
 - **Leak de contexto WebGL al destruir una capa GL.** `destroy()` de `PointLayer`/`LineLayer` ahora libera el

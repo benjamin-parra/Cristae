@@ -69,6 +69,16 @@ export function defineClusterIconSet(config: ClusterIconSetConfig): IconSet;
 /** Devuelve un `prerender` que espera a que las fuentes web indicadas estén disponibles. */
 export function prerenderFonts(...families: string[]): () => Promise<void>;
 
+export type ShapePreset = "dot" | "pin" | "circle";
+/** IconSet de una FORMA agnóstica (dot/pin/circle); la VARIANTE que pasa `variantOf` es el color de
+ *  relleno (hex) → un tile por color distinto, sin escribir un renderer canvas. */
+export function shapePresetIconSet(config?: { shape?: ShapePreset; size?: number }): IconSet;
+/** Renderers de forma por nombre, para componer un IconSet propio reusando una forma. */
+export const shapeRenderers: Record<
+  string,
+  (ctx: CanvasRenderingContext2D, size: number, descriptor: IconDescriptor) => void
+>;
+
 // ── Polígonos (addPolygonLayer / <cristae-polygon-layer>) ───────────────────
 export interface PolygonAccessors<T> {
   idOf: (g: T) => string | number;
@@ -264,8 +274,90 @@ export interface PolygonLayerConfig<T> {
 }
 export interface PolygonHandle<T = unknown> {
   readonly id: string;
+  readonly source?: CristaeReadSource<T>;
   set(items: T[]): void;
   setVisible(visible: boolean): void;
+}
+
+// ── Círculos en METROS (addCircleLayer) — Leaflet-native, escala con el zoom ──
+export interface CircleAccessors<T> {
+  idOf: (c: T) => string | number;
+  positionOf: (c: T) => { lat: number; lng: number };
+  /** Radio en METROS (escala con el zoom, a diferencia del sprite px fijo). */
+  radiusMetersOf: (c: T) => number;
+  /** Opciones de `L.circle` (color, fillColor, weight, opacity, …). */
+  styleOf?: (c: T) => Record<string, unknown>;
+}
+export interface CircleLayerConfig<T> {
+  id: string;
+  accessors: CircleAccessors<T>;
+  data?: T[];
+  source?: CristaeSource<T>;
+  interactive?: boolean;
+  pane?: string;
+  z?: number;
+  visible?: boolean;
+}
+export interface CircleHandle<T = unknown> {
+  readonly id: string;
+  readonly source: CristaeReadSource<T>;
+  set(items: T[]): void;
+  setVisible(visible: boolean): void;
+}
+
+// ── Heatmap (addHeatLayer) — canvas 2D, densidad acumulada ───────────────────
+export interface HeatAccessors<T> {
+  idOf: (p: T) => string | number;
+  positionOf: (p: T) => { lat: number; lng: number };
+  /** Peso por punto (default 1); la densidad acumula por composición. */
+  weightOf?: (p: T) => number;
+}
+export interface HeatLayerConfig<T> {
+  id: string;
+  accessors: HeatAccessors<T>;
+  data?: T[];
+  source?: CristaeSource<T>;
+  pane?: string;
+  z?: number;
+  visible?: boolean;
+  radius?: number;
+  blur?: number;
+  intensity?: number;
+  colorRamp?: (t: number) => string | [number, number, number, number];
+}
+export interface HeatHandle<T = unknown> {
+  readonly id: string;
+  readonly source: CristaeReadSource<T>;
+  set(items: T[]): void;
+  setVisible(visible: boolean): void;
+  setRadius(radius: number): void;
+  setBlur(blur: number): void;
+  setIntensity(intensity: number): void;
+  setColorRamp(ramp: (t: number) => string | [number, number, number, number]): void;
+}
+
+// ── Edición de geometría (addEditableLayer) — INPUT CONTROLADO (Leaflet-native) ──
+export type EditableKind = "polygon" | "rectangle" | "polyline" | "point";
+export interface EditableConfig {
+  id: string;
+  kind?: EditableKind;
+  /** Geometría actual (controlada): rings (polygon), `[lat,lng][]` (polyline), `[lat,lng]` (point),
+   *  `[[s,w],[n,e]]` (rectangle). */
+  value?: unknown;
+  mode?: "edit" | "draw";
+  /** El usuario editó: recibe la geometría nueva (misma forma que `value`). */
+  onChange?: (value: unknown) => void;
+  pane?: string;
+  z?: number;
+}
+export interface EditableHandle {
+  readonly id: string;
+  setValue(value: unknown): void;
+  setMode(mode: "edit" | "draw"): void;
+  getValue(): unknown;
+  /** Sub-pieza: captura de punto en modo draw (latlng de un click en espacio vacío). */
+  handleMapClick(latlng: LatLngLike): void;
+  destroy(): void;
 }
 
 export interface LineLayerConfig<T> {
@@ -379,6 +471,8 @@ export interface Camera {
   getCenter(): { lat: number; lng: number };
   getZoom(): number;
   getBounds(): unknown;
+  /** Zoom máximo efectivo (capacidad del tile). */
+  getMaxZoom(): number;
   zoomIn(delta?: number): this;
   zoomOut(delta?: number): this;
   setZoom(zoom: number): this;
@@ -418,6 +512,9 @@ export class MapEngine {
   addLabelLayer<T>(config: LabelLayerConfig<T>): LabelHandle;
   addOverlay<T>(config: OverlayConfig<T>): OverlayHandle<T> | null;
   addHighlightOverlay(config: HighlightOverlayConfig): HighlightOverlayHandle | null;
+  addCircleLayer<T>(config: CircleLayerConfig<T>): CircleHandle<T>;
+  addHeatLayer<T>(config: HeatLayerConfig<T>): HeatHandle<T>;
+  addEditableLayer(config: EditableConfig): EditableHandle;
   addCluster(config: { hostId: string } & ClusterConfig): ClusterControl | null;
 
   attachSource(id: string, source: CristaeSource): this;

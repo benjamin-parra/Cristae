@@ -38,6 +38,14 @@ export class IconSet {
   #atlas
   #scales = []   // índice de tile → footprintScale (1 = sin cambio). Los índices del atlas son
                  // estables ante grow, así que este arreglo sigue alineado entre generaciones.
+  #variants = []   // índice de tile → variante ya resuelta. Alineado con el atlas (índices estables
+                   // ante grow) → permite re-rasterizar en bloque cuando cargan las fuentes (font-gate).
+  #fontsPending = false      // hay una re-rasterización encolada a document.fonts.ready
+  // Suscriptores a 'atlasrefreshed' (el motor fuerza re-subida/re-encode). NO necesita teardown propio:
+  // el IconSet es long-lived (vive tanto como el binding GPU que muestrea su atlas), así que el Set no
+  // sobrevive a sus suscriptores. La baja POR suscriptor ya existe —`onAtlasRefresh` devuelve su
+  // des-suscriptor (`delete`)—; el motor la llama al desmontar la capa. No hay un ciclo que el Set retenga.
+  #onRefresh = new Set()
 
   rotates
   defaultSize
@@ -51,6 +59,7 @@ export class IconSet {
     this.#renderers  = renderers ?? {}
     this.#prerender  = prerender
     this.#atlas      = new Atlas(capacityFor(variants.length), this.#tileSize)
+    this.#armFontGate()                          // ANTES de sembrar: capta el estado de las fuentes al nacer
     this.ready       = this.#init(variants)
   }
 
@@ -73,7 +82,18 @@ export class IconSet {
       i = this.#atlas.append(variant, bitmap)
     }
     this.#scales[i] = scale
+    this.#variants[i] = variant
     return i
+  }
+
+  // Suscripción a 'atlasrefreshed': se emite cuando las fuentes web terminan de cargar y las variantes
+  // ya resueltas se re-rasterizan (font-gate). El consumidor (el motor) la usa para forzar el re-encode
+  // de las capas que muestrean este atlas —el binding GPU re-sube solo porque la identidad cambió, pero
+  // hay que gatillarle un sync—. Opcional: sin suscriptores el atlas igual queda re-rasterizado en CPU.
+  // Devuelve el des-suscriptor. Agnóstico: no sabe qué es una "capa", sólo avisa "el atlas cambió".
+  onAtlasRefresh(fn) {
+    this.#onRefresh.add(fn)
+    return () => this.#onRefresh.delete(fn)
   }
 
   // Siembra manual idempotente (preloadIcons): adelanta variantes sin esperar a los datos.
@@ -102,6 +122,39 @@ export class IconSet {
     canvas.height = this.#tileSize
     render(canvas.getContext('2d'), this.#tileSize, d)
     return { bitmap: canvas, scale: footprintScale(d.scale) }
+  }
+
+  // Font-gate (naturalización 3.4): #rasterize es SÍNCRONO, así que una variante con glifo de fuente web
+  // resuelta ANTES de que la fuente cargue hornea un "tofu" (cuadro vacío) PERMANENTE en su tile. Si al
+  // nacer hay un FontFaceSet que todavía no terminó ('loaded'), encolamos una re-rasterización a su
+  // document.fonts.ready. Sin FontFaceSet (document.fonts undefined) o ya cargado → no se arma nada y el
+  // camino queda idéntico al actual. Complementa a prerenderFonts (que espera ANTES de rasterizar): esto
+  // cubre a los consumidores que no lo usan y a las variantes que aparecen en el ínterin.
+  #armFontGate() {
+    const fonts = typeof document !== 'undefined' && document.fonts
+    if (!fonts || fonts.status === 'loaded') return
+    this.#fontsPending = true
+    fonts.ready.then(() => this.#onFontsReady()).catch(() => {})
+  }
+
+  // Cargaron las fuentes: re-rasteriza en bloque las variantes ya resueltas. Se hornea una generación
+  // NUEVA del atlas con la MISMA capacidad → los índices no se mueven (`#variants`/`#scales` siguen
+  // alineados) y sólo cambian los bitmaps. La identidad distinta es la señal que el binding GPU ya
+  // entiende (re-sube todo en el próximo sync), sin agregar un canal de "tile sucio". Luego se emite
+  // 'atlasrefreshed' para que el consumidor gatille ese sync. Idempotente: corre una sola vez.
+  #onFontsReady() {
+    if (!this.#fontsPending) return
+    this.#fontsPending = false
+    const prev = this.#atlas
+    if (prev.count === 0) return                 // nada resuelto aún (p. ej. prerender siembra después)
+    const next = new Atlas(prev.capacity, this.#tileSize, prev.generation + 1)
+    for (let i = 0; i < prev.count; i++) {
+      const { bitmap, scale } = this.#rasterize(this.#variants[i])
+      next.append(this.#variants[i], bitmap)
+      this.#scales[i] = scale
+    }
+    this.#atlas = next
+    this.#onRefresh.forEach(fn => fn())
   }
 }
 

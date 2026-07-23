@@ -119,6 +119,9 @@ export class Camera {
   getCenter() { return this.#map.getCenter() }
   getZoom() { return this.#map.getZoom() }
   getBounds() { return this.#map.getBounds() }
+  // Zoom máximo EFECTIVO (capacidad del tile: el mínimo maxZoom entre las capas). Cierra el motivo de
+  // bajar a getLeafletMap() para saber hasta dónde se puede acercar (p. ej. limitar un fitToLayer).
+  getMaxZoom() { return this.#map.getMaxZoom() }
 
   /* ── Zoom (ortogonal al follow: cambiar de nivel NO cancela el seguimiento de un punto, a
        diferencia de un setView/panTo; un +/− es un ajuste de escala, no un reposicionamiento) ── */
