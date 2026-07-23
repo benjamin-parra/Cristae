@@ -7,6 +7,7 @@ import { LineLayer } from '../render/LineLayer.js'
 import { LeafletLineLayer } from '../render/LeafletLineLayer.js'
 import { HtmlLayer } from '../render/HtmlLayer.js'
 import { LabelLayer } from '../render/LabelLayer.js'
+import { createHighlightOverlay } from '../render/HighlightOverlay.js'
 import { createClusterFold } from '../cluster/ClusterFold.js'
 import { defineClusterIconSet } from '../atlas/IconSet.js'
 import { createSource } from '../data/index.js'
@@ -92,6 +93,7 @@ export class MapEngine {
   #destroying = false             // teardown del engine en curso → no rebuildear glify (canvas muriendo)
 
   #layers = new Map()             // id → record { kind, source, layer, controls, paneName, order }
+  #highlightOverlays = new Set()  // overlays de interacción (canvas 2D fijo al contenedor) → dispose en destroy
   #pickLayers = []                // capas de puntos interactivas (para la sesión de picking)
   #glLayers = new Set()           // capas GL (canvas glify propio) a reproyectar en move/zoom/resize
   #pendingBinds = []              // label-layers cuyo host aún no existía (resolución por nombre)
@@ -416,6 +418,75 @@ export class MapEngine {
     }
   }
 
+  /* ── Overlay de interacción: realce por-id como PASE DE COMPOSICIÓN SEPARADO ── */
+  // El estado de interacción (selección/seguimiento) NO se hornea en la variante del sprite —eso
+  // multiplica los tiles del atlas y ata el realce a la rotación del ícono—: se dibuja en un canvas 2D
+  // propio anclado a la posición VIVA del host, O(K) sobre los pocos ids resaltados. Agnóstico: el
+  // consumidor pasa `drawHighlight(ctx, size, key)` (su anillo/retículo) y `setHighlighted(Map<id,key>)`.
+  // El canvas va FIJO al contenedor (no un pane transformado): dibuja en coords de contenedor y
+  // reproyecta en cada move/zoom, sin matemática de transform de pane; pointer-events:none (el picking
+  // es del host GPU). El dato entra por la Source del host (misma fuente → sin desincronía ni "fantasma").
+  addHighlightOverlay({ id, layerId, drawHighlight, z } = {}) {
+    const host = this.#layers.get(layerId)
+    if (!host || host.kind !== 'point' || typeof drawHighlight !== 'function') return null
+
+    const source = host.source
+    const iconSet = host.iconSet
+    const sizeOf = source.accessors.sizeOf
+      ? (item) => source.accessors.sizeOf(item)
+      : () => iconSet?.defaultSize ?? 32
+
+    const container = this.#map.getContainer()
+    const canvas = document.createElement('canvas')
+    const s = canvas.style
+    s.position = 'absolute'; s.left = '0'; s.top = '0'; s.width = '100%'; s.height = '100%'
+    s.pointerEvents = 'none'; s.zIndex = String(z ?? BASE_Z + 250)
+    container.appendChild(canvas)
+    const ctx = canvas.getContext('2d')
+
+    const dpr = Math.min((typeof window !== 'undefined' && window.devicePixelRatio) || 1, 2)
+    let cssW = 0, cssH = 0
+    const resize = () => {
+      const r = container.getBoundingClientRect()
+      cssW = r.width; cssH = r.height
+      canvas.width = Math.round(cssW * dpr); canvas.height = Math.round(cssH * dpr)
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+    }
+    resize()
+
+    const overlay = createHighlightOverlay({
+      source,
+      project: (lat, lng) => this.camera.latLngToContainerPoint(this.#L.latLng(lat, lng)),
+      ctx,
+      clear: () => ctx.clearRect(0, 0, cssW, cssH),
+      drawHighlight,
+      sizeOf,
+      schedule: (fn) => requestAnimationFrame(fn),
+    })
+
+    const onView = () => overlay.onViewportChange()
+    this.#map.on('move zoom moveend zoomend', onView)
+
+    const entry = {
+      dispose: () => {
+        this.#map.off('move zoom moveend zoomend', onView)
+        overlay.destroy()
+        if (canvas.remove) canvas.remove()
+        else container.removeChild?.(canvas)
+        this.#highlightOverlays.delete(entry)
+      },
+    }
+    this.#highlightOverlays.add(entry)
+
+    return {
+      id,
+      setHighlighted: (highlighted) => overlay.setHighlighted(highlighted),
+      redraw: () => overlay.redraw(),
+      resize,
+      destroy: entry.dispose,
+    }
+  }
+
   /* ── Fuentes externas (ruta B) ── */
 
   attachSource(id, source) {
@@ -565,6 +636,7 @@ export class MapEngine {
     if (this.#destroying) return
     this.#destroying = true
     _liveEngines.delete(this)
+    ;[...this.#highlightOverlays].forEach(e => e.dispose())
     this.#interaction.destroy()
     this.camera.destroy()
     this.#tiles?.destroy()

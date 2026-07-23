@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Cristae · Overlay de interacción — demo/benchmark</title>
+<style>
+  :root { --accent: #6366f1; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #0b1020; color: #e5e7eb;
+    font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; overflow: hidden; }
+  #stage { position: fixed; inset: 0; }
+  canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  #fleet { z-index: 1; }        /* "flota" (simula los puntos GPU) */
+  #overlay { z-index: 2; }      /* el pase de composición separado */
+  #panel { position: fixed; top: 16px; left: 16px; z-index: 10; width: 320px;
+    background: rgba(17,24,39,.82); border: 1px solid #263043; border-radius: 12px;
+    padding: 14px 16px; backdrop-filter: blur(6px); }
+  h1 { font-size: 13px; margin: 0 0 2px; letter-spacing: .02em; }
+  .sub { color: #94a3b8; font-size: 11px; margin-bottom: 12px; }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 8px 0; }
+  .row label { color: #cbd5e1; }
+  input[type=range] { width: 150px; accent-color: var(--accent); }
+  .val { color: #fff; min-width: 46px; text-align: right; }
+  .stats { margin-top: 12px; padding-top: 12px; border-top: 1px solid #263043; }
+  .stat { display: flex; justify-content: space-between; margin: 4px 0; }
+  .stat b { color: #fff; font-variant-numeric: tabular-nums; }
+  .hot { color: #34d399; }
+  .warn { color: #fbbf24; }
+  .k { color: var(--accent); }
+  button { background: #1f2937; color: #e5e7eb; border: 1px solid #374151; border-radius: 8px;
+    padding: 5px 10px; cursor: pointer; font: inherit; }
+  button[aria-pressed=true] { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .note { margin-top: 12px; color: #64748b; font-size: 10.5px; line-height: 1.45; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <canvas id="fleet"></canvas>
+  <canvas id="overlay"></canvas>
+</div>
+
+<div id="panel">
+  <h1>Overlay de interacción — condición #1</h1>
+  <div class="sub">El realce (anillo/retículo) como <b>pase de composición separado</b>, no variante de atlas.
+    Mide el <b>raster real del navegador</b>.</div>
+
+  <div class="row"><label>Flota (puntos)</label>
+    <input id="n" type="range" min="200" max="5000" step="100" value="1000"><span class="val" id="nv">1000</span></div>
+  <div class="row"><label>Resaltados <span class="k">K</span></label>
+    <input id="k" type="range" min="0" max="300" step="1" value="12"><span class="val k" id="kv">12</span></div>
+  <div class="row"><label>Overlay</label>
+    <button id="toggle" aria-pressed="true">ON</button></div>
+
+  <div class="stats">
+    <div class="stat"><span>FPS</span><b id="fps">—</b></div>
+    <div class="stat"><span>Frametime total</span><b id="ft">—</b></div>
+    <div class="stat"><span>Flota (raster)</span><b id="fleetms">—</b></div>
+    <div class="stat"><span class="k">Overlay (raster K)</span><b id="ovms" class="hot">—</b></div>
+  </div>
+
+  <div class="note">Lo que importa: el <b class="k">overlay</b> escala con <b>K</b> (resaltados), no con la
+    flota. La "flota" acá es 2D sólo para tener escena; en el sistema real son puntos GPU (~0 desde el
+    hilo principal). Retículo en espacio de pantalla → estable a la rotación del sprite.</div>
+</div>
+
+<script type="module">
+// ── Copia verbatim de src/render/HighlightOverlay.js (para que la demo abra sin servidor: file:// no
+//    permite importar módulos ESM por CORS). Misma lógica que el módulo que testeamos. ────────────────
+const EMPTY = new Map()
+function createHighlightOverlay({ source, project, ctx, clear, drawHighlight, sizeOf, schedule }) {
+  let highlighted = EMPTY, agendado = false
+  const redibujar = () => {
+    agendado = false
+    clear()
+    if (!highlighted.size) return
+    const byId = source.itemById, positionOf = source.accessors.positionOf
+    for (const [id, key] of highlighted) {
+      const item = byId(id); if (item == null) continue
+      const p = positionOf(item); if (!p || !Number.isFinite(p.lat) || !Number.isFinite(p.lng)) continue
+      const { x, y } = project(p.lat, p.lng)
+      ctx.save(); ctx.translate(x, y); drawHighlight(ctx, sizeOf(item), key); ctx.restore()
+    }
+  }
+  const invalidar = () => { if (agendado) return; agendado = true; schedule(redibujar) }
+  return {
+    setHighlighted(next) { highlighted = next ?? EMPTY; invalidar() },
+    onViewportChange() { if (highlighted.size) invalidar() },
+    redraw: redibujar,
+  }
+}
+
+// ── El dibujo (Wing lo provee; acá el anillo de selección + el retículo location_searching) ─────────
+const ACCENT = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim()
+function drawHighlight(ctx, size, key) {
+  const r = size * 0.62
+  ctx.strokeStyle = ACCENT
+  // halo tenue
+  ctx.globalAlpha = 0.18; ctx.fillStyle = ACCENT
+  ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.fill(); ctx.globalAlpha = 1
+  // anillo
+  ctx.lineWidth = size * 0.06
+  ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.stroke()
+  if (key === 'follow') {                                  // 4 rayos cardinales (screen-space, no rota)
+    ctx.lineWidth = size * 0.08; ctx.lineCap = 'butt'
+    for (let i = 0; i < 4; i++) {
+      const a = i * Math.PI / 2, dx = Math.cos(a), dy = Math.sin(a)
+      ctx.beginPath()
+      ctx.moveTo(dx * r * 1.02, dy * r * 1.02)
+      ctx.lineTo(dx * r * 1.55, dy * r * 1.55)
+      ctx.stroke()
+    }
+  }
+}
+
+// ── Escena: "flota" de N puntos que rebotan (simula el feed vivo) ────────────────────────────────────
+const dpr = Math.min(window.devicePixelRatio || 1, 2)
+const fleetCv = document.getElementById('fleet'), ovCv = document.getElementById('overlay')
+const fctx = fleetCv.getContext('2d'), octx = ovCv.getContext('2d')
+let W = 0, H = 0
+function resize() {
+  W = window.innerWidth; H = window.innerHeight
+  for (const cv of [fleetCv, ovCv]) { cv.width = W * dpr; cv.height = H * dpr }
+  fctx.setTransform(dpr, 0, 0, dpr, 0, 0); octx.setTransform(dpr, 0, 0, dpr, 0, 0)
+}
+window.addEventListener('resize', resize); resize()
+
+let fleet = []
+function seed(n) {
+  fleet = Array.from({ length: n }, (_, i) => ({
+    id: i, x: Math.random() * W, y: Math.random() * H,
+    vx: (Math.random() - .5) * 60, vy: (Math.random() - .5) * 60,
+  }))
+}
+function step(dt) {
+  for (const p of fleet) {
+    p.x += p.vx * dt; p.y += p.vy * dt
+    if (p.x < 0 || p.x > W) p.vx *= -1
+    if (p.y < 0 || p.y > H) p.vy *= -1
+  }
+}
+function drawFleet() {
+  fctx.clearRect(0, 0, W, H)
+  fctx.fillStyle = '#64748b'
+  for (const p of fleet) { fctx.fillRect(p.x - 2, p.y - 2, 4, 4) }
+}
+
+// ── El overlay real, alimentado por la "flota" (source stub: sólo lo que el módulo lee) ──────────────
+const source = {
+  itemById: (id) => fleet[id],
+  accessors: { positionOf: (it) => ({ lat: it.y, lng: it.x }) },   // project lo mapea a px 1:1
+}
+const overlay = createHighlightOverlay({
+  source,
+  project: (lat, lng) => ({ x: lng, y: lat }),
+  ctx: octx,
+  clear: () => octx.clearRect(0, 0, W, H),
+  drawHighlight,
+  sizeOf: () => 22,
+  schedule: (fn) => fn(),                                  // el rAF lo maneja el loop de abajo
+})
+
+let K = 12, overlayOn = true
+function setHighlighted() {
+  if (!overlayOn) { octx.clearRect(0, 0, W, H); overlay.setHighlighted(null); return }
+  const m = new Map()
+  for (let i = 0; i < K && i < fleet.length; i++) m.set(i, 'follow')
+  overlay.setHighlighted(m)
+}
+
+// ── Controles ──
+const $ = (id) => document.getElementById(id)
+$('n').addEventListener('input', e => { $('nv').textContent = e.target.value; seed(+e.target.value); setHighlighted() })
+$('k').addEventListener('input', e => { K = +e.target.value; $('kv').textContent = e.target.value; setHighlighted() })
+$('toggle').addEventListener('click', e => {
+  overlayOn = !overlayOn
+  e.target.setAttribute('aria-pressed', String(overlayOn))
+  e.target.textContent = overlayOn ? 'ON' : 'OFF'
+  setHighlighted()
+})
+
+// ── Loop + medición (rolling avg de cada tramo) ──
+seed(1000); setHighlighted()
+let last = performance.now(), avgFleet = 0, avgOv = 0, avgFt = 0, frames = 0, fpsT = last, fpsN = 0
+const roll = (avg, v) => avg + (v - avg) * 0.08
+
+function frame(now) {
+  const dt = Math.min((now - last) / 1000, 0.05); last = now
+  const t0 = performance.now()
+  step(dt)
+  drawFleet()
+  const t1 = performance.now()
+  if (overlayOn) overlay.redraw()                          // el tramo que mide el costo del overlay
+  const t2 = performance.now()
+
+  avgFleet = roll(avgFleet, t1 - t0)
+  avgOv = roll(avgOv, overlayOn ? t2 - t1 : 0)
+  avgFt = roll(avgFt, t2 - t0)
+  fpsN++
+  if (now - fpsT >= 500) {
+    $('fps').textContent = Math.round(fpsN * 1000 / (now - fpsT))
+    $('ft').textContent = avgFt.toFixed(2) + ' ms'
+    $('fleetms').textContent = avgFleet.toFixed(2) + ' ms'
+    const ov = $('ovms')
+    ov.textContent = overlayOn ? avgOv.toFixed(3) + ' ms' : '—'
+    ov.className = avgOv < 1 ? 'hot' : 'warn'
+    fpsT = now; fpsN = 0
+  }
+  requestAnimationFrame(frame)
+}
+requestAnimationFrame(frame)
+</script>
+</body>
+</html>

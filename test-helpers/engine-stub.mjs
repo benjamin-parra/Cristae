@@ -101,10 +101,12 @@ export const installCanvasStub = () => {}
 
 /* ── Leaflet + L.map ── */
 
-// Contenedor DOM que toca Interaction (addEventListener/style/rect). No-op salvo lo mínimo.
+// Contenedor DOM que toca Interaction (addEventListener/style/rect) y el overlay de interacción
+// (appendChild/removeChild del canvas). No-op salvo lo mínimo.
 const makeContainer = () => ({
   style: {},
   addEventListener() {}, removeEventListener() {},
+  appendChild() {}, removeChild() {},
   getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 600 }),
 })
 
