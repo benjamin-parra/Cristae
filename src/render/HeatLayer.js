@@ -73,7 +73,10 @@ export class HeatLayer {
   // Handlers estables (misma ref en on/off). Campos-flecha: se inicializan antes del cuerpo del
   // constructor, así ya existen cuando se registran los eventos del mapa.
   #hide   = () => { if (this.#canvas) this.#canvas.style.visibility = 'hidden' }
-  #onView = () => { if (this.#canvas) this.#canvas.style.visibility = ''; this.#invalidate() }
+  // NO revela acá: sólo agenda el redibujo. El canvas se muestra al FINAL de #draw (contenido fresco y
+  // colorizado). Revelar antes mostraría la vista anterior desubicada (zoomend) o, si colorize fallara,
+  // la acumulación negra cruda ("queda negro"). Ocultar hasta tener un frame válido es lo correcto.
+  #onView = () => this.#invalidate()
 
   // `glify` viaja en el cfg (espejo de PointLayer) pero este backend NO lo usa — no se desestructura
   // para no dejar una var sin uso; el call-site lo pasa igual, listo para un futuro backend GL.
@@ -181,6 +184,7 @@ export class HeatLayer {
     ctx.globalAlpha = 1
 
     this.#colorize(w, h)
+    this.#canvas.style.visibility = ''    // recién ahora hay un frame válido → revelar (ver #onView)
   }
 
   // Alpha acumulado (densidad) → color de la paleta. El alpha del pixel indexa 1:1 la rampa; el color

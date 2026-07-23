@@ -145,7 +145,7 @@ export const makeMap = ({ zoom = 3 } = {}) => {
     whenReady(cb) { cb(); return map },
     getContainer: () => container,
     getPane: (n) => panes.get(n) ?? null,
-    createPane: (n) => { const p = { style: {}, remove() { panes.delete(n) } }; panes.set(n, p); return p },
+    createPane: (n) => { const p = { style: {}, appendChild() {}, remove() { panes.delete(n) } }; panes.set(n, p); return p },
     getPanes: () => ({ mapPane }),
     getZoom: () => map._zoom,
     // Helper del TEST: fija el zoom lógico (el que lee recluster). No dispara eventos por sí solo.

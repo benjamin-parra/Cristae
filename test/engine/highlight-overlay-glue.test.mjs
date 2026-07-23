@@ -1,7 +1,8 @@
 // Integración del overlay de interacción sobre un MapEngine REAL (glue de addHighlightOverlay):
-// crea el canvas fijo al contenedor, cablea project/clear/schedule/sizeOf desde el motor, reproyecta
-// en move/zoom y desconecta en destroy. El comportamiento fino del pase (posición, gate O(K),
-// no-crecimiento del atlas) está en test/render/highlight-overlay.test.mjs; acá se verifica el CABLEADO.
+// monta el canvas en un pane (cabalga el transform del mapa), cablea project/clear/schedule/sizeOf
+// desde el motor, reasienta en moveend/zoomend/resize y desconecta en destroy. El comportamiento fino
+// del pase (posición, gate O(K), no-crecimiento del atlas) está en test/render/highlight-overlay.test.mjs;
+// acá se verifica el CABLEADO.
 
 import '../../test-helpers/engine-stub.mjs'
 import { makeGlify, makeMap, makeLeaflet, makeIconSet } from '../../test-helpers/engine-stub.mjs'
@@ -30,13 +31,13 @@ test('addHighlightOverlay: cablea el pase separado end-to-end sobre MapEngine', 
   assert.equal(draws[0].size, 24, 'usa el sizeOf del host')
 
   draws.length = 0
-  engine.getLeafletMap().fire('zoom')                   // move/zoom → reproyecta los resaltados
+  engine.getLeafletMap().fire('zoomend')                // settle de viewport → reasienta los resaltados
   await flushRaf()
-  assert.equal(draws.length, 2, 'reproyecta en cambio de viewport')
+  assert.equal(draws.length, 2, 'reasienta en cambio de viewport')
 
   ov.destroy()
   draws.length = 0
-  engine.getLeafletMap().fire('zoom'); await flushRaf()
+  engine.getLeafletMap().fire('zoomend'); await flushRaf()
   assert.equal(draws.length, 0, 'destroy desconecta del viewport y de la Source')
 
   engine.destroy()
@@ -55,6 +56,6 @@ test('engine.destroy() dispone los overlays de interacción vivos', async () => 
   const draws = []
   engine.addHighlightOverlay({ id: 'hl', layerId: 'flota', drawHighlight: () => draws.push(1) })
   engine.destroy()                                      // no debe throwear ni dejar el overlay suscripto
-  engine.getLeafletMap?.().fire?.('zoom'); await flushRaf()
+  engine.getLeafletMap?.().fire?.('zoomend'); await flushRaf()
   assert.equal(draws.length, 0, 'tras destroy, el overlay no redibuja')
 })

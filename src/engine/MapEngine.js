@@ -501,9 +501,13 @@ export class MapEngine {
   // multiplica los tiles del atlas y ata el realce a la rotación del ícono—: se dibuja en un canvas 2D
   // propio anclado a la posición VIVA del host, O(K) sobre los pocos ids resaltados. Agnóstico: el
   // consumidor pasa `drawHighlight(ctx, size, key)` (su anillo/retículo) y `setHighlighted(Map<id,key>)`.
-  // El canvas va FIJO al contenedor (no un pane transformado): dibuja en coords de contenedor y
-  // reproyecta en cada move/zoom, sin matemática de transform de pane; pointer-events:none (el picking
-  // es del host GPU). El dato entra por la Source del host (misma fuente → sin desincronía ni "fantasma").
+  // El canvas vive en un PANE bajo mapPane (no fijo al contenedor): así CABALGA el mismo transform CSS
+  // que la capa de puntos durante pan/zoom → los retículos no se desfasan de los sprites. Un canvas fijo
+  // al contenedor tenía que reproyectar por frame, y su redibujo (rAF) quedaba 1 frame detrás del
+  // compositor que ya movió los puntos → esa era la "vibración". Ahora se reposiciona por `translate3d`
+  // al origen del viewport (igual patrón que HeatLayer/LabelLayer) y sólo reasienta en moveend/zoomend/
+  // resize; entre redibujos el pane lo lleva. pointer-events:none (el picking es del host GPU). El dato
+  // entra por la Source del host (misma fuente → sin desincronía ni "fantasma").
   addHighlightOverlay({ id, layerId, drawHighlight, z } = {}) {
     const host = this.#layers.get(layerId)
     if (!host || host.kind !== 'point' || typeof drawHighlight !== 'function') return null
@@ -514,43 +518,55 @@ export class MapEngine {
       ? (item) => source.accessors.sizeOf(item)
       : () => iconSet?.defaultSize ?? 32
 
-    const container = this.#map.getContainer()
-    const canvas    = document.createElement('canvas')
-    const s         = canvas.style
-    s.position = 'absolute'; s.left = '0'; s.top = '0'; s.width = '100%'; s.height = '100%'
-    s.pointerEvents = 'none'; s.zIndex = String(z ?? BASE_Z + 250)
-    container.appendChild(canvas)
+    const map      = this.#map
+    const paneName = `cristae-highlight-${id ?? layerId}`
+    const pane     = map.getPane(paneName) ?? map.createPane(paneName)
+    pane.style.zIndex        = String(z ?? BASE_Z + 250)
+    pane.style.pointerEvents = 'none'
+
+    const canvas = document.createElement('canvas')
+    canvas.style.position      = 'absolute'
+    canvas.style.pointerEvents = 'none'
+    pane.appendChild(canvas)
     const ctx = canvas.getContext('2d')
 
     const dpr = Math.min((typeof window !== 'undefined' && window.devicePixelRatio) || 1, 2)
     let cssW  = 0, cssH = 0
-    const resize = () => {
-      const r = container.getBoundingClientRect()
-      cssW = r.width; cssH = r.height
-      canvas.width = Math.round(cssW * dpr); canvas.height = Math.round(cssH * dpr)
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+    // Reposiciona el canvas al top-left del viewport en coords de capa (el pane se traslada con el mapa en
+    // pan → el canvas queda fijo al viewport) y lo redimensiona sólo si cambió (setear width lo limpia).
+    const reposition = () => {
+      const r = map.getContainer().getBoundingClientRect()
+      if (r.width !== cssW || r.height !== cssH) {
+        cssW          = r.width
+        cssH          = r.height
+        canvas.width  = Math.round(cssW * dpr)
+        canvas.height = Math.round(cssH * dpr)
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+      }
+      const origin = map.containerPointToLayerPoint([0, 0])
+      canvas.style.transform = `translate3d(${origin.x}px, ${origin.y}px, 0)`
     }
-    resize()
+    reposition()
 
     const overlay = createHighlightOverlay({
       source,
       project: (lat, lng) => this.camera.latLngToContainerPoint(this.#L.latLng(lat, lng)),
       ctx,
-      clear: () => ctx.clearRect(0, 0, cssW, cssH),
+      clear: () => { reposition(); ctx.clearRect(0, 0, cssW, cssH) },   // reasienta el pane antes de dibujar
       drawHighlight,
       sizeOf,
       schedule: (fn) => requestAnimationFrame(fn),
     })
 
     const onView = () => overlay.onViewportChange()
-    this.#map.on('move zoom moveend zoomend', onView)
+    map.on('moveend zoomend resize', onView)             // pan/zoom-anim los lleva el transform; acá reasienta
 
     const entry = {
       dispose: () => {
-        this.#map.off('move zoom moveend zoomend', onView)
+        map.off('moveend zoomend resize', onView)
         overlay.destroy()
         if (canvas.remove) canvas.remove()
-        else container.removeChild?.(canvas)
+        else pane.removeChild?.(canvas)
         this.#highlightOverlays.delete(entry)
       },
     }
@@ -560,8 +576,8 @@ export class MapEngine {
       id,
       setHighlighted: (highlighted) => overlay.setHighlighted(highlighted),
       redraw:         () => overlay.redraw(),
-      resize,
-      destroy: entry.dispose,
+      resize:         reposition,
+      destroy:        entry.dispose,
     }
   }
 
@@ -863,8 +879,11 @@ export class MapEngine {
 
   unfocus(ids) {
     if (!this.#focused) return
-    for (const id of ids) this.#focused.delete(id)
-    this.#applyFocus()
+    ids.forEach(id => this.#focused.delete(id))
+    // Vaciar el set de resaltados equivale a "sin foco": restaurar todo. Sin esto, un `#focused` vacío
+    // (pero no null) dejaría a #applyFocus atenuando TODAS las capas (ninguna en el set brillante).
+    if (this.#focused.size) this.#applyFocus()
+    else this.unfocusAll()
   }
 
   unfocusAll() {
