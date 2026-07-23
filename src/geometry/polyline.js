@@ -94,9 +94,9 @@ export const sampleAlong = (input, count) => {
   const segs = toParts(input).flatMap(({ path }) => {
     const pts = path.map(([lat, lng]) => ({ x: projX0(lng), y: projY0(lat) }))
     return pts.slice(1).map((b, i) => ({
-      desde: path[i],
-      hasta: path[i + 1],
-      largo: Math.hypot(b.x - pts[i].x, b.y - pts[i].y),
+      desde:   path[i],
+      hasta:   path[i + 1],
+      largo:   Math.hypot(b.x - pts[i].x, b.y - pts[i].y),
       heading: bearingOf(pts[i], b),
     }))
   })
@@ -110,8 +110,8 @@ export const sampleAlong = (input, count) => {
     const s = segs[i]
     const t = s.largo > 0 ? (objetivo - (finArr[i] - s.largo)) / s.largo : 0
     return {
-      lat: s.desde[0] + (s.hasta[0] - s.desde[0]) * t,
-      lng: s.desde[1] + (s.hasta[1] - s.desde[1]) * t,
+      lat:     s.desde[0] + (s.hasta[0] - s.desde[0]) * t,
+      lng:     s.desde[1] + (s.hasta[1] - s.desde[1]) * t,
       heading: s.heading,
     }
   })

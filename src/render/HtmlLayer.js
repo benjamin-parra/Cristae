@@ -18,14 +18,14 @@ export class HtmlLayer {
   #unsub  = null
 
   constructor({ L, map, pane, source, interactive = false }) {
-    this.#L = L
-    this.#map = map
-    this.#pane = pane
-    this.#source = source
-    this.#accessors = source.accessors
+    this.#L           = L
+    this.#map         = map
+    this.#pane        = pane
+    this.#source      = source
+    this.#accessors   = source.accessors
     this.#interactive = interactive
-    this.#group = L.layerGroup([], { pane }).addTo(map)
-    this.#unsub = source.subscribe(() => this.#rebuild())
+    this.#group       = L.layerGroup([], { pane }).addTo(map)
+    this.#unsub       = source.subscribe(() => this.#rebuild())
     this.#rebuild()
   }
 
@@ -77,8 +77,8 @@ export class HtmlLayer {
         : a.htmlOf(item)
       const icon = this.#L.divIcon({
         html,
-        className: a.classNameOf ? a.classNameOf(item) : 'cristae-html-marker',
-        iconSize: size,
+        className : a.classNameOf ? a.classNameOf(item) : 'cristae-html-marker',
+        iconSize  : size,
         iconAnchor: anchor,
       })
       const marker = this.#L.marker([lat, lng], { pane: this.#pane, icon, interactive: false })

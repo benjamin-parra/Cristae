@@ -29,7 +29,7 @@ export const defineSource = ({ accessors, variants, getSnapshot, subscribe, vers
     accessors,
     variants,
     getSnapshot,
-    version: version ?? (() => ticks),
+    version:   version ?? (() => ticks),
     subscribe: version
       ? (cb) => toUnsub(subscribe(cb))           // version propia → notify directo, sin overhead
       : (cb) => toUnsub(subscribe(tick(cb))),    // version sintética → avanza el contador por notify
@@ -54,17 +54,17 @@ const crearVentana = (emitter) => {
     moves,
     structs,
     version: () => version,
-    abrir: () => {
+    abrir:   () => {
       if (!cerrada) return
       moves.clear()
       structs.clear()
       cerrada = false
     },
-    marcarMove: (id) => moves.add(id),
+    marcarMove:   (id) => moves.add(id),
     marcarStruct: (id) => structs.add(id),
-    commit: () => { version++; emitter.notify() },
-    cerrar: () => { cerrada = true },            // onFlush: los acumuladores ya se consumieron
-    limpiar: () => { moves.clear(); structs.clear() },
+    commit:       () => { version++; emitter.notify() },
+    cerrar:       () => { cerrada = true },      // onFlush: los acumuladores ya se consumieron
+    limpiar:      () => { moves.clear(); structs.clear() },
   }
 }
 
@@ -97,11 +97,11 @@ export const createSource = (accessors, variants) => {
   })
   let ventana
   const emitter = new Emitter({
-    source: () => store.filtered,
-    version: () => ventana.version(),
+    source:   () => store.filtered,
+    version:  () => ventana.version(),
     interval: 0,
-    defer: 'raf',
-    onFlush: () => ventana.cerrar(),
+    defer:    'raf',
+    onFlush:  () => ventana.cerrar(),
   })
   ventana = crearVentana(emitter)
 
@@ -118,14 +118,14 @@ export const createSource = (accessors, variants) => {
     accessors: readAccessors,
     variants,
     getSnapshot: () => store.filtered,
-    version: () => ventana.version(),
-    subscribe: (cb) => {
+    version:     () => ventana.version(),
+    subscribe:   (cb) => {
       const id = Symbol('sub')
       emitter.subscribe(id, cb)
       return () => emitter.unsubscribe(id)
     },
-    itemById: (id) => store.get(id),
-    dirtyIds: () => ventana.structs,      // cambios estructurales de la ventana (acumulados)
+    itemById:     (id) => store.get(id),
+    dirtyIds:     () => ventana.structs,  // cambios estructurales de la ventana (acumulados)
     moveDirtyIds: () => ventana.moves,    // moves de la ventana (la capa los escribe por slot)
 
     /* ── Escritura: dueño ── */

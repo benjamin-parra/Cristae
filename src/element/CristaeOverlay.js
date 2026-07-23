@@ -30,13 +30,13 @@ export class CristaeOverlay extends CristaeLayerElement {
     const out = []
     for (const t of targets) {
       const h = engine.addOverlay({
-        id: `${t.id}:overlay:${++ovlSeq}`,
-        hostId: t.id,
-        iconSet: cfg.iconSet,
+        id       : `${t.id}:overlay:${++ovlSeq}`,
+        hostId   : t.id,
+        iconSet  : cfg.iconSet,
         variantOf: cfg.variantOf,
-        sizeOf: cfg.sizeOf,
-        where: cfg.where,
-        visible: cfg.visible,
+        sizeOf   : cfg.sizeOf,
+        where    : cfg.where,
+        visible  : cfg.visible,
       })
       if (h) out.push({ kind: 'overlay', id: h.id, handle: h, hostId: t.id, source: t.source, suppressed: null })
     }
@@ -44,11 +44,11 @@ export class CristaeOverlay extends CristaeLayerElement {
   }
 
   static properties = {
-    iconSet: { attribute: 'icon-set' },          // IconSet del badge (rotates:false). Objeto por ref o nombre.
-    variantOf: { attribute: false },             // (item) => variante del badge (p. ej. estado de conexión)
-    sizeOf: { attribute: false },                // (item) => tamaño del badge
-    where: { attribute: false },                 // (item) => boolean: sólo los que tienen badge entran
-    visible: { type: Boolean },
+    iconSet  : { attribute: 'icon-set' },  // IconSet del badge (rotates:false). Objeto por ref o nombre.
+    variantOf: { attribute: false },       // (item) => variante del badge (p. ej. estado de conexión)
+    sizeOf   : { attribute: false },       // (item) => tamaño del badge
+    where    : { attribute: false },       // (item) => boolean: sólo los que tienen badge entran
+    visible  : { type: Boolean },
   }
 
   constructor() {

@@ -20,7 +20,7 @@ export class Emitter {
   #source
   #version
   #lastVersion = -1
-  #lastData = null
+  #lastData    = null
 
   #subs = new Map()
 
@@ -31,17 +31,17 @@ export class Emitter {
   // `pending` (dato agendado para el frame) queda SEPARADO de `#lastData` (último chequeado): son
   // dos ranuras distintas y el getter `snapshot` lee la segunda — conflacionarlas rompería el test.
   #throttle = { ms: 0, cap: Infinity, timer: null }
-  #frame = { onFlush: null, mode: 'none', pending: null, rafId: null }
+  #frame    = { onFlush: null, mode: 'none', pending: null, rafId: null }
 
   constructor({ source, version, interval = 100, onFlush, defer = 'none', maxInterval = Infinity } = {}) {
-    this.#source = source
+    this.#source  = source
     this.#version = version
     const t = this.#throttle
     t.cap = maxInterval
-    t.ms = this.#clamp(interval)              // #clamp lee t.cap → cap primero
+    t.ms  = this.#clamp(interval)             // #clamp lee t.cap → cap primero
     const f = this.#frame
     f.onFlush = onFlush
-    f.mode = defer
+    f.mode    = defer
     this.#startTimer()
   }
 
@@ -89,8 +89,8 @@ export class Emitter {
     if (f.rafId != null) { cancelRaf(f.rafId); f.rafId = null }
     f.pending = null
     this.#subs.clear()
-    f.onFlush = null
-    this.#source = null
+    f.onFlush      = null
+    this.#source   = null
     this.#lastData = null
   }
 
@@ -101,7 +101,7 @@ export class Emitter {
     const ver = this.#version()
     if (ver === this.#lastVersion) return            // dirty-skip
     this.#lastVersion = ver
-    this.#lastData = this.#source()
+    this.#lastData    = this.#source()
     if (this.#frame.mode === 'raf') this.#scheduleEmit(this.#lastData)
     else this.#emit(this.#lastData)
   }

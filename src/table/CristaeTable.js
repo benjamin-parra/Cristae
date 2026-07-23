@@ -45,7 +45,7 @@ export class CristaeTable extends LitElement {
   createRenderRoot() { return this }
 
   #engine = null
-  #abort = new AbortController()
+  #abort  = new AbortController()
 
   constructor() {
     super()
@@ -134,14 +134,14 @@ export class CristaeTable extends LitElement {
     this.#engine = new PagedTable({
       container,
       scrollElement,
-      template: this.template,
-      binder: this.binder,
-      rowHeight: this.rowHeight,
-      pageSize: this.pageSize,
-      comparator: this.comparator,
-      searchBy: this.searchBy,
+      template:     this.template,
+      binder:       this.binder,
+      rowHeight:    this.rowHeight,
+      pageSize:     this.pageSize,
+      comparator:   this.comparator,
+      searchBy:     this.searchBy,
       searchFilter: this.searchFilter,
-      onPage: (info) => { this._pageInfo = info },
+      onPage:       (info) => { this._pageInfo = info },
     })
 
     scrollElement.addEventListener('click', this.#onRowClick, { signal: this.#abort.signal })

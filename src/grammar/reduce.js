@@ -53,7 +53,7 @@ export function leafUnits(el, engine, ctx) {
 // —no se reconstruye por reducción— y exhaustiva sobre los combines válidos.
 const COMBINERS = {
   fold: (apply, engine, targets, cfg) => apply(engine, targets, cfg) || [],
-  map: (apply, engine, targets, cfg) => {
+  map : (apply, engine, targets, cfg) => {
     const out = []
     for (const t of targets) {
       const r = apply(engine, [t], cfg)

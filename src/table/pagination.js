@@ -43,15 +43,15 @@ export const paginationModel = (current, totalPages, capacity) => {
   let rightEllipsis = false
 
   if (current <= half + 1) {
-    end = inner - 1
+    end           = inner - 1
     rightEllipsis = true
   } else if (current >= totalPages - 1 - half) {
-    start = totalPages - inner
+    start        = totalPages - inner
     leftEllipsis = true
   } else {
-    start = current - ((inner - 2) >> 1)
-    end = current + ((inner - 3) >> 1)
-    leftEllipsis = true
+    start         = current - ((inner - 2) >> 1)
+    end           = current + ((inner - 3) >> 1)
+    leftEllipsis  = true
     rightEllipsis = true
   }
 

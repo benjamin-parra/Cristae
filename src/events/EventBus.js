@@ -17,7 +17,7 @@ export class EventBus {
 
   // Identidad estable por elemento (objeto/función) → entero. Sobrevive entre flushes
   // para que el diffing de hover reconozca el mismo elemento aunque cambie el hit.
-  #elementIds = new WeakMap()
+  #elementIds    = new WeakMap()
   #nextElementId = 1
 
   // Demanda de picking (subsistema FRÍO — sólo alta/baja de suscripción y registro de capa): dos

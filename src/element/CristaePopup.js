@@ -67,7 +67,7 @@ const onFlushError = (e) => console.error('[cristae-popup] contentOf/flush', e)
 export class CristaePopup extends LitElement {
 
   static properties = {
-    for: { attribute: 'for' },          // id(s) de capa cuyos clicks abren la tarjeta (token-list)
+    for   : { attribute: 'for' },       // id(s) de capa cuyos clicks abren la tarjeta (token-list)
     offset: { attribute: false },       // [dx, dy] en px desde el punto (default: 12px hacia arriba)
     // Reactiva al valor: ausente → ON (default Leaflet); `auto-pan="false"`/`"0"` → OFF.
     autoPan: { attribute: 'auto-pan', converter: boolDefaultOn },
@@ -89,19 +89,19 @@ export class CristaePopup extends LitElement {
 
   render() { return nothing }           // sin UI en el shadow: los nodos flotantes viven en light DOM
 
-  #map = null
-  #lmap = null                          // L.Map crudo enganchado para el `move` continuo (paneo/inercia)
+  #map  = null
+  #lmap = null                      // L.Map crudo enganchado para el `move` continuo (paneo/inercia)
   // Tarjetas abiertas por clave de dato (orden de inserción = antigüedad para el cupo `max-open`;
   // la más reciente queda arriba sola, por orden de append en el body). Cada una es un registro
   // plano — mismo patrón que Camera#follow: { key, item, binding, node, live, lat, lng, screenPt,
   // w, h, ro, unsub }. lat/lng son copia numérica del ancla (el override de `move()` se muta in
   // place; una ref compartida rompería la comparación de cambio).
-  #popups = new Map()
-  #warned = new Set()      // capas `for` no resolubles ya avisadas (un warning por capa)
-  #onClick = (e) => this.#openFromHit(e.detail.hits)
+  #popups     = new Map()
+  #warned     = new Set()      // capas `for` no resolubles ya avisadas (un warning por capa)
+  #onClick    = (e) => this.#openFromHit(e.detail.hits)
   #onViewport = () => this.#popups.forEach((p) => this.#place(p))
-  #onReady = () => this.#bindLeafletMove()
-  #onKey = (e) => { if (e.key === 'Escape') this.close() }
+  #onReady    = () => this.#bindLeafletMove()
+  #onKey      = (e) => { if (e.key === 'Escape') this.close() }
 
   connectedCallback() {
     super.connectedCallback()
@@ -226,7 +226,7 @@ export class CristaePopup extends LitElement {
   // `safe`: un `contentOf` que lance no corta el fan-out del Emitter. Sin binding no hay vida.
   #create(key, item, binding, anchor, live) {
     const node = document.createElement('div')
-    node.className = 'cristae-popup'
+    node.className     = 'cristae-popup'
     node.style.cssText = `position:fixed; z-index:10000; transform:${NODE_TRANSFORM}`
     document.body.appendChild(node)
     const popup = {
@@ -342,9 +342,9 @@ export class CristaePopup extends LitElement {
     if (this.fit) return this.#placeFit(popup, rect, cx, cy)
     const [dx, dy] = parsePair(this.offset) ?? [0, -12]
     const nodeLeft = rect.left + cx + dx
-    const nodeTop = rect.top + cy + dy
+    const nodeTop  = rect.top + cy + dy
     popup.node.style.left = `${nodeLeft}px`
-    popup.node.style.top = `${nodeTop}px`
+    popup.node.style.top  = `${nodeTop}px`
     this.#applyClip(popup, rect, cam.insets ?? ZERO_INSETS, nodeLeft, nodeTop)
   }
 
@@ -379,26 +379,26 @@ export class CristaePopup extends LitElement {
     const [ox, oy] = parsePair(this.offset) ?? [0, -12]
     const [px, py] = parsePair(this.fitPadding ?? this.autoPanPadding) ?? [20, 20]
     const { left, top, side, clip } = computePlacement({
-      anchor: { x: rect.left + cx, y: rect.top + cy },
-      size: { w: popup.w, h: popup.h },
+      anchor  : { x: rect.left + cx, y: rect.top + cy },
+      size    : { w: popup.w, h: popup.h },
       viewport: {
-        left: rect.left + ins.left,
-        top: rect.top + ins.top,
-        right: rect.right - ins.right,
+        left  : rect.left + ins.left,
+        top   : rect.top + ins.top,
+        right : rect.right - ins.right,
         bottom: rect.bottom - ins.bottom,
       },
-      stages: stagesFrom(parseTokens(this.fit)),
-      offsetX: ox,
-      gap: Math.abs(oy),
+      stages  : stagesFrom(parseTokens(this.fit)),
+      offsetX : ox,
+      gap     : Math.abs(oy),
       paddingX: px,
       paddingY: py,
     })
     const node = popup.node
     node.style.transform = 'none'
-    node.style.left = `${left}px`
-    node.style.top = `${top}px`
-    node.dataset.side = side
-    node.style.clipPath = clip ? `inset(${clip.top}px ${clip.right}px ${clip.bottom}px ${clip.left}px)` : ''
+    node.style.left      = `${left}px`
+    node.style.top       = `${top}px`
+    node.dataset.side    = side
+    node.style.clipPath  = clip ? `inset(${clip.top}px ${clip.right}px ${clip.bottom}px ${clip.left}px)` : ''
   }
 
   // Si la caja ya posicionada se sale de la región visible (contenedor menos viewport-insets),

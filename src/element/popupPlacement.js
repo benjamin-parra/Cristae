@@ -33,7 +33,7 @@ const flipStage = (box, ctx) => {
   const fitsBelow = ctx.topBelow + ctx.h <= ctx.pB
   if (!fitsAbove && (fitsBelow || ctx.pB - ctx.topBelow > ctx.anchorY - ctx.gap - ctx.pT)) {
     box.side = 'below'
-    box.top = ctx.topBelow
+    box.top  = ctx.topBelow
   }
   return box
 }

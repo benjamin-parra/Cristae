@@ -18,8 +18,8 @@ const FONT = '700 10.5px Inter, ui-sans-serif, system-ui, -apple-system, sans-se
 
 const DEFAULT_STYLE = Object.freeze({
   surface: '#ffffff',
-  text: '#0f172a',
-  accent: '#2563eb',
+  text:    '#0f172a',
+  accent:  '#2563eb',
 })
 
 // El lienzo: una L.Layer mínima que delega el pintado y mantiene el canvas alineado y nítido (DPR).
@@ -42,9 +42,9 @@ class CanvasOverlay extends L.Layer {
   }
 
   onAdd(map) {
-    this._map = map
+    this._map    = map
     this.#canvas = L.DomUtil.create('canvas', 'cristae-label-canvas')
-    this.#ctx = this.#canvas.getContext('2d', { alpha: true })
+    this.#ctx    = this.#canvas.getContext('2d', { alpha: true })
     this.getPane().appendChild(this.#canvas)
     map.on('zoomstart', this.#hide, this)
     map.on('moveend zoomend resize', this.requestRedraw, this)
@@ -59,8 +59,8 @@ class CanvasOverlay extends L.Layer {
     map.off('zoomend', this.#show, this)
     L.DomUtil.remove(this.#canvas)
     this.#canvas = null
-    this.#ctx = null
-    this._map = null
+    this.#ctx    = null
+    this._map    = null
   }
 
   requestRedraw() {
@@ -86,13 +86,13 @@ class CanvasOverlay extends L.Layer {
     L.DomUtil.setPosition(this.#canvas, this._map.containerPointToLayerPoint([0, 0]))
 
     if (this.#width !== size.x || this.#height !== size.y || this.#ratio !== ratio) {
-      this.#width = size.x
-      this.#height = size.y
-      this.#ratio = ratio
-      this.#canvas.style.width = `${size.x}px`
+      this.#width               = size.x
+      this.#height              = size.y
+      this.#ratio               = ratio
+      this.#canvas.style.width  = `${size.x}px`
       this.#canvas.style.height = `${size.y}px`
-      this.#canvas.width = Math.round(size.x * ratio)
-      this.#canvas.height = Math.round(size.y * ratio)
+      this.#canvas.width        = Math.round(size.x * ratio)
+      this.#canvas.height       = Math.round(size.y * ratio)
     }
     this.#ctx.setTransform(ratio, 0, 0, ratio, 0, 0)
   }
@@ -111,16 +111,16 @@ export class LabelLayer {
   #style
 
   constructor({ map, pane, paint = drawLabel, boundsPad = 0.08, style = DEFAULT_STYLE } = {}) {
-    this.#map = map
-    this.#pane = pane.name
-    this.#paint = paint
+    this.#map       = map
+    this.#pane      = pane.name
+    this.#paint     = paint
     this.#boundsPad = boundsPad
-    this.#style = style
+    this.#style     = style
     // Asegura (get-or-create) el pane de las etiquetas antes de montar el overlay.
     const labelPane = this.#map.getPane(pane.name) ?? this.#map.createPane(pane.name)
-    labelPane.style.zIndex = String(pane.zIndex)
+    labelPane.style.zIndex        = String(pane.zIndex)
     labelPane.style.pointerEvents = 'none'
-    this.#overlay = new CanvasOverlay((ctx, leaflet) => this.#render(ctx, leaflet))
+    this.#overlay              = new CanvasOverlay((ctx, leaflet) => this.#render(ctx, leaflet))
     this.#overlay.options.pane = pane.name
     this.#overlay.addTo(map)
   }
@@ -191,7 +191,7 @@ const widthCache = new Map()                 // 'font|text' → ancho medido (me
 const prepareContext = (ctx) => {
   const ratio = window.devicePixelRatio || 1
   ctx.clearRect(0, 0, ctx.canvas.width / ratio, ctx.canvas.height / ratio)
-  ctx.font = FONT
+  ctx.font         = FONT
   ctx.textBaseline = 'middle'
 }
 
@@ -226,9 +226,9 @@ export const drawLabel = (ctx, point, label, hovered, style = DEFAULT_STYLE) => 
 
   ctx.save()
   roundedRect(ctx, x, y, width, LABEL_HEIGHT, radius)
-  ctx.fillStyle = style.surface
+  ctx.fillStyle   = style.surface
   ctx.strokeStyle = withAlpha(accent, hovered ? 0.9 : 0.35)
-  ctx.lineWidth = 1.15
+  ctx.lineWidth   = 1.15
   ctx.fill()
   ctx.stroke()
 

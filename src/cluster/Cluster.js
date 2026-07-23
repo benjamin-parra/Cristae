@@ -210,10 +210,10 @@ export class Cluster {
     // Captura la SESIÓN: congela el set de hojas (id + posición) del click. Desde acá la membresía/conteo
     // del base no se re-derivan del árbol vivo. innerAnchor arranca null (abrir otro base cierra el interno).
     this.#sesion = {
-      baseAnchor: anchorId,
+      baseAnchor:  anchorId,
       innerAnchor: null,
       expandedSig: '',
-      baseLeaves: leaves.map(lf => ({ properties: { id: lf.properties.id }, geometry: { coordinates: lf.geometry.coordinates } })),
+      baseLeaves:  leaves.map(lf => ({ properties: { id: lf.properties.id }, geometry: { coordinates: lf.geometry.coordinates } })),
       baseLeafIds: new Set(ids),
     }
     this.#refreshExpandedSig()
@@ -230,14 +230,14 @@ export class Cluster {
       if (!this.#hasBaseAnchor(this.#leavesOf(clusterId))) return null   // stale → hojas null → hasBaseAnchor false
     }
     const ids = s ? [...s.baseLeafIds] : []
-    this.#sesion = null
+    this.#sesion    = null
     this.#signature = null
     return ids
   }
 
   collapseAll() {
     if (!this.#sesion) return false
-    this.#sesion = null
+    this.#sesion    = null
     this.#signature = null
     return true
   }
@@ -305,13 +305,13 @@ export class Cluster {
       if (ids.has(id)) return                    // id duplicado → gana el primero (mismo criterio que Store/PointLayer)
       ids.add(id)
       features.push({
-        type: 'Feature',
-        geometry: { type: 'Point', coordinates: [pos.lng, pos.lat] },
+        type:       'Feature',
+        geometry:   { type: 'Point', coordinates: [pos.lng, pos.lat] },
         properties: { id },
       })
     })
     this.#features = features
-    this.#allIds = ids
+    this.#allIds   = ids
     this.#sc.load(features)
     // Poda de anclas + reconciliación del SNAPSHOT de sesión ante rotación de flota. Si el ancla base ya
     // no existe → colapsa todo. Si sigue, el snapshot sólo ENCOGE por bajas reales (hojas que salieron del
@@ -322,7 +322,7 @@ export class Cluster {
       this.#sesion = null
     } else if (s) {
       if (s.baseLeaves.some(l => !ids.has(l.properties.id))) {
-        s.baseLeaves = s.baseLeaves.filter(l => ids.has(l.properties.id))
+        s.baseLeaves  = s.baseLeaves.filter(l => ids.has(l.properties.id))
         s.baseLeafIds = new Set(s.baseLeaves.map(l => l.properties.id))
         s.innerAnchor = null   // una baja real re-particiona el snapshot → cierra el sub-cluster interno
         this.#refreshExpandedSig()
@@ -342,9 +342,9 @@ export class Cluster {
       if (this.#signature === 'off') return false
       this.#signature = 'off'
       this.#clusteredIds.clear()
-      this.#bubbles = []
+      this.#bubbles        = []
       this.#expandedGroups = []
-      this.#markedHidden = []
+      this.#markedHidden   = []
       return true
     }
 
@@ -409,7 +409,7 @@ export class Cluster {
     this.#clusteredIds.clear()
     this.#allIds.forEach(id => { if (!soloIds.has(id)) this.#clusteredIds.add(id) })
 
-    this.#bubbles = bubbles
+    this.#bubbles        = bubbles
     this.#expandedGroups = groups
     this.#refreshMarked()
     return true
@@ -479,14 +479,14 @@ export class Cluster {
 
   reset() {
     this.#features = []
-    this.#allIds = new Set()
+    this.#allIds   = new Set()
     this.#clusteredIds.clear()
-    this.#bubbles = []
+    this.#bubbles        = []
     this.#expandedGroups = []
-    this.#markedHidden = []
-    this.#sesion = null
-    this.#signature = null
-    this.#sc = this.#build()
+    this.#markedHidden   = []
+    this.#sesion         = null
+    this.#signature      = null
+    this.#sc             = this.#build()
   }
 
   /* ── Internos ── */

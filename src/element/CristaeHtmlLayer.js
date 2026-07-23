@@ -10,11 +10,11 @@ export class CristaeHtmlLayer extends CristaeLayerElement {
   static cristaeSignature = { consumes: [], produces: ['html'], combine: null, arity: 'leaf' }
 
   static properties = {
-    data: { type: Array },
-    source: { attribute: false },
-    accessors: { type: Object },
+    data       : { type: Array },
+    source     : { attribute: false },
+    accessors  : { type: Object },
     interactive: { type: Boolean },
-    visible: { type: Boolean },
+    visible    : { type: Boolean },
   }
 
   constructor() {
@@ -29,12 +29,12 @@ export class CristaeHtmlLayer extends CristaeLayerElement {
 
   mountLayer(engine) {
     return engine.addHtmlLayer({
-      id: this.layerId(),
-      source: this.source,
-      data: this.data,
-      accessors: this.accessors,
+      id         : this.layerId(),
+      source     : this.source,
+      data       : this.data,
+      accessors  : this.accessors,
       interactive: this.interactive,
-      visible: this.visible,
+      visible    : this.visible,
     })
   }
 

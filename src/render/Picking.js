@@ -28,8 +28,8 @@ export class Picking {
 
   // Devuelve el programa de picking para que el binding del atlas le setee sus dims-uniforms.
   attach(gl, visualProgram, atlasTexture) {
-    this.#gl = gl
-    this.#atlasTexture = atlasTexture
+    this.#gl            = gl
+    this.#atlasTexture  = atlasTexture
     this.#visualProgram = visualProgram
     this.#createFbo()
     this.#compile(visualProgram)

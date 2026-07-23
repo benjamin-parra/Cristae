@@ -69,14 +69,14 @@ export class PagedTable {
 
   #refs = {
     scrollContainer: null,
-    container: null,
-    spacerTop: null,
-    spacerBottom: null,
-    rowTemplate: null,
-    pool: [],
-    viewportHeight: 0,
-    renderStart: 0,
-    renderEnd: -1,
+    container      : null,
+    spacerTop      : null,
+    spacerBottom   : null,
+    rowTemplate    : null,
+    pool           : [],
+    viewportHeight : 0,
+    renderStart    : 0,
+    renderEnd      : -1,
   }
 
   #visible         = true
@@ -89,14 +89,14 @@ export class PagedTable {
     scrollElement,
     template,
     binder,
-    rowHeight = 28,
-    pageSize = 50,
-    comparator = null,
-    searchBy = null,
+    rowHeight    = 28,
+    pageSize     = 50,
+    comparator   = null,
+    searchBy     = null,
     searchFilter = null,
-    where = null,
-    onSlice = null,
-    onPage = null,
+    where        = null,
+    onSlice      = null,
+    onPage       = null,
   } = {}) {
     if (!container) throw new TypeError('[PagedTable] container es obligatorio')
     if (!scrollElement) throw new TypeError('[PagedTable] scrollElement es obligatorio')
@@ -134,7 +134,7 @@ export class PagedTable {
   setData(items, hard = true) {
     this.#dataset = items ?? []
     if (hard) {
-      this.#ultimoEmitido.pages = -1
+      this.#ultimoEmitido.pages            = -1
       this.#refs.scrollContainer.scrollTop = 0
     }
     this.#requestUpdate(hard)
@@ -146,23 +146,23 @@ export class PagedTable {
   setPage(pageIndex) {
     const next = Math.max(0, pageIndex | 0)
     if (next === this.#consulta.page) return this
-    this.#consulta.page = next
+    this.#consulta.page                  = next
     this.#refs.scrollContainer.scrollTop = 0
     this.#requestUpdate(false)
     return this
   }
 
   setPageSize(size) {
-    this.#pageSize = Math.max(1, size | 0)
-    this.#ultimoEmitido.pages = -1
+    this.#pageSize                       = Math.max(1, size | 0)
+    this.#ultimoEmitido.pages            = -1
     this.#refs.scrollContainer.scrollTop = 0
     this.#requestUpdate(true)
     return this
   }
 
   setSearch(text) {
-    this.#consulta.query = (text ?? '').trim()
-    this.#ultimoEmitido.pages = -1
+    this.#consulta.query                 = (text ?? '').trim()
+    this.#ultimoEmitido.pages            = -1
     this.#refs.scrollContainer.scrollTop = 0
     this.#requestUpdate(true)
     return this
@@ -175,8 +175,8 @@ export class PagedTable {
   // Igual disciplina que `setSearch`: resetea el conteo de páginas y corre el pipeline
   // duro — sin re-render (el motor reescribe el pool en su rAF).
   setWhere(fn) {
-    this.#options.where = fn ?? null
-    this.#ultimoEmitido.pages = -1
+    this.#options.where                  = fn ?? null
+    this.#ultimoEmitido.pages            = -1
     this.#refs.scrollContainer.scrollTop = 0
     this.#requestUpdate(true)
     return this
@@ -184,11 +184,11 @@ export class PagedTable {
 
   getPageInfo() {
     return {
-      page: this.#consulta.page,
+      page    : this.#consulta.page,
       pageSize: this.#pageSize,
-      total: this.#totalItems,
-      pages: Math.ceil(this.#totalItems / this.#pageSize) || 1,
-      offset: this.#consulta.page * this.#pageSize,
+      total   : this.#totalItems,
+      pages   : Math.ceil(this.#totalItems / this.#pageSize) || 1,
+      offset  : this.#consulta.page * this.#pageSize,
     }
   }
 
@@ -248,8 +248,8 @@ export class PagedTable {
     this.#detachSource()
 
     this.#options.container.textContent = ''
-    this.#dataset = this.#workingSet = this.#visibleSlice = null
-    this.#refs.pool = null
+    this.#dataset                       = this.#workingSet = this.#visibleSlice = null
+    this.#refs.pool                     = null
   }
 
   // ── Internos ─────────────────────────────────────────────────────────────
@@ -317,9 +317,9 @@ export class PagedTable {
   #executePipeline(hard) {
     const q = this.#consulta   // se lee/escribe la página varias veces en este camino caliente
     if (hard) {
-      q.page = 0
+      q.page                 = 0
       this.#refs.renderStart = 0
-      this.#refs.renderEnd = -1
+      this.#refs.renderEnd   = -1
     }
 
     const count = this.#mergeAndFilter()
@@ -421,7 +421,7 @@ export class PagedTable {
 
     if (first === refs.renderStart && last === refs.renderEnd) return
 
-    refs.spacerTop.style.height = (first * rowHeight) + 'px'
+    refs.spacerTop.style.height    = (first * rowHeight) + 'px'
     refs.spacerBottom.style.height = ((len - last - 1) * rowHeight) + 'px'
 
     const anchor = refs.spacerBottom
@@ -437,13 +437,13 @@ export class PagedTable {
     this.#options.container.insertBefore(frag, anchor)
 
     refs.renderStart = first
-    refs.renderEnd = last
+    refs.renderEnd   = last
   }
 
   #clearViewport() {
     const refs = this.#refs
     refs.renderStart = 0
-    refs.renderEnd = -1
+    refs.renderEnd   = -1
 
     let cursor = refs.spacerTop.nextSibling
     while (cursor && cursor !== refs.spacerBottom) {
@@ -463,7 +463,7 @@ export class PagedTable {
     const page = this.#consulta.page
     if (totalPages === m.pages && page === m.page && this.#totalItems === m.total) return
     m.pages = totalPages
-    m.page = page
+    m.page  = page
     m.total = this.#totalItems
     this.#options.onPage?.(this.getPageInfo())
   }
@@ -472,20 +472,20 @@ export class PagedTable {
     const refs = this.#refs
     const container = this.#options.container
 
-    refs.rowTemplate = document.createElement('template')
+    refs.rowTemplate           = document.createElement('template')
     refs.rowTemplate.innerHTML = this.#options.template
-    refs.scrollContainer = this.#options.scrollElement
-    refs.container = container
-    container.textContent = ''
+    refs.scrollContainer       = this.#options.scrollElement
+    refs.container             = container
+    container.textContent      = ''
 
     // Spacers <tr> dentro de <table>, <div> en cualquier otro contenedor.
     const isTable = container.closest('table') != null
     const spacerTag = isTable ? 'tr' : 'div'
 
-    refs.spacerTop = document.createElement(spacerTag)
-    refs.spacerBottom = document.createElement(spacerTag)
-    refs.spacerTop.style.display = refs.spacerBottom.style.display = 'block'
-    refs.spacerTop.style.height = refs.spacerBottom.style.height = '0px'
+    refs.spacerTop                         = document.createElement(spacerTag)
+    refs.spacerBottom                      = document.createElement(spacerTag)
+    refs.spacerTop.style.display           = refs.spacerBottom.style.display = 'block'
+    refs.spacerTop.style.height            = refs.spacerBottom.style.height = '0px'
     refs.spacerTop.style.contentVisibility = refs.spacerBottom.style.contentVisibility = 'auto'
 
     container.appendChild(refs.spacerTop)

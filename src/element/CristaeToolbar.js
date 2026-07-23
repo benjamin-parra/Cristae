@@ -15,7 +15,7 @@ import { styleMap } from 'lit/directives/style-map.js'
 export class CristaeToolbar extends LitElement {
 
   static properties = {
-    items: { type: Array },
+    items:       { type: Array },
     orientation: { type: String, reflect: true },   // vertical (default) | horizontal
   }
 

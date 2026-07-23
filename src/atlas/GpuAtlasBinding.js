@@ -11,11 +11,11 @@ export class GpuAtlasBinding {
   #gl
   #texture
   #programs = []          // programas que muestrean el atlas (visual + picking)
-  #atlas = null
+  #atlas    = null
   #uploaded = 0
 
   constructor(gl) {
-    this.#gl = gl
+    this.#gl      = gl
     this.#texture = gl.createTexture()
     gl.bindTexture(gl.TEXTURE_2D, this.#texture)
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
@@ -42,7 +42,7 @@ export class GpuAtlasBinding {
     if (this.#atlas !== atlas) {                 // regrow / primera generación → re-sube todo
       this.#allocate(atlas)
       for (let i = 0; i < atlas.count; i++) this.#upload(atlas, i)
-      this.#atlas = atlas
+      this.#atlas    = atlas
       this.#uploaded = atlas.count
       this.#programs.forEach(p => this.#applyDims(p, atlas))   // dims → uniforms, sin recompilar
       return
@@ -55,9 +55,9 @@ export class GpuAtlasBinding {
 
   destroy() {
     this.#gl.deleteTexture(this.#texture)
-    this.#texture = null
+    this.#texture  = null
     this.#programs = []
-    this.#atlas = null
+    this.#atlas    = null
   }
 
   // Textura del tamaño de la grilla, vacía; los tiles entran por texSubImage2D.

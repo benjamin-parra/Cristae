@@ -49,15 +49,15 @@ export class PointLayer {
   // `where` filtra qué ítems de la Source entran a ESTA capa (overlay: sólo los que
   // tienen badge), sin tocar la Source (que el mapa comparte).
   constructor({ glify, map, pane, source, iconSet, interactive = false, accessors = null, where = null }) {
-    this.#glify = glify
-    this.#map = map
-    this.#pane = pane
-    this.#source = source
-    this.#accessors = accessors ?? source.accessors
-    this.#where = where
-    this.#iconSet = iconSet
+    this.#glify       = glify
+    this.#map         = map
+    this.#pane        = pane
+    this.#source      = source
+    this.#accessors   = accessors ?? source.accessors
+    this.#where       = where
+    this.#iconSet     = iconSet
     this.#interactive = interactive
-    this.#unsub = source.subscribe(() => this.#onChange())
+    this.#unsub       = source.subscribe(() => this.#onChange())
     this.#onChange()
   }
 
@@ -80,7 +80,7 @@ export class PointLayer {
   collectHoverHit() {
     const pick = this.#picking?.collect()
     if (!pick) return null
-    this.#hoverPick.hits = this.#hitsFromSlots(pick.slots)
+    this.#hoverPick.hits   = this.#hitsFromSlots(pick.slots)
     this.#hoverPick.sample = pick.metadata
     return pick.metadata
   }
@@ -242,10 +242,10 @@ export class PointLayer {
       idx++
     }
     this.#positions.length = idx
-    this.#meta.length = idx
-    this.#idBySlot.length = idx
-    this.#count = idx
-    this.#snapLen = snap.length
+    this.#meta.length      = idx
+    this.#idBySlot.length  = idx
+    this.#count            = idx
+    this.#snapLen          = snap.length
 
     if (!this.#layer) this.#create()
     else this.#layer.setData(this.#positions)          // el atlas ya quedó settled tras el loop
@@ -258,17 +258,17 @@ export class PointLayer {
   // Primera vez: crea la capa glify con NUESTROS shaders; los callbacks leen meta por índice.
   #create() {
     this.#layer = this.#glify.points({
-      map: this.#map,
-      pane: this.#pane,
-      data: this.#positions,
-      latitudeKey: 0,
-      longitudeKey: 1,
-      sensitivity: 0,                                   // irrelevante: sin `click`/`hover` glify NO registra su handler
-      sensitivityHover: 0,
-      vertexShaderSource: POINT_VERTEX,
+      map:                  this.#map,
+      pane:                 this.#pane,
+      data:                 this.#positions,
+      latitudeKey:          0,
+      longitudeKey:         1,
+      sensitivity:          0, // irrelevante: sin `click`/`hover` glify NO registra su handler
+      sensitivityHover:     0,
+      vertexShaderSource:   POINT_VERTEX,
       fragmentShaderSource: POINT_FRAGMENT,
-      color: (i) => this.#colorAt(i),
-      size: (i) => this.#meta[i].size,
+      color:                (i) => this.#colorAt(i),
+      size:                 (i) => this.#meta[i].size,
     })
     const gl = this.#layer.gl
     if (this.#layer.bytes !== 7)
@@ -298,10 +298,10 @@ export class PointLayer {
   // render() de glify (points.ts:114). Re-emite DYNAMIC_DRAW (hint apto a updates puntuales).
   #bind() {
     const gl = this.#layer.gl
-    this.#buf = this.#layer.getBuffer('vertices')
+    this.#buf   = this.#layer.getBuffer('vertices')
     this.#verts = this.#layer.typedVertices
-    this.#cx = this.#layer.mapCenterPixels.x
-    this.#cy = this.#layer.mapCenterPixels.y
+    this.#cx    = this.#layer.mapCenterPixels.x
+    this.#cy    = this.#layer.mapCenterPixels.y
     gl.bindBuffer(gl.ARRAY_BUFFER, this.#buf)
     gl.bufferData(gl.ARRAY_BUFFER, this.#verts, gl.DYNAMIC_DRAW)
   }
@@ -335,9 +335,9 @@ export class PointLayer {
     p[0] = lat
     p[1] = lng
     const m = this.#meta[s]
-    m.tileIdx = tileIdx
+    m.tileIdx   = tileIdx
     m.angleNorm = an
-    m.size = sz
+    m.size      = sz
     const v = this.#verts
     const base = s * 7
     v[base] = projX0(lng) - this.#cx

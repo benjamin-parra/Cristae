@@ -17,7 +17,7 @@ const MAX_SEED_TILES_PER_ZOOM = 24
 
 const ensureSnapshotPane = (map, paneName, paneZIndex) => {
   const pane = map.getPane(paneName) ?? map.createPane(paneName)
-  pane.style.zIndex = String(paneZIndex)
+  pane.style.zIndex        = String(paneZIndex)
   pane.style.pointerEvents = 'none'
   return pane
 }
@@ -29,20 +29,20 @@ const buildSnapshotCanvas = (group, layer, filterString) => {
   const width = unionRight - unionLeft
   const height = unionBottom - unionTop
   const canvas = document.createElement('canvas')
-  canvas.width = width
-  canvas.height = height
-  canvas.style.position = 'absolute'
-  canvas.style.left = '0px'
-  canvas.style.top = '0px'
-  canvas.style.width = `${width}px`
-  canvas.style.height = `${height}px`
-  canvas.style.pointerEvents = 'none'
+  canvas.width                 = width
+  canvas.height                = height
+  canvas.style.position        = 'absolute'
+  canvas.style.left            = '0px'
+  canvas.style.top             = '0px'
+  canvas.style.width           = `${width}px`
+  canvas.style.height          = `${height}px`
+  canvas.style.pointerEvents   = 'none'
   canvas.style.transformOrigin = '0 0'
-  canvas.style.filter = filterString
+  canvas.style.filter          = filterString
 
   const ctx = canvas.getContext('2d', { alpha: true })
   if (!ctx) return null
-  ctx.imageSmoothingEnabled = true
+  ctx.imageSmoothingEnabled  = true
   ctx.imageSmoothingQuality = 'low'
 
   tiles.forEach(({ tile, left, top }) => {
@@ -51,8 +51,8 @@ const buildSnapshotCanvas = (group, layer, filterString) => {
 
   return {
     element: canvas,
-    meta: {
-      sourceZoom: zoom,
+    meta   : {
+      sourceZoom        : zoom,
       sourcePixelTopLeft: L.point(unionLeft, unionTop),
     },
   }
@@ -80,18 +80,18 @@ const buildTileSnapshots = (layer) => {
     const left = entry.coords.x * tileSize.x
     const top = entry.coords.y * tileSize.y
     const group = groups.get(zoom) ?? {
-      tiles: [],
-      unionLeft: Infinity,
-      unionTop: Infinity,
-      unionRight: -Infinity,
+      tiles      : [],
+      unionLeft  : Infinity,
+      unionTop   : Infinity,
+      unionRight : -Infinity,
       unionBottom: -Infinity,
       zoom,
     }
 
     group.tiles.push({ tile, left, top })
-    group.unionLeft = Math.min(group.unionLeft, left)
-    group.unionTop = Math.min(group.unionTop, top)
-    group.unionRight = Math.max(group.unionRight, left + tileSize.x)
+    group.unionLeft   = Math.min(group.unionLeft, left)
+    group.unionTop    = Math.min(group.unionTop, top)
+    group.unionRight  = Math.max(group.unionRight, left + tileSize.x)
     group.unionBottom = Math.max(group.unionBottom, top + tileSize.y)
     groups.set(zoom, group)
   }
@@ -150,9 +150,9 @@ const loadImage = (url, layer) =>
     const image = new Image()
     if (layer.options.crossOrigin) image.crossOrigin = layer.options.crossOrigin === true ? '' : layer.options.crossOrigin
     if (layer.options.referrerPolicy) image.referrerPolicy = layer.options.referrerPolicy
-    image.onload = () => resolve(image)
+    image.onload  = () => resolve(image)
     image.onerror = () => resolve(null)
-    image.src = url
+    image.src     = url
   })
 
 // Precarga y rasteriza un snapshot para un zoom futuro. `generation` permite abortar:
@@ -168,20 +168,20 @@ const buildSeedSnapshot = async (map, layer, zoom, generation, currentGeneration
     seedTiles.push({
       tile: image,
       left: coords.x * tileSize.x,
-      top: coords.y * tileSize.y,
+      top : coords.y * tileSize.y,
     })
   }
 
   if (!seedTiles.length) return null
 
-  let unionLeft = Infinity
-  let unionTop = Infinity
-  let unionRight = -Infinity
+  let unionLeft   = Infinity
+  let unionTop    = Infinity
+  let unionRight  = -Infinity
   let unionBottom = -Infinity
   seedTiles.forEach((tile) => {
-    unionLeft = Math.min(unionLeft, tile.left)
-    unionTop = Math.min(unionTop, tile.top)
-    unionRight = Math.max(unionRight, tile.left + tileSize.x)
+    unionLeft   = Math.min(unionLeft, tile.left)
+    unionTop    = Math.min(unionTop, tile.top)
+    unionRight  = Math.max(unionRight, tile.left + tileSize.x)
     unionBottom = Math.max(unionBottom, tile.top + tileSize.y)
   })
 
@@ -193,17 +193,17 @@ const buildSeedSnapshot = async (map, layer, zoom, generation, currentGeneration
 }
 
 export const createTileSnapshotRetention = (map, {
-  paneName = 'tileZoomSnapshotPane',
+  paneName   = 'tileZoomSnapshotPane',
   paneZIndex = 150,
 } = {}) => {
-  let activeLayer = null
-  let activePrune = null
-  let retaining = false
-  let pruneDeferred = false
+  let activeLayer      = null
+  let activePrune      = null
+  let retaining        = false
+  let pruneDeferred    = false
   let visibleSnapshots = []
-  let seedGeneration = 0
-  let seedIdleId = null
-  const snapshotStore = new ZoomSnapshotStore()
+  let seedGeneration   = 0
+  let seedIdleId       = null
+  const snapshotStore  = new ZoomSnapshotStore()
 
   const clearSnapshots = () => {
     snapshotStore.clear()
@@ -241,10 +241,10 @@ export const createTileSnapshotRetention = (map, {
   const showSnapshot = (zoom, pixelOrigin) => {
     const pane = ensureSnapshotPane(map, paneName, paneZIndex)
     const placements = snapshotStore.select({
-      targetZoom: zoom,
+      targetZoom  : zoom,
       pixelOrigin,
       viewportSize: map.getSize(),
-      zoomScale: (targetZoom, sourceZoom) => map.getZoomScale(targetZoom, sourceZoom),
+      zoomScale   : (targetZoom, sourceZoom) => map.getZoomScale(targetZoom, sourceZoom),
     })
     const nextSnapshots = placements.map((placement) => placement.snapshot)
 
@@ -263,14 +263,14 @@ export const createTileSnapshotRetention = (map, {
 
   const resetLayer = () => {
     if (activeLayer && activePrune) activeLayer._pruneTiles = activePrune
-    activeLayer = null
-    activePrune = null
+    activeLayer   = null
+    activePrune   = null
     pruneDeferred = false
   }
 
   const endRetention = () => {
     if (retaining && pruneDeferred && activeLayer?._map) activePrune.call(activeLayer)
-    retaining = false
+    retaining     = false
     pruneDeferred = false
   }
 

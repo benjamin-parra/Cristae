@@ -21,12 +21,12 @@ export const PICK_CHANNELS = EVENT_CLICK | EVENT_HOVER
 // Tabla CONSTANTE de módulo (no se reconstruye por llamada) con prototipo nulo: un tipo desconocido
 // —incluido el nombre de un método heredado como 'toString'— no resuelve nada y cae en el `?? 0`.
 const CHANNEL_OF_EVENT_TYPE = {
-  __proto__: null,
-  'click': EVENT_CLICK,
+  __proto__        : null,
+  'click'          : EVENT_CLICK,
   'secondary-click': EVENT_SECONDARY,
-  'hover': EVENT_HOVER,
-  'hover:start': EVENT_HOVER,
-  'hover:end': EVENT_HOVER,
+  'hover'          : EVENT_HOVER,
+  'hover:start'    : EVENT_HOVER,
+  'hover:end'      : EVENT_HOVER,
 }
 
 export const maskOfEventType = (eventType) => CHANNEL_OF_EVENT_TYPE[eventType] ?? 0

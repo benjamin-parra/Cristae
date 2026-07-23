@@ -123,11 +123,11 @@ export function createClusterFold(bridge, targets, { radius, maxZoom, minPoints,
   }
   const ha = base.source.accessors
   const spiderAccessors = {
-    idOf: s => s.id,
+    idOf      : s => s.id,
     positionOf: s => ({ lat: s.lat, lng: s.lng }),
     // hashOf por posición: al recalcularse la espiral (mismo id, nueva pos por reflow/compactado)
     // el default (=idOf) no marcaría dirty → el marcador quedaría en su pos vieja dejando huecos.
-    hashOf: s => `${s.lat}:${s.lng}`,
+    hashOf    : s => `${s.lat}:${s.lng}`,
   }
   if (ha.variantOf) spiderAccessors.variantOf = s => ha.variantOf(s.orig)   // mismo sprite que el host
   if (ha.headingOf) spiderAccessors.headingOf = s => ha.headingOf(s.orig)   // rumbo (si el iconSet rota)
@@ -143,10 +143,10 @@ export function createClusterFold(bridge, targets, { radius, maxZoom, minPoints,
   const spiderSubHandle = bridge.addPointLayer({
     id: spiderSubId, data: [],
     accessors: {
-      idOf: s => s.id,
+      idOf      : s => s.id,
       positionOf: s => ({ lat: s.lat, lng: s.lng }),
-      variantOf: s => (subIconSet.variantForCount?.(s.count) ?? String(s.count)),
-      hashOf: s => `${s.count}:${s.lat}:${s.lng}`,   // re-encode al cambiar conteo/posición
+      variantOf : s => (subIconSet.variantForCount?.(s.count) ?? String(s.count)),
+      hashOf    : s => `${s.count}:${s.lat}:${s.lng}`,   // re-encode al cambiar conteo/posición
     },
     iconSet: subIconSet, interactive: true, z: bridge.overlayZ(base.order, 8), capture: true,   // sobre labels(+200); ocluye lo de abajo
   })
@@ -280,7 +280,7 @@ export function createClusterFold(bridge, targets, { radius, maxZoom, minPoints,
   let lastMarkedSig = ''
   const apply = () => {
     for (const { id, rec } of hosts) {
-      rec.suppressed = cluster.clusteredIds
+      rec.suppressed       = cluster.clusteredIds
       rec.layer.suppressed = cluster.clusteredIds
       if (rec.enabled === false) continue        // host deshabilitado: pane oculto — repintar/resyncear se difiere a setLayerEnabled(true)
       rec.layer.refresh()

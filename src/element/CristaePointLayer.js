@@ -13,16 +13,16 @@ export class CristaePointLayer extends CristaeLayerElement {
   static cristaeSignature = { consumes: [], produces: ['point'], combine: null, arity: 'leaf' }
 
   static properties = {
-    data: { type: Array },
-    source: { attribute: false },                // Source compartida (createSource/defineSource)
-    accessors: { type: Object },
-    iconSet: { attribute: 'icon-set' },          // string (nombre registrado) u objeto IconSet
-    filters: { type: Array },
-    where: { attribute: false },                 // (item) => boolean: membresía por-capa (filtra qué entra a ESTA capa sin tocar la Source compartida)
+    data       : { type: Array },
+    source     : { attribute: false },           // Source compartida (createSource/defineSource)
+    accessors  : { type: Object },
+    iconSet    : { attribute: 'icon-set' },      // string (nombre registrado) u objeto IconSet
+    filters    : { type: Array },
+    where      : { attribute: false },           // (item) => boolean: membresía por-capa (filtra qué entra a ESTA capa sin tocar la Source compartida)
     interactive: { type: Boolean },
-    visible: { type: Boolean },
-    enabled: { type: Boolean },                  // membresía de la ENTIDAD en la composición (default true): off → aporta ∅ a los modificadores (cluster), pane + ligados ocultos
-    autoFit: { attribute: 'auto-fit' },          // "once": encuadra la capa al llegar los primeros puntos
+    visible    : { type: Boolean },
+    enabled    : { type: Boolean },              // membresía de la ENTIDAD en la composición (default true): off → aporta ∅ a los modificadores (cluster), pane + ligados ocultos
+    autoFit    : { attribute: 'auto-fit' },      // "once": encuadra la capa al llegar los primeros puntos
   }
 
   #autoFitUnsub = null
@@ -41,16 +41,16 @@ export class CristaePointLayer extends CristaeLayerElement {
 
   mountLayer(engine) {
     const handle = engine.addPointLayer({
-      id: this.layerId(),
-      source: this.source,                       // si está, gana sobre `data` (el motor hace cfg.source ?? owned)
-      data: this.data,
-      accessors: this.accessors,
-      iconSet: this.iconSet,
-      filters: this.filters,
-      where: this.where,                         // membresía por-capa (filtra la Source compartida sin mutarla)
+      id         : this.layerId(),
+      source     : this.source,                  // si está, gana sobre `data` (el motor hace cfg.source ?? owned)
+      data       : this.data,
+      accessors  : this.accessors,
+      iconSet    : this.iconSet,
+      filters    : this.filters,
+      where      : this.where,                   // membresía por-capa (filtra la Source compartida sin mutarla)
       interactive: this.interactive,
-      visible: this.visible,
-      enabled: this.enabled,
+      visible    : this.visible,
+      enabled    : this.enabled,
     })
     if (this.autoFit) this.#autoFitOnce(engine, handle)
     return handle

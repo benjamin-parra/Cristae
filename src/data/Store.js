@@ -163,12 +163,12 @@ export class Store {
   // El hijo hereda los filtros activos del padre y se re-genera ante cada cambio del padre.
   reactiveCompose(parent) {
     if (!(parent instanceof Store)) return this
-    this.#parent = parent
+    this.#parent               = parent
     this.#layers.parentFilters = parent.activeFilters
 
     const self = this
     parent.addListener({
-      id: this.#instanceId,
+      id:       this.#instanceId,
       callback: () => {
         self.#layers.parentFilters = parent.activeFilters
         self.#hardRegenerate()
@@ -185,12 +185,12 @@ export class Store {
   destroy() {
     // Sin esto, el listener que reactiveCompose registró en el padre quedaría vivo (leak).
     if (this.#parent) this.#parent.removeListener(this.#instanceId)
-    this.#parent = null
+    this.#parent    = null
     this.#listeners = []
     const ly = this.#layers
-    ly.base = []
+    ly.base           = []
     ly.parentFiltered = []
-    ly.selfFiltered = []
+    ly.selfFiltered   = []
   }
 
   /* ── Lectura (refs estables entre flushes) ── */

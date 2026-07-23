@@ -74,12 +74,12 @@ export class ZoomSnapshotStore {
   add(snapshot, { kind = 'normal' } = {}) {
     const entry = {
       element: snapshot.element,
-      height: snapshot.element.height,
+      height : snapshot.element.height,
       kind,
-      sequence: ++this.#sequence,
+      sequence:           ++this.#sequence,
       sourcePixelTopLeft: snapshot.meta.sourcePixelTopLeft,
-      sourceZoom: snapshot.meta.sourceZoom,
-      width: snapshot.element.width,
+      sourceZoom:         snapshot.meta.sourceZoom,
+      width:              snapshot.element.width,
     }
 
     this.#entries.push(entry)
@@ -101,7 +101,7 @@ export class ZoomSnapshotStore {
       viewport,
       center,
       viewportArea: area(viewport),
-      centerArea: area(center),
+      centerArea  : area(center),
       zoomScale,
     }
 
@@ -129,7 +129,7 @@ export class ZoomSnapshotStore {
   // Libera el canvas: lo saca del DOM y colapsa sus dimensiones para soltar la memoria.
   static discard(entry) {
     entry.element.remove()
-    entry.element.width = 0
+    entry.element.width  = 0
     entry.element.height = 0
   }
 

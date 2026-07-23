@@ -37,7 +37,7 @@ export class Interaction {
   #onEmptyClick
 
   // Estado del puntero (muta-y-reusa salvo seq). seq distingue muestras para validar el cache.
-  #pointer = { seq: 0, clientX: 0, clientY: 0, containerPoint: { x: 0, y: 0 } }
+  #pointer       = { seq: 0, clientX: 0, clientY: 0, containerPoint: { x: 0, y: 0 } }
   #containerRect = null
 
   #interacting = false          // gesto de zoom/pan en curso → suprime hover (ortogonal al subsistema)
@@ -45,14 +45,14 @@ export class Interaction {
   // Estado del subsistema de hover (picking GPU): demanda, sesión activa, cursor y bookkeeping de
   // throttle/latest-only. Se muta-y-reusa (nunca se reasigna) — los métodos calientes cachean la ref.
   #hover = {
-    hoverDemand: false,   // demanda del canal HOVER → emitir eventos de hover
-    pickDemand: false,    // demanda de CLICK u HOVER → correr el picking (para el cursor)
-    dirty: false,         // llegó un pointermove con la sesión abierta → relee al cerrar
-    lastAt: -Infinity,    // marca de tiempo del último inicio de sesión (throttle)
-    session: null,        // sesión de picking en curso | null
-    generation: 0,        // sella cada sesión (invalidación)
-    rafId: null,          // handle del rAF del tick | null
-    cursorOn: false,      // ¿el cursor 'pointer' está puesto?
+    hoverDemand: false,       // demanda del canal HOVER → emitir eventos de hover
+    pickDemand : false,       // demanda de CLICK u HOVER → correr el picking (para el cursor)
+    dirty      : false,       // llegó un pointermove con la sesión abierta → relee al cerrar
+    lastAt     : -Infinity,   // marca de tiempo del último inicio de sesión (throttle)
+    session    : null,        // sesión de picking en curso | null
+    generation : 0,           // sella cada sesión (invalidación)
+    rafId      : null,        // handle del rAF del tick | null
+    cursorOn   : false,       // ¿el cursor 'pointer' está puesto?
   }
 
   #domHandlers = new Map()
@@ -76,10 +76,10 @@ export class Interaction {
   // El motor la llama cuando cambia la demanda (alta/baja de un handler de click/hover). Recalcula
   // los dos gates: HOVER (emitir eventos) y CLICK|HOVER (correr el picking para el cursor).
   syncHoverDemand() {
-    const ids = this.#registry.layerIds()
-    const h = this.#hover
+    const ids     = this.#registry.layerIds()
+    const h       = this.#hover
     h.hoverDemand = ids.some(id => this.#registry.demandMaskOf(id) & EVENT_HOVER)
-    h.pickDemand = ids.some(id => this.#registry.demandMaskOf(id) & PICK_CHANNELS)
+    h.pickDemand  = ids.some(id => this.#registry.demandMaskOf(id) & PICK_CHANNELS)
     if (!h.pickDemand) this.#endHover()
   }
 
@@ -123,8 +123,8 @@ export class Interaction {
     const rect = this.#containerRect ?? (this.#containerRect = this.#container.getBoundingClientRect())
     const p = this.#pointer
     p.seq++
-    p.clientX = event.clientX
-    p.clientY = event.clientY
+    p.clientX          = event.clientX
+    p.clientY          = event.clientY
     p.containerPoint.x = event.clientX - rect.left
     p.containerPoint.y = event.clientY - rect.top
     return p
@@ -135,10 +135,10 @@ export class Interaction {
   #sampleOf(p) {
     const cp = [p.containerPoint.x, p.containerPoint.y]
     return {
-      seq: p.seq,
+      seq           : p.seq,
       containerPoint: { x: p.containerPoint.x, y: p.containerPoint.y },
-      latlng: this.#map.containerPointToLatLng(cp),
-      layerPoint: this.#map.containerPointToLayerPoint(cp),
+      latlng        : this.#map.containerPointToLatLng(cp),
+      layerPoint    : this.#map.containerPointToLayerPoint(cp),
     }
   }
 
@@ -180,7 +180,7 @@ export class Interaction {
     const containerPoint = this.#map.mouseEventToContainerPoint(event)
     const sample = {
       containerPoint,
-      latlng: this.#map.containerPointToLatLng(containerPoint),
+      latlng    : this.#map.containerPointToLatLng(containerPoint),
       layerPoint: this.#map.containerPointToLayerPoint(containerPoint),
     }
     const hits = this.#registry.resolveHits('secondary-click', sample)
@@ -191,7 +191,7 @@ export class Interaction {
 
   #startHover(sample) {
     const h = this.#hover
-    h.dirty = false
+    h.dirty  = false
     h.lastAt = now()
 
     // Se pickean las capas interactivas con demanda de CLICK u HOVER: las solo-click se pickean
@@ -205,7 +205,7 @@ export class Interaction {
     h.session = {
       sample,
       generation: ++h.generation,
-      layers: queued.map(({ layerId, layer }) => ({ layerId, layer, done: false })),
+      layers    : queued.map(({ layerId, layer }) => ({ layerId, layer, done: false })),
     }
     this.#scheduleTick()
   }
@@ -276,7 +276,7 @@ export class Interaction {
   #setCursor(on) {
     const h = this.#hover
     if (on === h.cursorOn) return
-    h.cursorOn = on
+    h.cursorOn                   = on
     this.#container.style.cursor = on ? 'pointer' : ''
   }
 

@@ -11,8 +11,8 @@ const resolveHoverParts = (entry, baseEvent) =>
   (entry.activeMask & EVENT_HOVER) ? (entry.resolveHover?.(baseEvent) ?? []) : []
 
 const HIT_PART_ROUTE = {
-  __proto__: null,
-  'click': (entry, baseEvent) =>
+  __proto__        : null,
+  'click'          : (entry, baseEvent) =>
     (entry.activeMask & EVENT_CLICK) ? (entry.resolveClick?.(baseEvent) ?? []) : [],
   'secondary-click': (entry, baseEvent) =>
     (entry.activeMask & EVENT_SECONDARY) ? (entry.resolveClick?.(baseEvent) ?? []) : [],
@@ -36,7 +36,7 @@ export class LayerRegistry {
   #layers = {
     entriesById: new Map(),
     objectsById: new Map(),
-    overlays:    new Set(),
+    overlays   : new Set(),
   }
   #nextDeclOrder = 0
 
@@ -74,12 +74,12 @@ export class LayerRegistry {
     this.upsertResolver({
       layerId,
       kind,
-      zIndex: zIndex ?? this.#hitResolver.zIndexOf(layer),
-      declOrder: declOrder ?? this.#nextDeclOrder,
-      resolveClick: resolveClick ?? resolver,
-      resolveHover: resolveHover ?? resolver,
+      zIndex         : zIndex ?? this.#hitResolver.zIndexOf(layer),
+      declOrder      : declOrder ?? this.#nextDeclOrder,
+      resolveClick   : resolveClick ?? resolver,
+      resolveHover   : resolveHover ?? resolver,
       getLeafletLayer: () => layer,
-      visible: true,
+      visible        : true,
     }, targetRef)
 
     return targetRef
@@ -92,7 +92,7 @@ export class LayerRegistry {
 
     const { entriesById, objectsById, overlays } = this.#layers
     const previous = entriesById.get(entry.layerId)
-    entry.visible = entry.visible ?? true
+    entry.visible    = entry.visible ?? true
     entry.activeMask = entry.activeMask ?? previous?.activeMask ?? 0
 
     entriesById.set(entry.layerId, entry)
@@ -139,11 +139,11 @@ export class LayerRegistry {
         // claves del registro van DESPUÉS del spread: la identidad de la capa no es negociable.
         hits.push({
           ...part,
-          layerId: entry.layerId,
-          kind: entry.kind,
+          layerId:    entry.layerId,
+          kind:       entry.kind,
           distancePx: part.distancePx ?? Number.POSITIVE_INFINITY,
-          zIndex: entry.zIndex,
-          order: entry.declOrder,
+          zIndex:     entry.zIndex,
+          order:      entry.declOrder,
         })
       })
     })

@@ -32,7 +32,7 @@ const CENTER_CSS_ID = 'cristae-cluster-center-css'
 function ensureCenterCss() {
   if (typeof document === 'undefined' || document.getElementById(CENTER_CSS_ID)) return
   const st = document.createElement('style')
-  st.id = CENTER_CSS_ID
+  st.id          = CENTER_CSS_ID
   st.textContent = '.cristae-cluster-center>*{transition:transform .12s ease}.cristae-cluster-center:hover>*{transform:scale(1.12)}'
   document.head.appendChild(st)
 }
@@ -63,19 +63,19 @@ export class CristaeCluster extends CristaeLayerElement {
   }
 
   static properties = {
-    radius:     { type: Number },
-    maxZoom:    { type: Number, attribute: 'max-zoom' },
-    minPoints:  { type: Number, attribute: 'min-points' },
-    enabled:    { type: Boolean },    // toggle de clustering (default true); off → sin agrupar, sin desmontar
-    expandable: { type: Boolean },    // toggle de expand/collapse al click (default true)
-    dimRest:        { type: Boolean, attribute: 'dim-rest' },          // al expandir, atenúa el resto del mapa (default false)
-    dimRestOpacity: { type: Number,  attribute: 'dim-rest-opacity' },  // opacidad del resto atenuado (default 0.3)
-    dimMarked:      { type: Boolean, attribute: 'dim-marked' },        // con ids marcados, atenúa el resto del mapa (default false)
-    dimRestExcept:  { attribute: false },                              // capas del consumidor que quedan brillantes al atenuar (por ref)
-    circleThreshold: { attribute: 'circle-threshold' },                // nº o "auto" (default): umbral círculo→espiral del spider
-    spiralGap:       { type: Number, attribute: 'spiral-gap' },        // radio interior de la espiral en px (default 42)
-    accent:          { attribute: 'accent' },                          // fondo de sub-burbujas (+ traza si no hay line-color)
-    lineColor:       { attribute: 'line-color' },                      // color de la TRAZA que une los elementos (el consumidor lo deriva del acento)
+    radius:           { type: Number },
+    maxZoom:          { type: Number, attribute: 'max-zoom' },
+    minPoints:        { type: Number, attribute: 'min-points' },
+    enabled:          { type: Boolean },    // toggle de clustering (default true); off → sin agrupar, sin desmontar
+    expandable:       { type: Boolean },    // toggle de expand/collapse al click (default true)
+    dimRest:          { type: Boolean, attribute: 'dim-rest' },          // al expandir, atenúa el resto del mapa (default false)
+    dimRestOpacity:   { type: Number,  attribute: 'dim-rest-opacity' },  // opacidad del resto atenuado (default 0.3)
+    dimMarked:        { type: Boolean, attribute: 'dim-marked' },        // con ids marcados, atenúa el resto del mapa (default false)
+    dimRestExcept:    { attribute: false },                              // capas del consumidor que quedan brillantes al atenuar (por ref)
+    circleThreshold:  { attribute: 'circle-threshold' },                 // nº o "auto" (default): umbral círculo→espiral del spider
+    spiralGap:        { type: Number, attribute: 'spiral-gap' },         // radio interior de la espiral en px (default 42)
+    accent:           { attribute: 'accent' },                           // fondo de sub-burbujas (+ traza si no hay line-color)
+    lineColor:        { attribute: 'line-color' },                       // color de la TRAZA que une los elementos (el consumidor lo deriva del acento)
   }
 
   // ID de la capa de burbujas de este cluster (para detectar clicks propios vs. ajenos).
@@ -169,7 +169,7 @@ export class CristaeCluster extends CristaeLayerElement {
       el.style.cssText = 'position:fixed; z-index:var(--cristae-cluster-center-z, 9000); cursor:pointer; transform:translate(-50%,-50%)'
       el.addEventListener('click', (e) => { e.stopPropagation(); control.collapseAll() })
       document.body.appendChild(el)
-      this.#centerEl = el
+      this.#centerEl     = el
       this.#onCenterMove = () => this.#positionCenter()
       this.#mapEl.addEventListener('cristae:viewportchange', this.#onCenterMove)
       addEventListener('scroll', this.#onCenterMove, true)
@@ -178,7 +178,7 @@ export class CristaeCluster extends CristaeLayerElement {
       if (lmap) { this.#lmap = lmap; lmap.on('move', this.#onCenterMove) }   // seguir paneo/inercia
     }
     this.#centerEl.style.display = ''
-    this.#centerAnchor = center
+    this.#centerAnchor           = center
     this.#positionCenter()
   }
 
@@ -198,8 +198,8 @@ export class CristaeCluster extends CristaeLayerElement {
       return
     }
     this.#centerEl.style.display = ''
-    this.#centerEl.style.left = `${rect.left + pt.x}px`
-    this.#centerEl.style.top = `${rect.top + pt.y}px`
+    this.#centerEl.style.left    = `${rect.left + pt.x}px`
+    this.#centerEl.style.top     = `${rect.top + pt.y}px`
   }
 
   #hideCenter() {
@@ -226,19 +226,19 @@ export class CristaeCluster extends CristaeLayerElement {
   // del elemento — agregar una prop nueva es tocar `static properties` y este objeto, nada más.
   #foldConfig() {
     return {
-      radius: this.radius,
-      maxZoom: this.maxZoom,
-      minPoints: this.minPoints,
-      enabled: this.enabled,
-      expandable: this.expandable,
-      dimRest: this.dimRest,
-      dimRestOpacity: this.dimRestOpacity,
-      dimMarked: this.dimMarked,
-      dimRestExcept: this.dimRestExcept,
+      radius:          this.radius,
+      maxZoom:         this.maxZoom,
+      minPoints:       this.minPoints,
+      enabled:         this.enabled,
+      expandable:      this.expandable,
+      dimRest:         this.dimRest,
+      dimRestOpacity:  this.dimRestOpacity,
+      dimMarked:       this.dimMarked,
+      dimRestExcept:   this.dimRestExcept,
       circleThreshold: parseCircleThreshold(this.circleThreshold),
-      spiralGap: this.spiralGap,
-      accent: this.accent ?? null,
-      lineColor: this.lineColor ?? null,
+      spiralGap:       this.spiralGap,
+      accent:          this.accent ?? null,
+      lineColor:       this.lineColor ?? null,
     }
   }
 
@@ -318,7 +318,7 @@ export class CristaeCluster extends CristaeLayerElement {
     if (!this.#offOutsideClick) return
     this.#mapEl?.removeEventListener('cristae:click', this.#offOutsideClick)
     this.#offOutsideClick = null
-    this.#mapEl = null
+    this.#mapEl           = null
   }
 
   #bubbleConfig() {
