@@ -31,7 +31,7 @@ export class CristaeLabelLayer extends CristaeLayerElement {
   mountReady() { return !!(this.bindTo || this.source) }
 
   mountLayer(engine) {
-    return engine.addLabelLayer({
+    const handle = engine.addLabelLayer({
       id: this.layerId(),
       bindTo: this.bindTo,
       source: this.source,
@@ -39,7 +39,13 @@ export class CristaeLabelLayer extends CristaeLayerElement {
       textOf: this.textOf,
       paint: this.paint,
       style: this.style,
+      visible: this.visible,
     })
+    // El alta del motor SIEMPRE nace visible (ignora `visible` de cfg). Si la capa se declaró oculta,
+    // lo honramos por el handle en el propio montaje —no sólo ante un CAMBIO posterior de la prop— así
+    // una label montada con visible=false no parpadea encendida ni queda desincronizada del toggle.
+    if (!this.visible) handle.setVisible(false)
+    return handle
   }
 
   syncLayer(changed) {

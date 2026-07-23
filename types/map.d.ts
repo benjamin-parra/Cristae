@@ -467,6 +467,11 @@ export interface Camera {
   revealPoint(layerId: string, id: string | number, options?: { zoom?: number }): this;
   /** Sigue la posición VIVA de un id (re-centra en cada flush). `reveal` des-clusteriza al iniciar. */
   followPoint(layerId: string, id: string | number, options?: { zoom?: number; reveal?: boolean }): this;
+  /** Encuadra (one-shot) el SUBCONJUNTO `ids` de una capa por sus puntos finitos. */
+  followBounds(layerId: string, ids: Iterable<string | number>, options?: { insets?: Insets; maxZoom?: number }): this;
+  /** Navegación por conjunto: `mode:"fit"` encuadra el set; `mode:"track"` con UN id sigue su posición viva. */
+  followPoints(layerId: string, ids: Iterable<string | number>, options?: { mode?: "fit" | "track"; zoom?: number; reveal?: boolean; insets?: Insets; maxZoom?: number }): this;
+  focusPoints(layerId: string, ids: Iterable<string | number>, options?: { mode?: "fit" | "track" } & Record<string, unknown>): this;
   stopFollow(): this;
   getCenter(): { lat: number; lng: number };
   getZoom(): number;
@@ -543,6 +548,8 @@ export class MapEngine {
   getUnsafeHandler(): unknown;
   syncSize(): void;
   invalidateCanvas(): void;
+  /** Encuadra VARIAS capas a la vez (o todas las de datos si se omite `ids`) — multi-capa de camera.fitToLayer. */
+  fitToLayers(ids?: Iterable<string> | null, options?: { insets?: Insets; maxZoom?: number }): this;
   destroy(): void;
 }
 

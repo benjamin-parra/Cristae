@@ -21,6 +21,13 @@ const glifyReady = (typeof window !== 'undefined')
 // baratos y de baja frecuencia → se cablean siempre en #wireEvents.
 const ON_DEMAND_EVENTS = new Set(['cristae:click', 'cristae:hover', 'cristae:pointermove'])
 
+// ¿Todas las capas de datos vacías? (predicado del estado "sin datos" del mapa). Vacío ⇔ hay al menos
+// una capa de datos observable y NINGUNA tiene features. Sin capas de datos no hay estado vacío que
+// anunciar (un mapa de sólo tiles no está "vacío de datos", y evita el flash mientras aún no montó
+// ninguna capa). Puro y sin dominio: sólo lee el snapshot de cada Source. Exportado para test unitario.
+export const dataLayersEmpty = (layers) =>
+  layers.length > 0 && layers.every((el) => !el.controls?.source?.getSnapshot()?.length)
+
 // Agendador del resize del contenedor: coalesce (debounce trailing) la ráfaga del ResizeObserver a UN
 // solo `sync` ~110ms tras asentarse el tamaño. El observer dispara por frame mientras el contenedor se
 // anima (p.ej. abrir/cerrar un panel hermano que empuja el mapa), y cada syncSize() reproyecta TODAS las
@@ -54,6 +61,12 @@ export class CristaeMap extends LitElement {
     initialCenter: { attribute: 'initial-center' },
     initialZoom: { type: Number, attribute: 'initial-zoom' },
     zoomAnimation: { type: String, attribute: 'zoom-animation' },
+    // Mensaje del estado "sin datos": se muestra cuando todas las capas de datos están vacías (0
+    // features) y se oculta al llegar datos. Alternativa: un hijo `slot="empty"` con contenido libre.
+    emptyMessage: { attribute: 'empty-message' },
+    // Estado reactivo interno (no atributo): ¿mostrar el estado vacío? Lo computa el mapa desde sus
+    // capas de datos; dispara re-render del overlay del mensaje.
+    _empty: { state: true },
   }
 
   // Leaflet posiciona tiles/panes con su CSS (.leaflet-tile{position:absolute}, z-index de panes,
@@ -90,6 +103,16 @@ export class CristaeMap extends LitElement {
       .bc { align-items: center;     justify-content: flex-end; }
       .br { align-items: flex-end;   justify-content: flex-end; }
       ::slotted(*) { pointer-events: auto; }
+      /* Estado "sin datos": mensaje centrado sobre el mapa, POR DEBAJO de los overlays de control
+         (z-index 900 < 1000) y sin capturar el puntero (no bloquea drag/zoom del mapa vacío). El
+         contenido sloteado sí reactiva el puntero (un CTA clickeable). Oculto salvo estado vacio. */
+      .empty-state {
+        position: absolute; inset: 0; z-index: 900;
+        display: flex; align-items: center; justify-content: center;
+        padding: 24px; text-align: center; pointer-events: none;
+      }
+      .empty-state[hidden] { display: none; }
+      .empty-state ::slotted(*) { pointer-events: auto; }
       /* Leaflet solo aplica user-select:none a tiles/markers, no a los controles → el +/− del
          zoom queda seleccionable como texto. Lo evitamos en la barra de controles. */
       .leaflet-bar a { user-select: none; -webkit-user-select: none; }
@@ -107,6 +130,11 @@ export class CristaeMap extends LitElement {
   // (presente solo si hay listeners Y el motor está montado; se descarta al desmontar y se re-cabla).
   #demandCount = new Map()
   #demandUnsub = new Map()
+  // Estado "sin datos": capas de datos rastreadas (elemento → unsub de su Source) y el rAF que coalesce
+  // el recómputo. Las capas se dan de alta/baja solas por `cristaeLayerMounted`/`cristaeLayerUnmounted`
+  // (las llama cada capa al montar/desmontar); el recómputo lee el snapshot de cada Source.
+  #dataLayers = new Map()
+  #emptyRaf    = 0
   // Creada en construcción → `map.ready` está disponible SÍNCRONO apenas existe el elemento. Se
   // resuelve una sola vez, cuando el motor queda listo.
   ready = new Promise(resolve => { this.#resolveReady = resolve })
@@ -124,6 +152,9 @@ export class CristaeMap extends LitElement {
         <div class="zone bl"><slot name="bottom-left"></slot></div>
         <div class="zone bc"><slot name="bottom-center"></slot></div>
         <div class="zone br"><slot name="bottom-right"></slot></div>
+      </div>
+      <div class="empty-state" part="empty" ?hidden=${!this._empty}>
+        <slot name="empty">${this.emptyMessage ?? ''}</slot>
       </div>
     `
   }
@@ -149,6 +180,9 @@ export class CristaeMap extends LitElement {
     this.#engine = null
     this.#mounted = false
     this.#demandUnsub.clear()   // los unsub apuntan al bus del motor destruido; los counts DOM persisten para re-cablear
+    if (this.#emptyRaf) { cancelAnimationFrame(this.#emptyRaf); this.#emptyRaf = 0 }
+    this.#dataLayers.forEach((unsub) => unsub?.())   // cortar suscripciones a las Sources
+    this.#dataLayers.clear()
   }
 
   // Puenteo bajo demanda (ver ON_DEMAND_EVENTS): suscribimos el canal del motor recién cuando aparece
@@ -185,6 +219,38 @@ export class CristaeMap extends LitElement {
   requestMount(el) {
     if (this.#engine) el.cristaeMount(this.#engine)
     else this.#pending.push(el)
+  }
+
+  // Alta de una capa en el estado "sin datos": la llama la capa al montar (base._announce). Sólo cuenta
+  // las capas con Source observable (las de dato: point/line/html/polygon/…); una label —sin `source` en
+  // su handle— no aporta y se ignora sola. Se suscribe a la Source para recomputar al cambiar los datos.
+  cristaeLayerMounted(el) {
+    if (this.#dataLayers.has(el)) return
+    const src = el.controls?.source
+    if (!src) return
+    this.#dataLayers.set(el, src.subscribe(() => this.#scheduleEmpty()))
+    this.#scheduleEmpty()
+  }
+
+  // Baja de una capa: corta su suscripción y recomputa (una capa quitada ya no cuenta para "vacío").
+  // Sentinela por PRESENCIA (`has`), no por valor: una Source cuyo `subscribe` devuelve `undefined`
+  // igual quedó registrada, y un `=== undefined` la dejaría colgada en el Map (empty-state pegado).
+  cristaeLayerUnmounted(el) {
+    if (!this.#dataLayers.has(el)) return
+    this.#dataLayers.get(el)?.()
+    this.#dataLayers.delete(el)
+    this.#scheduleEmpty()
+  }
+
+  // Coalesce el recómputo a un rAF: la Source notifica por cada commit (alta frecuencia bajo streaming),
+  // pero el estado vacío sólo transiciona de tanto en tanto — recomputar una vez por frame basta.
+  #scheduleEmpty() {
+    if (this.#emptyRaf) return
+    this.#emptyRaf = requestAnimationFrame(() => { this.#emptyRaf = 0; this.#refreshEmpty() })
+  }
+
+  #refreshEmpty() {
+    this._empty = dataLayersEmpty([...this.#dataLayers.keys()])   // Lit deduplica: sin cambio de valor, sin re-render
   }
 
   // `viewport-insets` es reactivo: las franjas del contenedor ocluidas por UI del consumidor
@@ -247,6 +313,10 @@ export class CristaeMap extends LitElement {
     e.on('viewportchange', (d) => this.#emit('viewportchange', d))
     e.on('interactionstart', () => this.#emit('interactionstart', {}))
     e.on('interactionend', () => this.#emit('interactionend', {}))
+    // Click en el MAPA (área libre, con latlng) → CustomEvent DOM `cristae:mapclick`. Mismo patrón
+    // que viewportchange: siempre activo, baja frecuencia y sin coste de picking (es el click crudo del
+    // mapa, no los hits de features de `cristae:click`). El motor emite `map:click` con `{ latlng }`.
+    e.on('map:click', (d) => this.#emit('mapclick', d))
     // Bajo demanda: re-cablear los tipos que ya tienen listeners DOM (agregados antes de montar, o
     // tras un re-mount). Los listeners futuros los cabla addEventListener.
     this.#demandCount.forEach((count, type) => {

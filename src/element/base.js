@@ -36,11 +36,14 @@ export class CristaeLayerElement extends LitElement {
   cristaeMount(engine) {
     if (this._engine) return
     this._engine = engine
-    if (this.mountReady()) this._handle = this.mountLayer(engine)   // _handle null acá; montar si hay config
+    if (this.mountReady()) {
+      this._handle = this.mountLayer(engine)   // _handle null acá; montar si hay config
+      if (this._handle) this._announce(true)
+    }
   }
 
   cristaeUnmount() {
-    if (this._handle && this._engine) this._engine.removeLayer(this._handle.id)
+    if (this._handle && this._engine) { this._announce(false); this._engine.removeLayer(this._handle.id) }
     this._handle = null
     this._engine = null
   }
@@ -50,7 +53,15 @@ export class CristaeLayerElement extends LitElement {
   // tarde y sigue sin montar, le pide al cluster que reintente (reevalúa mountReady y monta host+cluster).
   updated(changed) {
     if (this._handle) { this.syncLayer(changed); return }
-    if (this._engine && this.mountReady()) this._handle = this.mountLayer(this._engine)
+    if (this._engine && this.mountReady()) {
+      this._handle = this.mountLayer(this._engine)
+      // Montaje DIFERIDO (motor + config coincidieron recién en este ciclo): el `changed` que lo
+      // disparó trae el estado inicial DECLARADO (visible, where, …). Antes se retornaba sin aplicarlo
+      // y ese primer diff se perdía —el handle aún no existía cuando Lit lo entregó—, dejando la capa
+      // en los defaults del alta (p.ej. una label declarada visible=false nacía encendida). Lo
+      // aplicamos ahora que el handle existe, y avisamos al mapa contenedor que la capa montó.
+      if (this._handle) { this.syncLayer(changed); this._announce(true) }
+    }
     if (!this._handle) this._enclosingModifier()?.requestUpdate()
   }
 
@@ -71,5 +82,15 @@ export class CristaeLayerElement extends LitElement {
   // hijos NO se auto-montan: los monta el modificador (su reductor).
   _enclosingModifier() {
     return enclosingModifier(this, grammar.isWrapper)
+  }
+
+  // Aviso de ciclo de vida al <cristae-map> contenedor (si lo hay): al montar/desmontar una capa, el
+  // mapa recomputa su estado "sin datos" (todas las capas de datos con 0 features). Optional-chaining
+  // en todo el camino: una capa fuera de un mapa —o un contenedor sin el gancho— simplemente lo
+  // ignora. Es el mismo acoplamiento ya presente en connectedCallback (`requestMount`).
+  _announce(mounted) {
+    const map = this.closest?.('cristae-map')
+    if (mounted) map?.cristaeLayerMounted?.(this)
+    else map?.cristaeLayerUnmounted?.(this)
   }
 }

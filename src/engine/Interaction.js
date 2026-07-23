@@ -34,6 +34,7 @@ export class Interaction {
   #throttleMs
   #onInteractionStart
   #onInteractionEnd
+  #onEmptyClick
 
   // Estado del puntero (muta-y-reusa salvo seq). seq distingue muestras para validar el cache.
   #pointer = { seq: 0, clientX: 0, clientY: 0, containerPoint: { x: 0, y: 0 } }
@@ -57,7 +58,7 @@ export class Interaction {
   #domHandlers = new Map()
   #mapHandlers = new Map()
 
-  constructor({ map, registry, bus, container, pickLayers, hoverThrottleMs = 0, onInteractionStart, onInteractionEnd } = {}) {
+  constructor({ map, registry, bus, container, pickLayers, hoverThrottleMs = 0, onInteractionStart, onInteractionEnd, onEmptyClick } = {}) {
     this.#map                = map
     this.#registry           = registry
     this.#bus                = bus
@@ -66,6 +67,7 @@ export class Interaction {
     this.#throttleMs         = hoverThrottleMs
     this.#onInteractionStart = onInteractionStart
     this.#onInteractionEnd   = onInteractionEnd
+    this.#onEmptyClick       = onEmptyClick
     this.#wire()
   }
 
@@ -163,6 +165,10 @@ export class Interaction {
   #onClick(event) {
     const hits = this.#registry.resolveHits('click', event)
     this.#bus.dispatch('click', hits, event.originalEvent ?? event)
+    // Click en ESPACIO VACÍO (ningún hit en ninguna capa): entrega la coordenada cruda. Es la
+    // captura de latlng para colocar un punto / editar geometría — el consumidor la cablea con el
+    // callback inyectado. Cuando SÍ hay hit, el click ya se enrutó por el bus y esto no corre.
+    if (!hits.length) this.#onEmptyClick?.(event.latlng)
   }
 
   // Click contextual (botón secundario / long-press / tecla Menú), desde el MouseEvent del DOM.

@@ -141,6 +141,7 @@ export class MapEngine {
       hoverThrottleMs,
       onInteractionStart: () => this.#emit('interactionstart', {}),
       onInteractionEnd: () => this.#emit('interactionend', {}),
+      onEmptyClick: (latlng) => this.#emit('map:click', { latlng }),   // click en espacio vacío → latlng
     })
     this.camera = new Camera({
       map: this.#map,
@@ -710,6 +711,20 @@ export class MapEngine {
   // vuelve a ser visible sin cambiar de tamaño (no dispara resize).
   invalidateCanvas() { this.#resetCanvases() }
 
+  // Encuadra por los bounds de VARIAS capas de datos a la vez (`ids`, o TODAS las que tengan Source si se
+  // omite) — la contraparte multi-capa de camera.fitToLayer (una sola). Une la geometría de cada Source
+  // según su tipo (positionOf | pathOf | ringsOf). One-shot; respeta insets/maxZoom.
+  fitToLayers(ids = null, { insets, maxZoom } = {}) {
+    const bounds = this.#L.latLngBounds([])
+    const recs = ids
+      ? ids.map(id => this.#layers.get(id)).filter(Boolean)
+      : [...this.#layers.values()].filter(r => r.source)
+    recs.forEach(r => this.#extendBounds(bounds, r.source))
+    if (bounds.isValid()) this.camera.fitBounds(bounds, { insets })
+    if (maxZoom != null && this.#map.getZoom() > maxZoom) this.#map.setZoom(maxZoom)
+    return this
+  }
+
   destroy() {
     if (this.#destroying) return
     this.#destroying = true
@@ -782,6 +797,31 @@ export class MapEngine {
 
   #resetCanvases() {
     this.#forEachGlLayer(layer => layer.resetCanvasReference())
+  }
+
+  // Extiende `bounds` con la geometría de una Source, sea de puntos (positionOf), líneas (pathOf) o
+  // polígonos (ringsOf). Un par no finito se descarta (no ensucia el encuadre).
+  #extendBounds(bounds, source) {
+    const a = source.accessors
+    const add = (lat, lng) => { if (Number.isFinite(lat) && Number.isFinite(lng)) bounds.extend([lat, lng]) }
+    source.getSnapshot().forEach(item => {
+      const p = a.positionOf?.(item)
+      if (p) add(p.lat, p.lng)
+      else if (a.pathOf) this.#eachCoord(a.pathOf(item), add)
+      else if (a.ringsOf) this.#eachCoord(a.ringsOf(item), add)
+    })
+  }
+
+  // Recorre una estructura de coordenadas anidada (`[lat,lng]` | `[[lat,lng]…]` | `{lat,lng}`) y llama
+  // add(lat,lng) por cada par — cubre los encodings de pathOf/ringsOf sin conocer su forma exacta.
+  #eachCoord(coords, add) {
+    for (const c of coords) {
+      if (!c) continue
+      if (Array.isArray(c)) {
+        if (typeof c[0] === 'number') add(c[0], c[1])
+        else this.#eachCoord(c, add)
+      } else if (typeof c.lat === 'number') add(c.lat, c.lng)
+    }
   }
 
   #registerResolver(id, kind, zIndex, order, resolveClick, resolveHover, overlay) {

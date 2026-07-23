@@ -73,6 +73,25 @@ export class Camera {
     return this
   }
 
+  // Encuadra (one-shot) el SUBCONJUNTO `ids` de una capa por los bounds de sus puntos finitos. Es a
+  // fitToLayer lo que revealPoint es a fitBounds: acota a un set explícito en vez de toda la capa,
+  // leyendo cada id por itemById. Cancela el follow (fitBounds ya lo hace) — es un reposicionamiento.
+  // ids vacíos o sin ninguna posición finita → bounds inválidos → no-op (no rompe ni mueve la cámara).
+  followBounds(layerId, ids, { insets, maxZoom } = {}) {
+    const source = this.#resolveSource(layerId)
+    if (!source) return this
+    const positionOf = source.accessors.positionOf
+    const bounds = this.#L.latLngBounds([]);
+    (ids ?? []).forEach(id => {
+      const item = source.itemById?.(id)
+      const p = item && positionOf(item)
+      if (p && Number.isFinite(p.lat) && Number.isFinite(p.lng)) bounds.extend([p.lat, p.lng])
+    })
+    if (bounds.isValid()) this.fitBounds(bounds, { insets: insets ?? this.#insets })
+    if (maxZoom != null && this.#map.getZoom() > maxZoom) this.#map.setZoom(maxZoom)
+    return this
+  }
+
   // Enfoca un punto (one-shot) dejándolo VISIBLE individualmente: si su capa clusteriza, sube el zoom
   // al mínimo que lo desclusteriza. Por id como followPoint, puntual como setView. Sin capa clusterizada
   // (o si ya está solo al zoom pedido) es un setView normal. El zoom mínimo lo resuelve el motor
@@ -109,6 +128,19 @@ export class Camera {
     recenter()                                  // encuadre inicial inmediato
     return this
   }
+
+  // Navegación por CONJUNTO (la contraparte de followPoint, que es de un solo id): mode "fit" (default)
+  // encuadra el set entero con followBounds (one-shot); mode "track" con UN único id delega en followPoint
+  // (seguir la posición viva). Con "track" y varios ids no hay un objetivo vivo único que seguir → cae a
+  // encuadrar el set. `rest` fluye al método delegado (fit → {insets,maxZoom}; track → {zoom,reveal}).
+  followPoints(layerId, ids, { mode = 'fit', ...rest } = {}) {
+    const list = ids ?? []
+    if (mode === 'track' && list.length === 1) return this.followPoint(layerId, list[0], rest)
+    return this.followBounds(layerId, list, rest)
+  }
+
+  // Alias semántico: "enfocar" un conjunto = la misma acción (por default encuadrarlo).
+  focusPoints(layerId, ids, options) { return this.followPoints(layerId, ids, options) }
 
   stopFollow() {
     this.#follow?.unsub?.()

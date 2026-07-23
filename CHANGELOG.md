@@ -31,6 +31,11 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   Leaflet-native, 0 contextos WebGL), `shapePresetIconSet` (presets de forma agnósticos dot/pin/circle — la
   variante es el color, sin escribir renderer canvas) y `camera.getMaxZoom()`. Tipados en `types/map.d.ts`
   (`tsc --strict` verde).
+- **Navegación por conjunto + eventos (0.17/0.18)**: `camera.followBounds`/`followPoints`/`focusPoints`
+  (encuadrar/seguir un CONJUNTO de ids, no sólo uno); `MapEngine.fitToLayers` (encuadra varias capas —o todas
+  las de datos— a la vez); evento `map:click` (click en espacio vacío → `{latlng}`, + DOM `cristae:mapclick`)
+  para captura de coordenada; **empty-state** en `<cristae-map>` (`empty-message` / `slot="empty"` cuando todas
+  las capas de datos están vacías).
 
 ### Cambiado
 - **`addPolygonLayer` ahora es REACTIVO a una Source** (antes: imperativo con `clearLayers`+re-add): capa
@@ -47,6 +52,11 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   canvas del DOM pero dejaba el contexto vivo → el techo (~16 contextos) se agotaba **acumulativamente** al
   montar/desmontar capas (crítico para migrar decenas de mapas). Regresión cubierta en
   `test/render/gl-teardown.test.mjs`.
+- **Footgun del `visible` inicial de las label-layers**: el estado declarado (`visible=false`) se perdía en el
+  montaje diferido — ahora se honra al montar (sin forzarlo por rAF, que violaba `no-retries-por-tiempo`).
+- **`<cristae-map>` empty-state — sentinela de baja por PRESENCIA**: el unmount usaba `=== undefined`, que
+  dejaba una capa colgada en el registro si su `subscribe` devolvía `undefined` (empty-state pegado); ahora por
+  `has()`.
 
 ## [0.13.6] - 2026-07-22
 
