@@ -7,7 +7,7 @@ const NOOP = () => {}
 // Normaliza el teardown que devuelve una librería de reactividad a una función de baja.
 // Tolera: función (Preact effect, Zustand), objeto con `unsubscribe()` (RxJS), objeto con
 // `dispose()` (Solid root) o nada (la baja queda en no-op).
-export const toUnsub = (teardown) =>
+export const toUnsub = teardown =>
   typeof teardown === 'function' ? teardown
   : teardown && typeof teardown.unsubscribe === 'function' ? () => teardown.unsubscribe()
   : teardown && typeof teardown.dispose === 'function' ? () => teardown.dispose()

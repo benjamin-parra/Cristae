@@ -106,10 +106,10 @@ export class EventBus {
     hits.forEach(hit => next.set(this.#keyOf(hit), hit))
 
     const startHits = []
-    next.forEach((hit, key) => { if (!this.#activeHover.has(key)) startHits.push(hit) })
+    next.forEach((hit, key) => !this.#activeHover.has(key) && startHits.push(hit))
 
     const endHits = []
-    this.#activeHover.forEach((hit, key) => { if (!next.has(key)) endHits.push(hit) })
+    this.#activeHover.forEach((hit, key) => !next.has(key) && endHits.push(hit))
 
     this.#activeHover = next
 
@@ -127,8 +127,9 @@ export class EventBus {
   // Clave estable de un hit para diffing. Prefiere el id provisto por el resolver;
   // si no, deriva una a partir de layerId + identidad del ref (objeto → entero del WeakMap).
   #keyOf(hit) {
-    if (hit.id != null) return `${hit.layerId}#${hit.id}`
-    return `${hit.layerId}#${this.#refId(hit.ref)}`
+    return hit.id != null
+      ? `${hit.layerId}#${hit.id}`
+      : `${hit.layerId}#${this.#refId(hit.ref)}`
   }
 
   #refId(ref) {
@@ -189,7 +190,7 @@ export class EventBus {
 
   #maskFromCounts(counts) {
     let mask = 0
-    counts?.forEach((_, channel) => { mask |= channel })
+    counts?.forEach((_, channel) => mask |= channel)
     return mask
   }
 }

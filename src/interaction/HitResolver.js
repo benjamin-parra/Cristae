@@ -27,13 +27,14 @@ export class HitResolver {
   // resolución (adds/removes dinámicos funcionan); resolvers de hijo cacheados lazy por
   // WeakMap (se limpian solos al recolectar el hijo). Capa simple → una estrategia exclusiva.
   createResolver(layer, ref) {
-    if (typeof layer.eachLayer === 'function') return this.#groupResolver(layer, ref)
-    return this.#leafResolver(layer, ref)
+    return typeof layer.eachLayer === 'function'
+      ? this.#groupResolver(layer, ref)
+      : this.#leafResolver(layer, ref)
   }
 
   #groupResolver(layer, ref) {
     const cache = new WeakMap()
-    return (baseEvent) => {
+    return baseEvent => {
       const hits = []
       layer.eachLayer(child => {
         let resolve = cache.get(child)
@@ -57,7 +58,7 @@ export class HitResolver {
       ? this.#hitRadiusOf(layer)
       : DEFAULT_HIT_RADIUS
 
-    return (baseEvent) => {
+    return baseEvent => {
       if (!baseEvent?.latlng || !this.#map.hasLayer(layer)) return []
 
       const layerPoint = baseEvent.layerPoint ?? this.#map.latLngToLayerPoint(baseEvent.latlng)
@@ -77,11 +78,9 @@ export class HitResolver {
       }
 
       // 3. Basada en área (overlays).
-      if (hasBounds && layer.getBounds().contains(baseEvent.latlng)) {
-        return [{ ref, distancePx: 0 }]
-      }
-
-      return []
+      return hasBounds && layer.getBounds().contains(baseEvent.latlng)
+        ? [{ ref, distancePx: 0 }]
+        : []
     }
   }
 
@@ -91,7 +90,8 @@ export class HitResolver {
       return typeof layer._radius === 'number' ? layer._radius : (layer.getRadius() ?? DEFAULT_HIT_RADIUS)
     }
     const iconSize = layer.options?.icon?.options?.iconSize
-    if (iconSize) return Math.max(iconSize[0], iconSize[1]) / 2
-    return DEFAULT_HIT_RADIUS
+    return iconSize
+      ? Math.max(iconSize[0], iconSize[1]) / 2
+      : DEFAULT_HIT_RADIUS
   }
 }

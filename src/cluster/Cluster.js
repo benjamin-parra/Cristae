@@ -226,9 +226,7 @@ export class Cluster {
   collapseCluster(clusterId) {
     const s = this.#sesion
     // Caso ancla-sola: la burbuja dim tiene id sintético 'b:'+ancla → getLeaves lanzaría; atajo directo.
-    if (!(s && clusterId === 'b:' + s.baseAnchor)) {
-      if (!this.#hasBaseAnchor(this.#leavesOf(clusterId))) return null   // stale → hojas null → hasBaseAnchor false
-    }
+    if (!(s && clusterId === 'b:' + s.baseAnchor) && !this.#hasBaseAnchor(this.#leavesOf(clusterId))) return null
     const ids = s ? [...s.baseLeafIds] : []
     this.#sesion    = null
     this.#signature = null
@@ -255,8 +253,8 @@ export class Cluster {
   // ¿El cluster del frame actual es el base abierto? (sus hojas contienen el ancla base).
   isClusterExpanded(clusterId) {
     const s = this.#sesion
-    if (s && clusterId === 'b:' + s.baseAnchor) return true   // dim sintética (ancla-sola)
-    return this.#hasBaseAnchor(this.#leavesOf(clusterId))     // stale → hojas null → false
+    return !!s && clusterId === 'b:' + s.baseAnchor            // dim sintética (ancla-sola)
+      || this.#hasBaseAnchor(this.#leavesOf(clusterId))        // stale → hojas null → false
   }
 
   // Contenido (ids de dato) de una burbuja BASE del FRAME actual — consulta pura, hermana de
@@ -269,13 +267,15 @@ export class Cluster {
     if (s && clusterId === 'b:' + s.baseAnchor)
       return s.baseLeaves.map(l => l.properties.id)
     const leaves = this.#leavesOf(clusterId)
-    if (!leaves) return null                       // id stale/desconocido
     // Burbuja dim de la sesión abierta con id VIVO de Supercluster (caso común, no el sintético
     // 'b:'): responde con el snapshot CONGELADO — lo que la burbuja y la espiral renderizan
     // (conteo + hojas del click) — no con el bucket vivo, que puede haber ganado/perdido
     // miembros durante la sesión. Misma atomicidad con-lo-visto que las sub-burbujas.
-    if (this.#hasBaseAnchor(leaves)) return s.baseLeaves.map(l => l.properties.id)
-    return leaves.map(lf => lf.properties.id)
+    return !leaves
+      ? null                                       // id stale/desconocido
+      : this.#hasBaseAnchor(leaves)
+        ? s.baseLeaves.map(l => l.properties.id)
+        : leaves.map(lf => lf.properties.id)
   }
 
   /* ── Config reactiva: recrea el índice y recarga las features ya extraídas ── */
@@ -407,7 +407,7 @@ export class Cluster {
     // allIds − soloIds = los realmente dentro de un cluster (incluidas las hojas expandidas, que
     // siguen suprimidas en el host). Worldwide garantiza que cada id indexado aparece en results.
     this.#clusteredIds.clear()
-    this.#allIds.forEach(id => { if (!soloIds.has(id)) this.#clusteredIds.add(id) })
+    this.#allIds.forEach(id => !soloIds.has(id) && this.#clusteredIds.add(id))
 
     this.#bubbles        = bubbles
     this.#expandedGroups = groups
@@ -423,9 +423,7 @@ export class Cluster {
   #markedOcultos() {
     const leafIds = this.#sesion?.baseLeafIds
     const ocultos = new Set()
-    this.#markedIds.forEach(id => {
-      if (this.#clusteredIds.has(id) && !leafIds?.has(id)) ocultos.add(id)
-    })
+    this.#markedIds.forEach(id => this.#clusteredIds.has(id) && !leafIds?.has(id) && ocultos.add(id))
     return ocultos
   }
 
@@ -434,8 +432,9 @@ export class Cluster {
   #markedEn(bubble, target) {
     if (bubble.expanded) return []
     const leaves = this.#leavesOf(bubble.id)
-    if (!leaves) return []                         // id stale → sin marcados en esta burbuja
-    return leaves.map(lf => lf.properties.id).filter(id => target.has(id))
+    return leaves
+      ? leaves.map(lf => lf.properties.id).filter(id => target.has(id))
+      : []                                         // id stale → sin marcados en esta burbuja
   }
 
   // Corre al final de cada recluster: taggea `marked` las burbujas con marcados ocultos y cachea

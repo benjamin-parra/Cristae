@@ -92,8 +92,8 @@ export class LayerRegistry {
 
     const { entriesById, objectsById, overlays } = this.#layers
     const previous = entriesById.get(entry.layerId)
-    entry.visible    = entry.visible ?? true
-    entry.activeMask = entry.activeMask ?? previous?.activeMask ?? 0
+    entry.visible    ??= true
+    entry.activeMask ??= previous?.activeMask ?? 0
 
     entriesById.set(entry.layerId, entry)
     if (entry.capture || entry.presentAs) overlays.add(entry.layerId)
@@ -134,7 +134,7 @@ export class LayerRegistry {
 
     this.#layers.entriesById.forEach(entry => {
       if (!entry.visible) return
-      this.#resolveParts(entry, eventType, baseEvent).forEach(part => {
+      this.#resolveParts(entry, eventType, baseEvent).forEach(part =>
         // El detalle propio del resolver pasa (una línea aporta `partIndex`/`segmentIndex`); las
         // claves del registro van DESPUÉS del spread: la identidad de la capa no es negociable.
         hits.push({
@@ -144,8 +144,7 @@ export class LayerRegistry {
           distancePx: part.distancePx ?? Number.POSITIVE_INFINITY,
           zIndex:     entry.zIndex,
           order:      entry.declOrder,
-        })
-      })
+        }))
     })
 
     hits.sort((a, b) =>
@@ -181,7 +180,7 @@ export class LayerRegistry {
       if (!entry.visible) continue
       if (!(entry.activeMask & channelMask)) continue
       const parts = entry.resolveHover?.(baseEvent)
-      if (parts && parts.length) return true
+      if (parts?.length) return true
     }
     return false
   }

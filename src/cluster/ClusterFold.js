@@ -93,7 +93,7 @@ export function createClusterFold(bridge, targets, { radius, maxZoom, minPoints,
   // Resuelve un id de dato desclusterizado a su host → { layerId, item }. Recorre los hosts (un
   // cluster puede envolver varias capas). itemById es OPCIONAL → fallback a scan lineal con el idOf
   // del host. Primer host que resuelve gana; si ninguno, item:null. Lo usan el spider y el evento.
-  const resolveOne = (id) => {
+  const resolveOne = id => {
     for (const { id: layerId, rec } of hosts) {
       let item = rec.source.itemById?.(id)
       if (item == null && !rec.source.itemById) {
@@ -115,7 +115,7 @@ export function createClusterFold(bridge, targets, { radius, maxZoom, minPoints,
   // su posición desplegada); aplica a TODO canal (lo usa resolveHits). presentedFrom deja que el
   // auto-collapse la reconozca propia. leafLL lo llena applySpider.
   const leafLL = new Map()
-  const presentLeaf = (hit) => {
+  const presentLeaf = hit => {
     const ll = leafLL.get(hit.ref)
     if (!ll) return null
     const { layerId } = resolveOne(hit.ref)
@@ -155,7 +155,7 @@ export function createClusterFold(bridge, targets, { radius, maxZoom, minPoints,
   // encima, con muchas patas tapan el centro y la burbuja dim queda ilegible.
   bridge.ensurePane(legsPane, bridge.overlayZ(base.order, 4), true)        // sobre labels(+200); noPointer: las líneas no pican
   const legGroup = bridge.L.layerGroup([], { pane: legsPane }).addTo(bridge.map)
-  const setLegs = (segs) => {
+  const setLegs = segs => {
     legGroup.clearLayers()
     for (const s of segs)
       bridge.L.polyline(s.pts, { pane: legsPane, color: s.color, weight: s.weight, opacity: s.opacity ?? 0.7, interactive: false }).addTo(legGroup)
@@ -237,7 +237,7 @@ export function createClusterFold(bridge, targets, { radius, maxZoom, minPoints,
   // snapshot completo. La re-indexación ante cambios de `where`/`enabled` la disparan
   // setWhere/setLayerEnabled (record.cluster.reindex).
   const snapshot = () => {
-    const live = hosts.filter(({ rec }) => rec.enabled !== false)
+    const live = hosts.filter(({ rec }) => rec.enabled)
     if (live.length === 1) {
       const { rec } = live[0]
       const s = rec.source.getSnapshot()
@@ -282,7 +282,7 @@ export function createClusterFold(bridge, targets, { radius, maxZoom, minPoints,
     for (const { id, rec } of hosts) {
       rec.suppressed       = cluster.clusteredIds
       rec.layer.suppressed = cluster.clusteredIds
-      if (rec.enabled === false) continue        // host deshabilitado: pane oculto — repintar/resyncear se difiere a setLayerEnabled(true)
+      if (!rec.enabled) continue                 // host deshabilitado: pane oculto — repintar/resyncear se difiere a setLayerEnabled(true)
       rec.layer.refresh()
       bridge.resyncBound(id)                      // recluster → re-filtra labels + overlays ligados a este host
     }
@@ -355,7 +355,7 @@ export function createClusterFold(bridge, targets, { radius, maxZoom, minPoints,
       reindexTimer = setTimeout(() => { reindexTimer = null; doIndex() }, CLUSTER_REINDEX_THROTTLE_MS)  // sólo moves → diferido
     }
   }
-  const onZoom = () => { if (cluster.recluster(bridge.map.getZoom())) apply() }
+  const onZoom = () => cluster.recluster(bridge.map.getZoom()) && apply()
   const unsubs = hosts.map(({ rec }) => rec.source.subscribe(onData))
   bridge.map.on('zoomend', onZoom)
   doIndex()                                        // primer index inmediato (no esperar la ventana)
@@ -365,7 +365,7 @@ export function createClusterFold(bridge, targets, { radius, maxZoom, minPoints,
   let _onInteraction = null
 
   // Las entidades desclusterizadas, cada una con su capa de origen (heterogéneo-safe). Ver resolveOne.
-  const entitiesOf = (ids) => ids.map(id => { const { layerId, item } = resolveOne(id); return { layerId, id, item } })
+  const entitiesOf = ids => ids.map(id => { const { layerId, item } = resolveOne(id); return { layerId, id, item } })
 
   // Payload VANILLA del evento cluster:* a partir de la estructura lógica (Cluster.sessionStructure).
   // Resuelve ids→entities UNA vez (Map reusado por los grupos → sin doble scan). `groups` viene [] cuando
@@ -383,10 +383,10 @@ export function createClusterFold(bridge, targets, { radius, maxZoom, minPoints,
   // Firma y payload del eje "marked" a partir de Cluster.markedHidden ([{id, center}], orden
   // canónico por id). El payload agrega el `layerId` del host dueño (set heterogéneo cross-capa);
   // la firma cuantiza el centro (MARKED_CENTER_QUANT) para re-emitir sólo ante movimiento real.
-  const markedSigOf = (hidden) => hidden
+  const markedSigOf = hidden => hidden
     .map(h => `${h.id}@${h.center.lat.toFixed(MARKED_CENTER_QUANT)},${h.center.lng.toFixed(MARKED_CENTER_QUANT)}`)
     .join('|')
-  const buildMarked = (hidden) => ({
+  const buildMarked = hidden => ({
     hidden: hidden.map(h => ({ layerId: resolveOne(h.id).layerId, id: h.id, center: h.center })),
   })
 
@@ -412,7 +412,7 @@ export function createClusterFold(bridge, targets, { radius, maxZoom, minPoints,
   const bubbleRec = bridge.layerOf(bubbleId)
   // El bus entrega los handlers por-capa con un ARRAY de hits (ya filtrado a esta capa), no un hit
   // suelto (ver EventBus.#emit). El top hit de la burbuja es hits[0].
-  const offBubbleClick = bridge.busOn('click', bubbleId, (hits) => {
+  const offBubbleClick = bridge.busOn('click', bubbleId, hits => {
     if (!cfg.expandable) return
     const ref = hits[0]?.ref
     if (ref == null) return
@@ -435,7 +435,7 @@ export function createClusterFold(bridge, targets, { radius, maxZoom, minPoints,
 
   // Click en SUB-CLUSTER de la espiral (depth-2): florece SUS hojas empujando a los hermanos (toggle).
   // hits[0].ref = el id del sub-bubble = min leaf-id = el ancla interna que espera expandInner.
-  const offSubClick = bridge.busOn('click', spiderSubId, (hits) => {
+  const offSubClick = bridge.busOn('click', spiderSubId, hits => {
     if (!cfg.expandable) return
     const subId = hits[0]?.ref
     if (subId == null) return
@@ -503,12 +503,12 @@ export function createClusterFold(bridge, targets, { radius, maxZoom, minPoints,
     // pasarlo recién obtenido. El estado interno queda anclado por hoja, así que sobrevive a
     // reindex/zoom aunque el id ya no exista. Para reaccionar a la interacción del usuario, preferir
     // los eventos del bus `map.on('cluster:expand'|'cluster:update'|'cluster:dismiss', cb)`.
-    expand: (id) => {
+    expand: id => {
       const res = cluster.expandCluster(id)
       if (res && cluster.recluster(bridge.map.getZoom())) apply()   // apply() es el ÚNICO emisor de 'cluster:expand'
       return res ? res.ids : null
     },
-    collapse: (id) => {
+    collapse: id => {
       const ids = cluster.collapseCluster(id)
       if (ids && cluster.recluster(bridge.map.getZoom())) apply()   // apply() emite 'collapse' por transición
     },
@@ -517,23 +517,23 @@ export function createClusterFold(bridge, targets, { radius, maxZoom, minPoints,
     // el filtro por-capa: un cambio de `where` no emite en la Source (que sigue completa), así que sin
     // esto las burbujas mantendrían el conteo de la flota sin filtrar.
     reindex: () => doIndex(),
-    isExpanded: (id) => cluster.isClusterExpanded(id),
+    isExpanded: id => cluster.isClusterExpanded(id),
     // ¿esta capa pertenece al fold? (burbuja o spider). El auto-collapse del web component lo usa
     // para NO colapsar cuando el click cae en la burbuja o en un marcador de la espiral.
-    ownsLayer: (layerId) => layerId === bubbleId || layerId === spiderId || layerId === spiderSubId,
+    ownsLayer: layerId => layerId === bubbleId || layerId === spiderId || layerId === spiderSubId,
     // Lectura imperativa de la sesión actual (o null): paridad con map.camera para consumidores que
     // montan tarde y necesitan el estado sin esperar el próximo evento cluster:*.
     getSession: () => { const s = cluster.sessionStructure; return s ? buildSession(s, cluster.expandedGroups[0]?.center ?? null) : null },
     // Zoom mínimo al que `id` deja de estar clusterizado (cómputo puro; ver Cluster.declusterZoomFor).
     // Lo inyecta la cámara para revealPoint/followPoint({reveal}); también disponible para lectura
     // imperativa. null si el id no está en el cluster o el clustering está apagado.
-    declusterZoomFor: (id) => cluster.declusterZoomFor(id),
+    declusterZoomFor: id => cluster.declusterZoomFor(id),
     // ── Eje "marked": burbujas que contienen ids marcados por el consumidor ──
     // setMarked REEMPLAZA el set (snapshotea el input antes de limpiar: aliasing-safe) →
     // recluster re-taggea las burbujas (variante `marked` del icon-set) y apply() emite
     // `cluster:marked` si la colocación cambió. La lib nunca muta el set por su cuenta: un id
     // podado que reaparece vuelve a señalizarse solo; desmarcar es del consumidor.
-    setMarked: (ids) => {
+    setMarked: ids => {
       const next = ids ? Array.from(ids) : []
       markedSet.clear()
       for (const id of next) markedSet.add(id)
@@ -546,7 +546,7 @@ export function createClusterFold(bridge, targets, { radius, maxZoom, minPoints,
     // expand() pero sin efectos. Misma guarda de generación que el click handler. Sólo entiende
     // ids de burbuja BASE (los de Supercluster + el sintético 'b:' de la sesión); el contenido de
     // una SUB-burbuja de la espiral se lee de la estructura de sesión (getSession / cluster:*).
-    contentsOf: (id) => (bubbleRec?.source?.itemById?.(id) ? cluster.contents(id) : null),
+    contentsOf: id => (bubbleRec?.source?.itemById?.(id) ? cluster.contents(id) : null),
     // Id de la capa de burbujas: el consumidor se suscribe a sus hits por el bus normal
     // (map.on('click' | 'hover', bubbleLayerId, cb)) y compone con contentsOf/expand.
     bubbleLayerId: bubbleId,

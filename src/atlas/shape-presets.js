@@ -67,7 +67,7 @@ export const shapePresetIconSet = ({ shape = 'dot', size } = {}) => {
   return defineIconSet({
     rotates:   false,                  // una forma coloreada no tiene rumbo: nunca rota
     sizes:     size ? { default: size } : undefined,
-    describe:  (variant) => ({ shape, color: variant }),
+    describe:  variant => ({ shape, color: variant }),
     renderers: { [shape]: render },
   })
 }

@@ -6,6 +6,5 @@
 // Se invoca DESPUÉS de `layer.remove()` (glify hace su teardown sobre un contexto válido) y es a prueba
 // de todo: sin capa, sin `gl`, sin la extensión o sin el método → no hace nada (no rompe en entornos
 // sin soporte ni en stubs de test).
-export const loseGlContext = (glifyLayer) => {
+export const loseGlContext = glifyLayer =>
   glifyLayer?.gl?.getExtension?.('WEBGL_lose_context')?.loseContext?.()
-}

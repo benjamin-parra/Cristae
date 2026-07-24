@@ -26,7 +26,7 @@ grammar.register('cristae-label-layer', CristaeLabelLayer.cristaeSignature)
 grammar.register('cristae-cluster', CristaeCluster.cristaeSignature, { apply: CristaeCluster.cristaeApply })
 grammar.register('cristae-overlay', CristaeOverlay.cristaeSignature, { apply: CristaeOverlay.cristaeApply })
 
-const define = (name, ctor) => { if (!customElements.get(name)) customElements.define(name, ctor) }
+const define = (name, ctor) => !customElements.get(name) && customElements.define(name, ctor)
 
 define('cristae-map', CristaeMap)
 define('cristae-point-layer', CristaePointLayer)

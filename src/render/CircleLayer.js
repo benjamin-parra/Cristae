@@ -133,7 +133,7 @@ export class CircleLayer {
     snap
       // Se leen lat/lng como escalares acá mismo: `positionOf` puede devolver un objeto scratch reusado,
       // así que retenerlo a través del pipeline apuntaría todas las filas al mismo objeto mutado.
-      .map((item) => {
+      .map(item => {
         const pos = a.positionOf(item)
         return { id: a.idOf(item), lat: pos?.lat, lng: pos?.lng, radius: a.radiusMetersOf(item), st: a.styleOf?.(item) }
       })

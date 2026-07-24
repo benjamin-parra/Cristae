@@ -38,21 +38,21 @@ const runsOf = (part, base) => part.reduce((runs, p, k) => {
  *     puenteado por una recta que no existe); el corte igual ocupa índice.
  *   · anidado `[[[lat,lng], …], …]` — partes explícitas; los índices corren concatenados.
  *  Descarta partes de < 2 vértices: no hay segmento que dibujar ni contra el cual pickear. */
-export const toParts = (input) => {
+export const toParts = input => {
   const top = input ? [...input] : []
   // Es anidado sólo si el primer elemento concluyente CONTIENE otro array. Cualquier otra forma
   // —incluido un par sucio en la cabeza, que es como llega una fila GPS mala— es un path plano y se
   // corta. Discriminar por "no es un número" haría desaparecer el path entero cuando el corte cae
   // justo en el vértice 0; mirar sólo `top[0]` perdería un anidado que arranca con una parte nula.
-  const head = top.find((v) => v != null)
+  const head = top.find(v => v != null)
   const parts = Array.isArray(head?.[0])
-    ? top.map((part) => (part ? [...part] : []))
+    ? top.map(part => (part ? [...part] : []))
     : [top]
   const { runs } = parts.reduce(
     ({ runs, base }, part) => ({ runs: runs.concat(runsOf(part, base)), base: base + part.length }),
     { runs: [], base: 0 },
   )
-  return runs.filter((r) => r.path.length >= 2)
+  return runs.filter(r => r.path.length >= 2)
 }
 
 // items: [{ id, parts }] con las partes tal cual las devuelve `toParts` — una entrada POR PARTE: las
@@ -60,7 +60,7 @@ export const toParts = (input) => {
 // el `from` de cada parte para que el hit pueda expresarse en el espacio de índices de la ENTRADA (el
 // mismo que recibe `scalarOf`) y no sólo en el local de la parte. Índice inmutable; reconstruir sólo
 // si cambia el set. Proyecta cada vértice a world0 px una vez. O(n·k) al construir.
-export const prepareIndex = (items) => ({
+export const prepareIndex = items => ({
   sorted: (items ?? [])
     .flatMap(({ id, parts }) => parts.map(({ path, from }, partIndex) => {
       const pts = path.map(([lat, lng]) => ({ x: projX0(lng), y: projY0(lat) }))
@@ -102,11 +102,9 @@ export const sampleAlong = (input, count) => {
   })
   const finArr = []
   const total = segs.reduce((acc, s) => { const fin = acc + s.largo; finArr.push(fin); return fin }, 0)
-  if (!(total > 0)) return []
-
-  return Array.from({ length: count }, (_, k) => {
+  return total > 0 ? Array.from({ length: count }, (_, k) => {
     const objetivo = total * ((k + 0.5) / count)          // muestras centradas: nunca pegadas al extremo
-    const i = Math.max(finArr.findIndex((fin) => fin >= objetivo), 0)
+    const i = Math.max(finArr.findIndex(fin => fin >= objetivo), 0)
     const s = segs[i]
     const t = s.largo > 0 ? (objetivo - (finArr[i] - s.largo)) / s.largo : 0
     return {
@@ -114,7 +112,7 @@ export const sampleAlong = (input, count) => {
       lng:     s.desde[1] + (s.hasta[1] - s.desde[1]) * t,
       heading: s.heading,
     }
-  })
+  }) : []
 }
 
 // Todos los items cuyo segmento más cercano a (lat,lng) queda dentro de `tol` (world0 px), con su
@@ -140,7 +138,7 @@ export const nearest = (lat, lng, index, tol) => {
     }
     if (best > tol2) continue
     const dist = Math.sqrt(best)
-    const prev = out.find((h) => h.id === entry.id)   // los hits son pocos (tol ~8px): scan < Map
+    const prev = out.find(h => h.id === entry.id)   // los hits son pocos (tol ~8px): scan < Map
     const hit = { id: entry.id, partIndex: entry.partIndex, vertexIndex: entry.from + bestSeg, dist }
     if (!prev) out.push(hit)
     else if (dist < prev.dist) Object.assign(prev, hit)

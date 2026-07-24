@@ -35,7 +35,7 @@ export function defineGrammar({ kinds, mode = 'throw' }) {
   /** @type {Map<string, { signature: Signature, apply: Function|null }>} */
   const reg = new Map() // tag MAYÚSCULA → { signature, apply }
 
-  const key = (tag) => (tag == null ? '' : String(tag).toUpperCase())
+  const key = tag => (tag == null ? '' : String(tag).toUpperCase())
 
   /**
    * Registra un elemento de la gramática.
@@ -45,14 +45,15 @@ export function defineGrammar({ kinds, mode = 'throw' }) {
    */
   function register(tag, signature, opts = {}) {
     validateSignature(tag, signature, KINDS) // R4 + forma de la firma
+    signature.passThrough ??= true
     reg.set(key(tag), { signature, apply: opts.apply ?? null })
   }
 
-  const signatureFor = (tag) => reg.get(key(tag))?.signature ?? null
-  const applyFor     = (tag) => reg.get(key(tag))?.apply ?? null
-  const isRegistered = (tag) => reg.has(key(tag))
-  const isWrapper    = (tag) => signatureFor(tag)?.arity === 'wrapper'
-  const isLeaf       = (tag) => signatureFor(tag)?.arity === 'leaf'
+  const signatureFor = tag => reg.get(key(tag))?.signature ?? null
+  const applyFor     = tag => reg.get(key(tag))?.apply ?? null
+  const isRegistered = tag => reg.has(key(tag))
+  const isWrapper    = tag => signatureFor(tag)?.arity === 'wrapper'
+  const isLeaf       = tag => signatureFor(tag)?.arity === 'leaf'
 
   return {
     kinds: KINDS,

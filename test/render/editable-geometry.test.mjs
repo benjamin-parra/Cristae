@@ -320,3 +320,31 @@ test('draw dblclick de cierre: no duplica el último vértice ni re-emite idént
 
   ed.destroy()
 })
+
+/* ── onChange (live) vs onCommit (settle) ── */
+
+test('onChange es live por drag; onCommit asienta al soltar (y en cada edición discreta)', () => {
+  const { L, created } = makeEditLeaflet()
+  const changes = [], commits = []
+  const ed = new EditableGeometry({
+    L, map: makeMap(), kind: 'polygon', value: SQUARE,
+    onChange: g => changes.push(g), onCommit: g => commits.push(g),
+  })
+
+  const vertex1 = created[1]                            // vértice índice 1 = [0,10]
+  vertex1.setLatLng([1, 11]); vertex1.fire('drag', {})
+  vertex1.setLatLng([2, 12]); vertex1.fire('drag', {})
+  vertex1.setLatLng([3, 13]); vertex1.fire('drag', {})
+  assert.equal(changes.length, 3, 'onChange emite por cada frame de drag')
+  assert.equal(commits.length, 0, 'onCommit NO emite durante el drag (sin soltar)')
+
+  vertex1.fire('dragend', {})
+  assert.equal(commits.length, 1, 'onCommit emite UNA vez al soltar')
+  assert.deepEqual(commits[0][1], [3, 13], 'el commit lleva la geometría asentada')
+
+  created[0].fire('dblclick', {})                       // edición discreta: borra un vértice (4 → 3)
+  assert.equal(changes.length, 4, 'la edición discreta también emite onChange')
+  assert.equal(commits.length, 2, 'y asienta onCommit en el mismo gesto')
+
+  ed.destroy()
+})

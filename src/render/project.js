@@ -6,9 +6,9 @@
 const D = Math.PI / 180
 const MAXLAT = 85.0511287798
 
-export const projX0 = (lng) => 256 * (lng / 360 + 0.5)
+export const projX0 = lng => 256 * (lng / 360 + 0.5)
 
-export const projY0 = (lat) => {
+export const projY0 = lat => {
   const c = lat > MAXLAT ? MAXLAT : lat < -MAXLAT ? -MAXLAT : lat
   const s = Math.sin(c * D)
   return 256 * (0.5 - 0.25 / Math.PI * Math.log((1 + s) / (1 - s)))

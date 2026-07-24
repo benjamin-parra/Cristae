@@ -70,6 +70,41 @@ test('dibuja cada resaltado en su posición proyectada viva', async () => {
   overlay.destroy()
 })
 
+test('renderAtView(proyectar): dibuja con un proyector de vista ARBITRARIO (no el vivo)', async () => {
+  const { source } = buildSource(3)
+  await flushRaf()
+  const ctx = makeCtx()
+  let cleared = 0
+  const overlay = createHighlightOverlay({
+    source, project, ctx, clear: () => { cleared++ }, drawHighlight: drawReticle,
+    sizeOf: it => it.size, schedule: fn => fn(),
+  })
+  overlay.setHighlighted(new Map([[2, 'follow']]))     // id=2 → i=1 → lat 0.1 / lng 0.2 → vivo (20,10)
+  assert.deepEqual(ctx.tr.at(-1), [20, 10], 'con el proyector vivo cae en (20,10)')
+
+  const clearsAntes = cleared
+  overlay.renderAtView((lat, lng) => ({ x: lng * 200, y: lat * 200 }))   // un frame del zoom: otra escala
+  assert.equal(cleared, clearsAntes + 1, 'renderAtView limpia antes de dibujar (síncrono, sin schedule)')
+  assert.deepEqual(ctx.tr.at(-1), [40, 20], 'traslada según el proyector INYECTADO, no el vivo')
+  overlay.destroy()
+})
+
+test('renderAtView sin resaltados: limpia y no dibuja', async () => {
+  const { source } = buildSource(3)
+  await flushRaf()
+  const ctx = makeCtx()
+  let cleared = 0, draws = 0
+  const overlay = createHighlightOverlay({
+    source, project, ctx, clear: () => { cleared++ }, drawHighlight: () => { draws++ },
+    sizeOf: it => it.size, schedule: fn => fn(),
+  })
+  const clearsAntes = cleared
+  overlay.renderAtView((lat, lng) => ({ x: lng, y: lat }))
+  assert.equal(cleared, clearsAntes + 1, 'limpia el canvas aunque no haya resaltados')
+  assert.equal(draws, 0, 'sin resaltados no hay trazos')
+  overlay.destroy()
+})
+
 test('el feed sólo redibuja si se movió un RESALTADO (gate O(K))', async () => {
   const { source } = buildSource(3)
   await flushRaf()

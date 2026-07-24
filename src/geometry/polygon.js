@@ -27,10 +27,10 @@ export const pointInPoly = (lat, lng, rings) => {
 }
 
 // items: [{ id, rings }]. Índice inmutable; reconstruir solo si cambia el set (raro). O(n log n).
-export const prepareIndex = (items) => {
+export const prepareIndex = items => {
   if (!items?.length) return { sorted: [], maxHeight: 0 }
   let maxHeight = 0
-  const sorted = items.map((item) => {
+  const sorted = items.map(item => {
     const bbox = bboxOfRings(item.rings)
     const height = bbox.maxLat - bbox.minLat
     if (height > maxHeight) maxHeight = height

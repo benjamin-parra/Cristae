@@ -11,7 +11,7 @@ const NODE_TRANSFORM = 'translate(-50%,-100%)'
 
 // onError estable de módulo para `safe` ([0-alloc], ver safe.js): el flush corre dentro del
 // fan-out del Emitter — un `contentOf` que lance no debe cortar la entrega al resto.
-const onFlushError = (e) => console.error('[cristae-popup] contentOf/flush', e)
+const onFlushError = e => console.error('[cristae-popup] contentOf/flush', e)
 
 // <cristae-popup for="fleet"> — tarjeta HTML anclada al dato. NO es una capa GL: es un overlay del
 // consumidor que vive en LIGHT DOM (nodos flotantes en document.body), así que el CSS de página lo
@@ -80,7 +80,7 @@ export class CristaePopup extends LitElement {
     // Ancla VIVA: la tarjeta sigue la posición del item. Default ON. Ver nota de cabecera.
     follow: { attribute: 'follow', converter: boolDefaultOn },
     // Tarjetas simultáneas (default 1 = abrir reemplaza). Ver nota de cabecera.
-    maxOpen: { attribute: 'max-open', converter: { fromAttribute: (v) => Number(v) } },
+    maxOpen: { attribute: 'max-open', converter: { fromAttribute: v => Number(v) } },
     // Etapas keep-in-view (opt-in). Ausente, vacío o removido ⇒ camino legacy. Ver cabecera + #placeFit.
     fit: { attribute: 'fit', converter: { fromAttribute: fitFromAttribute } },
     // Margen [x,y] px que anticipa flip/shift (default [20,20]). Alias de `auto-pan-padding`.
@@ -98,10 +98,10 @@ export class CristaePopup extends LitElement {
   // place; una ref compartida rompería la comparación de cambio).
   #popups     = new Map()
   #warned     = new Set()      // capas `for` no resolubles ya avisadas (un warning por capa)
-  #onClick    = (e) => this.#openFromHit(e.detail.hits)
-  #onViewport = () => this.#popups.forEach((p) => this.#place(p))
+  #onClick    = e => this.#openFromHit(e.detail.hits)
+  #onViewport = () => this.#popups.forEach(p => this.#place(p))
   #onReady    = () => this.#bindLeafletMove()
-  #onKey      = (e) => { if (e.key === 'Escape') this.close() }
+  #onKey      = e => e.key === 'Escape' && this.close()
 
   connectedCallback() {
     super.connectedCallback()
@@ -163,7 +163,7 @@ export class CristaePopup extends LitElement {
     this.#discard(key)                  // re-apertura del mismo item = tarjeta fresca
     const max = Math.max(1, Number(this.maxOpen) || 1)
     const excess = this.#popups.size - max + 1        // > 0 ⇒ liberar cupo para la nueva
-    if (excess > 0) [...this.#popups.keys()].slice(0, excess).forEach((k) => this.#discard(k))
+    if (excess > 0) [...this.#popups.keys()].slice(0, excess).forEach(k => this.#discard(k))
 
     const popup = this.#create(key, item, binding, anchor, latlng == null)
     this.#popups.set(key, popup)
@@ -176,14 +176,14 @@ export class CristaePopup extends LitElement {
   // "sin argumento" (un `close` colgado directo como handler recibe el Event y cierra todo).
   close(id) {
     if (typeof id === 'string' || typeof id === 'number') return this.#discard(id)
-    this.#popups.forEach((p) => this.#dispose(p))
+    this.#popups.forEach(p => this.#dispose(p))
     this.#popups.clear()
   }
 
   // Re-ejecuta `contentOf` de las tarjetas abiertas con su item vigente (misma ancla, sin auto-pan).
   // Para refrescos transversales del consumidor (p. ej. un cambio de idioma).
   refresh() {
-    this.#popups.forEach((p) => {
+    this.#popups.forEach(p => {
       const content = this.contentOf?.(p.item)
       if (content == null) return
       this.#setContent(p, content)
@@ -195,12 +195,12 @@ export class CristaePopup extends LitElement {
   // Apagar `fit` restaura el transform base-centro (el encuadre fit posiciona por caja literal).
   updated(changed) {
     if (changed.has('fit') && !this.fit) {
-      this.#popups.forEach((p) => {
+      this.#popups.forEach(p => {
         p.node.style.transform = NODE_TRANSFORM
         delete p.node.dataset.side
       })
     }
-    this.#popups.forEach((p) => this.#place(p))
+    this.#popups.forEach(p => this.#place(p))
   }
 
   /* ── Apertura / cierre ── */
@@ -211,7 +211,7 @@ export class CristaePopup extends LitElement {
   // orden de los tokens es solo prioridad de resolución. null = item ajeno a toda Source (o
   // Source sin subscribe/itemById) → tarjeta estática.
   #bindingFor(item) {
-    const bindingOf = (layerId) => {
+    const bindingOf = layerId => {
       const source = this.#map.getLayer(layerId)?.source
       if (!source?.subscribe || !source.itemById || !source.accessors?.idOf) return null
       const id = source.accessors.idOf(item)

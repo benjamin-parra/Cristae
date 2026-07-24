@@ -4,7 +4,7 @@ import { grammar } from './composite.js'
 import { grammarChildren, reduceModifier, validate } from '../grammar/index.js'
 
 // circle-threshold: un número (umbral círculo→espiral) o "auto"/vacío → null (el motor usa su default).
-const parseCircleThreshold = (v) => {
+const parseCircleThreshold = v => {
   const n = Number(v)
   return Number.isFinite(n) && n > 0 ? n : null
 }
@@ -154,7 +154,7 @@ export class CristaeCluster extends CristaeLayerElement {
 
   #showCenter(center, control) {
     if (!center) return
-    this.#mapEl = this.#mapEl ?? this.closest('cristae-map')
+    this.#mapEl ??= this.closest('cristae-map')
     if (!this.#mapEl) return
     if (!this.#centerEl) {
       ensureCenterCss()
@@ -167,7 +167,7 @@ export class CristaeCluster extends CristaeLayerElement {
       // comportamiento previo, pero el consumidor lo baja por `--cristae-cluster-center-z` para que quede
       // sobre el mapa y DEBAJO de sus overlays (tooltip, popup) y de su capa de modales.
       el.style.cssText = 'position:fixed; z-index:var(--cristae-cluster-center-z, 9000); cursor:pointer; transform:translate(-50%,-50%)'
-      el.addEventListener('click', (e) => { e.stopPropagation(); control.collapseAll() })
+      el.addEventListener('click', e => { e.stopPropagation(); control.collapseAll() })
       document.body.appendChild(el)
       this.#centerEl     = el
       this.#onCenterMove = () => this.#positionCenter()
@@ -250,7 +250,7 @@ export class CristaeCluster extends CristaeLayerElement {
     // Toda propiedad reactiva del elemento es config del fold: si cambió alguna (las claves del
     // objeto SON los nombres de las props), se reenvía la config completa por setConfig.
     const cfg = this.#foldConfig()
-    if (Object.keys(cfg).some((k) => changed.has(k))) this._handle?.control?.setConfig(cfg)
+    if (Object.keys(cfg).some(k => changed.has(k))) this._handle?.control?.setConfig(cfg)
     // Reconectar/desconectar el auto-collapse cuando expandable cambia en caliente.
     if (changed.has('expandable')) {
       const control = this._handle?.control
@@ -305,7 +305,7 @@ export class CristaeCluster extends CristaeLayerElement {
     this.#detachAutoCollapse()   // evitar doble-registro si se llama varias veces
     this.#mapEl = this.closest('cristae-map')
     if (!this.#mapEl) return
-    this.#offOutsideClick = (e) => {
+    this.#offOutsideClick = e => {
       const top = e.detail?.hits?.[0]
       // presentedFrom: un hit que el overlay del fold presentó como otra capa (hoja → vehículo) sigue
       // siendo propio → no colapsa.
@@ -323,8 +323,10 @@ export class CristaeCluster extends CristaeLayerElement {
 
   #bubbleConfig() {
     const b = [...this.children].find(el => el.getAttribute?.('slot') === 'bubble')
-    if (!b) return undefined
-    if (b.tagName === 'CRISTAE-LABEL-LAYER') return { kind: 'label', textOf: b.textOf, paint: b.paint, style: b.style }
-    return { kind: 'point', iconSet: b.iconSet, sizeOf: b.sizeOf }
+    return !b
+      ? undefined
+      : b.tagName === 'CRISTAE-LABEL-LAYER'
+        ? { kind: 'label', textOf: b.textOf, paint: b.paint, style: b.style }
+        : { kind: 'point', iconSet: b.iconSet, sizeOf: b.sizeOf }
   }
 }

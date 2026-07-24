@@ -74,8 +74,9 @@ export class CristaeLayerElement extends LitElement {
   // Default = HOJA (una unit del kind que produce la firma). Los modificadores (cluster/
   // overlay) lo sobreescriben para devolver el conjunto que reduce su subárbol.
   cristaeUnits() {
-    if (!this._handle || !this._engine) return []
-    return leafUnits(this, this._engine, { signatureFor: grammar.signatureFor })
+    return this._handle && this._engine
+      ? leafUnits(this, this._engine, { signatureFor: grammar.signatureFor })
+      : []
   }
 
   // Modificador de la gramática que envuelve a este elemento (cluster/overlay/…). Sus

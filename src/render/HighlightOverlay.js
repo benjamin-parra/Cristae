@@ -33,8 +33,8 @@ export function createHighlightOverlay({ source, project, ctx, clear, drawHighli
   let highlighted = EMPTY          // Map<id, key> — clave opaca por id resaltado
   let agendado = false             // ya hay un redibujo pedido para este frame
 
-  const redibujar = () => {
-    agendado = false
+  // Dibuja cada resaltado con un proyector inyectado (la vista viva, o una interpolada en el zoom animado).
+  const dibujarCon = proyectar => {
     clear()
     if (!highlighted.size) return
     const byId = source.itemById
@@ -44,13 +44,15 @@ export function createHighlightOverlay({ source, project, ctx, clear, drawHighli
       if (item == null) continue
       const p = positionOf(item)
       if (!p || !Number.isFinite(p.lat) || !Number.isFinite(p.lng)) continue
-      const { x, y } = project(p.lat, p.lng)
+      const { x, y } = proyectar(p.lat, p.lng)
       ctx.save()
       ctx.translate(x, y)
       drawHighlight(ctx, sizeOf(item), key)
       ctx.restore()
     }
   }
+
+  const redibujar = () => { agendado = false; dibujarCon(project) }
 
   // Coalesce a un solo redibujo por frame. Varias invalidaciones en un tick → un flush.
   const invalidar = () => {
@@ -74,6 +76,8 @@ export function createHighlightOverlay({ source, project, ctx, clear, drawHighli
     onViewportChange() { if (highlighted.size) invalidar() },
     // Redibujo síncrono e inmediato (montaje / cambio de tema / test).
     redraw: redibujar,
+    // Redibujo síncrono a una vista arbitraria (un frame del zoom animado).
+    renderAtView(proyectar) { dibujarCon(proyectar) },
     destroy() { unsub?.() },
   }
 }

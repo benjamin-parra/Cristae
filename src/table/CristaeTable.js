@@ -141,7 +141,7 @@ export class CristaeTable extends LitElement {
       comparator:   this.comparator,
       searchBy:     this.searchBy,
       searchFilter: this.searchFilter,
-      onPage:       (info) => { this._pageInfo = info },
+      onPage:       info => this._pageInfo = info,
     })
 
     scrollElement.addEventListener('click', this.#onRowClick, { signal: this.#abort.signal })
@@ -153,7 +153,7 @@ export class CristaeTable extends LitElement {
   }
 
   // Delegación: resuelve la fila clickeada a su ítem vía el slice visible y emite `cristae:rowclick`.
-  #onRowClick = (e) => {
+  #onRowClick = e => {
     const rowEl = e.target.closest('[data-row-idx]')
     if (!rowEl) return
     const row = +rowEl.dataset.rowIdx

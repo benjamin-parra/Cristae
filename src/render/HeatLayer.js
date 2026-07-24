@@ -57,7 +57,7 @@ const interpStops = (stops, t) => {
   return [lerp(c0[0], c1[0], u), lerp(c0[1], c1[1], u), lerp(c0[2], c1[2], u), lerp(c0[3], c1[3], u)]
 }
 
-const defaultRamp = (t) => interpStops(DEFAULT_STOPS, t)
+const defaultRamp = t => interpStops(DEFAULT_STOPS, t)
 
 export class HeatLayer {
 
@@ -72,7 +72,7 @@ export class HeatLayer {
 
   // Handlers estables (misma ref en on/off). Campos-flecha: se inicializan antes del cuerpo del
   // constructor, así ya existen cuando se registran los eventos del mapa.
-  #hide   = () => { if (this.#canvas) this.#canvas.style.visibility = 'hidden' }
+  #hide   = () => this.#canvas && (this.#canvas.style.visibility = 'hidden')
   // NO revela acá: sólo agenda el redibujo. El canvas se muestra al FINAL de #draw (contenido fresco y
   // colorizado). Revelar antes mostraría la vista anterior desubicada (zoomend) o, si colorize fallara,
   // la acumulación negra cruda ("queda negro"). Ocultar hasta tener un frame válido es lo correcto.
@@ -170,7 +170,7 @@ export class HeatLayer {
     const R     = this.#radius + this.#blur      // medio-lado de la brocha = alcance de un punto en px
     const brush = this.#brush
 
-    items.forEach((item) => {
+    items.forEach(item => {
       const pos = a.positionOf(item)
       if (!pos || !Number.isFinite(pos.lat) || !Number.isFinite(pos.lng)) return
       const p = this.#map.latLngToContainerPoint([pos.lat, pos.lng])
@@ -255,7 +255,7 @@ export class HeatLayer {
   #buildPalette() {
     const pal = this.#palette ?? new Uint8ClampedArray(GRAD_STEPS * 4)
     // Sólo corre al (re)construir la paleta, nunca por frame → el array de rango es inofensivo.
-    Array.from({ length: GRAD_STEPS }, (_, i) => i).forEach((i) => {
+    Array.from({ length: GRAD_STEPS }, (_, i) => i).forEach(i => {
       const [r, g, b, alpha] = toRGBA(this.#colorRamp(i / (GRAD_STEPS - 1)))
       const o = i * 4
       pal[o]     = r * 255

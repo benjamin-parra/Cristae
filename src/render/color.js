@@ -12,7 +12,7 @@ const HEX = /^#?([0-9a-f]{3,8})$/i
 export const toRGBA = (color, alpha = 1) => {
   if (Array.isArray(color)) return [color[0], color[1], color[2], color[3] ?? alpha]
   const m = typeof color === 'string' ? HEX.exec(color.trim()) : null
-  const h = m && (m[1].length <= 4 ? [...m[1]].map((c) => c + c).join('') : m[1])
+  const h = m && (m[1].length <= 4 ? [...m[1]].map(c => c + c).join('') : m[1])
   if (!h || (h.length !== 6 && h.length !== 8)) return [...DEFAULT_COLOR]
   const n = Number.parseInt(h, 16)
   return h.length === 6
@@ -33,7 +33,7 @@ export const toColorObj = (color, alpha) => {
 // es hex (nombres CSS, `rgb()`, null) se devuelve sin tocar.
 export const withAlpha = (color, alpha) => {
   const m = typeof color === 'string' ? HEX.exec(color.trim()) : null
-  const h = m && (m[1].length <= 4 ? [...m[1]].map((c) => c + c).join('') : m[1])
+  const h = m && (m[1].length <= 4 ? [...m[1]].map(c => c + c).join('') : m[1])
   if (!h || (h.length !== 6 && h.length !== 8)) return color
   const n = Number.parseInt(h.slice(0, 6), 16)
   return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`

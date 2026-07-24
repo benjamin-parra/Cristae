@@ -31,7 +31,7 @@ const UMD_GLOBALS = { core: 'CristaeCore', table: 'CristaeTable', map: 'CristaeM
 
 // Config común: sin cargar el vite.config de la app (nada de React/Tailwind/aliases), __DEBUG__ fijo en
 // producción, y NADA externalizado → todas las deps quedan dentro del bundle.
-const baseConfig = (mode) => ({
+const baseConfig = mode => ({
   configFile: false,
   root: projectRoot,
   publicDir: false,          // no copiar el public/ de la app (theme.css, svgs) dentro de la librería
@@ -82,7 +82,10 @@ async function buildUmd(name) {
 // el bundle queda inmune a cómo se sirva/decodifique al importarlo (charset mal declarado, latin-1,
 // `fetch().text()` con decoder no-utf8) → parsea igual en cualquier navegador.
 async function toAsciiJs() {
-  const escape = (s) => s.replace(/[^\x00-\x7F]/g, (c) => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0').toUpperCase())
+  const escape = s => s.split('').map(c => {
+    const code = c.charCodeAt(0)
+    return code <= 0x7F ? c : '\\u' + code.toString(16).padStart(4, '0').toUpperCase()
+  }).join('')
   for (const sub of ['esm', 'umd']) {
     const dir = resolve(outDir, sub)
     for (const name of await readdir(dir)) {

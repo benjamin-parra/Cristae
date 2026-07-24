@@ -29,4 +29,4 @@ const CHANNEL_OF_EVENT_TYPE = {
   'hover:end'      : EVENT_HOVER,
 }
 
-export const maskOfEventType = (eventType) => CHANNEL_OF_EVENT_TYPE[eventType] ?? 0
+export const maskOfEventType = eventType => CHANNEL_OF_EVENT_TYPE[eventType] ?? 0

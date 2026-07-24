@@ -27,13 +27,13 @@ const HIT_TOL_PX = 8
 const BYTES = 6
 
 // path point index del vértice v DE UNA PARTE: v=0→0, v=1,2→1, v=3,4→2, … (interiores duplicados).
-const pathIndexOf = (v) => (v + 1) >> 1
+const pathIndexOf = v => (v + 1) >> 1
 
 // `styleOf.weight` es el GROSOR EN PX de pantalla — el mismo significado que en el backend Leaflet.
 // glify no recibe un grosor: recibe el RADIO de una brocha que barre ±w en pasos de 0.5 sobre una
 // línea de 1px, así que rinde 2w+1 px de ancho y (4w+1)² pasadas de dibujo. Sin esta conversión el
 // backend GL dibuja al doble de grosor que el Leaflet con el mismo `styleOf`, y paga 4× las pasadas.
-const brushRadius = (px) => Math.max((px - 1) / 2, 0)
+const brushRadius = px => Math.max((px - 1) / 2, 0)
 
 export class LineLayer {
 
@@ -117,7 +117,7 @@ export class LineLayer {
     // Esclusa reusada: `needsRebuild` corta el barrido a un rebuild íntegro; `geomDirty` acumula el
     // re-index del picking. El guard inicial deja de escribir features en cuanto se decide el rebuild.
     const scan = { needsRebuild: false, geomDirty: false }
-    dirty.forEach((id) => {
+    dirty.forEach(id => {
       if (scan.needsRebuild) return
       const f = this.#featureById.get(id)
       if (f === undefined) { scan.needsRebuild = true; return }   // id nuevo / cambió la membresía del set
@@ -137,7 +137,7 @@ export class LineLayer {
     // puro no lo toca). O(n) de CPU, no el realloc GPU de setData que este path justamente evita.
     if (scan.geomDirty && this.#interactive)
       this.#index = prepareIndex(
-        snap.map((it) => ({ id: a.idOf(it), parts: toParts(a.pathOf(it)) })).filter(({ parts }) => parts.length),
+        snap.map(it => ({ id: a.idOf(it), parts: toParts(a.pathOf(it)) })).filter(({ parts }) => parts.length),
       )
     this.#layer.layer.redraw()
   }
@@ -199,7 +199,7 @@ export class LineLayer {
   #rebuild(snap) {
     const a = this.#accessors
     const built = snap
-      .map((item) => {
+      .map(item => {
         const parts = toParts(a.pathOf(item))
         const st = a.styleOf?.(item)
         return { item, id: a.idOf(item), paths: parts.map(p => p.path), parts, st }
@@ -218,7 +218,7 @@ export class LineLayer {
     // glify emite las partes contiguas y en orden → el offset avanza parte a parte, no feature a
     // feature; el prefijo es secuencial por naturaleza.
     let vertOffset = 0
-    const runsOf = (parts) => parts.map(({ path, from }) => {
+    const runsOf = parts => parts.map(({ path, from }) => {
       const run = { vertOffset, vertCount: 2 * (path.length - 1), from }
       vertOffset += run.vertCount
       return run
@@ -258,8 +258,8 @@ export class LineLayer {
       // 🔴 Los dos callbacks NO reciben el mismo índice: `resetVertices` pide el color con el índice
       // de FEATURE, y `drawOnCanvas` pide el weight recorriendo `vertices`, que tiene una entrada por
       // PARTE. Con features de una sola parte coinciden por accidente; con MultiLineString, no.
-      color: (i) => this.#styleArr[i].color,                        // per-feature; para gradiente es placeholder
-      weight: (i) => this.#weightByPart[i],
+      color: i => this.#styleArr[i].color,                        // per-feature; para gradiente es placeholder
+      weight: i => this.#weightByPart[i],
     })
     if (this.#layer.bytes !== BYTES)
       throw new Error('[cristae] glify.Lines layout != 6; abortar path de color per-vértice')

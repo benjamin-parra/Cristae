@@ -5,7 +5,7 @@
 
 import { safe } from './safe.js'
 
-const noRaf = (cb) => setTimeout(cb, 0)
+const noRaf = cb => setTimeout(cb, 0)
 const hasRaf = typeof requestAnimationFrame === 'function'
 const raf = hasRaf ? requestAnimationFrame : noRaf
 const cancelRaf = hasRaf ? cancelAnimationFrame : clearTimeout

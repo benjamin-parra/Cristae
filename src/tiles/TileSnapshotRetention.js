@@ -3,6 +3,9 @@
 // reproyectándolo al destino, hasta que el nuevo nivel termina de cargar. Así el mapa nunca
 // muestra el hueco gris entre que arranca el zoom y llegan los tiles nuevos.
 //
+// Sólo actúa en el zoom instantáneo; si Leaflet lo anima (map._zoomAnimated), su transición ya cubre
+// los tiles y la retención se hace a un lado. Se auto-gatea por frame (sin que el consumidor lo administre).
+//
 // Ciclo de eventos:
 //   zoomstart / viewprereset → startRetention  (captura + muestra snapshot)
 //   zoomanim                 → moveSnapshot     (reproyecta al destino animado)
@@ -45,9 +48,8 @@ const buildSnapshotCanvas = (group, layer, filterString) => {
   ctx.imageSmoothingEnabled  = true
   ctx.imageSmoothingQuality = 'low'
 
-  tiles.forEach(({ tile, left, top }) => {
-    ctx.drawImage(tile, left - unionLeft, top - unionTop, tileSize.x, tileSize.y)
-  })
+  tiles.forEach(({ tile, left, top }) =>
+    ctx.drawImage(tile, left - unionLeft, top - unionTop, tileSize.x, tileSize.y))
 
   return {
     element: canvas,
@@ -58,11 +60,11 @@ const buildSnapshotCanvas = (group, layer, filterString) => {
   }
 }
 
-const layerFilterString = (layer) =>
+const layerFilterString = layer =>
   (layer._container && getComputedStyle(layer._container).filter) || ''
 
 // Construye snapshots a partir de los tiles ya cargados del zoom actual de la capa.
-const buildTileSnapshots = (layer) => {
+const buildTileSnapshots = layer => {
   const tileZoom = layer._tileZoom
   const tiles = layer._tiles
   if (tileZoom == null || !tiles) return []
@@ -97,14 +99,14 @@ const buildTileSnapshots = (layer) => {
   }
 
   const filterString = layerFilterString(layer)
-  return Array.from(groups.values(), (group) => buildSnapshotCanvas(group, layer, filterString)).filter(Boolean)
+  return Array.from(groups.values(), group => buildSnapshotCanvas(group, layer, filterString)).filter(Boolean)
 }
 
 const seedZoomsFrom = (zoom, maxZoom) => {
   const baseZoom = Math.round(zoom)
   return SEED_ZOOM_OFFSETS
-    .map((offset) => baseZoom + offset)
-    .filter((targetZoom) => targetZoom <= maxZoom)
+    .map(offset => baseZoom + offset)
+    .filter(targetZoom => targetZoom <= maxZoom)
 }
 
 // Coords de tiles que cubren el viewport en un zoom dado, ordenadas por cercanía al centro.
@@ -146,7 +148,7 @@ const tileUrlAtZoom = (layer, coords) => {
 }
 
 const loadImage = (url, layer) =>
-  new Promise((resolve) => {
+  new Promise(resolve => {
     const image = new Image()
     if (layer.options.crossOrigin) image.crossOrigin = layer.options.crossOrigin === true ? '' : layer.options.crossOrigin
     if (layer.options.referrerPolicy) image.referrerPolicy = layer.options.referrerPolicy
@@ -178,7 +180,7 @@ const buildSeedSnapshot = async (map, layer, zoom, generation, currentGeneration
   let unionTop    = Infinity
   let unionRight  = -Infinity
   let unionBottom = -Infinity
-  seedTiles.forEach((tile) => {
+  seedTiles.forEach(tile => {
     unionLeft   = Math.min(unionLeft, tile.left)
     unionTop    = Math.min(unionTop, tile.top)
     unionRight  = Math.max(unionRight, tile.left + tileSize.x)
@@ -232,7 +234,7 @@ export const createTileSnapshotRetention = (map, {
     }, { timeout: 700 })
   }
 
-  const applyPlacement = (placement) => {
+  const applyPlacement = placement => {
     const { element } = placement.snapshot
     const { frame } = placement
     element.style.transform = `translate3d(${frame.left}px, ${frame.top}px, 0) scale(${frame.scale})`
@@ -246,13 +248,13 @@ export const createTileSnapshotRetention = (map, {
       viewportSize: map.getSize(),
       zoomScale   : (targetZoom, sourceZoom) => map.getZoomScale(targetZoom, sourceZoom),
     })
-    const nextSnapshots = placements.map((placement) => placement.snapshot)
+    const nextSnapshots = placements.map(placement => placement.snapshot)
 
     visibleSnapshots
-      .filter((snapshot) => !nextSnapshots.includes(snapshot))
-      .forEach((snapshot) => snapshot.element.remove())
+      .filter(snapshot => !nextSnapshots.includes(snapshot))
+      .forEach(snapshot => snapshot.element.remove())
 
-    placements.forEach((placement) => {
+    placements.forEach(placement => {
       pane.appendChild(placement.snapshot.element)
       applyPlacement(placement)
     })
@@ -275,11 +277,11 @@ export const createTileSnapshotRetention = (map, {
   }
 
   const startRetention = () => {
-    if (!activeLayer) return
+    if (!activeLayer || map._zoomAnimated) return   // si Leaflet anima el zoom, su transición cubre; a un lado
     cancelSeedPrefetch()
 
     if (!retaining) {
-      buildTileSnapshots(activeLayer).forEach((snapshot) => snapshotStore.add(snapshot))
+      buildTileSnapshots(activeLayer).forEach(snapshot => snapshotStore.add(snapshot))
     }
 
     const wasRetaining = retaining
@@ -289,19 +291,21 @@ export const createTileSnapshotRetention = (map, {
     }
   }
 
-  // Reproyecta el snapshot al destino. Solo llega en zoom-IN: el motor mantiene el zoom-out
-  // instantáneo (animar un zoom-out desfasa los tiles viejos que se encogen con el fondo nuevo),
-  // así que ahí no hay `zoomanim` y la ruta instantánea zoom/zoomend asienta el snapshot.
-  const moveSnapshot = (event) => {
+  // Los tres sólo aplican mid-retención (guard `retaining`): si el zoom se anima, startRetention no
+  // enganchó y no deben mostrar snapshots (ni siquiera los seeds prefetcheados) sobre la animación.
+  const moveSnapshot = event => {
+    if (!retaining) return
     showSnapshot(event.zoom, map._getNewPixelOrigin(event.center, event.zoom))
   }
 
   const settleSnapshot = () => {
+    if (!retaining) return
     showSnapshot(map.getZoom(), map.getPixelOrigin())
     endRetention()
   }
 
   const syncSnapshot = () => {
+    if (!retaining) return
     showSnapshot(map.getZoom(), map.getPixelOrigin())
   }
 
@@ -331,12 +335,12 @@ export const createTileSnapshotRetention = (map, {
       activePrune = layer._pruneTiles
       // Durante la retención diferimos el prune de Leaflet: si podara los tiles
       // viejos a media animación reaparecería el hueco gris que estamos tapando.
-      layer._pruneTiles = function pruneTilesAfterZoomLoad() {
-        if (retaining && activeLayer === this) {
+      layer._pruneTiles = () => {
+        if (retaining && activeLayer === layer) {
           pruneDeferred = true
           return
         }
-        return activePrune.call(this)
+        return activePrune.call(layer)
       }
       scheduleSeedPrefetch()
     },

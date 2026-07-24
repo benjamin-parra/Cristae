@@ -128,6 +128,14 @@ const makeContainer = () => ({
 // (latLng→container→offsets→latLng). No se asertan píxeles; sólo hace falta que sea consistente.
 const P = 100
 
+// Point mínimo (divideBy/subtract/add) para el reproyectado de vista. Inmutable, como L.Point.
+const makePoint = (x, y) => ({
+  x, y,
+  divideBy: (n) => makePoint(x / n, y / n),
+  subtract: (p) => makePoint(x - p.x, y - p.y),
+  add:      (p) => makePoint(x + p.x, y + p.y),
+})
+
 export const makeMap = ({ zoom = 3 } = {}) => {
   const panes = new Map()
   const handlers = new Map()   // evento → Set(cb); Leaflet acepta 'a b' (varios en un on)
@@ -152,6 +160,13 @@ export const makeMap = ({ zoom = 3 } = {}) => {
     setZoomForTest(z) { map._zoom = z; return map },
     getCenter: () => ({ lat: 0, lng: 0 }),
     getBounds: () => ({}),
+    getSize: () => makePoint(800, 600),
+    // Proyección a píxeles dependiente del zoom (px = coord·P·2^z), para el reproyectado de vista.
+    project: (ll, z = map._zoom) => {
+      const lat = Array.isArray(ll) ? ll[0] : ll.lat, lng = Array.isArray(ll) ? ll[1] : ll.lng
+      const s = P * Math.pow(2, z)
+      return makePoint(lng * s, lat * s)
+    },
     invalidateSize: () => map,
     latLngToContainerPoint: (ll) => {
       const lat = Array.isArray(ll) ? ll[0] : ll.lat, lng = Array.isArray(ll) ? ll[1] : ll.lng

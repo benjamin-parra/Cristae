@@ -43,6 +43,28 @@ test('addHighlightOverlay: cablea el pase separado end-to-end sobre MapEngine', 
   engine.destroy()
 })
 
+test('addHighlightOverlay: el ViewAnimator lo reproyecta POR FRAME durante el zoom animado', async () => {
+  const engine = newEngine()
+  engine.addPointLayer({ id: 'flota', accessors, iconSet: makeIconSet(), data: items })
+  await flushRaf()
+
+  const draws = []
+  const ov = engine.addHighlightOverlay({ id: 'hl', layerId: 'flota', drawHighlight: (ctx, size, key) => draws.push(key) })
+  ov.setHighlighted(new Map([[2, 'follow'], [5, 'select']]))
+  await flushRaf()
+  draws.length = 0
+
+  // `zoomanim` = un frame de zoom animado (trae la vista DESTINO). El motor interpola (z,c) y reproyecta
+  // los resaltados por frame ANTES de zoomend → el retículo sigue a su sprite en vez de teletransportarse.
+  engine.getLeafletMap().fire('zoomanim', { zoom: 6, center: { lat: 1, lng: 1 } })
+  await flushRaf()
+  assert.ok(draws.length >= 2, 'reproyecta los resaltados DURANTE la animación, no sólo al asentar')
+
+  engine.getLeafletMap().fire('zoomend')                // corta la interpolación
+  ov.destroy()
+  engine.destroy()
+})
+
 test('addHighlightOverlay: rechaza un layerId ausente o que no es de puntos', () => {
   const engine = newEngine()
   assert.equal(engine.addHighlightOverlay({ id: 'x', layerId: 'inexistente', drawHighlight: () => {} }), null)

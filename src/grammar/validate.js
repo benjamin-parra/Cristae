@@ -89,7 +89,7 @@ const juzgarWrapper = (el, ctx, sig, kids) => {
       `${PFX} <${tagName(el)}> consume [${sig.consumes.join(',')}] pero ningún hijo lo produce (los hijos producen: [${[...allChildKinds].join(',')}]).`)
 
   const out = new Set(sig.produces)
-  if (sig.passThrough !== false) for (const k of passKinds) out.add(k)
+  if (sig.passThrough) for (const k of passKinds) out.add(k)
   return out
 }
 

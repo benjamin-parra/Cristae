@@ -132,7 +132,7 @@ export class MapEngine {
     if (this.#ownsMap) this.#applyZoomAnimation(zoomAnimation)
 
     this.#registry    = new LayerRegistry(this.#map)
-    this.#bus         = new EventBus((layerId) => this.#syncDemand(layerId))
+    this.#bus         = new EventBus(layerId => this.#syncDemand(layerId))
     this.#interaction = new Interaction({
       map:        this.#map,
       registry:   this.#registry,
@@ -141,13 +141,13 @@ export class MapEngine {
       hoverThrottleMs,
       onInteractionStart: () => this.#emit('interactionstart', {}),
       onInteractionEnd:   () => this.#emit('interactionend', {}),
-      onEmptyClick:       (latlng) => this.#emit('map:click', { latlng }),   // click en espacio vacío → latlng
+      onEmptyClick:       latlng => this.#emit('map:click', { latlng }),   // click en espacio vacío → latlng
     })
     this.camera       = new Camera({
       map: this.#map,
       L:   leaflet,
       insets,
-      resolveSource: (id) => this.#layers.get(id)?.source ?? null,
+      resolveSource: id => this.#layers.get(id)?.source ?? null,
       // Zoom mínimo de desclusterización por (capa, id): la cámara lo consulta para revealPoint /
       // followPoint({reveal}) sin conocer el cluster. El fold ata rec.cluster = control (ver addClusterFold).
       declusterZoomOf: (layerId, id) => this.#layers.get(layerId)?.cluster?.declusterZoomFor(id) ?? null,
@@ -157,6 +157,7 @@ export class MapEngine {
       center: this.#map.getCenter(), zoom: this.#map.getZoom(), bounds: this.#map.getBounds(),
     }))
     this.#wireRenderLifecycle()
+    this.#wireZoomReproject()
 
     this.ready = new Promise(resolve => this.#map.whenReady(() => { this.#emit('ready', {}); resolve(this) }))
     _liveEngines.add(this)
@@ -219,7 +220,7 @@ export class MapEngine {
     const source   = cfg.source ?? controls
     const layer    = new PolygonLayer({ L: this.#L, map: this.#map, pane: paneName, source, interactive })
 
-    const record = { kind: 'polygon', source, layer, controls, paneName, order, interactive, visible }
+    const record = { kind: 'polygon', source, layer, controls, paneName, order, interactive, visible, enabled: true }
     this.#layers.set(id, record)
 
     if (interactive)   // resolvers leen record.layer (no capturan). Síncrono, no va a #pickLayers (como línea).
@@ -228,7 +229,7 @@ export class MapEngine {
 
     if (data && controls) controls.set(data)
     this.#flushPendingBinds()
-    return { id, source, set: (items) => controls?.set(items), setVisible: (v) => this.setLayerVisibility(id, v) }
+    return { id, source, set: items => controls?.set(items), setVisible: v => this.setLayerVisibility(id, v) }
   }
 
   /* ── Capas de líneas (GL glify.Lines + hit-testing nearest-segment CPU) ── */
@@ -249,7 +250,7 @@ export class MapEngine {
       ? new LeafletLineLayer({ L: this.#L, map: this.#map, pane: paneName, source, interactive })
       : this.#trackGl(new LineLayer({ glify: this.#glify, map: this.#map, pane: paneName, source, interactive }))
 
-    const record = { kind: 'line', source, layer, controls, paneName, order, interactive, visible }
+    const record = { kind: 'line', source, layer, controls, paneName, order, interactive, visible, enabled: true }
     this.#layers.set(id, record)
 
     if (interactive) {
@@ -266,8 +267,8 @@ export class MapEngine {
     return {
       id,
       source,
-      set:        (items) => controls?.set(items),
-      setVisible: (v) => this.setLayerVisibility(id, v),
+      set:        items => controls?.set(items),
+      setVisible: v => this.setLayerVisibility(id, v),
     }
   }
 
@@ -284,7 +285,7 @@ export class MapEngine {
     const source   = cfg.source ?? controls
     const layer    = new HtmlLayer({ L: this.#L, map: this.#map, pane: paneName, source, interactive })
 
-    const record = { kind: 'html', source, layer, controls, paneName, order, interactive, visible }
+    const record = { kind: 'html', source, layer, controls, paneName, order, interactive, visible, enabled: true }
     this.#layers.set(id, record)
     if (interactive) {
       this.#registerResolver(id, 'html', zIndex, order, e => record.layer.resolveClick(e), e => record.layer.resolveHover(e))
@@ -295,8 +296,8 @@ export class MapEngine {
     return {
       id,
       source,
-      set:        (items) => controls?.set(items),
-      setVisible: (v) => this.setLayerVisibility(id, v),
+      set:        items => controls?.set(items),
+      setVisible: v => this.setLayerVisibility(id, v),
     }
   }
 
@@ -313,7 +314,7 @@ export class MapEngine {
     const source   = cfg.source ?? controls
     const layer    = new CircleLayer({ L: this.#L, map: this.#map, pane: paneName, source, interactive })
 
-    const record = { kind: 'circle', source, layer, controls, paneName, order, interactive, visible }
+    const record = { kind: 'circle', source, layer, controls, paneName, order, interactive, visible, enabled: true }
     this.#layers.set(id, record)
     if (interactive)
       this.#registerResolver(id, 'circle', zIndex, order, e => record.layer.resolveClick(e), e => record.layer.resolveHover(e))
@@ -321,7 +322,7 @@ export class MapEngine {
 
     if (data && controls) controls.set(data)
     this.#flushPendingBinds()
-    return { id, source, set: (items) => controls?.set(items), setVisible: (v) => this.setLayerVisibility(id, v) }
+    return { id, source, set: items => controls?.set(items), setVisible: v => this.setLayerVisibility(id, v) }
   }
 
   /* ── Heatmap (canvas 2D, densidad acumulada; NO GL — se auto-reproyecta por eventos del mapa) ── */
@@ -337,19 +338,19 @@ export class MapEngine {
     const source   = cfg.source ?? controls
     const layer    = new HeatLayer({ glify: this.#glify, map: this.#map, pane: paneName, source, radius, blur, intensity, colorRamp })
 
-    const record = { kind: 'heat', source, layer, controls, paneName, order, interactive: false, visible }
+    const record = { kind: 'heat', source, layer, controls, paneName, order, interactive: false, visible, enabled: true }
     this.#layers.set(id, record)
     this.#applyVisibility(id, paneName, visible)
 
     if (data && controls) controls.set(data)
     return {
       id, source,
-      set:          (items) => controls?.set(items),
-      setVisible:   (v) => this.setLayerVisibility(id, v),
-      setRadius:    (r) => { layer.radius = r },
-      setBlur:      (b) => { layer.blur = b },
-      setIntensity: (i) => { layer.intensity = i },
-      setColorRamp: (fn) => { layer.colorRamp = fn },
+      set:          items => controls?.set(items),
+      setVisible:   v => this.setLayerVisibility(id, v),
+      setRadius:    r => layer.radius = r,
+      setBlur:      b => layer.blur = b,
+      setIntensity: i => layer.intensity = i,
+      setColorRamp: fn => layer.colorRamp = fn,
     }
   }
 
@@ -357,20 +358,20 @@ export class MapEngine {
        onChange. No es capa de Source; el DISPLAY se ata con addPolygonLayer/addLineLayer al mismo value. ── */
 
   addEditableLayer(cfg) {
-    const { id, kind = 'polygon', value = null, mode = 'edit', onChange, pane, z } = cfg
+    const { id, kind = 'polygon', value = null, mode = 'edit', onChange, onCommit, pane, z } = cfg
     const order    = this.#order++
     const paneName = pane ?? `cristae-edit-${id}`
     const zIndex   = z ?? (BASE_Z + order * Z_STEP + LABEL_Z_OFFSET)   // handles por encima de las capas
     this.#ensurePane(paneName, zIndex, false)                          // markers interactivos → pane con puntero
-    const editor = new EditableGeometry({ L: this.#L, map: this.#map, pane: paneName, kind, value, mode, onChange })
-    const record = { kind: 'editable', editor, paneName, order }
+    const editor = new EditableGeometry({ L: this.#L, map: this.#map, pane: paneName, kind, value, mode, onChange, onCommit })
+    const record = { kind: 'editable', editor, paneName, order, visible: true, enabled: true }
     this.#layers.set(id, record)
     return {
       id,
-      setValue:       (v) => editor.setValue(v),
-      setMode:        (m) => editor.setMode(m),
+      setValue:       v => editor.setValue(v),
+      setMode:        m => editor.setMode(m),
       getValue:       () => editor.getValue(),
-      handleMapClick: (ll) => editor.handleMapClick(ll),
+      handleMapClick: ll => editor.handleMapClick(ll),
       destroy:        () => this.removeLayer(id),
     }
   }
@@ -385,7 +386,7 @@ export class MapEngine {
     const labelLayer = new LabelLayer({ map: this.#map, pane: { name: paneName, zIndex }, paint, style })
     // `visible` en record: controla si sync() (la suscripción a la Source) corre el reduce O(n) +
     // setLabels. Con setVisible(false) el sync es no-op → cero CPU por cada emit del WS.
-    const record = { kind: 'label', layer: labelLayer, paneName, order, bindTo, visible: true }
+    const record = { kind: 'label', layer: labelLayer, paneName, order, bindTo, visible: true, enabled: true }
     this.#layers.set(id, record)
 
     const bind = () => this.#bindLabels(id, record, { bindTo, textOf, accessors, source: cfg.source })
@@ -393,9 +394,9 @@ export class MapEngine {
 
     return {
       id,
-      setLabels:  (labels) => labelLayer.setLabels(labels),
-      setHovered: (ids) => labelLayer.setHovered(ids),
-      setVisible: (v) => {
+      setLabels:  labels => labelLayer.setLabels(labels),
+      setHovered: ids => labelLayer.setHovered(ids),
+      setVisible: v => {
         const wasHidden = !record.visible
         record.visible = v
         // Al re-habilitar: refrescar los labels con el estado actual ANTES de que el overlay pinte
@@ -406,7 +407,7 @@ export class MapEngine {
         // que setLayerEnabled(true) lo restaure (y resyncee el contenido). Sin esto, prender labels
         // con el host deshabilitado re-mostraría el canvas con lo último pintado (labels fantasma).
         const host = record.bindTo ? this.#layers.get(record.bindTo) : null
-        labelLayer.setVisibility(v && host?.enabled !== false)
+        labelLayer.setVisibility(v && (!host || host.enabled))
       },
     }
   }
@@ -427,16 +428,16 @@ export class MapEngine {
     return {
       map:               this.#map,
       L:                 this.#L,
-      layerOf:           (id) => this.#layers.get(id),
+      layerOf:           id => this.#layers.get(id),
       nextOrder:         () => this.#order++,
       overlayZ:          (order, extra) => BASE_Z + order * Z_STEP + LABEL_Z_OFFSET + extra,   // z de las capas del fold: sobre los labels (+200)
       subAccent:         SUB_ACCENT,                                                           // acento default de la traza spiderfy
       ensurePane:        (name, z, noPointer) => this.#ensurePane(name, z, noPointer),
       makeBubbleSink:    (bubble, pane, order, foldId, interactive) => this.#makeBubbleSink(bubble, pane, order, foldId, interactive),
-      subClusterIconSet: (accent) => this.#subClusterIconSet(accent),
-      addPointLayer:     (cfg) => this.addPointLayer(cfg),
-      removeLayer:       (id) => this.removeLayer(id),
-      resyncBound:       (id) => this.#resyncBound(id),
+      subClusterIconSet: accent => this.#subClusterIconSet(accent),
+      addPointLayer:     cfg => this.addPointLayer(cfg),
+      removeLayer:       id => this.removeLayer(id),
+      resyncBound:       id => this.#resyncBound(id),
       focus:             (ids, options) => this.focus(ids, options),
       unfocusAll:        () => this.unfocusAll(),
       emit:              (event, detail) => this.#emit(event, detail),
@@ -478,21 +479,21 @@ export class MapEngine {
     layer.refresh()
 
     const record = {
-      kind: 'overlay', source: host.source, layer, paneName, order, bindTo: hostId, visible,
+      kind: 'overlay', source: host.source, layer, paneName, order, bindTo: hostId, visible, enabled: true,
       // el cluster reinvoca esto al re-suprimir (#resyncBound): re-apunta al ref vivo del host + reconstruye.
       resync: () => { layer.suppressed = this.#layers.get(hostId)?.suppressed ?? null; layer.refresh() },
     }
     this.#layers.set(id, record)
-    this.#applyVisibility(id, paneName, visible && host.enabled !== false)   // ligado: nace oculto si su host está deshabilitado
-    if (host.enabled === false) layer.enabled = false                        // y gateado (setLayerEnabled(true) lo revive con resync)
+    this.#applyVisibility(id, paneName, visible && host.enabled)   // ligado: nace oculto si su host está deshabilitado
+    if (!host.enabled) layer.enabled = false                       // y gateado (setLayerEnabled(true) lo revive con resync)
 
     return {
       id,
       get source() { return record.source },
       get layer() { return record.layer },
       refresh:    () => layer.refresh(),
-      setWhere:   (fn) => { layer.where = fn; layer.refresh() },
-      setVisible: (v) => this.setLayerVisibility(id, v),
+      setWhere:   fn => { layer.where = fn; layer.refresh() },
+      setVisible: v => this.setLayerVisibility(id, v),
     }
   }
 
@@ -515,7 +516,7 @@ export class MapEngine {
     const source  = host.source
     const iconSet = host.iconSet
     const sizeOf  = source.accessors.sizeOf
-      ? (item) => source.accessors.sizeOf(item)
+      ? item => source.accessors.sizeOf(item)
       : () => iconSet?.defaultSize ?? 32
 
     const map      = this.#map
@@ -555,13 +556,20 @@ export class MapEngine {
       clear: () => { reposition(); ctx.clearRect(0, 0, cssW, cssH) },   // reasienta el pane antes de dibujar
       drawHighlight,
       sizeOf,
-      schedule: (fn) => requestAnimationFrame(fn),
+      schedule: fn => requestAnimationFrame(fn),
     })
 
     const onView = () => overlay.onViewportChange()
-    map.on('moveend zoomend resize', onView)             // pan/zoom-anim los lleva el transform; acá reasienta
+    map.on('moveend zoomend resize', onView)             // pan y settle de zoom: reasienta a la vista viva
 
     const entry = {
+      // Reproyecta a la vista (z,c) con el mismo cálculo que la matriz GL del sprite —
+      // project(ll,z) − project(c,z) + tamaño/2— así el retículo cae exacto sobre su punto.
+      renderAtView: (z, c) => {
+        const half = map.getSize().divideBy(2)
+        const cPix = map.project(c, z)
+        overlay.renderAtView((lat, lng) => map.project(this.#L.latLng(lat, lng), z).subtract(cPix).add(half))
+      },
       dispose: () => {
         map.off('moveend zoomend resize', onView)
         overlay.destroy()
@@ -574,7 +582,7 @@ export class MapEngine {
 
     return {
       id,
-      setHighlighted: (highlighted) => overlay.setHighlighted(highlighted),
+      setHighlighted: highlighted => overlay.setHighlighted(highlighted),
       redraw:         () => overlay.redraw(),
       resize:         reposition,
       destroy:        entry.dispose,
@@ -592,7 +600,7 @@ export class MapEngine {
     record.layer    = this.#trackGl(new PointLayer({
       glify: this.#glify, map: this.#map, pane: record.paneName, source, iconSet: record.iconSet, interactive: record.interactive, where: record.where,
     }))
-    if (record.enabled === false) record.layer.enabled = false   // el swap conserva el gate de la entidad deshabilitada
+    if (!record.enabled) record.layer.enabled = false   // el swap conserva el gate de la entidad deshabilitada
     if (record.interactive) {
       const entry = this.#pickLayers.find(e => e.layerId === id)
       if (entry) entry.layer = record.layer
@@ -630,7 +638,7 @@ export class MapEngine {
     return false
   }
 
-  setLayerVisibility(id, visible) {
+  setLayerVisibility(id, visible = true) {
     const record = this.#layers.get(id)
     if (!record) return false
     // `visible` (pintado) se persiste para componer con `enabled` (membresía de la entidad): la
@@ -638,7 +646,7 @@ export class MapEngine {
     // ligados (bindTo). Los labels mantienen su flag por su canal propio (gate del sync, #bindLabels).
     if (record.kind !== 'label') record.visible = visible
     const host      = record.bindTo ? this.#layers.get(record.bindTo) : null
-    const effective = visible && record.enabled !== false && (!host || host.enabled !== false)
+    const effective = visible && record.enabled && (!host || host.enabled)
     this.#applyVisibility(id, record.paneName, effective)
     if (!effective) this.#bus.clearLayer(id)
     return true
@@ -650,17 +658,17 @@ export class MapEngine {
   // oculta, su picking se limpia y sus LIGADOS (labels/overlays bind-to) se ocultan con ella.
   // Habilitarla restaura todo (resync + reindex incluidos). Idempotente; NO toca la Source —
   // los datos siguen vivos (move/patch del WS) y al volver, la capa aparece al día.
-  setLayerEnabled(id, enabled) {
+  setLayerEnabled(id, enabled = true) {
     const record = this.#layers.get(id)
     if (!record || record.kind !== 'point') return false
-    const next = enabled !== false
-    if ((record.enabled !== false) === next) return true
+    const next = enabled
+    if (record.enabled === next) return true
     record.enabled = next
     // Gate del pipeline de render: deshabilitada, la capa NO reacciona a la Source (cero CPU/GPU
     // por emit del WS — el ahorro real de "deshabilitar", no sólo ocultar). refresh() abajo es el
     // catch-up al volver (la Source siguió viva mientras tanto).
     record.layer.enabled = next
-    this.#applyVisibility(id, record.paneName, next && record.visible !== false)
+    this.#applyVisibility(id, record.paneName, next && record.visible)
     if (!next) this.#bus.clearLayer(id)
     // Ligados: siguen la suerte de la ENTIDAD (un badge/label de un host deshabilitado no queda
     // flotando solo). Componen su propio `visible` — re-habilitar no revive lo que el consumidor
@@ -669,7 +677,7 @@ export class MapEngine {
     // gate al componer con su propio toggle); los overlays gatean su pipeline y ocultan su pane.
     this.#layers.forEach((r, rid) => {
       if (r.bindTo !== id) return
-      const on = next && r.visible !== false
+      const on = next && r.visible
       if (r.kind === 'label') r.layer.setVisibility(on)
       else {
         if (r.kind === 'overlay') r.layer.enabled = next
@@ -702,7 +710,7 @@ export class MapEngine {
   }
 
   setTileProvider({ url, ...options } = {}) {
-    if (!this.#tiles) this.#tiles = createTileSnapshotRetention(this.#map)
+    this.#tiles ||= createTileSnapshotRetention(this.#map)
     if (this.#tileLayer) { this.#tiles.invalidateSnapshots(); this.#tileLayer.remove() }
     this.#tileLayer = this.#L.tileLayer(url, options).addTo(this.#map)
     this.#tiles.activateLayer(this.#tileLayer)
@@ -732,7 +740,7 @@ export class MapEngine {
   // según su tipo (positionOf | pathOf | ringsOf). One-shot; respeta insets/maxZoom.
   fitToLayers(ids = null, { insets, maxZoom } = {}) {
     // Aplana cualquier coordenada (`{lat,lng}` | `[lat,lng]` | anidada de pathOf/ringsOf) a pares [lat,lng].
-    const pairs = (v) => Array.isArray(v)
+    const pairs = v => Array.isArray(v)
       ? (typeof v[0] === 'number' ? [v] : v.flatMap(pairs))
       : [[v.lat, v.lng]]
     const coordsOf = ({ accessors: a, getSnapshot }) => getSnapshot().flatMap(it =>
@@ -769,10 +777,9 @@ export class MapEngine {
   // cablean → se usa la palanca en caliente (_zoomAnimated) en vez del latch de construcción.
   #applyZoomAnimation(mode) {
     if (mode === 'none') { this.#map._zoomAnimated = false; return }
-    const tryAnimatedZoom = this.#map._tryAnimatedZoom
-    this.#map._tryAnimatedZoom = function (center, zoom, options) {
-      return zoom < this._zoom ? false : tryAnimatedZoom.call(this, center, zoom, options)
-    }
+    const map = this.#map, tryAnimatedZoom = map._tryAnimatedZoom.bind(map)
+    map._tryAnimatedZoom = (center, zoom, options) =>
+      zoom >= map._zoom && tryAnimatedZoom(center, zoom, options)
   }
 
   // Reposiciona/redibuja las capas de puntos en paneo y zoom (glify solo autoregistra moveend → _reset).
@@ -781,7 +788,7 @@ export class MapEngine {
     const L     = this.#L
     let zooming = false
     let lastX   = NaN, lastY = NaN
-    this.#map.on('zoomstart', () => { zooming = true })
+    this.#map.on('zoomstart', () => zooming = true)
     this.#map.on('zoomend', () => {
       zooming = false; lastX = NaN; lastY = NaN
       this.#forEachGlLayer(layer => layer.resetCanvasReference())
@@ -797,6 +804,35 @@ export class MapEngine {
       lastX = NaN; lastY = NaN
       this.#forEachGlLayer(layer => layer.resetCanvasReference())
     })
+  }
+
+  // Zoom animado: reproyecta POR FRAME a la vista interpolada (tamaño de sprite/retículo fijo, alineado
+  // con los tiles), en vez de dejar que el canvas escale con la transición CSS de Leaflet. Alcanza a las
+  // capas GL (que apagan su `_animateZoom`, ver PointLayer) y a los overlays de interacción vía renderAtView.
+  // Sincronizado al easing del tile (~cubic-bezier(0,0,.25,1), 250ms). `zoomanim` trae la vista destino.
+  #wireZoomReproject() {
+    const ease = t => 1 - (1 - t) ** 3          // aprox. del cubic-bezier(0,0,.25,1) del tile de Leaflet
+    const DUR  = 250
+    let raf    = 0
+    this.#map.on('zoomanim', e => {
+      const z0 = this.#map.getZoom()
+      const c0 = this.#map.getCenter()
+      const z1 = e.zoom
+      const c1 = e.center ?? c0
+      const t0 = performance.now()
+      cancelAnimationFrame(raf)
+      const step = () => {
+        const k = ease(Math.min((performance.now() - t0) / DUR, 1))
+        const z = z0 + (z1 - z0) * k
+        const c = this.#L.latLng(c0.lat + (c1.lat - c0.lat) * k, c0.lng + (c1.lng - c0.lng) * k)
+        this.#forEachGlLayer(l => l.renderAtView?.(z, c))
+        this.#highlightOverlays.forEach(o => o.renderAtView?.(z, c))   // el realce sigue a su sprite por frame
+        if (k < 1) raf = requestAnimationFrame(step)
+      }
+      raf = requestAnimationFrame(step)
+    })
+    // Al asentar: corta la interpolación y deja que cada capa se re-proyecte nítida a la vista final.
+    this.#map.on('zoomend', () => { cancelAnimationFrame(raf); this.#forEachGlLayer(l => l.resetCanvasReference()) })
   }
 
   // Inscribe una capa GL (canvas glify propio que Leaflet NO reproyecta) en el set que el ciclo de
@@ -920,26 +956,26 @@ export class MapEngine {
       id,
       get source() { return record.source },
       get layer() { return record.layer },
-      set:          (items) => controls?.set(items),
+      set:          items => controls?.set(items),
       patch:        (items, dirtyIds) => controls?.patch(items, dirtyIds),
       move:         (itemId, lat, lng) => controls?.move(itemId, lat, lng),
-      remove:       (itemId) => controls?.remove(itemId),
-      addFilter:    (f) => controls?.addFilter(f),
-      removeFilter: (fid) => controls?.removeFilter(fid),
+      remove:       itemId => controls?.remove(itemId),
+      addFilter:    f => controls?.addFilter(f),
+      removeFilter: fid => controls?.removeFilter(fid),
       // Membresía declarativa por-capa: cambia el predicado `where` y reconstruye SOLO esta
       // capa (no toca la Source compartida → otras vistas no se ven afectadas). Lee record.layer
       // (no captura) porque attachSource puede swapear la capa. Espejo del setWhere del overlay.
       // Además persiste el `where` en el record y RE-INDEXA el cluster que envuelve esta capa (si lo
       // hay): el cluster indexa `source ∧ where`, y un cambio de `where` no emite en la Source → sin
       // esto los conteos de burbuja quedarían obsoletos (mostrarían la flota completa, no la filtrada).
-      setWhere:     (fn) => { record.where = fn ?? null; record.layer.where = fn; record.layer.refresh(); record.cluster?.reindex() },
-      preloadIcons: (variants) => iconSet?.seed(variants),
+      setWhere:     fn => { record.where = fn ?? null; record.layer.where = fn; record.layer.refresh(); record.cluster?.reindex() },
+      preloadIcons: variants => iconSet?.seed(variants),
       refresh:      () => record.layer.refresh(),
-      setVisible:   (v) => this.setLayerVisibility(id, v),
+      setVisible:   v => this.setLayerVisibility(id, v),
       // Membresía de la ENTIDAD en la composición (eje ortogonal a setVisible, que es pintado
       // puro): off → la capa aporta ∅ a sus modificadores (el cluster re-indexa sin ella), pane
       // oculto, picking limpio y ligados ocultos. Ver setLayerEnabled.
-      setEnabled: (v) => this.setLayerEnabled(id, v),
+      setEnabled: v => this.setLayerEnabled(id, v),
     }
   }
 
@@ -955,9 +991,9 @@ export class MapEngine {
     if (spec.kind === 'label') {
       const layer  = new LabelLayer({ map: this.#map, pane: { name: bubblePane, zIndex }, paint: spec.paint, style: spec.style })
       const textOf = spec.textOf ?? (count => String(count))
-      this.#layers.set(siblingId, { kind: 'label', layer, paneName: bubblePane, order })
+      this.#layers.set(siblingId, { kind: 'label', layer, paneName: bubblePane, order, visible: true, enabled: true })
       return {
-        feed:    (bubbles) => layer.setLabels(bubbles.map(b => ({ id: b.id, lat: b.lat, lng: b.lng, text: textOf(b.count) }))),
+        feed:    bubbles => layer.setLabels(bubbles.map(b => ({ id: b.id, lat: b.lat, lng: b.lng, text: textOf(b.count) }))),
         dispose: () => { layer.destroy(); this.#layers.delete(siblingId) },
       }
     }
@@ -982,7 +1018,10 @@ export class MapEngine {
       hashOf: b => `${b.count}:${b.expanded ? 'd' : b.marked ? 'm' : ''}:${b.lat}:${b.lng}`,
     }, iconSet.variants)
     const layer = this.#trackGl(new PointLayer({ glify: this.#glify, map: this.#map, pane: bubblePane, source: controls, iconSet, interactive }))
-    this.#layers.set(siblingId, { kind: 'point', source: controls, layer, controls, paneName: bubblePane, order, interactive })
+    this.#layers.set(siblingId, {
+      kind: 'point', source: controls, layer, controls, paneName: bubblePane, order, interactive,
+      visible: true, enabled: true,
+    })
     if (interactive) {
       this.#pickLayers.push({ layerId: siblingId, layer })
       // La burbuja ocluye lo que tiene debajo (capa overlay): su click no se filtra a geocercas/puntos.
@@ -997,7 +1036,7 @@ export class MapEngine {
       // (los ids de Supercluster son densos) pasaría la guarda de itemById y getLeaves resolvería
       // OTRO cluster. El #onChange del rAF posterior re-camina los dirty ya escritos (idempotente,
       // n = nº de burbujas). Simétrico con los hosts (apply) y el spider (applySpider).
-      feed: (bubbles) => { controls.set(bubbles); layer.refresh() },
+      feed: bubbles => { controls.set(bubbles); layer.refresh() },
       // removeLayer limpia registry, pickLayers y bus — más completo que el destroy manual anterior.
       dispose: () => this.removeLayer(siblingId),
     }
@@ -1007,17 +1046,18 @@ export class MapEngine {
   //   bubble: { buckets, draw, sizes }  — cualquiera de los tres ajusta el default.
   // Sin ninguno → el default cacheado (lazy, una sola instancia por motor).
   #clusterBubbleIconSet({ buckets, draw, sizes } = {}) {
-    if (buckets == null && draw == null && sizes == null)
-      return this.#defaultClusters ??= defineClusterIconSet({ draw: DEFAULT_CLUSTER_DRAW, sizes: { default: DEFAULT_CLUSTER_SIZE } })
-    return defineClusterIconSet({ buckets, draw: draw ?? DEFAULT_CLUSTER_DRAW, sizes })
+    return buckets == null && draw == null && sizes == null
+      ? this.#defaultClusters ??= defineClusterIconSet({ draw: DEFAULT_CLUSTER_DRAW, sizes: { default: DEFAULT_CLUSTER_SIZE } })
+      : defineClusterIconSet({ buckets, draw: draw ?? DEFAULT_CLUSTER_DRAW, sizes })
   }
 
   // IconSet de los SUB-CLUSTERS de la espiral (jerarquía): estilo claro+anillo, distinto a la burbuja
   // base sólida; un poco más chico. Sin `accent` → color por conteo, cacheado (lazy, compartido). Con
   // `accent` → color fijo, icon-set propio (no cacheado: cada acento es distinto).
   #subClusterIconSet(accent = null) {
-    if (accent) return defineClusterIconSet({ draw: makeSubClusterDraw(accent), sizes: { default: DEFAULT_CLUSTER_SIZE - 6 } })
-    return this.#defaultSubClusters ??= defineClusterIconSet({ draw: SUB_CLUSTER_DRAW, sizes: { default: DEFAULT_CLUSTER_SIZE - 6 } })
+    return accent
+      ? defineClusterIconSet({ draw: makeSubClusterDraw(accent), sizes: { default: DEFAULT_CLUSTER_SIZE - 6 } })
+      : this.#defaultSubClusters ??= defineClusterIconSet({ draw: SUB_CLUSTER_DRAW, sizes: { default: DEFAULT_CLUSTER_SIZE - 6 } })
   }
 
   #bindLabels(id, record, { bindTo, textOf, accessors, source }) {
@@ -1035,10 +1075,10 @@ export class MapEngine {
       // (setLayerEnabled ocultó este pane junto a él)— saltar el reduce O(n) + setLabels. Con WS
       // a alta frecuencia este sync se invoca en cada emit (~1/frame); sin el guard procesaría
       // 2000+ ítems y pintaría fillText en un canvas que el usuario no ve. `record.visible` lo
-      // setea addLabelLayer.setVisible; para bubble-labels (#makeBubbleSink, sin addLabelLayer)
-      // es undefined → no se aplica el guard (siempre visible). Al re-habilitar el host,
+      // setea addLabelLayer.setVisible; los bubble-labels (#makeBubbleSink, sin addLabelLayer)
+      // nacen explícitamente visibles. Al re-habilitar el host,
       // setLayerEnabled resyncea (este mismo sync) → labels frescos.
-      if (record.visible === false || host?.enabled === false) return
+      if (!record.visible || (host && !host.enabled)) return
       record.layer.setLabels(
         src.getSnapshot().reduce((acc, item) => {
           const itemId = idOf(item)

@@ -23,11 +23,11 @@ import Atlas from './Atlas.js'
 const HEADROOM = 1.5
 const MIN_CAPACITY = 16
 
-const capacityFor = (count) => Math.max(MIN_CAPACITY, Math.ceil((count || 1) * HEADROOM))
+const capacityFor = count => Math.max(MIN_CAPACITY, Math.ceil((count || 1) * HEADROOM))
 
 // Escala de footprint declarada por el descriptor (`scale`): multiplicador del tamaño en pantalla
 // del sprite. Ausente o no-positiva ⇒ 1 (sin cambio). Se normaliza UNA vez, al rasterizar.
-const footprintScale = (s) => (Number.isFinite(s) && s > 0 ? s : 1)
+const footprintScale = s => (Number.isFinite(s) && s > 0 ? s : 1)
 
 export class IconSet {
 
@@ -158,7 +158,7 @@ export class IconSet {
   }
 }
 
-export const defineIconSet = (cfg) => new IconSet(cfg)
+export const defineIconSet = cfg => new IconSet(cfg)
 
 // Helper de `prerender`: espera a que una o más fuentes web estén disponibles antes de rasterizar
 // glifos al canvas — si no, el primer raster sale en blanco/tofu. Componer en la config del IconSet:
@@ -220,7 +220,7 @@ export const defineClusterIconSet = ({ buckets = DEFAULT_CLUSTER_BUCKETS, draw, 
     // `dim`/`marked`: prefijos 'd' (cluster expandido en spiderfy) / 'm' (burbuja con ids marcados)
     // → se parsean ANTES de Number() para no romper el contrato describe-TOTAL (Number('d50')=NaN
     // renderaría 'NaN'). El draw los recibe como flags (semitransparente / resaltada).
-    describe: (variant) => {
+    describe: variant => {
       const c0 = variant.charCodeAt(0)
       const dim = c0 === 100                      // 'd'
       const marked = c0 === 109                   // 'm'
@@ -230,12 +230,12 @@ export const defineClusterIconSet = ({ buckets = DEFAULT_CLUSTER_BUCKETS, draw, 
     renderers: { cluster: (ctx, size, d) => draw(ctx, size, d.count, d.plus, d.dim, d.marked) },
   })
   // Conteo real → variante. O(1), cero alloc: clamp a [0, top] e indexa LUT + string cacheado.
-  set.variantForCount = (count) => variants[count >= top ? lut[top] : lut[count > 0 ? count : 0]]
+  set.variantForCount = count => variants[count >= top ? lut[top] : lut[count > 0 ? count : 0]]
   // Variante "atenuada" (cluster expandido). Round-trip con el describe de arriba (prefijo 'd'). El
   // sink de burbujas la usa SÓLO si existe (set.expandedVariant) → custom iconSets sin esto no dimean.
-  set.expandedVariant = (count) => 'd' + set.variantForCount(count)
+  set.expandedVariant = count => 'd' + set.variantForCount(count)
   // Variante "marcada" (burbuja que contiene ids marcados por el consumidor). Mismo round-trip
   // (prefijo 'm'); el sink la usa SÓLO si existe → custom iconSets sin esto no resaltan.
-  set.markedVariant = (count) => 'm' + set.variantForCount(count)
+  set.markedVariant = count => 'm' + set.variantForCount(count)
   return set
 }

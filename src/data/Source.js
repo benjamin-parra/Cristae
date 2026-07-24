@@ -23,7 +23,7 @@ export const defineSource = ({ accessors, variants, getSnapshot, subscribe, vers
   if (!configOk) throw new TypeError('[defineSource] requiere getSnapshot, subscribe, accessors.idOf y positionOf|pathOf')
 
   let ticks = 0
-  const tick = (cb) => () => { ticks++; cb() }   // wrapper estable por suscripción (no por notify)
+  const tick = cb => () => { ticks++; cb() }   // wrapper estable por suscripción (no por notify)
 
   return {
     accessors,
@@ -31,8 +31,8 @@ export const defineSource = ({ accessors, variants, getSnapshot, subscribe, vers
     getSnapshot,
     version:   version ?? (() => ticks),
     subscribe: version
-      ? (cb) => toUnsub(subscribe(cb))           // version propia → notify directo, sin overhead
-      : (cb) => toUnsub(subscribe(tick(cb))),    // version sintética → avanza el contador por notify
+      ? cb => toUnsub(subscribe(cb))           // version propia → notify directo, sin overhead
+      : cb => toUnsub(subscribe(tick(cb))),    // version sintética → avanza el contador por notify
     dirtyIds,
     itemById,
   }
@@ -45,7 +45,7 @@ export const defineSource = ({ accessors, variants, getSnapshot, subscribe, vers
 // una op del callback cae en la ventana que se cierra); `limpiar` es la baja (destroy). Los Sets se
 // vacían IN-PLACE, nunca se reasignan: las vistas toman la referencia una vez (dirtyIds/moveDirtyIds)
 // y la conservan mientras viva la Source.
-const crearVentana = (emitter) => {
+const crearVentana = emitter => {
   const moves = new Set()      // ids movidos en la ventana actual (la capa los escribe por slot)
   const structs = new Set()    // ids con cambio estructural en la ventana actual
   let cerrada = false          // tras un emit, la próxima op abre ventana nueva
@@ -60,10 +60,10 @@ const crearVentana = (emitter) => {
       structs.clear()
       cerrada = false
     },
-    marcarMove:   (id) => moves.add(id),
-    marcarStruct: (id) => structs.add(id),
+    marcarMove:   id => moves.add(id),
+    marcarStruct: id => structs.add(id),
     commit:       () => { version++; emitter.notify() },
-    cerrar:       () => { cerrada = true },      // onFlush: los acumuladores ya se consumieron
+    cerrar:       () => cerrada = true,          // onFlush: los acumuladores ya se consumieron
     limpiar:      () => { moves.clear(); structs.clear() },
   }
 }
@@ -108,7 +108,7 @@ export const createSource = (accessors, variants) => {
   // positionOf efectivo: usa el override si el id fue movido. Sólo para fuentes con geometría de
   // punto (point/label); una fuente de líneas (pathOf, sin positionOf) no lo expone ni usa `move`.
   const positionOf = basePositionOf
-    ? (item) => overrides.get(idOf(item)) ?? basePositionOf(item)
+    ? item => overrides.get(idOf(item)) ?? basePositionOf(item)
     : undefined
   const readAccessors = positionOf ? { ...accessors, positionOf } : accessors
 
@@ -119,12 +119,12 @@ export const createSource = (accessors, variants) => {
     variants,
     getSnapshot: () => store.filtered,
     version:     () => ventana.version(),
-    subscribe:   (cb) => {
+    subscribe:   cb => {
       const id = Symbol('sub')
       emitter.subscribe(id, cb)
       return () => emitter.unsubscribe(id)
     },
-    itemById:     (id) => store.get(id),
+    itemById:     id => store.get(id),
     dirtyIds:     () => ventana.structs,  // cambios estructurales de la ventana (acumulados)
     moveDirtyIds: () => ventana.moves,    // moves de la ventana (la capa los escribe por slot)
 

@@ -15,7 +15,7 @@ const HIT_TOL_PX = 8
 // cubre TODOS los patrones tradicionales (no hacen falta flags `dotted`/`dashDot`):
 //   sólido    → (sin dash)        punteado  → [1, 6] + cap:'round'   (el cap redondo hace el punto)
 //   guiones   → [8, 6]            raya-punto→ [12, 5, 1, 5] + cap:'round'   (línea de eje, «.-.-.-»)
-const dashArrayOf = (dash) => (Array.isArray(dash) && dash.length ? dash.join(' ') : undefined)
+const dashArrayOf = dash => (Array.isArray(dash) && dash.length ? dash.join(' ') : undefined)
 
 export class LeafletLineLayer {
 
@@ -65,7 +65,7 @@ export class LeafletLineLayer {
   #rebuild() {
     const a = this.#accessors
     const built = this.#source.getSnapshot()
-      .map((item) => ({ id: a.idOf(item), st: a.styleOf?.(item), parts: toParts(a.pathOf(item)) }))
+      .map(item => ({ id: a.idOf(item), st: a.styleOf?.(item), parts: toParts(a.pathOf(item)) }))
       .filter(({ parts }) => parts.length)
 
     this.#group.clearLayers()

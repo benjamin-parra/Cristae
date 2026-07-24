@@ -9,9 +9,9 @@ import { rect, area, intersect } from '../geometry/bbox.js'
 
 const MIN_SECONDARY_SCORE = 0.01
 
-const viewportRect = (size) => rect(0, 0, size.x, size.y)
+const viewportRect = size => rect(0, 0, size.x, size.y)
 
-const centerRect = (size) => {
+const centerRect = size => {
   const insetX = size.x * 0.25
   const insetY = size.y * 0.25
   return rect(insetX, insetY, size.x - insetX, size.y - insetY)
@@ -135,14 +135,14 @@ export class ZoomSnapshotStore {
 
   // Recorta por antigüedad: primero el exceso de seeds, luego el exceso global.
   #trim() {
-    const seeds = this.#entries.filter((entry) => entry.kind === 'seed').sort(bySequence)
-    seeds.slice(0, Math.max(0, seeds.length - this.#limits.seeds)).forEach((entry) => this.#remove(entry))
+    const seeds = this.#entries.filter(entry => entry.kind === 'seed').sort(bySequence)
+    seeds.slice(0, Math.max(0, seeds.length - this.#limits.seeds)).forEach(entry => this.#remove(entry))
 
     this.#entries
       .slice()
       .sort(bySequence)
       .slice(0, Math.max(0, this.#entries.length - this.#limits.snapshots))
-      .forEach((entry) => this.#remove(entry))
+      .forEach(entry => this.#remove(entry))
   }
 
   #remove(entry) {

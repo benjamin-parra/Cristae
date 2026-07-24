@@ -345,8 +345,10 @@ export interface EditableConfig {
    *  `[[s,w],[n,e]]` (rectangle). */
   value?: unknown;
   mode?: "edit" | "draw";
-  /** El usuario editó: recibe la geometría nueva (misma forma que `value`). */
+  /** Cambio LIVE — cada frame de drag incluido (misma forma que `value`). Para el preview del display. */
   onChange?: (value: unknown) => void;
+  /** Cambio ASENTADO — una vez por gesto (dragend / edición discreta). Para persistir sin el spam del drag. */
+  onCommit?: (value: unknown) => void;
   pane?: string;
   z?: number;
 }

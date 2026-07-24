@@ -62,9 +62,10 @@ export class PolygonLayer {
   resolveHover(baseEvent) { return this.#hitsAt(baseEvent) }
 
   #hitsAt(baseEvent) {
-    if (!this.#interactive || !baseEvent?.latlng || !this.#index.sorted.length) return []
-    return idsFor(baseEvent.latlng.lat, baseEvent.latlng.lng, this.#index)
-      .map(id => ({ ref: id, id, distancePx: 0 }))
+    return this.#interactive && baseEvent?.latlng && this.#index.sorted.length
+      ? idsFor(baseEvent.latlng.lat, baseEvent.latlng.lng, this.#index)
+        .map(id => ({ ref: id, id, distancePx: 0 }))
+      : []
   }
 
   /* ── Reacción al Source (ya coalescida a rAF por el Emitter) ── */
@@ -101,7 +102,7 @@ export class PolygonLayer {
     const a = this.#accessors
     this.#group.clearLayers()
     this.#byId.clear()
-    snap.forEach((item) => {
+    snap.forEach(item => {
       const poly = this.#L.polygon(a.ringsOf(item), { pane: this.#pane, ...a.styleOf?.(item) })
       poly.addTo(this.#group)
       this.#byId.set(a.idOf(item), poly)

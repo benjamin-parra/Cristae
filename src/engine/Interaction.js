@@ -18,7 +18,7 @@ import { EVENT_HOVER, PICK_CHANNELS } from '../events/events.js'
 // se inicia (el picking correría en cada pointermove — lo más frecuente — y es caro). El cursor se
 // restaura al salir del contenedor, durante zoom/pan, y al caer la demanda interactiva a cero.
 
-const noRaf = (cb) => setTimeout(cb, 0)
+const noRaf = cb => setTimeout(cb, 0)
 const hasRaf = typeof requestAnimationFrame === 'function'
 const raf = hasRaf ? requestAnimationFrame : noRaf
 const cancelRaf = hasRaf ? cancelAnimationFrame : clearTimeout
@@ -96,16 +96,16 @@ export class Interaction {
 
   #wire() {
     this.#onDom('pointerenter', () => this.#syncRect())
-    this.#onDom('pointermove', (e) => this.#onPointerMove(e))
+    this.#onDom('pointermove', e => this.#onPointerMove(e))
     this.#onDom('pointerleave', () => this.#onPointerLeave())
 
-    this.#onMap('click', (e) => this.#onClick(e))
+    this.#onMap('click', e => this.#onClick(e))
     // secondary-click va por listener DOM del CONTENEDOR, no por el evento 'contextmenu' de
     // Leaflet: con un listener Leaflet el mapa ejecuta preventDefault en TODO click derecho
     // (haya o no feature debajo), matando el menú nativo del browser incondicionalmente. Con el
     // listener DOM el default queda intacto y decide el consumidor. No-passive: el consumidor
     // puede llamar preventDefault() sobre el evento entregado.
-    this.#onDom('contextmenu', (e) => this.#onSecondaryClick(e), { passive: false })
+    this.#onDom('contextmenu', e => this.#onSecondaryClick(e), { passive: false })
     this.#onMap('movestart', () => this.#beginInteraction())
     this.#onMap('zoomstart', () => this.#beginInteraction())
     this.#onMap('moveend', () => this.#endInteraction())
@@ -120,7 +120,7 @@ export class Interaction {
   #syncRect() { this.#containerRect = this.#container.getBoundingClientRect() }
 
   #updatePointer(event) {
-    const rect = this.#containerRect ?? (this.#containerRect = this.#container.getBoundingClientRect())
+    const rect = this.#containerRect ??= this.#container.getBoundingClientRect()
     const p = this.#pointer
     p.seq++
     p.clientX          = event.clientX
@@ -212,7 +212,7 @@ export class Interaction {
 
   #scheduleTick() {
     const h = this.#hover
-    if (h.rafId == null) h.rafId = raf(() => { h.rafId = null; this.#tick() })
+    h.rafId ??= raf(() => { h.rafId = null; this.#tick() })
   }
 
   #tick() {

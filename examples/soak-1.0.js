@@ -16,9 +16,12 @@ const glify = L.glify
 /* ── Mapa + motor reales ─────────────────────────────────────────────────────────────────────── */
 const CENTER = [-33.441, -70.654]        // Santiago
 const map    = L.map('map', { center: CENTER, zoom: 13, preferCanvas: true, zoomControl: true })
-L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map)
 const engine = new MapEngine({ leaflet: L, glify, map })
 await engine.ready
+// Tiles POR EL MOTOR (no `L.tileLayer(...).addTo(map)` a mano): así se activa la RETENCIÓN de bitmaps
+// (TileSnapshotRetention) — captura los tiles cargados y los mantiene de fondo reproyectados hasta que
+// llega el nivel nuevo, así el zoom (animado o instantáneo) NO parpadea al hueco gris de Leaflet base.
+engine.setTileProvider({ url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', maxZoom: 19, attribution: '© OpenStreetMap' })
 
 /* ── Helpers ─────────────────────────────────────────────────────────────────────────────────── */
 const $      = (id) => document.getElementById(id)
@@ -90,8 +93,25 @@ $('focus').onclick = (e) => {
 }
 $('move').onclick = (e) => { moving = !moving; toggle(e.target, moving); log(moving ? 'flota en movimiento' : 'flota pausada') }
 
+// Zoom instantáneo vs animado: apagar zoomAnimation hace que Leaflet NO emita `zoomanim` → el motor no
+// interpola (no hay reproyección por frame) y todo asienta directo en zoomend. Es el camino que tomaría
+// un mapa de alto rendimiento de Wing (miles de puntos): sin animación, un salto limpio de zoom.
+let animatedZoom = map.options.zoomAnimation !== false
+$('instant').onclick = (e) => {
+  animatedZoom = !animatedZoom
+  map.options.zoomAnimation = animatedZoom
+  map._zoomAnimated         = animatedZoom          // Leaflet cachea la palanca; hay que moverla también
+  e.target.setAttribute('aria-pressed', String(!animatedZoom))
+  e.target.textContent = animatedZoom ? 'zoom instantáneo' : 'zoom animado'
+  log(animatedZoom
+    ? 'zoom ANIMADO: puntos + retículos reproyectan por frame y siguen los tiles'
+    : 'zoom INSTANTÁNEO: sin animación (alto rendimiento) — salto directo a la vista final')
+}
+
 engine.on('map:click', ({ latlng }) => log(`map:click → ${latlng.lat.toFixed(4)}, ${latlng.lng.toFixed(4)}`))
 engine.on('viewportchange', ({ zoom }) => { $('zoom').textContent = zoom })
+// Hover del picking GPU: 'hover' llega con los hits actuales ([] al salir del punto) → readout en vivo.
+engine.on('hover', (hits) => { const h = hits?.[0]; $('hoverInfo').textContent = h ? `#${h.id}` : '—' })
 
 /* ── 2 · Polígono-Source reactivo (patch + styleOf) ──────────────────────────────────────────────
    Verificar: "Recolorear #2" cambia SÓLO el polígono del medio (restyle O(1) por patch de un id),
@@ -156,11 +176,11 @@ engine.addPolygonLayer({ id: 'edit-display', source: editSource, interactive: fa
 editSource.set(editDisplay)
 engine.addEditableLayer({
   id: 'edit-0', kind: 'polygon', value: editRing, mode: 'edit',
-  onChange: (v) => {                       // cada edición re-ata el value a la capa de display (patch O(1))
+  onChange: (v) => {                       // LIVE: re-ata el value al display por frame (patch O(1)) — sin log
     editDisplay[0].rings = v
     editSource.patch(editDisplay, ['ed'])
-    log(`edición onChange → ${v.length} vértices`)
   },
+  onCommit: (v) => log(`edición commit → ${v.length} vértices (una vez, al soltar)`),   // SETTLE: sin spam
 })
 log('editable montado: arrastrá los vértices (blancos), clic en punto medio inserta, dblclick borra')
 

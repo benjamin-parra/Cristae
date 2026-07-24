@@ -43,8 +43,9 @@ export function buildUnit(kind, handle, engine) {
  */
 export function leafUnits(el, engine, ctx) {
   const sig = ctx.signatureFor(el.tagName)
-  if (!el._handle) return []
-  return [buildUnit(sig.produces[0], el._handle, engine)]
+  return el._handle
+    ? [buildUnit(sig.produces[0], el._handle, engine)]
+    : []
 }
 
 // Estrategia de combinación de un wrapper sobre sus targets, indexada por
@@ -86,14 +87,13 @@ export function reduceModifier(el, engine, ctx) {
   }
 
   const consumed = new Set(sig.consumes)
-  const targets = childUnits.filter((u) => consumed.has(u.kind))
+  const targets = childUnits.filter(u => consumed.has(u.kind))
 
   const apply = ctx.applyFor(el.tagName)
   const cfg = el.cristaeConfig ? el.cristaeConfig() : {}
   const combine = COMBINERS[sig.combine]
   const produced = apply && targets.length && combine ? combine(apply, engine, targets, cfg) : []
 
-  const passThrough = sig.passThrough !== false
-  const carried = passThrough ? childUnits : childUnits.filter((u) => !consumed.has(u.kind))
+  const carried = sig.passThrough ? childUnits : childUnits.filter(u => !consumed.has(u.kind))
   return [...carried, ...produced]
 }

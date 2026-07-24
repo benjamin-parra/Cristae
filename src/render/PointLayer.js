@@ -12,7 +12,7 @@ import { loseGlContext } from './gl-teardown.js'
 
 const DEFAULT_VARIANT = 'default'
 const NORM = 1 / 360
-const angleNorm = (deg) => (((deg % 360) + 360) % 360) * NORM
+const angleNorm = deg => (((deg % 360) + 360) % 360) * NORM
 
 export class PointLayer {
 
@@ -71,9 +71,8 @@ export class PointLayer {
 
   // Encola un pick GPU para la muestra del puntero. `sample` lleva containerPoint + seq.
   requestHoverHit(sample) {
-    return this.#picking
-      ? this.#picking.request(sample.containerPoint.x, sample.containerPoint.y, this.#count, this.#layer.mapMatrix.array, sample)
-      : false
+    return !!this.#picking &&
+      this.#picking.request(sample.containerPoint.x, sample.containerPoint.y, this.#count, this.#layer.mapMatrix.array, sample)
   }
 
   // Recoge el pick encolado (no bloqueante). Cachea los hits + la muestra para resolveHover.
@@ -115,6 +114,38 @@ export class PointLayer {
   // Reposiciona y redibuja el canvas de glify (síncrono); el motor la invoca en move/moveend/zoomend.
   resetCanvasReference() { this.#layer?.layer._reset() }
 
+  // Reproyección por-frame a una vista (zoom, center) ARBITRARIA — el corazón del zoom ANIMADO. Los
+  // vértices viven en espacio de zoom-0, así que reproyectar es sólo recomputar la matriz (scale=2^zoom
+  // + translate al NW de la vista destino) y re-emitir el draw: O(1), **tamaño de sprite fijo** (no
+  // "gigante") y **sin corte** (redibuja al viewport cada frame). Replica glify.drawOnCanvas pero con la
+  // vista INYECTADA en vez de la del mapa vivo (que durante la animación sigue en el zoom de partida).
+  // El motor la llama por frame desde el ViewAnimator, interpolando (zoom, center) con el easing del tile.
+  renderAtView(zoom, center) {
+    const l = this.#layer
+    if (!l?.gl || !l.matrix) return
+    const map  = this.#map
+    const size = map.getSize()
+    const nw   = map.unproject(map.project(center, zoom).subtract(size.divideBy(2)), zoom)
+    const off  = map.project(nw, 0)                     // NW en píxeles de zoom-0 (== glify `e.offset`)
+    const gl   = l.gl
+    l.mapMatrix
+      .setSize(l.canvas.width, l.canvas.height)
+      .scaleTo(2 ** zoom)
+      .translateTo(-off.x + l.mapCenterPixels.x, -off.y + l.mapCenterPixels.y)
+    gl.viewport(0, 0, l.canvas.width, l.canvas.height)
+    gl.uniformMatrix4fv(l.matrix, false, l.mapMatrix.array)
+    gl.clear(gl.COLOR_BUFFER_BIT)
+    gl.drawArrays(gl.POINTS, 0, l.allLatLngLookup.length)
+  }
+
+  // Apaga la animación de zoom PROPIA de glify: su `_animateZoom` hace `setTransform` (escala el raster
+  // → sprites gigantes + salto, porque no lleva la transición CSS del tile). El ViewAnimator del motor
+  // reproyecta por frame en su lugar. Idempotente; no-op si el mapa/overlay no exponen el handler.
+  #suppressGlifyZoom() {
+    const ov = this.#layer?.layer
+    if (ov?._animateZoom) this.#map.off?.('zoomanim', ov._animateZoom, ov)
+  }
+
   // Re-encode total con los accessors actuales (recolor por antigüedad/latencia, SPECS §8.1)
   // o tras cambiar la supresión. Fuerza rebuild aunque el set no cambie de tamaño.
   refresh() { if (this.#layer) this.#rebuild(this.#source.getSnapshot()) }
@@ -127,7 +158,7 @@ export class PointLayer {
 
   // Gate del pipeline (entidad deshabilitada): apaga la REACCIÓN a la Source, no el handle.
   // Re-habilitar exige refresh() para ponerse al día (lo hace setLayerEnabled).
-  set enabled(v) { this.#enabled = v !== false }
+  set enabled(v) { this.#enabled = v ?? true }
 
   destroy() {
     this.#unsub?.()
@@ -153,7 +184,7 @@ export class PointLayer {
     const count0 = atlas0.count
 
     const moves = this.#source.moveDirtyIds?.()        // solo posición → 2 floats
-    if (moves && moves.size) {
+    if (moves?.size) {
       for (const id of moves) {
         const s = this.#slot.get(id)
         if (s === undefined) {
@@ -167,7 +198,7 @@ export class PointLayer {
     }
 
     const dirty = this.#source.dirtyIds?.()            // posición + color + size → 7 floats
-    if (dirty && dirty.size) {
+    if (dirty?.size) {
       for (const id of dirty) {
         const s = this.#slot.get(id)
         if (s === undefined) {
@@ -267,8 +298,8 @@ export class PointLayer {
       sensitivityHover:     0,
       vertexShaderSource:   POINT_VERTEX,
       fragmentShaderSource: POINT_FRAGMENT,
-      color:                (i) => this.#colorAt(i),
-      size:                 (i) => this.#meta[i].size,
+      color:                i => this.#colorAt(i),
+      size:                 i => this.#meta[i].size,
     })
     const gl = this.#layer.gl
     if (this.#layer.bytes !== 7)
@@ -280,6 +311,7 @@ export class PointLayer {
       const pickProgram = this.#picking.attach(gl, this.#layer.program, this.#binding.texture)
       this.#binding.register(pickProgram)
     }
+    this.#suppressGlifyZoom()     // el ViewAnimator del motor reproyecta el zoom por frame (no glify)
   }
 
   // Color por punto (path de rebuild): scratch mutado-y-retornado — glify lo spreadea sincrónicamente.

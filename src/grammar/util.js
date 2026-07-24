@@ -38,4 +38,4 @@ export function firstUnknownChild(el, isRegistered) {
 }
 
 /** Nombre legible de un elemento para mensajes de error. */
-export const tagName = (el) => (el?.tagName ? el.tagName.toLowerCase() : String(el))
+export const tagName = el => (el?.tagName ? el.tagName.toLowerCase() : String(el))

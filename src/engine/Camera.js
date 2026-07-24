@@ -135,8 +135,9 @@ export class Camera {
   // encuadrar el set. `rest` fluye al método delegado (fit → {insets,maxZoom}; track → {zoom,reveal}).
   followPoints(layerId, ids, { mode = 'fit', ...rest } = {}) {
     const list = ids ?? []
-    if (mode === 'track' && list.length === 1) return this.followPoint(layerId, list[0], rest)
-    return this.followBounds(layerId, list, rest)
+    return mode === 'track' && list.length === 1
+      ? this.followPoint(layerId, list[0], rest)
+      : this.followBounds(layerId, list, rest)
   }
 
   // Alias semántico: "enfocar" un conjunto = la misma acción (por default encuadrarlo).

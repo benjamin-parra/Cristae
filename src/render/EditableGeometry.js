@@ -2,7 +2,8 @@
 // HtmlLayer / LeafletLineLayer (todo con L.marker / L.divIcon; Leaflet reproyecta solo en pan/zoom).
 //
 // Contrato de "input controlado": el valor ENTRA por `value` (constructor / setValue) y las ediciones
-// SALEN por `onChange(nuevaGeometria)`. La primitiva POSEE los handles (marcadores de vértice, puntos de
+// SALEN por `onChange` (live, cada cambio — incluye cada frame de drag) y `onCommit` (una vez, al asentar
+// el gesto: dragend / edición discreta). La primitiva POSEE los handles (marcadores de vértice, puntos de
 // arista para insertar, borrado por dblclick, y el trazado de uno nuevo en modo draw), pero NO dibuja la
 // FORMA en sí: el display se ata afuera enlazando el mismo `value` a una capa de exhibición
 // (addPolygonLayer / addLineLayer). Así el editor es puro estado→handles→cambio, sin duplicar el render.
@@ -18,16 +19,16 @@
 const MIN_VERTICES = { polygon: 3, polyline: 2 }   // mínimo bajo el cual el borrado por dblclick se ignora
 const KINDS        = new Set(['polygon', 'rectangle', 'polyline', 'point'])
 
-const toPair    = (c) => (Array.isArray(c) ? [c[0], c[1]] : [c.lat, c.lng])
-const clonePair = (p) => [p[0], p[1]]
+const toPair    = c => (Array.isArray(c) ? [c[0], c[1]] : [c.lat, c.lng])
+const clonePair = p => [p[0], p[1]]
 const midpoint  = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]
 const samePoint = (a, b) => !!a && !!b && a[0] === b[0] && a[1] === b[1]
 
 // Un par [lat,lng] finito (rechaza NaN/Infinity/undefined). Garbage-in: se descarta, no se propaga.
-const isFinitePair = (p) => Number.isFinite(p[0]) && Number.isFinite(p[1])
+const isFinitePair = p => Number.isFinite(p[0]) && Number.isFinite(p[1])
 // Coacción tolerante de la ENTRADA a par finito, o null si no es una coordenada válida (null/undefined,
 // componentes no numéricos, no-finitos). Distinta de `toPair`, que asume una latlng viva de Leaflet.
-const toFinitePair = (c) => {
+const toFinitePair = c => {
   if (c == null) return null
   const p = toPair(c)
   return isFinitePair(p) ? p : null
@@ -38,12 +39,12 @@ const toFinitePair = (c) => {
 // números (value[0][0] es número) → es una coordenada → anillo simple; si es un array cuyo primer elemento
 // NO es número (otra coordenada anidada, sea par u objeto) → es un anillo → multi. Un objeto {lat,lng} como
 // coordenada no es array, así que también cae en anillo simple. Esto soporta ambas formas de entrada.
-const isMultiRing = (value) =>
+const isMultiRing = value =>
   Array.isArray(value?.[0]) && value[0][0] != null && typeof value[0][0] !== 'number'
 
 export class EditableGeometry {
 
-  #L; #map; #pane; #kind; #onChange
+  #L; #map; #pane; #kind; #onChange; #onCommit
   #group       = null
   #mode        = 'edit'
   #geom        = null                      // representación interna viva (mutada in place por los handles)
@@ -54,13 +55,14 @@ export class EditableGeometry {
   #vertexIcon  = null
   #midIcon     = null
 
-  constructor({ L, map, pane, kind = 'polygon', value = null, mode = 'edit', onChange } = {}) {
+  constructor({ L, map, pane, kind = 'polygon', value = null, mode = 'edit', onChange, onCommit } = {}) {
     if (!KINDS.has(kind)) throw new Error(`EditableGeometry: kind inválido "${kind}"`)
     this.#L          = L
     this.#map        = map
     this.#pane       = pane
     this.#kind       = kind
     this.#onChange   = onChange
+    this.#onCommit   = onCommit
     this.#group      = L.layerGroup([], pane ? { pane } : {}).addTo(map)
     this.#vertexIcon = L.divIcon({ className: 'cristae-edit-vertex', iconSize: [12, 12], iconAnchor: [6, 6] })
     this.#midIcon    = L.divIcon({ className: 'cristae-edit-midpoint', iconSize: [10, 10], iconAnchor: [5, 5] })
@@ -96,7 +98,7 @@ export class EditableGeometry {
     if (this.#mode !== 'draw' || !latlng) return
     const p = toFinitePair(latlng)
     if (!p) return                                          // garbage-in en el trazado tampoco entra
-    if (this.#kind === 'point') { this.#geom.pt = p; this.#emit(); this.#rebuild(); return }
+    if (this.#kind === 'point') { this.#geom.pt = p; this.#emit(); this.#emitCommit(); this.#rebuild(); return }
     if (this.#kind === 'rectangle') return this.#drawRectClick(p)
     const coords = this.#kind === 'polygon' ? this.#geom.rings[0] : this.#geom.path
     // No agregar un vértice idéntico al último: Leaflet dispara un `click` en la MISMA posición junto al
@@ -105,6 +107,7 @@ export class EditableGeometry {
     if (samePoint(coords[coords.length - 1], p)) return
     coords.push(p)
     this.#emit()
+    this.#emitCommit()
     this.#rebuild()
   }
 
@@ -154,27 +157,25 @@ export class EditableGeometry {
     }
   }
 
-  #emit() { this.#onChange?.(this.#serialize()) }
+  #emit()       { this.#onChange?.(this.#serialize()) }   // live: cada cambio (incluye cada frame de drag)
+  #emitCommit() { this.#onCommit?.(this.#serialize()) }   // settle: fin de gesto (dragend / edición discreta)
 
   /* ── Suscripción nativa al mapa (modo draw) ─────────────────────────────────────────────── */
   // map.on/off es API de Leaflet (NO sniffing del DOM). El dblclick CIERRA el trazo (polígono/polilínea):
   // Leaflet emite uno o dos `click` en la misma posición junto al `dblclick` — el dedup de handleMapClick ya
   // los neutraliza, así que acá sólo se colapsa cualquier duplicado final que se haya colado y se emite
   // SÓLO si de verdad cambió algo (nunca una re-emisión de una geometría idéntica).
-  #onMapClick    = (e) => this.handleMapClick(e?.latlng)
-  #onMapDblClick = (e) => {
+  #onMapClick    = e => this.handleMapClick(e?.latlng)
+  #onMapDblClick = e => {
     if (this.#mode !== 'draw') return
     if (this.#kind !== 'polygon' && this.#kind !== 'polyline') return
     const coords = this.#kind === 'polygon' ? this.#geom.rings[0] : this.#geom.path
     if (coords.length < 2) return
     const p = e?.latlng ? toFinitePair(e.latlng) : coords[coords.length - 1]
     if (!p) return
-    let changed = false
-    while (coords.length > 1 && samePoint(coords[coords.length - 1], p) && samePoint(coords[coords.length - 2], p)) {
-      coords.pop()
-      changed = true
-    }
-    if (changed) { this.#emit(); this.#rebuild() }
+    const antes = coords.length
+    while (coords.length > 1 && samePoint(coords[coords.length - 1], p) && samePoint(coords[coords.length - 2], p)) coords.pop()
+    if (coords.length !== antes) { this.#emit(); this.#emitCommit(); this.#rebuild() }
   }
   #attachMap() { this.#map.on('click', this.#onMapClick); this.#map.on('dblclick', this.#onMapDblClick) }
   #detachMap() { this.#map.off('click', this.#onMapClick); this.#map.off('dblclick', this.#onMapDblClick) }
@@ -206,6 +207,7 @@ export class EditableGeometry {
     coords.forEach((c, i) => {
       const m = this.#marker(c, this.#vertexIcon, true)
       m.on('drag', () => this.#onVertexDrag(rec, i, m.getLatLng()))
+      m.on('dragend', () => this.#emitCommit())
       m.on('dblclick', () => this.#onVertexDelete(rec, i))
       rec.vMarkers.push(m)
     })
@@ -222,6 +224,7 @@ export class EditableGeometry {
     if (!this.#geom.pt) return
     const m = this.#marker(this.#geom.pt, this.#vertexIcon, true)
     m.on('drag', () => { this.#geom.pt = toPair(m.getLatLng()); this.#emit() })
+    m.on('dragend', () => this.#emitCommit())
   }
 
   #buildRectangle() {
@@ -230,6 +233,7 @@ export class EditableGeometry {
     this.#rectMarkers = this.#rectCorners(b).map((c, i) => {
       const m = this.#marker(c, this.#vertexIcon, true)
       m.on('drag', () => this.#onRectCornerDrag(i, m.getLatLng()))
+      m.on('dragend', () => this.#emitCommit())
       return m
     })
   }
@@ -246,7 +250,7 @@ export class EditableGeometry {
     rec.coords[i] = toPair(ll)
     const len = rec.coords.length
     const segCount = rec.closed ? len : len - 1
-    const setMid = (s) => {
+    const setMid = s => {
       if (s < 0 || s >= segCount) return
       rec.mMarkers[s]?.setLatLng(midpoint(rec.coords[s], rec.coords[(s + 1) % len]))
     }
@@ -259,6 +263,7 @@ export class EditableGeometry {
     if (rec.coords.length <= (MIN_VERTICES[this.#kind] ?? 1)) return   // no bajar del mínimo topológico
     rec.coords.splice(i, 1)
     this.#emit()
+    this.#emitCommit()
     this.#rebuild()                                                    // los índices corren → rehacer handles
   }
 
@@ -267,6 +272,7 @@ export class EditableGeometry {
     const len = rec.coords.length
     rec.coords.splice(s + 1, 0, midpoint(rec.coords[s], rec.coords[(s + 1) % len]))
     this.#emit()
+    this.#emitCommit()
     this.#rebuild()
   }
 
@@ -279,7 +285,7 @@ export class EditableGeometry {
     const w = Math.min(p[1], o[1]), e = Math.max(p[1], o[1])
     this.#geom.bounds = [[s, w], [n, e]]
     const pos = this.#rectCorners(this.#geom.bounds)
-    this.#rectMarkers.forEach((m, k) => { if (k !== i) m.setLatLng(pos[k]) })
+    this.#rectMarkers.forEach((m, k) => k !== i && m.setLatLng(pos[k]))
     this.#emit()
   }
 
@@ -293,6 +299,7 @@ export class EditableGeometry {
     ]
     this.#drawAnchor = null
     this.#emit()
+    this.#emitCommit()
     this.#rebuild()
   }
 }

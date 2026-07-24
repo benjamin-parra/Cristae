@@ -38,7 +38,7 @@ export class CristaeToolbar extends LitElement {
             class="btn ${item.active ? 'is-active' : ''}"
             aria-label=${item.title ?? ''}
             style=${styleMap(this.#itemVars(item))}
-            @click=${(e) => item.onClick?.(item, e)}
+            @click=${e => item.onClick?.(item, e)}
           >
             <span class="icon">${unsafeHTML(item.icon ?? '')}</span>
             ${item.badge != null ? html`<span class="badge">${item.badge}</span>` : ''}

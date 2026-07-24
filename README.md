@@ -43,6 +43,7 @@ import { createSource, defineIconSet } from 'cristae/map'
 
 ## Documentación
 
+- [`AGENTS.md`](AGENTS.md) — reglas de contribución y estilo JavaScript.
 - [`SKILL.md`](SKILL.md) — guía práctica (instalación, API mínima, gotchas).
 - [`MODELO.md`](MODELO.md) — arquitectura y decisiones de diseño.
 - [`SPECS.md`](SPECS.md) — contrato formal e invariantes.

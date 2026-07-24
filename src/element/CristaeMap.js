@@ -25,8 +25,8 @@ const ON_DEMAND_EVENTS = new Set(['cristae:click', 'cristae:hover', 'cristae:poi
 // una capa de datos observable y NINGUNA tiene features. Sin capas de datos no hay estado vacío que
 // anunciar (un mapa de sólo tiles no está "vacío de datos", y evita el flash mientras aún no montó
 // ninguna capa). Puro y sin dominio: sólo lee el snapshot de cada Source. Exportado para test unitario.
-export const dataLayersEmpty = (layers) =>
-  layers.length > 0 && layers.every((el) => !el.controls?.source?.getSnapshot()?.length)
+export const dataLayersEmpty = layers =>
+  layers.length > 0 && layers.every(el => !el.controls?.source?.getSnapshot()?.length)
 
 // Agendador del resize del contenedor: coalesce (debounce trailing) la ráfaga del ResizeObserver a UN
 // solo `sync` ~110ms tras asentarse el tamaño. El observer dispara por frame mientras el contenedor se
@@ -137,7 +137,7 @@ export class CristaeMap extends LitElement {
   #emptyRaf   = 0
   // Creada en construcción → `map.ready` está disponible SÍNCRONO apenas existe el elemento. Se
   // resuelve una sola vez, cuando el motor queda listo.
-  ready = new Promise(resolve => { this.#resolveReady = resolve })
+  ready = new Promise(resolve => this.#resolveReady = resolve)
 
   render() {
     return html`
@@ -181,7 +181,7 @@ export class CristaeMap extends LitElement {
     this.#mounted = false
     this.#demandUnsub.clear()   // los unsub apuntan al bus del motor destruido; los counts DOM persisten para re-cablear
     if (this.#emptyRaf) { cancelAnimationFrame(this.#emptyRaf); this.#emptyRaf = 0 }
-    this.#dataLayers.forEach((unsub) => unsub?.())   // cortar suscripciones a las Sources
+    this.#dataLayers.forEach(unsub => unsub?.())   // cortar suscripciones a las Sources
     this.#dataLayers.clear()
   }
 
@@ -273,9 +273,11 @@ export class CristaeMap extends LitElement {
     // `initial-center` admite [lat,lng], la cadena "lat,lng" o vacío → [0,0].
     const resolveCenter = () => {
       const c = this.initialCenter
-      if (Array.isArray(c)) return c
-      if (typeof c === 'string' && c.includes(',')) return c.split(',').map(Number)
-      return [0, 0]
+      return Array.isArray(c)
+        ? c
+        : typeof c === 'string' && c.includes(',')
+          ? c.split(',').map(Number)
+          : [0, 0]
     }
 
     this.#engine = new MapEngine({
@@ -309,18 +311,17 @@ export class CristaeMap extends LitElement {
   #wireEvents() {
     const e = this.#engine
     // Siempre activos: baja frecuencia, sin coste de picking.
-    e.on('viewportchange', (d) => this.#emit('viewportchange', d))
+    e.on('viewportchange', d => this.#emit('viewportchange', d))
     e.on('interactionstart', () => this.#emit('interactionstart', {}))
     e.on('interactionend', () => this.#emit('interactionend', {}))
     // Click en el MAPA (área libre, con latlng) → CustomEvent DOM `cristae:mapclick`. Mismo patrón
     // que viewportchange: siempre activo, baja frecuencia y sin coste de picking (es el click crudo del
     // mapa, no los hits de features de `cristae:click`). El motor emite `map:click` con `{ latlng }`.
-    e.on('map:click', (d) => this.#emit('mapclick', d))
+    e.on('map:click', d => this.#emit('mapclick', d))
     // Bajo demanda: re-cablear los tipos que ya tienen listeners DOM (agregados antes de montar, o
     // tras un re-mount). Los listeners futuros los cabla addEventListener.
-    this.#demandCount.forEach((count, type) => {
-      if (count > 0 && !this.#demandUnsub.has(type)) this.#demandUnsub.set(type, this.#subscribeEngine(type))
-    })
+    this.#demandCount.forEach((count, type) =>
+      count > 0 && !this.#demandUnsub.has(type) && this.#demandUnsub.set(type, this.#subscribeEngine(type)))
     // 'ready' se entrega por la promesa en #mount (el signal del motor ya se disparó al construir).
   }
 
@@ -329,9 +330,9 @@ export class CristaeMap extends LitElement {
   // (no const de módulo) para poder tocar #engine/#emit; los closures por-evento se crean recién al
   // suscribir, uno por suscripción, igual que antes.
   static #ENGINE_BRIDGE = {
-    'cristae:click':       (el) => el.#engine.on('click', (hits, ev) => el.#emit('click', { hits, originalEvent: ev })),
-    'cristae:hover':       (el) => el.#engine.on('hover', (hits) => el.#emit('hover', { hits })),
-    'cristae:pointermove': (el) => el.#engine.on('pointer:move', (_, s) => el.#emit('pointermove', s && { lat: s.latlng?.lat, lng: s.latlng?.lng, x: s.containerPoint?.x, y: s.containerPoint?.y })),
+    'cristae:click':       el => el.#engine.on('click', (hits, ev) => el.#emit('click', { hits, originalEvent: ev })),
+    'cristae:hover':       el => el.#engine.on('hover', hits => el.#emit('hover', { hits })),
+    'cristae:pointermove': el => el.#engine.on('pointer:move', (_, s) => el.#emit('pointermove', s && { lat: s.latlng?.lat, lng: s.latlng?.lng, x: s.containerPoint?.x, y: s.containerPoint?.y })),
   }
 
   // Suscribe el canal del motor para un tipo cristae:* bajo demanda y devuelve su unsub (o null si el

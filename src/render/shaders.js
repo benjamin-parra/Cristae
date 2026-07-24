@@ -23,7 +23,7 @@ void main() {
 
 // Cuerpo común: decodifica tile desde uniforms, rota el UV y muestrea el atlas.
 // `outColor` es la única diferencia entre el programa visual y el de picking.
-const fragment = (outColor) => `
+const fragment = outColor => `
 precision mediump float;
 varying vec4 vColor;
 uniform sampler2D uAtlas;

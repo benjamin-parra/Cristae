@@ -188,7 +188,7 @@ export class LabelLayer {
 
 const widthCache = new Map()                 // 'font|text' → ancho medido (memo de measureText)
 
-const prepareContext = (ctx) => {
+const prepareContext = ctx => {
   const ratio = window.devicePixelRatio || 1
   ctx.clearRect(0, 0, ctx.canvas.width / ratio, ctx.canvas.height / ratio)
   ctx.font         = FONT
