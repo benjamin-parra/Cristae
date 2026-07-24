@@ -5,7 +5,7 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
 [`docs/versionado.md`](docs/versionado.md) — en `0.x`, el **minor cuenta los cambios medios**
 (capacidad o eje de API nuevo) y el **patch los menores desde el último medio** (fix / perf / revert).
 
-## [Sin publicar]
+## [0.22.1] - 2026-07-24
 
 ### Agregado
 - **Overlay de interacción** (`MapEngine.addHighlightOverlay` + `src/render/HighlightOverlay.js`): el realce
