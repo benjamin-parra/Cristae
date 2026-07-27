@@ -151,6 +151,11 @@ export const makeMap = ({ zoom = 3 } = {}) => {
     // Helper del TEST: dispara un evento del mapa (zoomstart/zoomend/…) hacia los handlers cableados.
     fire(type, e = {}) { handlers.get(type)?.forEach(cb => cb(e)); return map },
     whenReady(cb) { cb(); return map },
+    // L.Layer.addTo(map) delega en map.addLayer. Se registra sin invocar onAdd: el harness no monta
+    // canvas reales (la CanvasOverlay de labels exigiría panes y contexto 2D vivos).
+    addLayer(layer) { map._added.push(layer); return map },
+    removeLayer(layer) { map._added = map._added.filter(l => l !== layer); return map },
+    _added: [],
     getContainer: () => container,
     getPane: (n) => panes.get(n) ?? null,
     createPane: (n) => { const p = { style: {}, appendChild() {}, remove() { panes.delete(n) } }; panes.set(n, p); return p },

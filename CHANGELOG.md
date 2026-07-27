@@ -40,6 +40,10 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   desmontaba entre el `redraw()` y ese frame, el callback corría con `_map` ya en null y reventaba
   (`Cannot read properties of null (reading 'getSize')`). El teardown de las capas GL ahora cancela ese
   frame (`cancelPendingRedraw`) ANTES de `remove()`. Regresión cubierta en `test/render/gl-teardown.test.mjs`.
+- **Etiquetas de ítems que el host no dibuja.** Las labels ligadas (`bindTo`) heredaban del host la
+  supresión por cluster, pero NO su `where` (membresía por-capa): un ítem filtrado fuera de la capa
+  desaparecía como punto y su etiqueta quedaba flotando. Ahora el bind aplica la membresía efectiva del
+  host, y `setWhere` resincroniza los ligados (la Source no emite ante un cambio de membresía por-capa).
 
 ## [0.22.1] - 2026-07-24
 

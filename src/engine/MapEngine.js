@@ -1021,7 +1021,9 @@ export class MapEngine {
       // Además persiste el `where` en el record y RE-INDEXA el cluster que envuelve esta capa (si lo
       // hay): el cluster indexa `source ∧ where`, y un cambio de `where` no emite en la Source → sin
       // esto los conteos de burbuja quedarían obsoletos (mostrarían la flota completa, no la filtrada).
-      setWhere:     fn => { record.where = fn ?? null; record.layer.where = fn; record.layer.refresh(); record.cluster?.reindex() },
+      // …y resincroniza los LIGADOS (labels/overlays): heredan la membresía del host, y un cambio de
+      // `where` no emite en la Source, así que sin esto quedarían etiquetas de ítems ya no visibles.
+      setWhere:     fn => { record.where = fn ?? null; record.layer.where = fn; record.layer.refresh(); record.cluster?.reindex(); this.#resyncBound(id) },
       preloadIcons: variants => iconSet?.seed(variants),
       setFocus:     ids => this.setLayerFocus(id, ids),
       refresh:      () => record.layer.refresh(),
@@ -1137,6 +1139,7 @@ export class MapEngine {
         src.getSnapshot().reduce((acc, item) => {
           const itemId = idOf(item)
           if (host?.suppressed?.has(itemId)) return acc        // clusterizado → sin label flotante
+          if (host?.where && !host.where(item)) return acc      // fuera de la membresía del host → tampoco
           const p = posOf(item)
           if (p && Number.isFinite(p.lat) && Number.isFinite(p.lng)) acc.push({ id: itemId, lat: p.lat, lng: p.lng, text: text(item) })
           return acc
