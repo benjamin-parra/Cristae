@@ -23,7 +23,7 @@
 //   project(lat,lng) → { x, y }   — geográfica → píxel de contenedor (camera.latLngToContainerPoint).
 //   ctx           — CanvasRenderingContext2D del overlay.
 //   clear()       — limpia el canvas (el caller conoce su tamaño).
-//   drawHighlight(ctx, size, key) — dibuja el tratamiento, con el ctx ya trasladado al punto.
+//   drawHighlight(ctx, size, key, item) — dibuja el tratamiento, con el ctx ya trasladado al punto.
 //   sizeOf(item)  → number        — tamaño en pantalla del sprite base (px) para escalar el tratamiento.
 //   schedule(fn)  — coalescing a un frame (requestAnimationFrame en runtime; síncrono en test).
 
@@ -47,7 +47,7 @@ export function createHighlightOverlay({ source, project, ctx, clear, drawHighli
       const { x, y } = proyectar(p.lat, p.lng)
       ctx.save()
       ctx.translate(x, y)
-      drawHighlight(ctx, sizeOf(item), key)
+      drawHighlight(ctx, sizeOf(item), key, item)
       ctx.restore()
     }
   }

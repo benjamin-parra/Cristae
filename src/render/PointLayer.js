@@ -143,7 +143,7 @@ export class PointLayer {
   // reproyecta por frame en su lugar. Idempotente; no-op si el mapa/overlay no exponen el handler.
   #suppressGlifyZoom() {
     const ov = this.#layer?.layer
-    if (ov?._animateZoom) this.#map.off?.('zoomanim', ov._animateZoom, ov)
+    ov?._animateZoom && this.#map.off?.('zoomanim', ov._animateZoom, ov)
   }
 
   // Re-encode total con los accessors actuales (recolor por antigüedad/latencia, SPECS §8.1)

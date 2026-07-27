@@ -291,8 +291,7 @@ export const createTileSnapshotRetention = (map, {
     }
   }
 
-  // Los tres sólo aplican mid-retención (guard `retaining`): si el zoom se anima, startRetention no
-  // enganchó y no deben mostrar snapshots (ni siquiera los seeds prefetcheados) sobre la animación.
+  // Sólo mid-retención: con zoom animado startRetention no enganchó y ni los seeds deben aparecer.
   const moveSnapshot = event => {
     if (!retaining) return
     showSnapshot(event.zoom, map._getNewPixelOrigin(event.center, event.zoom))

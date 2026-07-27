@@ -14,6 +14,11 @@ export const parsePair = v => {
 // `fit` y `for`. Nil-safe: ausente → [].
 export const parseTokens = v => (Array.isArray(v) ? v : String(v ?? '').trim().split(/\s+/).filter(Boolean))
 
+// Converter del eje `focus-ids`. Distingue tres estados, no dos: AUSENTE (undefined) = la capa no
+// participa del eje; PRESENTE pero sin ids (null/''/[]) = participa sin ninguno → todo atenuado;
+// token-list/array = esos ids enfocados. Por eso no cae en `parseTokens`, que colapsa ausente y vacío.
+export const parseFocusIds = v => (v === undefined ? undefined : v ? parseTokens(v) : [])
+
 // Converter de `fit`: atributo removido (null) o vacío ⇒ null — el elemento VUELVE al camino
 // legacy (auto-pan + clip) en vez de quedar en un modo fit sin etapas. Ver `updated`.
 export const fitFromAttribute = v => {

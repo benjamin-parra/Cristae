@@ -24,6 +24,7 @@ import { createTileSnapshotRetention } from '../tiles/TileSnapshotRetention.js'
 
 const BASE_Z = 400
 const Z_STEP = 10
+const SIN_FOCO = new Set()      // capa sin ids propios en el eje focus: se atenúa entera
 // Offset de la capa de LABELS sobre su host. El fold de cluster (burbujas + spider) se cuelga por ENCIMA
 // de esta banda para que las etiquetas de otros marcadores NO tapen los vehículos que el cluster superpone
 // al expandirse (el spider es el contenido enfocado → va arriba de los labels). Ver addLabelLayer + fold.
@@ -109,6 +110,8 @@ export class MapEngine {
   #focused            = null           // enfoque: Set(id) de capas a opacidad plena (resto atenuado), o null
   #dimOpacity         = 0.3            // opacidad del resto mientras hay enfoque activo
   #focusKinds         = null           // kinds de capa que el enfoque atenúa (null = todas)
+  #itemFocus          = new Map()      // enfoque por ÍTEM: layerId → Set(id) declarado (vacío = todo atenuado)
+  #focusOverlays      = new Map()      // layerId → pase brillante que repone los ítems enfocados
 
   camera
   ready
@@ -563,8 +566,7 @@ export class MapEngine {
     map.on('moveend zoomend resize', onView)             // pan y settle de zoom: reasienta a la vista viva
 
     const entry = {
-      // Reproyecta a la vista (z,c) con el mismo cálculo que la matriz GL del sprite —
-      // project(ll,z) − project(c,z) + tamaño/2— así el retículo cae exacto sobre su punto.
+      // Mismo cálculo que la matriz GL del sprite, para que el tratamiento caiga exacto sobre su punto.
       renderAtView: (z, c) => {
         const half = map.getSize().divideBy(2)
         const cPix = map.project(c, z)
@@ -573,8 +575,7 @@ export class MapEngine {
       dispose: () => {
         map.off('moveend zoomend resize', onView)
         overlay.destroy()
-        if (canvas.remove) canvas.remove()
-        else pane.removeChild?.(canvas)
+        canvas.remove ? canvas.remove() : pane.removeChild?.(canvas)
         this.#highlightOverlays.delete(entry)
       },
     }
@@ -621,6 +622,9 @@ export class MapEngine {
     record.group?.remove()
     record.controls?.destroy()
     record.cluster?.dispose()             // libera burbujas + sibling y su listener de zoom
+    this.#focusOverlays.get(id)?.destroy()
+    this.#focusOverlays.delete(id)
+    const declarabaFoco = this.#itemFocus.delete(id)
     this.#registry.removeByLayerId(id)
     this.#pickLayers = this.#pickLayers.filter(e => e.layerId !== id)
     this.#bus.clearLayer(id)
@@ -630,6 +634,7 @@ export class MapEngine {
     // `cfg.pane`) sobrevive hasta que se desmonta la última. Sin esto los panes se acumulaban en un
     // mapa de vida larga (alta/baja de capas) — el cluster ya los borraba a mano en su `dispose`.
     if (record.paneName && !this.#paneInUse(record.paneName)) this.#map.getPane(record.paneName)?.remove()
+    declarabaFoco && this.#applyFocus()
     return true
   }
 
@@ -748,8 +753,8 @@ export class MapEngine {
     const recs   = (ids ? [...ids].map(id => this.#layers.get(id)) : [...this.#layers.values()]).filter(r => r?.source)
     const pts    = recs.flatMap(r => coordsOf(r.source)).filter(([lat, lng]) => Number.isFinite(lat) && Number.isFinite(lng))
     const bounds = this.#L.latLngBounds(pts)
-    if (bounds.isValid()) this.camera.fitBounds(bounds, { insets })
-    if (maxZoom != null && this.#map.getZoom() > maxZoom) this.#map.setZoom(maxZoom)
+    bounds.isValid() && this.camera.fitBounds(bounds, { insets })
+    maxZoom != null && this.#map.getZoom() > maxZoom && this.#map.setZoom(maxZoom)
     return this
   }
 
@@ -925,7 +930,7 @@ export class MapEngine {
   unfocusAll() {
     if (!this.#focused) return
     this.#focused = null
-    for (const [, rec] of this.#layers) if (rec.paneName) this.#applyOpacity(rec.paneName, 1)
+    this.#applyFocus()
   }
 
   setLayerOpacity(id, alpha) {
@@ -933,14 +938,62 @@ export class MapEngine {
     if (rec?.paneName) this.#applyOpacity(rec.paneName, alpha)
   }
 
+  /* ── Enfoque por ÍTEM: mientras alguna capa lo declare, todas se atenúan (el basemap no es capa) y
+       cada una repone los suyos brillantes. `ids` iterable | falsy (ninguno) | undefined (se retira). ── */
+  setLayerFocus(layerId, ids) {
+    const host = this.#layers.get(layerId)
+    if (!host) return this
+    if (ids === undefined) {
+      this.#itemFocus.delete(layerId)
+      this.#focusOverlays.get(layerId)?.destroy()
+      this.#focusOverlays.delete(layerId)
+      this.#applyFocus()
+      return this
+    }
+    const set     = new Set(ids || [])
+    const iconSet = host.iconSet
+    const a       = host.source?.accessors
+    this.#itemFocus.set(layerId, set)
+    // Las capas GL no pueden atenuar por ítem (el vec4 de color está lleno): se atenúa su pane entero y
+    // un pase encima re-dibuja el sprite del enfocado con el mismo tile/tamaño/rumbo.
+    if (iconSet && a && !this.#focusOverlays.has(layerId)) {
+      const pase = this.addHighlightOverlay({
+        id: `focus-${layerId}`, layerId, z: BASE_Z + LABEL_Z_OFFSET + 100,
+        drawHighlight: (ctx, _size, _key, item) => {
+          const idx  = iconSet.resolve(a.variantOf ? a.variantOf(item) : 'default')
+          const tile = iconSet.atlas.tileAt(idx)
+          if (!tile) return
+          const lado = (a.sizeOf ? a.sizeOf(item) : iconSet.defaultSize) * iconSet.tileScale(idx)
+          iconSet.rotates && a.headingOf && ctx.rotate(a.headingOf(item) * Math.PI / 180)
+          ctx.drawImage(tile, -lado / 2, -lado / 2, lado, lado)
+        },
+      })
+      pase && this.#focusOverlays.set(layerId, pase)
+    }
+    this.#focusOverlays.get(layerId)?.setHighlighted(new Map([...set].map(id => [id, 'focus'])))
+    this.#applyFocus()
+    return this
+  }
+
+  // Resolutor único de opacidad de los dos ejes de enfoque. En el foco por ítem cada capa intenta
+  // atenuar POR FEATURE (`applyFocus` devuelve true si supo); la que no puede —las GL, sin identidad
+  // por feature— atenúa su pane entero y su pase de sprites repone los enfocados.
   #applyFocus() {
+    const porItem = this.#itemFocus.size > 0
     for (const [id, rec] of this.#layers) {
       if (!rec.paneName) continue
       if (this.#focusKinds && !this.#focusKinds.includes(rec.kind)) continue   // fuera de alcance → intacta (brillante)
       // Las capas LIGADAS a un host (labels/overlays con bindTo) siguen su suerte de foco: un
       // badge no queda brillante sobre un marcador atenuado ni atenuado sobre uno enfocado.
       const key = rec.bindTo ?? id
-      this.#applyOpacity(rec.paneName, this.#focused.has(key) ? 1 : this.#dimOpacity)
+      if (!porItem) {
+        rec.layer?.applyFocus?.(null)
+        this.#applyOpacity(rec.paneName, !this.#focused || this.#focused.has(key) ? 1 : this.#dimOpacity)
+        continue
+      }
+      const propios = this.#itemFocus.get(key) ?? SIN_FOCO
+      const exacto  = rec.layer?.applyFocus?.(propios, this.#dimOpacity)
+      this.#applyOpacity(rec.paneName, exacto ? 1 : this.#dimOpacity)
     }
   }
 
@@ -970,6 +1023,7 @@ export class MapEngine {
       // esto los conteos de burbuja quedarían obsoletos (mostrarían la flota completa, no la filtrada).
       setWhere:     fn => { record.where = fn ?? null; record.layer.where = fn; record.layer.refresh(); record.cluster?.reindex() },
       preloadIcons: variants => iconSet?.seed(variants),
+      setFocus:     ids => this.setLayerFocus(id, ids),
       refresh:      () => record.layer.refresh(),
       setVisible:   v => this.setLayerVisibility(id, v),
       // Membresía de la ENTIDAD en la composición (eje ortogonal a setVisible, que es pintado

@@ -1,4 +1,5 @@
 import { prepareIndex, idsFor } from '../geometry/polygon.js'
+import { focusedStyle } from './focus.js'
 
 // Capa de POLÍGONOS reactiva a un Source. Hermana de LeafletLineLayer (Leaflet-nativo, sin contexto
 // WebGL): dibuja con `L.polygon` y le delega a Leaflet la reproyección en pan/zoom. A diferencia del
@@ -28,6 +29,7 @@ export class PolygonLayer {
   #byId  = new Map()               // id → instancia L.polygon (para el patch O(k) por id)
   #index = { sorted: [] }          // índice espacial point-in-poly (picking)
   #unsub = null
+  #focus = { ids: null, dim: 0.3 } // eje focus: ids enfocados (null = sin foco) + opacidad del resto
 
   // `map` sólo hace falta para anclar el layerGroup; el picking es en espacio latlng (sin escala de
   // zoom, a diferencia de las líneas), así que no se retiene.
@@ -55,6 +57,17 @@ export class PolygonLayer {
     this.#group?.remove()
     this.#group = null
     this.#byId.clear()
+  }
+
+  // Eje focus: atenúa por FEATURE (no por pane) — cada polígono lleva su propia opacidad.
+  applyFocus(ids, dim = this.#focus.dim) {
+    this.#focus = { ids, dim }
+    const a = this.#accessors
+    this.#source.getSnapshot().forEach(item => {
+      const id = a.idOf(item)
+      this.#byId.get(id)?.setStyle(focusedStyle(a.styleOf?.(item), this.#focus, id))
+    })
+    return true
   }
 
   /* ── Picking CPU point-in-poly (idsFor): kind 'polygon', sin distancia (dentro/fuera) ── */
@@ -89,8 +102,7 @@ export class PolygonLayer {
     dirty.forEach(id => {
       const item = itemById(id)
       const poly = this.#byId.get(id)
-      const st   = a.styleOf?.(item)
-      if (st) poly.setStyle(st)
+      poly.setStyle(focusedStyle(a.styleOf?.(item), this.#focus, id))
       poly.setLatLngs(a.ringsOf(item))
     })
     this.#reindex(snap)
@@ -103,9 +115,10 @@ export class PolygonLayer {
     this.#group.clearLayers()
     this.#byId.clear()
     snap.forEach(item => {
-      const poly = this.#L.polygon(a.ringsOf(item), { pane: this.#pane, ...a.styleOf?.(item) })
+      const id   = a.idOf(item)
+      const poly = this.#L.polygon(a.ringsOf(item), { pane: this.#pane, ...focusedStyle(a.styleOf?.(item), this.#focus, id) })
       poly.addTo(this.#group)
-      this.#byId.set(a.idOf(item), poly)
+      this.#byId.set(id, poly)
     })
     this.#reindex(snap)
   }

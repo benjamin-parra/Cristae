@@ -256,6 +256,8 @@ export interface PointHandle<T = unknown> {
   /** Membresía por-capa: reconstruye SOLO esta capa (no toca la Source compartida). */
   setWhere(fn: ((item: T) => boolean) | null): void;
   preloadIcons(variants: string[]): void;
+  /** Eje `focus` de la capa (ver `MapEngine.setLayerFocus`). */
+  setFocus(ids?: Iterable<string | number> | null | false): void;
   refresh(): void;
   setVisible(visible: boolean): void;
   /** Membresía de la ENTIDAD (ortogonal a visible): off → aporta ∅ a sus modificadores. */
@@ -531,10 +533,15 @@ export class MapEngine {
   setLayerEnabled(id: string, enabled: boolean): boolean;
   setLayerOpacity(id: string, alpha: number): void;
 
-  /** Deja `ids` a opacidad plena y atenúa el resto (`kinds` acota qué capas se atenúan). */
+  /** Deja `ids` de CAPA a opacidad plena y atenúa el resto (`kinds` acota qué capas se atenúan). */
   focus(ids: Iterable<string>, options?: { opacity?: number; kinds?: string[] }): void;
   unfocus(ids: Iterable<string>): void;
   unfocusAll(): void;
+
+  /** Enfoque por ÍTEM: mientras alguna capa lo declare, todas las capas se atenúan (el basemap NO) y
+   *  los ítems enfocados se reponen brillantes encima. `ids` falsy = todo atenuado; `undefined` =
+   *  la capa se retira del eje. Varias capas pueden declararlo a la vez (cross-layer). */
+  setLayerFocus(layerId: string, ids?: Iterable<string | number> | null | false): this;
 
   on(
     event: string,

@@ -238,8 +238,7 @@ export class LineLayer {
         type: 'Feature', geometry: { type: 'MultiLineString', coordinates: paths },
       })),
     }
-    if (!this.#layer) this.#create(fc)
-    else this.#layer.setData(fc)
+    this.#layer ? this.#layer.setData(fc) : this.#create(fc)
 
     this.#bind()                                                     // re-captura el espejo + gradiente + upload
     this.#index = prepareIndex(built)
@@ -272,7 +271,7 @@ export class LineLayer {
     const gl = this.#layer.gl
     this.#buf = this.#layer.getBuffer('vertex')
     this.#verts = this.#layer.allVerticesTyped
-    if (this.#gradient) this.#applyGradient()
+    this.#gradient && this.#applyGradient()
     gl.bindBuffer(gl.ARRAY_BUFFER, this.#buf)
     gl.bufferData(gl.ARRAY_BUFFER, this.#verts, gl.DYNAMIC_DRAW)
   }

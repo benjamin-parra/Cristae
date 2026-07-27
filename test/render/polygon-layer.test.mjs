@@ -212,3 +212,34 @@ test('resolveClick devuelve el id del polígono que contiene el punto', async ()
   const outside = layer.resolveClick({ latlng: { lat: 50, lng: 50 } })
   assert.equal(outside.length, 0, 'fuera de todo polígono no pica nada')
 })
+
+/* ── Eje focus: atenúa por FEATURE y sobrevive a los ticks de datos ── */
+
+test('applyFocus atenúa sólo los NO enfocados, modulando la opacidad de su estilo', async () => {
+  const { L, layer } = await mount()
+  const [a, b] = L.log.polygons
+
+  assert.equal(layer.applyFocus(new Set(['a']), 0.25), true, 'declara que resolvió el foco por feature')
+  assert.equal(a.lastStyle.opacity, undefined, 'el enfocado conserva su estilo intacto (no se le pisa opacidad)')
+  assert.equal(b.lastStyle.opacity, 0.25, 'el resto se atenúa')
+  assert.equal(b.lastStyle.fillOpacity, 0.2 * 0.25, 'y también su relleno (default 0.2 de Leaflet)')
+  assert.equal(b.lastStyle.color, '#222222', 'conserva el resto del estilo del accessor')
+
+  layer.applyFocus(null)
+  assert.equal(b.lastStyle.opacity ?? 1, 1, 'sin foco vuelve a pleno')
+})
+
+test('el foco sobrevive a un rebuild sin re-aplicarlo a mano', async () => {
+  const { L, source, layer } = await mount()
+  layer.applyFocus(new Set(['a']), 0.25)
+
+  source.set([
+    { id: 'a', color: '#111111', rings: square(0, 0) },
+    { id: 'b', color: '#222222', rings: square(10, 10) },
+    { id: 'c', color: '#333333', rings: square(20, 20) },
+  ])
+  await flush()
+
+  const nuevo = L.log.polygons.at(-1)
+  assert.equal(nuevo.opts.opacity, 0.25, 'un feature nuevo nace ya atenuado (el rebuild pliega el foco)')
+})

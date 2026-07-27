@@ -168,7 +168,7 @@ export class Interaction {
     // Click en ESPACIO VACÍO (ningún hit en ninguna capa): entrega la coordenada cruda. Es la
     // captura de latlng para colocar un punto / editar geometría — el consumidor la cablea con el
     // callback inyectado. Cuando SÍ hay hit, el click ya se enrutó por el bus y esto no corre.
-    if (!hits.length) this.#onEmptyClick?.(event.latlng)
+    hits.length || this.#onEmptyClick?.(event.latlng)
   }
 
   // Click contextual (botón secundario / long-press / tecla Menú), desde el MouseEvent del DOM.

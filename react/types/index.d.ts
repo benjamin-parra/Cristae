@@ -93,6 +93,14 @@ interface CristaeBaseProps {
   children?: ReactNode;
 }
 
+/** Props comunes a toda CAPA (no al `<CristaeMap>`), espejo de `CristaeLayerElement`. */
+interface CristaeLayerProps extends CristaeBaseProps {
+  /** Eje `focus` por ítem. Ids enfocados → esos quedan plenos y TODO lo demás (esta capa y las otras)
+   *  se atenúa; el basemap no. Falsy (`null`/`[]`) = todo atenuado; omitido = la capa no participa.
+   *  Se llama `focusIds` y no `focus` porque una prop `focus` pisaría `HTMLElement.focus()`. */
+  focusIds?: Iterable<string | number> | null;
+}
+
 export interface CristaeTileProvider {
   url: string;
   maxZoom?: number;
@@ -133,7 +141,7 @@ export declare const CristaeMap: FC<CristaeMapProps>;
 // `data` (el motor posee la Source) y `source` (el consumidor la posee y la comparte entre vistas) son
 // las dos entradas de dato. Ambas por PROPIEDAD → los updates fluyen por el core reactivo, sin React.
 
-export interface CristaePointLayerProps<T = unknown> extends CristaeBaseProps {
+export interface CristaePointLayerProps<T = unknown> extends CristaeLayerProps {
   data?: T[];
   source?: CristaeSource<T>;
   accessors?: PointAccessors<T>;
@@ -150,7 +158,7 @@ export interface CristaePointLayerProps<T = unknown> extends CristaeBaseProps {
 }
 export declare function CristaePointLayer<T = unknown>(props: CristaePointLayerProps<T>): ReactElement | null;
 
-export interface CristaeLineLayerProps<T = unknown> extends CristaeBaseProps {
+export interface CristaeLineLayerProps<T = unknown> extends CristaeLayerProps {
   data?: T[];
   source?: CristaeSource<T>;
   accessors?: LineAccessors<T>;
@@ -161,7 +169,7 @@ export interface CristaeLineLayerProps<T = unknown> extends CristaeBaseProps {
 }
 export declare function CristaeLineLayer<T = unknown>(props: CristaeLineLayerProps<T>): ReactElement | null;
 
-export interface CristaePolygonLayerProps<T = unknown> extends CristaeBaseProps {
+export interface CristaePolygonLayerProps<T = unknown> extends CristaeLayerProps {
   data?: T[];
   accessors?: PolygonAccessors<T>;
   interactive?: boolean;
@@ -169,7 +177,7 @@ export interface CristaePolygonLayerProps<T = unknown> extends CristaeBaseProps 
 }
 export declare function CristaePolygonLayer<T = unknown>(props: CristaePolygonLayerProps<T>): ReactElement | null;
 
-export interface CristaeHtmlLayerProps<T = unknown> extends CristaeBaseProps {
+export interface CristaeHtmlLayerProps<T = unknown> extends CristaeLayerProps {
   data?: T[];
   source?: CristaeSource<T>;
   accessors?: HtmlAccessors<T>;
@@ -178,7 +186,7 @@ export interface CristaeHtmlLayerProps<T = unknown> extends CristaeBaseProps {
 }
 export declare function CristaeHtmlLayer<T = unknown>(props: CristaeHtmlLayerProps<T>): ReactElement | null;
 
-export interface CristaeLabelLayerProps<T = unknown> extends CristaeBaseProps {
+export interface CristaeLabelLayerProps<T = unknown> extends CristaeLayerProps {
   /** Id de la capa host cuyos ítems etiqueta (attachment); o standalone con `source`+`accessors`. */
   bindTo?: string;
   source?: CristaeSource<T>;

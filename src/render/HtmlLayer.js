@@ -6,6 +6,8 @@
 // accessors: { idOf, positionOf, htmlOf(item)->string, classNameOf?(item)->string, sizeOf?(item)->[w,h],
 //              anchorOf?(item)->[x,y] }. Estado (position/html) → mutar item + set/patch la Source.
 
+import { focusFactor } from './focus.js'
+
 const HIT_TOL_PX = 16
 
 export class HtmlLayer {
@@ -16,6 +18,7 @@ export class HtmlLayer {
   #byId   = new Map()    // id → L.marker (para el hit por proximidad)
   #hitTol = HIT_TOL_PX   // tolerancia de hit vigente (deriva del sizeOf mayor)
   #unsub  = null
+  #focus  = { ids: null, dim: 0.3 }   // eje focus: ids enfocados (null = sin foco) + opacidad del resto
 
   constructor({ L, map, pane, source, interactive = false }) {
     this.#L           = L
@@ -34,6 +37,14 @@ export class HtmlLayer {
     this.#group?.remove()
     this.#group = null
     this.#byId.clear()
+  }
+
+  // Eje focus: atenúa por MARCADOR (opacidad nativa de L.marker). El rebuild aplica el mismo factor,
+  // así que el foco sobrevive a cualquier tick de datos sin re-aplicarlo a mano.
+  applyFocus(ids, dim = this.#focus.dim) {
+    this.#focus = { ids, dim }
+    this.#byId.forEach((marker, id) => marker.setOpacity?.(focusFactor(this.#focus, id)))
+    return true
   }
 
   /* ── Picking: marcadores dentro de tolerancia (kind 'html'); el registro los ordena por distancePx ── */
@@ -81,7 +92,7 @@ export class HtmlLayer {
         iconSize  : size,
         iconAnchor: anchor,
       })
-      const marker = this.#L.marker([lat, lng], { pane: this.#pane, icon, interactive: false })
+      const marker = this.#L.marker([lat, lng], { pane: this.#pane, icon, interactive: false, opacity: focusFactor(this.#focus, id) })
       marker.addTo(this.#group)
       this.#byId.set(id, marker)
     }

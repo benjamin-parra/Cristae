@@ -194,8 +194,21 @@ export const makeLeaflet = () => ({
     }
     return g
   },
-  polyline: (pts, opts) => ({ pts, opts, addTo: (g) => { g.addLayer?.({ pts, opts }); return {} } }),
-  polygon: () => ({ addTo: () => ({}) }),
+  // `addTo` devuelve el propio layer (como Leaflet) y expone setStyle/setLatLngs: las capas nativas
+  // guardan la instancia por id y le re-aplican estilo (eje focus, patch).
+  polyline: (pts, opts) => {
+    const l = { pts, opts, setStyle(s) { Object.assign(l.opts, s) }, addTo(g) { g.addLayer?.(l); return l } }
+    return l
+  },
+  polygon: (rings, opts) => {
+    const p = {
+      rings, opts,
+      setStyle(s) { Object.assign(p.opts, s) },
+      setLatLngs(r) { p.rings = r },
+      addTo(g) { g.addLayer?.(p); return p },
+    }
+    return p
+  },
   point: (x, y) => ({ x, y }),
   latLng: (lat, lng) => ({ lat, lng }),
 })

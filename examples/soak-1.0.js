@@ -18,18 +18,16 @@ const CENTER = [-33.441, -70.654]        // Santiago
 const map    = L.map('map', { center: CENTER, zoom: 13, preferCanvas: true, zoomControl: true })
 const engine = new MapEngine({ leaflet: L, glify, map })
 await engine.ready
-// Tiles POR EL MOTOR (no `L.tileLayer(...).addTo(map)` a mano): así se activa la RETENCIÓN de bitmaps
-// (TileSnapshotRetention) — captura los tiles cargados y los mantiene de fondo reproyectados hasta que
-// llega el nivel nuevo, así el zoom (animado o instantáneo) NO parpadea al hueco gris de Leaflet base.
+// Tiles por el motor (no `L.tileLayer(...).addTo(map)`): así se activa la retención de bitmaps.
 engine.setTileProvider({ url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', maxZoom: 19, attribution: '© OpenStreetMap' })
 
 /* ── Helpers ─────────────────────────────────────────────────────────────────────────────────── */
-const $      = (id) => document.getElementById(id)
+const $      = id => document.getElementById(id)
 const rnd    = (a, b) => a + Math.random() * (b - a)
 const near   = (dLat = 0.05, dLng = 0.06) => ({ lat: CENTER[0] + rnd(-dLat, dLat), lng: CENTER[1] + rnd(-dLng, dLng) })
 const ring   = ([lat, lng], d) => [[lat - d, lng - d], [lat - d, lng + d], [lat + d, lng + d], [lat + d, lng - d]]
 const toggle = (el, on) => { el.setAttribute('aria-pressed', String(on)); el.textContent = on ? 'ON' : 'OFF' }
-const log    = (msg) => { const el = $('log'); el.textContent = (msg + '\n' + el.textContent).split('\n').slice(0, 60).join('\n') }
+const log    = msg => { const el = $('log'); el.textContent = (msg + '\n' + el.textContent).split('\n').slice(0, 60).join('\n') }
 
 /* ── 1 · Flota GPU (shape-preset dot) + overlay de realce + focus + map:click ────────────────────
    Verificar: los puntos se mueven fluido (source.move O(1), sin tirones); el retículo del realce
@@ -41,9 +39,9 @@ const fleet  = Array.from({ length: N }, (_, i) => { const p = near(); return { 
 
 const iconSet     = shapePresetIconSet({ shape: 'dot', size: 18 })
 const fleetSource = createSource({
-  idOf:       (p) => p.id,
-  positionOf: (p) => ({ lat: p.lat, lng: p.lng }),
-  variantOf:  (p) => p.color,             // la variante ES el color (shape-preset)
+  idOf:       p => p.id,
+  positionOf: p => ({ lat: p.lat, lng: p.lng }),
+  variantOf:  p => p.color,             // la variante ES el color (shape-preset)
   sizeOf:     () => 18,                    // el overlay lee sizeOf para dimensionar el retículo
 }, iconSet.variants)
 engine.addPointLayer({ id: 'fleet', source: fleetSource, iconSet, interactive: true })
@@ -52,7 +50,7 @@ fleetSource.set(fleet)
 let moving = true
 setInterval(() => {
   if (!moving) return
-  Array.from({ length: 60 }, () => fleet[(Math.random() * N) | 0]).forEach((p) => {
+  Array.from({ length: 60 }, () => fleet[(Math.random() * N) | 0]).forEach(p => {
     p.lat += rnd(-0.0018, 0.0018)
     p.lng += rnd(-0.0018, 0.0018)
     fleetSource.move(p.id, p.lat, p.lng)
@@ -66,7 +64,7 @@ const drawHighlight = (ctx, size, key) => {
   ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.stroke()
   if (key !== 'follow') return
   ctx.lineWidth = 2.5                       // 4 rayos cardinales (screen-space → no rotan con el rumbo)
-  Array.from({ length: 4 }, (_, i) => i * Math.PI / 2).forEach((a) => {
+  Array.from({ length: 4 }, (_, i) => i * Math.PI / 2).forEach(a => {
     ctx.beginPath()
     ctx.moveTo(Math.cos(a) * r * 1.05, Math.sin(a) * r * 1.05)
     ctx.lineTo(Math.cos(a) * r * 1.55, Math.sin(a) * r * 1.55)
@@ -74,30 +72,30 @@ const drawHighlight = (ctx, size, key) => {
   })
 }
 const overlay = engine.addHighlightOverlay({ id: 'hl', layerId: 'fleet', drawHighlight })
-const setK = (k) => {
-  overlay.setHighlighted(new Map(Array.from({ length: k }, (_, i) => [i, 'follow'])))
+let realzados = []
+const setK = k => {
+  realzados = Array.from({ length: k }, (_, i) => i)
+  overlay.setHighlighted(new Map(realzados.map(id => [id, 'follow'])))
   $('kv').textContent = k
+  if (focused) engine.setLayerFocus('fleet', realzados)
 }
-setK(8)
-$('k').oninput = (e) => setK(+e.target.value)
+$('k').oninput = e => setK(+e.target.value)
 
 let focused = false
-$('focus').onclick = (e) => {
+$('focus').onclick = e => {
   focused = !focused
-  // focus es por CAPA (no por punto): deja 'fleet' a opacidad plena y ATENÚA las otras capas
-  // (polígonos/círculo/heat). unfocus con el set vacío restaura todo.
-  if (focused) engine.focus(['fleet'], { opacity: 0.15 })
-  else engine.unfocus(['fleet'])
+  engine.setLayerFocus('fleet', focused ? realzados : undefined)
   toggle(e.target, focused)
-  log(focused ? 'focus: capa flota plena, resto de CAPAS atenuado' : 'unfocus → restaura todo')
+  log(focused
+    ? `focus por ítem: ${realzados.length} realzados brillantes, TODO lo demás atenuado (tiles encendidos)`
+    : 'focus off → restaura todas las capas')
 }
-$('move').onclick = (e) => { moving = !moving; toggle(e.target, moving); log(moving ? 'flota en movimiento' : 'flota pausada') }
+setK(8)
+$('move').onclick = e => { moving = !moving; toggle(e.target, moving); log(moving ? 'flota en movimiento' : 'flota pausada') }
 
-// Zoom instantáneo vs animado: apagar zoomAnimation hace que Leaflet NO emita `zoomanim` → el motor no
-// interpola (no hay reproyección por frame) y todo asienta directo en zoomend. Es el camino que tomaría
-// un mapa de alto rendimiento de Wing (miles de puntos): sin animación, un salto limpio de zoom.
+// Sin zoomAnimation Leaflet no emite `zoomanim`: el motor no interpola y todo asienta en zoomend.
 let animatedZoom = map.options.zoomAnimation !== false
-$('instant').onclick = (e) => {
+$('instant').onclick = e => {
   animatedZoom = !animatedZoom
   map.options.zoomAnimation = animatedZoom
   map._zoomAnimated         = animatedZoom          // Leaflet cachea la palanca; hay que moverla también
@@ -110,8 +108,7 @@ $('instant').onclick = (e) => {
 
 engine.on('map:click', ({ latlng }) => log(`map:click → ${latlng.lat.toFixed(4)}, ${latlng.lng.toFixed(4)}`))
 engine.on('viewportchange', ({ zoom }) => { $('zoom').textContent = zoom })
-// Hover del picking GPU: 'hover' llega con los hits actuales ([] al salir del punto) → readout en vivo.
-engine.on('hover', (hits) => { const h = hits?.[0]; $('hoverInfo').textContent = h ? `#${h.id}` : '—' })
+engine.on('hover', hits => { const h = hits?.[0]; $('hoverInfo').textContent = h ? `#${h.id}` : '—' })
 
 /* ── 2 · Polígono-Source reactivo (patch + styleOf) ──────────────────────────────────────────────
    Verificar: "Recolorear #2" cambia SÓLO el polígono del medio (restyle O(1) por patch de un id),
@@ -122,14 +119,14 @@ const polys = [
   { id: 'p3', rings: ring([-33.404, -70.705], 0.018), fill: '#3b82f6' },
 ]
 const polySource = createSource({
-  idOf:    (p) => p.id,
-  ringsOf: (p) => p.rings,
-  styleOf: (p) => ({ color: p.fill, weight: 2, fillColor: p.fill, fillOpacity: 0.25 }),
+  idOf:    p => p.id,
+  ringsOf: p => p.rings,
+  styleOf: p => ({ color: p.fill, weight: 2, fillColor: p.fill, fillOpacity: 0.25 }),
 })
 engine.addPolygonLayer({ id: 'polys', source: polySource, interactive: true })
 polySource.set(polys)
 $('restyle').onclick = () => {
-  const p2 = polys.find((p) => p.id === 'p2')
+  const p2 = polys.find(p => p.id === 'p2')
   p2.fill = p2.fill === '#3b82f6' ? '#ef4444' : '#3b82f6'
   polySource.patch(polys, ['p2'])
   log(`polígono patch → #p2 = ${p2.fill} (sólo el del medio debe recolorear)`)
@@ -139,9 +136,9 @@ $('restyle').onclick = () => {
    Verificar: al hacer ZOOM IN el círculo CRECE en pantalla (radio en metros, no sprite fijo). */
 const circles    = [{ id: 'c1', lat: CENTER[0], lng: CENTER[1], r: 800 }]
 const circSource = createSource({
-  idOf:           (c) => c.id,
-  positionOf:     (c) => ({ lat: c.lat, lng: c.lng }),
-  radiusMetersOf: (c) => c.r,
+  idOf:           c => c.id,
+  positionOf:     c => ({ lat: c.lat, lng: c.lng }),
+  radiusMetersOf: c => c.r,
   styleOf:        () => ({ color: '#10b981', weight: 2, fillColor: '#10b981', fillOpacity: 0.12 }),
 })
 engine.addCircleLayer({ id: 'circ', source: circSource })
@@ -154,11 +151,11 @@ const heatPts = Array.from({ length: 500 }, (_, i) => {
   const c = HOT[i % 3]
   return { id: i, lat: c[0] + rnd(-0.02, 0.02), lng: c[1] + rnd(-0.02, 0.02), w: Math.random() }
 })
-const heatSource = createSource({ idOf: (p) => p.id, positionOf: (p) => ({ lat: p.lat, lng: p.lng }), weightOf: (p) => p.w })
+const heatSource = createSource({ idOf: p => p.id, positionOf: p => ({ lat: p.lat, lng: p.lng }), weightOf: p => p.w })
 const heat       = engine.addHeatLayer({ id: 'heat', source: heatSource, radius: 30, intensity: 1, visible: false })
 heatSource.set(heatPts)
-$('heat').onclick = (e) => { const on = e.target.getAttribute('aria-pressed') !== 'true'; heat.setVisible(on); toggle(e.target, on) }
-$('heatR').oninput = (e) => { heat.setRadius(+e.target.value); $('heatRv').textContent = e.target.value }
+$('heat').onclick = e => { const on = e.target.getAttribute('aria-pressed') !== 'true'; heat.setVisible(on); toggle(e.target, on) }
+$('heatR').oninput = e => { heat.setRadius(+e.target.value); $('heatRv').textContent = e.target.value }
 
 /* ── 5 · Edición reactiva (input controlado, Leaflet-native) ─────────────────────────────────────
    Verificar: arrastrar un vértice / clic en punto medio (inserta) / dblclick (borra) emiten onChange;
@@ -168,19 +165,19 @@ $('heatR').oninput = (e) => { heat.setRadius(+e.target.value); $('heatRv').textC
 const editRing    = ring([-33.44, -70.598], 0.014)
 const editDisplay = [{ id: 'ed', rings: editRing, fill: '#f59e0b' }]
 const editSource  = createSource({
-  idOf:    (p) => p.id,
-  ringsOf: (p) => p.rings,
-  styleOf: (p) => ({ color: p.fill, weight: 2, fillColor: p.fill, fillOpacity: 0.2 }),
+  idOf:    p => p.id,
+  ringsOf: p => p.rings,
+  styleOf: p => ({ color: p.fill, weight: 2, fillColor: p.fill, fillOpacity: 0.2 }),
 })
 engine.addPolygonLayer({ id: 'edit-display', source: editSource, interactive: false })
 editSource.set(editDisplay)
 engine.addEditableLayer({
   id: 'edit-0', kind: 'polygon', value: editRing, mode: 'edit',
-  onChange: (v) => {                       // LIVE: re-ata el value al display por frame (patch O(1)) — sin log
+  onChange: v => {
     editDisplay[0].rings = v
     editSource.patch(editDisplay, ['ed'])
   },
-  onCommit: (v) => log(`edición commit → ${v.length} vértices (una vez, al soltar)`),   // SETTLE: sin spam
+  onCommit: v => log(`edición commit → ${v.length} vértices (una vez, al soltar)`),
 })
 log('editable montado: arrastrá los vértices (blancos), clic en punto medio inserta, dblclick borra')
 
@@ -189,8 +186,8 @@ log('editable montado: arrastrá los vértices (blancos), clic en punto medio in
    heat siguen renderizando GL al final (sin "Too many active WebGL contexts"). */
 $('fit').onclick = () => { engine.fitToLayers(); log('fit=all: encuadra TODAS las capas con datos') }
 $('leak').onclick = () => {
-  const cycle = (n) => {
-    const s = createSource({ idOf: (p) => p.id, positionOf: (p) => ({ lat: p.lat, lng: p.lng }), variantOf: () => '#ffffff' }, iconSet.variants)
+  const cycle = n => {
+    const s = createSource({ idOf: p => p.id, positionOf: p => ({ lat: p.lat, lng: p.lng }), variantOf: () => '#ffffff' }, iconSet.variants)
     engine.addPointLayer({ id: 'leak-probe', source: s, iconSet })
     s.set(Array.from({ length: 50 }, (_, i) => { const p = near(); return { id: i, lat: p.lat, lng: p.lng } }))
     engine.removeLayer('leak-probe')

@@ -66,10 +66,10 @@ export class Camera {
     const bounds = this.#L.latLngBounds([])
     source.getSnapshot().forEach(item => {
       const p = positionOf(item)
-      if (p && Number.isFinite(p.lat) && Number.isFinite(p.lng)) bounds.extend([p.lat, p.lng])
+      p && Number.isFinite(p.lat) && Number.isFinite(p.lng) && bounds.extend([p.lat, p.lng])
     })
-    if (bounds.isValid()) this.fitBounds(bounds, { insets: insets ?? this.#insets })
-    if (maxZoom != null && this.#map.getZoom() > maxZoom) this.#map.setZoom(maxZoom)
+    bounds.isValid() && this.fitBounds(bounds, { insets: insets ?? this.#insets })
+    maxZoom != null && this.#map.getZoom() > maxZoom && this.#map.setZoom(maxZoom)
     return this
   }
 
@@ -85,10 +85,10 @@ export class Camera {
     (ids ?? []).forEach(id => {
       const item = source.itemById?.(id)
       const p = item && positionOf(item)
-      if (p && Number.isFinite(p.lat) && Number.isFinite(p.lng)) bounds.extend([p.lat, p.lng])
+      p && Number.isFinite(p.lat) && Number.isFinite(p.lng) && bounds.extend([p.lat, p.lng])
     })
-    if (bounds.isValid()) this.fitBounds(bounds, { insets: insets ?? this.#insets })
-    if (maxZoom != null && this.#map.getZoom() > maxZoom) this.#map.setZoom(maxZoom)
+    bounds.isValid() && this.fitBounds(bounds, { insets: insets ?? this.#insets })
+    maxZoom != null && this.#map.getZoom() > maxZoom && this.#map.setZoom(maxZoom)
     return this
   }
 

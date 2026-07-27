@@ -12,6 +12,8 @@
 // metros; se aproxima con proyección equirectangular local (dx = Δlng·cos(lat̄), dy = Δlat), suficiente
 // a las escalas de un radio de cobertura. kind 'circle', hit de ÁREA (distancePx 0, como polygon).
 
+import { focusedStyle } from './focus.js'
+
 const R_TIERRA = 6378137          // radio terrestre WGS84 (m) — factor para pasar radianes a metros
 const RAD = Math.PI / 180
 
@@ -22,6 +24,7 @@ export class CircleLayer {
   #group = null
   #byId  = new Map()    // id → { circle, lat, lng, radius } (centro/radio cacheados para el hit CPU)
   #unsub = null
+  #focus = { ids: null, dim: 0.3 }   // eje focus: ids enfocados (null = sin foco) + opacidad del resto
 
   // `map` sólo ancla el layerGroup en el constructor (el picking es en espacio latlng, sin escala de
   // zoom); no se retiene como campo — como PolygonLayer.
@@ -44,6 +47,17 @@ export class CircleLayer {
     this.#group?.remove()
     this.#group = null
     this.#byId.clear()
+  }
+
+  // Eje focus: atenúa por FEATURE (no por pane) — cada círculo lleva su propia opacidad.
+  applyFocus(ids, dim = this.#focus.dim) {
+    this.#focus = { ids, dim }
+    const a = this.#accessors
+    this.#source.getSnapshot().forEach(item => {
+      const id = a.idOf(item)
+      this.#byId.get(id)?.circle.setStyle(focusedStyle(a.styleOf?.(item), this.#focus, id))
+    })
+    return true
   }
 
   /* ── Picking CPU point-in-circle (kind 'circle'); el registro ordena y envuelve con layerId/z/order ── */
@@ -80,8 +94,8 @@ export class CircleLayer {
     const dirty    = this.#source.dirtyIds?.()
     const moves    = this.#source.moveDirtyIds?.()
     if (this.#group && itemById && (dirty?.size || moves?.size) && this.#mismoSet(snap)) {
-      if (dirty?.size) this.#patchStructs(dirty, itemById)
-      if (moves?.size) this.#patchMoves(moves, itemById)
+      dirty?.size && this.#patchStructs(dirty, itemById)
+      moves?.size && this.#patchMoves(moves, itemById)
       return
     }
     this.#rebuild(snap)
@@ -107,8 +121,7 @@ export class CircleLayer {
       rec.lat = pos.lat; rec.lng = pos.lng; rec.radius = radius
       rec.circle.setLatLng([pos.lat, pos.lng])
       rec.circle.setRadius(radius)
-      const st = a.styleOf?.(item)
-      if (st) rec.circle.setStyle(st)
+      rec.circle.setStyle(focusedStyle(a.styleOf?.(item), this.#focus, id))
     })
   }
 
@@ -134,8 +147,8 @@ export class CircleLayer {
       // Se leen lat/lng como escalares acá mismo: `positionOf` puede devolver un objeto scratch reusado,
       // así que retenerlo a través del pipeline apuntaría todas las filas al mismo objeto mutado.
       .map(item => {
-        const pos = a.positionOf(item)
-        return { id: a.idOf(item), lat: pos?.lat, lng: pos?.lng, radius: a.radiusMetersOf(item), st: a.styleOf?.(item) }
+        const pos = a.positionOf(item), id = a.idOf(item)
+        return { id, lat: pos?.lat, lng: pos?.lng, radius: a.radiusMetersOf(item), st: focusedStyle(a.styleOf?.(item), this.#focus, id) }
       })
       .filter(({ lat, lng, radius }) =>
         Number.isFinite(lat) && Number.isFinite(lng) && Number.isFinite(radius) && radius > 0)

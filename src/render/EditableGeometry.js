@@ -68,7 +68,7 @@ export class EditableGeometry {
     this.#midIcon    = L.divIcon({ className: 'cristae-edit-midpoint', iconSize: [10, 10], iconAnchor: [5, 5] })
     this.#geom       = this.#ingest(value)
     this.#mode       = mode
-    if (mode === 'draw') this.#attachMap()
+    mode === 'draw' && this.#attachMap()
     this.#rebuild()
   }
 
@@ -86,7 +86,7 @@ export class EditableGeometry {
     this.#detachMap()
     this.#mode = mode
     this.#drawAnchor = null
-    if (mode === 'draw') this.#attachMap()
+    mode === 'draw' && this.#attachMap()
     this.#rebuild()
   }
 
@@ -98,7 +98,7 @@ export class EditableGeometry {
     if (this.#mode !== 'draw' || !latlng) return
     const p = toFinitePair(latlng)
     if (!p) return                                          // garbage-in en el trazado tampoco entra
-    if (this.#kind === 'point') { this.#geom.pt = p; this.#emit(); this.#emitCommit(); this.#rebuild(); return }
+    if (this.#kind === 'point') { this.#geom.pt = p; this.#settle(); return }
     if (this.#kind === 'rectangle') return this.#drawRectClick(p)
     const coords = this.#kind === 'polygon' ? this.#geom.rings[0] : this.#geom.path
     // No agregar un vértice idéntico al último: Leaflet dispara un `click` en la MISMA posición junto al
@@ -106,9 +106,7 @@ export class EditableGeometry {
     // emite una geometría con un punto repetido).
     if (samePoint(coords[coords.length - 1], p)) return
     coords.push(p)
-    this.#emit()
-    this.#emitCommit()
-    this.#rebuild()
+    this.#settle()
   }
 
   destroy() {
@@ -157,8 +155,11 @@ export class EditableGeometry {
     }
   }
 
-  #emit()       { this.#onChange?.(this.#serialize()) }   // live: cada cambio (incluye cada frame de drag)
-  #emitCommit() { this.#onCommit?.(this.#serialize()) }   // settle: fin de gesto (dragend / edición discreta)
+  #emit()   { this.#onChange?.(this.#serialize()) }
+  #commit() { this.#onCommit?.(this.#serialize()) }
+  // Edición DISCRETA (agregar / borrar / insertar / cerrar): cambia, asienta y rehace los handles,
+  // cuyos índices corrieron. El drag no pasa por acá: emite live y sólo asienta al soltar.
+  #settle() { this.#emit(); this.#commit(); this.#rebuild() }
 
   /* ── Suscripción nativa al mapa (modo draw) ─────────────────────────────────────────────── */
   // map.on/off es API de Leaflet (NO sniffing del DOM). El dblclick CIERRA el trazo (polígono/polilínea):
@@ -175,7 +176,7 @@ export class EditableGeometry {
     if (!p) return
     const antes = coords.length
     while (coords.length > 1 && samePoint(coords[coords.length - 1], p) && samePoint(coords[coords.length - 2], p)) coords.pop()
-    if (coords.length !== antes) { this.#emit(); this.#emitCommit(); this.#rebuild() }
+    coords.length !== antes && this.#settle()
   }
   #attachMap() { this.#map.on('click', this.#onMapClick); this.#map.on('dblclick', this.#onMapDblClick) }
   #detachMap() { this.#map.off('click', this.#onMapClick); this.#map.off('dblclick', this.#onMapDblClick) }
@@ -207,7 +208,7 @@ export class EditableGeometry {
     coords.forEach((c, i) => {
       const m = this.#marker(c, this.#vertexIcon, true)
       m.on('drag', () => this.#onVertexDrag(rec, i, m.getLatLng()))
-      m.on('dragend', () => this.#emitCommit())
+      m.on('dragend', () => this.#commit())
       m.on('dblclick', () => this.#onVertexDelete(rec, i))
       rec.vMarkers.push(m)
     })
@@ -224,7 +225,7 @@ export class EditableGeometry {
     if (!this.#geom.pt) return
     const m = this.#marker(this.#geom.pt, this.#vertexIcon, true)
     m.on('drag', () => { this.#geom.pt = toPair(m.getLatLng()); this.#emit() })
-    m.on('dragend', () => this.#emitCommit())
+    m.on('dragend', () => this.#commit())
   }
 
   #buildRectangle() {
@@ -233,7 +234,7 @@ export class EditableGeometry {
     this.#rectMarkers = this.#rectCorners(b).map((c, i) => {
       const m = this.#marker(c, this.#vertexIcon, true)
       m.on('drag', () => this.#onRectCornerDrag(i, m.getLatLng()))
-      m.on('dragend', () => this.#emitCommit())
+      m.on('dragend', () => this.#commit())
       return m
     })
   }
@@ -250,30 +251,27 @@ export class EditableGeometry {
     rec.coords[i] = toPair(ll)
     const len = rec.coords.length
     const segCount = rec.closed ? len : len - 1
-    const setMid = s => {
-      if (s < 0 || s >= segCount) return
+    // Cerrado, los segmentos envuelven (el anterior al 0 es el último); abierto no, y los índices que se
+    // salen del rango los descarta el guard. Esa es toda la diferencia entre ambos casos.
+    const wrap   = s => (rec.closed ? (s + len) % len : s)
+    const setMid = s => s >= 0 && s < segCount &&
       rec.mMarkers[s]?.setLatLng(midpoint(rec.coords[s], rec.coords[(s + 1) % len]))
-    }
-    if (rec.closed) { setMid((i - 1 + len) % len); setMid(i % len) }
-    else { setMid(i - 1); setMid(i) }
+    setMid(wrap(i - 1))
+    setMid(wrap(i))
     this.#emit()
   }
 
   #onVertexDelete(rec, i) {
     if (rec.coords.length <= (MIN_VERTICES[this.#kind] ?? 1)) return   // no bajar del mínimo topológico
     rec.coords.splice(i, 1)
-    this.#emit()
-    this.#emitCommit()
-    this.#rebuild()                                                    // los índices corren → rehacer handles
+    this.#settle()
   }
 
   // Insertar vértice en el midpoint del segmento `s` (promueve el punto de arista a vértice real).
   #onMidInsert(rec, s) {
     const len = rec.coords.length
     rec.coords.splice(s + 1, 0, midpoint(rec.coords[s], rec.coords[(s + 1) % len]))
-    this.#emit()
-    this.#emitCommit()
-    this.#rebuild()
+    this.#settle()
   }
 
   // Arrastre de esquina de rectángulo: la esquina opuesta queda fija; el bounds se recompone por min/max
@@ -298,8 +296,6 @@ export class EditableGeometry {
       [Math.max(a[0], p[0]), Math.max(a[1], p[1])],
     ]
     this.#drawAnchor = null
-    this.#emit()
-    this.#emitCommit()
-    this.#rebuild()
+    this.#settle()
   }
 }

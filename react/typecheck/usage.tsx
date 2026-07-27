@@ -60,6 +60,7 @@ export const ViaData = () => (
       iconSet={iconSet}
       visible={false}          // booleano: apaga la capa (por propiedad)
       where={(m) => m.estado === 'mov'}
+      focusIds={[1, 2]}        // eje focus por ítem (cross-layer): el resto se atenúa
     />
     <CristaeCluster radius={88} minPoints={2} expandable markedIds={[1, 2]} circleThreshold="auto" />
     <CristaePopup for="fleet" maxOpen={2} fit="flip shift" contentOf={(m: Movil) => `<b>${m.patente}</b>`} />

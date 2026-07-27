@@ -1,4 +1,5 @@
 import { prepareIndex, nearest, toParts } from '../geometry/polyline.js'
+import { focusFactor } from './focus.js'
 
 // Backend LEAFLET de la capa de líneas (`vector: true` en addLineLayer). Hermano de LineLayer (GL):
 // misma interfaz de ciclo de vida y mismo contrato de hit (kind 'line', nearest-segment), pero dibuja
@@ -22,9 +23,11 @@ export class LeafletLineLayer {
   #L; #map; #pane; #source; #interactive
   #accessors
   #group     = null
+  #byId      = new Map()        // id → L.polyline (para el foco por feature)
   #index     = { sorted: [] }   // índice espacial nearest-segment (picking, uniforme con el backend GL)
   #maxWeight = DEFAULT_WEIGHT
   #unsub     = null
+  #focus     = { ids: null, dim: 0.3 }   // eje focus: ids enfocados (null = sin foco) + opacidad del resto
 
   constructor({ L, map, pane, source, interactive = false }) {
     this.#L = L
@@ -43,6 +46,19 @@ export class LeafletLineLayer {
     this.#unsub?.()
     this.#group?.remove()
     this.#group = null
+    this.#byId.clear()
+  }
+
+  // Eje focus: atenúa por FEATURE (no por pane). El rebuild aplica el mismo factor, así que el foco
+  // sobrevive a cualquier tick de datos sin re-aplicarlo a mano.
+  applyFocus(ids, dim = this.#focus.dim) {
+    this.#focus = { ids, dim }
+    const a = this.#accessors
+    this.#source.getSnapshot().forEach(item => {
+      const id = a.idOf(item)
+      this.#byId.get(id)?.setStyle({ opacity: (a.styleOf?.(item)?.opacity ?? 1) * focusFactor(this.#focus, id) })
+    })
+    return true
   }
 
   /* ── Picking CPU nearest-segment (idéntico al backend GL): kind 'line', distancePx real ── */
@@ -69,15 +85,16 @@ export class LeafletLineLayer {
       .filter(({ parts }) => parts.length)
 
     this.#group.clearLayers()
-    built.forEach(({ parts, st }) => this.#L.polyline(parts.map(p => p.path), {
+    this.#byId.clear()
+    built.forEach(({ id, parts, st }) => this.#byId.set(id, this.#L.polyline(parts.map(p => p.path), {
       pane: this.#pane,
       color: st?.color ?? DEFAULT_COLOR,
       weight: st?.weight ?? DEFAULT_WEIGHT,
-      opacity: st?.opacity ?? 1,
+      opacity: (st?.opacity ?? 1) * focusFactor(this.#focus, id),
       dashArray: dashArrayOf(st?.dash),
       lineCap: st?.cap,              // 'round' vuelve punto redondo cada tramo corto del dash
       interactive: false,            // picking propio por índice (uniforme con el backend GL)
-    }).addTo(this.#group))
+    }).addTo(this.#group)))
 
     this.#maxWeight = built.reduce((m, { st }) => Math.max(m, st?.weight ?? DEFAULT_WEIGHT), DEFAULT_WEIGHT)
     this.#index = prepareIndex(built)

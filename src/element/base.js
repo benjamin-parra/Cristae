@@ -1,5 +1,6 @@
 import { LitElement, nothing } from 'lit'
 import { grammar } from './composite.js'
+import { parseFocusIds } from './attrs.js'
 import { enclosingModifier, leafUnits } from '../grammar/index.js'
 
 // Base de las capas declarativas. No renderan nada visible (viven en light DOM como portadores de
@@ -9,6 +10,10 @@ import { enclosingModifier, leafUnits } from '../grammar/index.js'
 // conectar el elemento → pueden llegar antes o después del motor, en el orden que sea). La base
 // orquesta ese ciclo; cada subclase solo declara su contrato: mountReady / mountLayer / syncLayer.
 export class CristaeLayerElement extends LitElement {
+
+  // Eje `focus-ids`, común a TODA capa (por eso vive acá y no en cada subclase). Se llama así y no
+  // `focus` porque una propiedad `focus` pisaría `HTMLElement.prototype.focus()`.
+  static properties = { focusIds: { attribute: 'focus-ids' } }
 
   _handle = null
   _engine = null
@@ -52,8 +57,7 @@ export class CristaeLayerElement extends LitElement {
   // si ya está montada. Un hijo de cluster recibe el motor del cluster (no del map): si su config llega
   // tarde y sigue sin montar, le pide al cluster que reintente (reevalúa mountReady y monta host+cluster).
   updated(changed) {
-    if (this._handle) { this.syncLayer(changed); return }
-    if (this._engine && this.mountReady()) {
+    if (!this._handle && this._engine && this.mountReady()) {
       this._handle = this.mountLayer(this._engine)
       // Montaje DIFERIDO (motor + config coincidieron recién en este ciclo): el `changed` que lo
       // disparó trae el estado inicial DECLARADO (visible, where, …). Antes se retornaba sin aplicarlo
@@ -61,8 +65,11 @@ export class CristaeLayerElement extends LitElement {
       // en los defaults del alta (p.ej. una label declarada visible=false nacía encendida). Lo
       // aplicamos ahora que el handle existe, y avisamos al mapa contenedor que la capa montó.
       if (this._handle) { this.syncLayer(changed); this._announce(true) }
-    }
-    if (!this._handle) this._enclosingModifier()?.requestUpdate()
+    } else if (this._handle) this.syncLayer(changed)
+
+    if (!this._handle) { this._enclosingModifier()?.requestUpdate(); return }
+    changed.has('focusIds') &&
+      this._engine?.setLayerFocus?.(this._handle.id, parseFocusIds(this.focusIds))
   }
 
   /* ── Contrato de subclase ── */

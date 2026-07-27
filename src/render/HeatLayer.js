@@ -179,7 +179,7 @@ export class HeatLayer {
       // Aporte CHICO por punto (·POINT_ALPHA): con source-over la densidad ACUMULA en vez de saturar a
       // disco sólido cuando los pesos son uniformes (weightOf ausente → wgt=1) o intensity es el default.
       ctx.globalAlpha = Math.min(Math.max(wgt * this.#intensity * POINT_ALPHA, MIN_OPACITY), 1)
-      if (brush) ctx.drawImage(brush, p.x - R, p.y - R)
+      brush && ctx.drawImage(brush, p.x - R, p.y - R)
     })
     ctx.globalAlpha = 1
 

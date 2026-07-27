@@ -19,12 +19,13 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   `addHighlightOverlay`/`addCluster`/`focus`/… + interfaz `Camera` + los handles tipados (`PointHandle`,
   `HighlightOverlayHandle`, `PolygonHandle`, `LabelHandle`, `OverlayHandle`, `ClusterControl`). Reemplaza las
   declaraciones mínimas — habilita consumir el motor sin tipos-sombra. Verificado con `tsc --strict`.
-- **`@cristae/react` (fundación)** — paquete adaptador React aparte (el core sigue agnóstico, sin React).
-  Núcleo **tested** `applyElementProps` (`react/src/apply-props.js`): aplica props al custom element
-  (atributo / propiedad / evento) diffeando contra el render anterior; el **dato** entra por **propiedad**
-  → el core reactivo maneja los updates FUERA de React (sin reconciliación en el hot-path). + hook
-  `useCristaeElement` y componentes (`CristaeMap`/`CristaePointLayer`/…) como scaffold. Tests de render
-  React + props tipadas por componente: próxima pasada. Ver `react/README.md`.
+- **`@cristae/react`** — paquete adaptador React aparte (el core sigue agnóstico, sin React). Núcleo
+  `applyElementProps` (`react/src/apply-props.js`): aplica props al custom element (atributo / propiedad /
+  evento) diffeando contra el render anterior; el **dato** entra por **propiedad** → el core reactivo maneja
+  los updates FUERA de React (sin reconciliación en el hot-path). Incluye el hook `useCristaeElement`, los
+  componentes (`CristaeMap`/`CristaePointLayer`/…) con **props tipadas por componente** y **tests de render**
+  con React real sobre jsdom: uno prueba que cambiar `data` re-asigna la propiedad **sin re-renderizar los
+  hijos React**. Ver `react/README.md`.
 - **Capas nuevas del mapa (tanda 1.0)**: `addCircleLayer` (círculos en METROS, Leaflet-native, escalan con
   el zoom), `addHeatLayer` (heatmap canvas 2D con densidad acumulada + `radius`/`blur`/`intensity`/
   `colorRamp`), `addEditableLayer` (edición de geometría como INPUT CONTROLADO: `value`/`onChange`/`draw`,
@@ -37,7 +38,31 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   para captura de coordenada; **empty-state** en `<cristae-map>` (`empty-message` / `slot="empty"` cuando todas
   las capas de datos están vacías).
 
+- **Eje `focus` por ÍTEM, cross-layer** — `MapEngine.setLayerFocus(layerId, ids)` + el atributo declarativo
+  **`focus-ids`** en toda capa (vive en `CristaeLayerElement`, así que ninguna subclase lo declara; se llama
+  así y no `focus` porque una propiedad `focus` pisaría `HTMLElement.prototype.focus()`). Polimórfico:
+  iterable → esos ítems enfocados; falsy → todo atenuado; ausente → la capa no participa. Mientras **alguna**
+  capa lo declare, **todas** se atenúan —el basemap NO, porque la atenuación es por pane/feature de capa— y
+  cada una repone los suyos: las Leaflet-native (polygon/circle/line/html) atenúan **por feature** vía
+  `applyFocus` (exacto, sin pase extra), y las GL —sin identidad por feature en el vec4— atenúan su pane y
+  un pase de sprites re-dibuja los enfocados con el mismo tile/tamaño/rumbo. Varias capas pueden declararlo a
+  la vez (foco cruzado entre capas de sensores). Un único resolutor de opacidad decide los dos ejes de
+  enfoque (por capa y por ítem), sin ramas por `kind`.
+- **`onCommit` en la edición de geometría** — `addEditableLayer` distingue el cambio **live** (`onChange`,
+  cada frame de arrastre, para el preview del display) del **asentado** (`onCommit`, una vez por gesto:
+  `dragend` o edición discreta). Antes sólo existía `onChange`, así que persistir obligaba a debouncear.
+- **Zoom animado reproyectado** — durante la animación de zoom de Leaflet el motor reproyecta **por frame** a
+  la vista interpolada (easing del tile) en vez de dejar que el canvas escale con la transición CSS: los
+  sprites conservan su tamaño y quedan alineados con los tiles, sin salto al asentar. Alcanza a las capas GL
+  (que apagan su `_animateZoom` propio) y a los overlays de interacción, cuyo realce sigue a su punto con el
+  mismo proyector.
+
 ### Cambiado
+- **Retención de tiles acoplada al MODO de zoom** — `createTileSnapshotRetention` ahora sólo actúa cuando el
+  zoom es **instantáneo** (donde Leaflet suelta los tiles de golpe y aparece el hueco gris); si el zoom se
+  anima, su propia transición ya cubre y la retención se hace a un lado en vez de superponerse. El gate se
+  lee del mapa por frame, así que alternar animado/instantáneo en caliente se adapta solo — el consumidor
+  no administra nada (sólo prende los tiles con `setTileProvider`).
 - **`addPolygonLayer` ahora es REACTIVO a una Source** (antes: imperativo con `clearLayers`+re-add): capa
   `PolygonLayer` con `styleOf` por feature + fast-path por `dirtyIds` (re-estila sólo los sucios), Leaflet-native.
 - **`LineLayer` gana el fast-path incremental** (`dirtyIds` → `bufferSubData` sin `setData`), como `PointLayer`;
