@@ -191,7 +191,9 @@ test('toda ruta declarada en exports apunta a un archivo que existe', () => {
 
 test('el paquete es ESM y publica src + types', () => {
   assert.equal(pkg.type, 'module')
-  assert.equal(pkg.name, 'cristae')
+  // Se contrasta el nombre SIN el scope: un consumidor puede vendorizar el paquete bajo su propio
+  // scope (`@org/cristae`) sin que eso cambie nada de la superficie que este test cubre.
+  assert.equal(pkg.name.replace(/^@[^/]+\//, ''), 'cristae')
   for (const carpeta of ['src', 'types']) assert.ok(pkg.files.includes(carpeta), `files sin ${carpeta}`)
 })
 
