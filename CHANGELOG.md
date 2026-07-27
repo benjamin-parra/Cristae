@@ -5,6 +5,15 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
 [`docs/versionado.md`](docs/versionado.md) — en `0.x`, el **minor cuenta los cambios medios**
 (capacidad o eje de API nuevo) y el **patch los menores desde el último medio** (fix / perf / revert).
 
+## [0.23.1] - 2026-07-27
+
+### Corregido
+- **`idOf` aceptaba sólo `number` en dos accessors.** `LineAccessors` y `HtmlAccessors` lo declaraban
+  `(item) => number`, mientras que los otros cinco accessors ya usaban `string | number`. Era una
+  inconsistencia de los tipos, no del runtime: el motor usa el id sólo como clave de `Map`, así que
+  los ids string siempre funcionaron. Un consumidor con ids string (`"hito-1"`) no compilaba contra
+  esas dos capas. Sólo cambia `types/map.d.ts`; sin cambios de comportamiento.
+
 ## [0.23.0] - 2026-07-27
 
 ### Agregado

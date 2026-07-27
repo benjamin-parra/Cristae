@@ -92,7 +92,7 @@ export interface PolygonAccessors<T> {
 // GPU (glify.Lines) + gradiente per-vértice por bufferSubData + picking CPU nearest-segment.
 // `dash` y el grosor real por triángulos NO están (deuda documentada — ver docs/lines.md).
 export interface LineAccessors<T> {
-  idOf: (l: T) => number;
+  idOf: (l: T) => string | number;
   /** Vértices del path en orden, `[lat, lng]`. Dos encodings (ver `toParts`): plano — un vértice no
    *  finito **corta** la línea (un track GPS con baches sale partido, no puenteado) — o anidado
    *  `[[[lat,lng],…],…]` con las partes explícitas. Una línea multi-parte sigue siendo UNA entidad:
@@ -167,7 +167,7 @@ export function sampleAlong(
 // L.divIcon sobre Leaflet — GL-safe (NO abre otro contexto WebGL). Nicho: badges de dominio con HTML
 // arbitrario (heroicon / glifo de fuente) + popup. COMPLEMENTA el point-layer GPU, no lo reemplaza.
 export interface HtmlAccessors<T> {
-  idOf: (m: T) => number;
+  idOf: (m: T) => string | number;
   positionOf: (m: T) => { lat: number; lng: number };
   /** HTML del marcador (string) — heroicon SVG, glifo `<i class="fv-*">`, letra, etc. */
   htmlOf: (m: T) => string;
