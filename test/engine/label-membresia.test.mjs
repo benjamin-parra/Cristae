@@ -62,3 +62,23 @@ test('cambiar `where` en caliente resincroniza las labels ligadas', async () => 
   assert.deepEqual(espia.capturas.at(-1), [1, 3], 'y ya sin el ítem fuera de membresía')
   espia.restaurar(); engine.destroy()
 })
+
+/* ── El overlay ligado (badge) hereda la membresía del host, sin espejarla el consumidor ── */
+
+test('el overlay compone la membresía del host con la propia', async () => {
+  const engine = new MapEngine({ leaflet: makeLeaflet(), glify: makeGlify(), map: makeMap() })
+  const flota = engine.addPointLayer({ id: 'flota', accessors, iconSet: makeIconSet(), data: items })
+  const badge = engine.addOverlay({ id: 'badges', hostId: 'flota', iconSet: makeIconSet() })
+  await flushRaf()
+  assert.equal(badge.layer.count, 3, 'sin filtros, el badge cubre toda la flota')
+
+  flota.setWhere(it => it.activo)                    // membresía del HOST, no del badge
+  assert.equal(badge.layer.count, 2, 'el badge sigue al host sin que nadie lo espeje')
+
+  badge.setWhere(it => it.id === 3)                  // membresía PROPIA del badge
+  assert.equal(badge.layer.count, 1, 'se compone con la del host (∧), no la reemplaza')
+
+  flota.setWhere(null)
+  assert.equal(badge.layer.count, 1, 'al soltar la del host queda sólo la propia')
+  engine.destroy()
+})

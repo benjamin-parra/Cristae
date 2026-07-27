@@ -473,10 +473,15 @@ export class MapEngine {
     if (sizeOf) accessors.sizeOf = sizeOf
     accessors.headingOf = null                              // el overlay no rota (badge de esquina)
 
+    // Membresía del overlay = la del HOST ∧ la propia. `host.where` se lee VIVO, así que un cambio de
+    // membresía del host arrastra al badge sin que el consumidor lo espeje (su `resync` refresca).
+    let propio = where ?? null
+    const membresia = item => (!host.where || host.where(item)) && (!propio || propio(item))
+
     const set   = this.#resolveIconSet(iconSet)
     const layer = this.#trackGl(new PointLayer({
       glify: this.#glify, map: this.#map, pane: paneName, source: host.source,
-      accessors, iconSet: set, interactive: false, where,
+      accessors, iconSet: set, interactive: false, where: membresia,
     }))
     layer.suppressed = host.suppressed ?? null               // hereda la supresión del cluster (si la hay)
     layer.refresh()
@@ -495,7 +500,7 @@ export class MapEngine {
       get source() { return record.source },
       get layer() { return record.layer },
       refresh:    () => layer.refresh(),
-      setWhere:   fn => { layer.where = fn; layer.refresh() },
+      setWhere:   fn => { propio = fn ?? null; layer.refresh() },   // se compone con la del host, no la pisa
       setVisible: v => this.setLayerVisibility(id, v),
     }
   }

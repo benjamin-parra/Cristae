@@ -44,6 +44,10 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   supresión por cluster, pero NO su `where` (membresía por-capa): un ítem filtrado fuera de la capa
   desaparecía como punto y su etiqueta quedaba flotando. Ahora el bind aplica la membresía efectiva del
   host, y `setWhere` resincroniza los ligados (la Source no emite ante un cambio de membresía por-capa).
+- **El overlay ligado (badge) tampoco heredaba la membresía del host.** Compartía la Source COMPLETA, así
+  que el consumidor tenía que espejar el filtro del host dentro del `where` del badge. Ahora su membresía
+  es `host.where ∧ propia` (el del host se lee vivo) y `setWhere` del overlay COMPONE en vez de pisar:
+  declarás sólo el criterio propio y el filtro del host lo arrastra la lib.
 
 ## [0.22.1] - 2026-07-24
 
