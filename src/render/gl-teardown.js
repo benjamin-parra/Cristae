@@ -8,3 +8,15 @@
 // sin soporte ni en stubs de test).
 export const loseGlContext = glifyLayer =>
   glifyLayer?.gl?.getExtension?.('WEBGL_lose_context')?.loseContext?.()
+
+// Cancela el redibujo que glify dejó agendado. Su `redraw()` difiere el trabajo a un
+// requestAnimationFrame y guarda el id en `_frame`, pero su `onRemove` NO lo cancela: si la capa se
+// desmonta entre el `redraw()` y ese frame, el callback corre con `_map` ya en null y revienta
+// (`Cannot read properties of null (reading 'getSize')`). Se llama ANTES de `remove()`, mientras el
+// overlay sigue accesible. A prueba de stubs: sin capa, sin overlay o sin frame pendiente, no hace nada.
+export const cancelPendingRedraw = glifyLayer => {
+  const overlay = glifyLayer?.layer
+  if (overlay?._frame == null) return
+  cancelAnimationFrame(overlay._frame)
+  overlay._frame = null
+}

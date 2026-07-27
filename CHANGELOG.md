@@ -5,6 +5,42 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
 [`docs/versionado.md`](docs/versionado.md) — en `0.x`, el **minor cuenta los cambios medios**
 (capacidad o eje de API nuevo) y el **patch los menores desde el último medio** (fix / perf / revert).
 
+## [Sin publicar]
+
+### Agregado
+- **Eje `focus` por ÍTEM, cross-layer** — `MapEngine.setLayerFocus(layerId, ids)` + el atributo declarativo
+  **`focus-ids`** en toda capa (vive en `CristaeLayerElement`, así que ninguna subclase lo declara; se llama
+  así y no `focus` porque una propiedad `focus` pisaría `HTMLElement.prototype.focus()`). Polimórfico:
+  iterable → esos ítems enfocados; falsy → todo atenuado; ausente → la capa no participa. Mientras **alguna**
+  capa lo declare, **todas** se atenúan —el basemap NO, porque la atenuación es por pane/feature de capa— y
+  cada una repone los suyos: las Leaflet-native (polygon/circle/line/html) atenúan **por feature** vía
+  `applyFocus` (exacto, sin pase extra), y las GL —sin identidad por feature en el vec4— atenúan su pane y
+  un pase de sprites re-dibuja los enfocados con el mismo tile/tamaño/rumbo. Varias capas pueden declararlo a
+  la vez (foco cruzado entre capas de sensores). Un único resolutor de opacidad decide los dos ejes de
+  enfoque (por capa y por ítem), sin ramas por `kind`.
+- **`onCommit` en la edición de geometría** — `addEditableLayer` distingue el cambio **live** (`onChange`,
+  cada frame de arrastre, para el preview del display) del **asentado** (`onCommit`, una vez por gesto:
+  `dragend` o edición discreta). Antes sólo existía `onChange`, así que persistir obligaba a debouncear.
+- **Zoom animado reproyectado** — durante la animación de zoom de Leaflet el motor reproyecta **por frame** a
+  la vista interpolada (easing del tile) en vez de dejar que el canvas escale con la transición CSS: los
+  sprites conservan su tamaño y quedan alineados con los tiles, sin salto al asentar. Alcanza a las capas GL
+  (que apagan su `_animateZoom` propio) y a los overlays de interacción, cuyo realce sigue a su punto con el
+  mismo proyector.
+
+### Cambiado
+- **Retención de tiles acoplada al MODO de zoom** — `createTileSnapshotRetention` ahora sólo actúa cuando el
+  zoom es **instantáneo** (donde Leaflet suelta los tiles de golpe y aparece el hueco gris); si el zoom se
+  anima, su propia transición ya cubre y la retención se hace a un lado en vez de superponerse. El gate se
+  lee del mapa por frame, así que alternar animado/instantáneo en caliente se adapta solo — el consumidor
+  no administra nada (sólo prende los tiles con `setTileProvider`).
+
+### Corregido
+- **Crash al desmontar una capa GL con un redibujo en vuelo.** `redraw()` de glify difiere el trabajo a
+  un `requestAnimationFrame` y guarda el id en `_frame`, pero su `onRemove` no lo cancela: si la capa se
+  desmontaba entre el `redraw()` y ese frame, el callback corría con `_map` ya en null y reventaba
+  (`Cannot read properties of null (reading 'getSize')`). El teardown de las capas GL ahora cancela ese
+  frame (`cancelPendingRedraw`) ANTES de `remove()`. Regresión cubierta en `test/render/gl-teardown.test.mjs`.
+
 ## [0.22.1] - 2026-07-24
 
 ### Agregado
@@ -38,31 +74,7 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   para captura de coordenada; **empty-state** en `<cristae-map>` (`empty-message` / `slot="empty"` cuando todas
   las capas de datos están vacías).
 
-- **Eje `focus` por ÍTEM, cross-layer** — `MapEngine.setLayerFocus(layerId, ids)` + el atributo declarativo
-  **`focus-ids`** en toda capa (vive en `CristaeLayerElement`, así que ninguna subclase lo declara; se llama
-  así y no `focus` porque una propiedad `focus` pisaría `HTMLElement.prototype.focus()`). Polimórfico:
-  iterable → esos ítems enfocados; falsy → todo atenuado; ausente → la capa no participa. Mientras **alguna**
-  capa lo declare, **todas** se atenúan —el basemap NO, porque la atenuación es por pane/feature de capa— y
-  cada una repone los suyos: las Leaflet-native (polygon/circle/line/html) atenúan **por feature** vía
-  `applyFocus` (exacto, sin pase extra), y las GL —sin identidad por feature en el vec4— atenúan su pane y
-  un pase de sprites re-dibuja los enfocados con el mismo tile/tamaño/rumbo. Varias capas pueden declararlo a
-  la vez (foco cruzado entre capas de sensores). Un único resolutor de opacidad decide los dos ejes de
-  enfoque (por capa y por ítem), sin ramas por `kind`.
-- **`onCommit` en la edición de geometría** — `addEditableLayer` distingue el cambio **live** (`onChange`,
-  cada frame de arrastre, para el preview del display) del **asentado** (`onCommit`, una vez por gesto:
-  `dragend` o edición discreta). Antes sólo existía `onChange`, así que persistir obligaba a debouncear.
-- **Zoom animado reproyectado** — durante la animación de zoom de Leaflet el motor reproyecta **por frame** a
-  la vista interpolada (easing del tile) en vez de dejar que el canvas escale con la transición CSS: los
-  sprites conservan su tamaño y quedan alineados con los tiles, sin salto al asentar. Alcanza a las capas GL
-  (que apagan su `_animateZoom` propio) y a los overlays de interacción, cuyo realce sigue a su punto con el
-  mismo proyector.
-
 ### Cambiado
-- **Retención de tiles acoplada al MODO de zoom** — `createTileSnapshotRetention` ahora sólo actúa cuando el
-  zoom es **instantáneo** (donde Leaflet suelta los tiles de golpe y aparece el hueco gris); si el zoom se
-  anima, su propia transición ya cubre y la retención se hace a un lado en vez de superponerse. El gate se
-  lee del mapa por frame, así que alternar animado/instantáneo en caliente se adapta solo — el consumidor
-  no administra nada (sólo prende los tiles con `setTileProvider`).
 - **`addPolygonLayer` ahora es REACTIVO a una Source** (antes: imperativo con `clearLayers`+re-add): capa
   `PolygonLayer` con `styleOf` por feature + fast-path por `dirtyIds` (re-estila sólo los sucios), Leaflet-native.
 - **`LineLayer` gana el fast-path incremental** (`dirtyIds` → `bufferSubData` sin `setData`), como `PointLayer`;

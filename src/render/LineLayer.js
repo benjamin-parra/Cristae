@@ -1,7 +1,7 @@
 import { prepareIndex, nearest, toParts } from '../geometry/polyline.js'
 import { toRGBA, toColorObj, DEFAULT_COLOR } from './color.js'
 import { projX0, projY0 } from './project.js'
-import { loseGlContext } from './gl-teardown.js'
+import { loseGlContext, cancelPendingRedraw } from './gl-teardown.js'
 
 // Capa de LÍNEAS GL sobre glify.Lines. Hermana de PointLayer: envuelve la instancia glify (su
 // rebuild `setData` y su draw `gl.LINES` intactos) y le AÑADE el color per-vértice para el gradiente
@@ -76,6 +76,7 @@ export class LineLayer {
 
   destroy() {
     this.#unsub?.()
+    cancelPendingRedraw(this.#layer)  // un redraw en vuelo correría con el mapa ya desprendido
     this.#layer?.remove()
     loseGlContext(this.#layer)        // libera el contexto WebGL (glify.remove no lo hace → leak acumulativo)
     this.#layer = null
