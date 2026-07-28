@@ -33,6 +33,7 @@ export class CristaeLabelLayer extends CristaeLayerElement {
   mountLayer(engine) {
     const handle = engine.addLabelLayer({
       id:        this.layerId(),
+      ...this._placement,
       bindTo:    this.bindTo,
       source:    this.source,
       accessors: this.accessors,

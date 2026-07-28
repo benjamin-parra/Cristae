@@ -42,6 +42,7 @@ export class CristaePointLayer extends CristaeLayerElement {
   mountLayer(engine) {
     const handle = engine.addPointLayer({
       id         : this.layerId(),
+      ...this._placement,
       source     : this.source,                  // si está, gana sobre `data` (el motor hace cfg.source ?? owned)
       data       : this.data,
       accessors  : this.accessors,

@@ -28,6 +28,7 @@ export class CristaePolygonLayer extends CristaeLayerElement {
   mountLayer(engine) {
     return engine.addPolygonLayer({
       id: this.layerId(),
+      ...this._placement,
       data: this.data,
       accessors: this.accessors,
       interactive: this.interactive,

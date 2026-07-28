@@ -18,8 +18,14 @@
 
 const isEvent = (key) => /^on[A-Z]/.test(key)
 // Atributo = escalar serializable a texto (string/número), o ausencia (null/undefined). El booleano NO:
-// va por propiedad (ver cabecera). El objeto/función tampoco (el dato).
-const isAttr           = (v) => v == null || typeof v === 'string' || typeof v === 'number'
+// va por propiedad (ver cabecera). El objeto/función tampoco (el dato). Y tampoco lo que el elemento
+// declara `attribute: false`: detrás del atributo no hay setter reactivo, así que el valor nunca llega
+// (p. ej. `template` de <cristae-table>, que es un string). Se le pregunta al elemento en vez de
+// mantener una tabla por tag: vale para toda propiedad presente y futura. Un elemento sin definir
+// todavía no expone el mapa y cae a la clasificación por valor.
+const isAttr = (el, key, v) =>
+  (v == null || typeof v === 'string' || typeof v === 'number') &&
+  el.constructor?.elementProperties?.get(key)?.attribute !== false
 const defaultEventName = (key) => key.slice(2).toLowerCase()
 
 // camelCase → kebab-case para el nombre de atributo (initialZoom → initial-zoom).
@@ -32,7 +38,7 @@ export function applyElementProps(el, prev, next, eventNameOf = defaultEventName
   Object.keys(before).filter(key => !(key in next)).forEach(key => {
     const old = before[key]
     if (isEvent(key)) { if (typeof old === 'function') el.removeEventListener(eventNameOf(key), old) }
-    else if (isAttr(old)) el.removeAttribute(attrName(key))
+    else if (isAttr(el, key, old)) el.removeAttribute(attrName(key))
     else el[key] = undefined                          // booleano/objeto/función → limpiar la propiedad
   })
 
@@ -45,7 +51,7 @@ export function applyElementProps(el, prev, next, eventNameOf = defaultEventName
       const ev = eventNameOf(key)
       if (typeof old === 'function') el.removeEventListener(ev, old)
       if (typeof value === 'function') el.addEventListener(ev, value)
-    } else if (isAttr(value)) {
+    } else if (isAttr(el, key, value)) {
       if (value == null) el.removeAttribute(attrName(key))
       else el.setAttribute(attrName(key), String(value))
     } else {

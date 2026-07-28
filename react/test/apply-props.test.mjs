@@ -7,11 +7,14 @@ import assert from 'node:assert/strict'
 import { applyElementProps, detachElementListeners } from '../src/apply-props.js'
 
 // Elemento fake: `_attrs`/`_props`/`_events` registran lo que el aplicador hace. Un Proxy dirige
-// `el[key] = v` (propiedad) a `_props`, y deja los métodos DOM en el target.
-const makeEl = () => {
+// `el[key] = v` (propiedad) a `_props`, y deja los métodos DOM en el target. `declaradas` simula el
+// `elementProperties` de Lit (key → { attribute }), que el aplicador consulta para no mandar por
+// atributo lo que el elemento declara `attribute: false`.
+const makeEl = (declaradas) => {
   const _attrs = {}, _props = {}, _events = []
   const target = {
     _attrs, _props, _events,
+    constructor: { elementProperties: declaradas },
     setAttribute(k, v) { _attrs[k] = v },
     removeAttribute(k) { delete _attrs[k] },
     addEventListener(t, fn) { _events.push(['add', t, fn]) },
@@ -37,6 +40,18 @@ test('números/strings → atributos kebab-case; booleanos/objetos/funciones →
   assert.equal(el._props.source, source, 'objeto → propiedad (el dato NO va por atributo)')
   assert.equal(el._props.accessors, acc, 'accessors → propiedad')
   assert.equal('source' in el._attrs, false, 'el objeto no se serializa a atributo')
+})
+
+test('un string que el elemento declara `attribute: false` va por PROPIEDAD', () => {
+  const el = makeEl(new Map([['template', { attribute: false }]]))
+  const template = '<tr><td data-ref="patente"></td></tr>'
+  const aplicado = applyElementProps(el, {}, { template, emptyMessage: 'sin datos' })
+  assert.equal(el._props.template, template, 'detrás del atributo no hay setter: el valor nunca llegaría')
+  assert.equal('template' in el._attrs, false, 'NO se serializa a atributo')
+  assert.equal(el._attrs['empty-message'], 'sin datos', 'el resto de los strings siguen yendo por atributo')
+
+  applyElementProps(el, aplicado, { emptyMessage: 'sin datos' })
+  assert.equal(el._props.template, undefined, 'la baja limpia la propiedad')
 })
 
 test('diff: sólo toca lo que cambió; una prop igual no re-asigna', () => {

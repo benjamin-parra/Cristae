@@ -34,6 +34,7 @@ export class CristaeLineLayer extends CristaeLayerElement {
   mountLayer(engine) {
     return engine.addLineLayer({
       id: this.layerId(),
+      ...this._placement,
       source: this.source,
       data: this.data,
       accessors: this.accessors,

@@ -157,14 +157,24 @@ test('importar cristae/table registra <cristae-table> una sola vez y guardado po
 
 // ── package.json: rutas de exports y sideEffects ──
 
-test('el mapa exports congela las 4 rutas públicas más ./package.json', () => {
+test('el mapa exports congela las 5 rutas públicas más ./package.json', () => {
   assert.deepEqual(pkg.exports, {
     './core': { types: './types/core.d.ts', default: './src/data/index.js' },
     './table': { types: './types/table.d.ts', default: './src/table/index.js' },
     './map': { types: './types/map.d.ts', default: './src/index.js' },
     './grammar': { types: './types/grammar.d.ts', default: './src/grammar/index.js' },
+    './react': { types: './react/types/index.d.ts', default: './react/src/index.js' },
     './package.json': './package.json',
   })
+})
+
+// `react` es peer OPCIONAL: el core no lo importa en ningún camino, así que un consumidor sin React
+// instala Cristae sin arrastrarlo ni ver warnings de peer no satisfecho.
+test('react es peer opcional (el core sigue siendo agnóstico)', () => {
+  assert.equal(pkg.peerDependencies.react, '>=18')
+  assert.equal(pkg.peerDependenciesMeta.react.optional, true)
+  assert.ok(pkg.files.includes('react/src') && pkg.files.includes('react/types'),
+    'el binding tiene que viajar en el tarball')
 })
 
 test('sideEffects declara sólo los dos entries que registran custom elements', () => {
@@ -179,6 +189,7 @@ const DESTINOS = [
   './types/table.d.ts', './src/table/index.js',
   './types/map.d.ts', './src/index.js',
   './types/grammar.d.ts', './src/grammar/index.js',
+  './react/types/index.d.ts', './react/src/index.js',
   './package.json',
 ]
 

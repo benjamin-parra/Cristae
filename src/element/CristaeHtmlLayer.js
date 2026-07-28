@@ -30,6 +30,7 @@ export class CristaeHtmlLayer extends CristaeLayerElement {
   mountLayer(engine) {
     return engine.addHtmlLayer({
       id         : this.layerId(),
+      ...this._placement,
       source     : this.source,
       data       : this.data,
       accessors  : this.accessors,

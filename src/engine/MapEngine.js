@@ -189,7 +189,7 @@ export class MapEngine {
     // de los hosts HABILITADOS (no la Source cruda) → cuenta lo que la capa REALMENTE muestra.
     // setWhere/setLayerEnabled los actualizan y re-indexan el cluster. `visible` (pintado puro) se
     // persiste para componer la visibilidad EFECTIVA del pane (visible ∧ enabled).
-    const record = { kind: 'point', source, layer, controls, paneName, order, interactive, where: where ?? null, visible, enabled }
+    const record = { kind: 'point', source, layer, controls, paneName, zIndex, order, interactive, where: where ?? null, visible, enabled }
     this.#layers.set(id, record)
     if (!enabled) layer.enabled = false          // nace gateada: no reacciona a la Source hasta setLayerEnabled(true)
 
@@ -223,7 +223,7 @@ export class MapEngine {
     const source   = cfg.source ?? controls
     const layer    = new PolygonLayer({ L: this.#L, map: this.#map, pane: paneName, source, interactive })
 
-    const record = { kind: 'polygon', source, layer, controls, paneName, order, interactive, visible, enabled: true }
+    const record = { kind: 'polygon', source, layer, controls, paneName, zIndex, order, interactive, visible, enabled: true }
     this.#layers.set(id, record)
 
     if (interactive)   // resolvers leen record.layer (no capturan). Síncrono, no va a #pickLayers (como línea).
@@ -253,7 +253,7 @@ export class MapEngine {
       ? new LeafletLineLayer({ L: this.#L, map: this.#map, pane: paneName, source, interactive })
       : this.#trackGl(new LineLayer({ glify: this.#glify, map: this.#map, pane: paneName, source, interactive }))
 
-    const record = { kind: 'line', source, layer, controls, paneName, order, interactive, visible, enabled: true }
+    const record = { kind: 'line', source, layer, controls, paneName, zIndex, order, interactive, visible, enabled: true }
     this.#layers.set(id, record)
 
     if (interactive) {
@@ -288,7 +288,7 @@ export class MapEngine {
     const source   = cfg.source ?? controls
     const layer    = new HtmlLayer({ L: this.#L, map: this.#map, pane: paneName, source, interactive })
 
-    const record = { kind: 'html', source, layer, controls, paneName, order, interactive, visible, enabled: true }
+    const record = { kind: 'html', source, layer, controls, paneName, zIndex, order, interactive, visible, enabled: true }
     this.#layers.set(id, record)
     if (interactive) {
       this.#registerResolver(id, 'html', zIndex, order, e => record.layer.resolveClick(e), e => record.layer.resolveHover(e))
@@ -317,7 +317,7 @@ export class MapEngine {
     const source   = cfg.source ?? controls
     const layer    = new CircleLayer({ L: this.#L, map: this.#map, pane: paneName, source, interactive })
 
-    const record = { kind: 'circle', source, layer, controls, paneName, order, interactive, visible, enabled: true }
+    const record = { kind: 'circle', source, layer, controls, paneName, zIndex, order, interactive, visible, enabled: true }
     this.#layers.set(id, record)
     if (interactive)
       this.#registerResolver(id, 'circle', zIndex, order, e => record.layer.resolveClick(e), e => record.layer.resolveHover(e))
@@ -341,7 +341,7 @@ export class MapEngine {
     const source   = cfg.source ?? controls
     const layer    = new HeatLayer({ glify: this.#glify, map: this.#map, pane: paneName, source, radius, blur, intensity, colorRamp })
 
-    const record = { kind: 'heat', source, layer, controls, paneName, order, interactive: false, visible, enabled: true }
+    const record = { kind: 'heat', source, layer, controls, paneName, zIndex, order, interactive: false, visible, enabled: true }
     this.#layers.set(id, record)
     this.#applyVisibility(id, paneName, visible)
 
@@ -367,7 +367,7 @@ export class MapEngine {
     const zIndex   = z ?? (BASE_Z + order * Z_STEP + LABEL_Z_OFFSET)   // handles por encima de las capas
     this.#ensurePane(paneName, zIndex, false)                          // markers interactivos → pane con puntero
     const editor = new EditableGeometry({ L: this.#L, map: this.#map, pane: paneName, kind, value, mode, onChange, onCommit })
-    const record = { kind: 'editable', editor, paneName, order, visible: true, enabled: true }
+    const record = { kind: 'editable', editor, paneName, zIndex, order, visible: true, enabled: true }
     this.#layers.set(id, record)
     return {
       id,
@@ -389,7 +389,7 @@ export class MapEngine {
     const labelLayer = new LabelLayer({ map: this.#map, pane: { name: paneName, zIndex }, paint, style })
     // `visible` en record: controla si sync() (la suscripción a la Source) corre el reduce O(n) +
     // setLabels. Con setVisible(false) el sync es no-op → cero CPU por cada emit del WS.
-    const record = { kind: 'label', layer: labelLayer, paneName, order, bindTo, visible: true, enabled: true }
+    const record = { kind: 'label', layer: labelLayer, paneName, zIndex, order, bindTo, visible: true, enabled: true }
     this.#layers.set(id, record)
 
     const bind = () => this.#bindLabels(id, record, { bindTo, textOf, accessors, source: cfg.source })
@@ -941,6 +941,16 @@ export class MapEngine {
   setLayerOpacity(id, alpha) {
     const rec = this.#layers.get(id)
     if (rec?.paneName) this.#applyOpacity(rec.paneName, alpha)
+  }
+
+  // Reapila una capa montada: cada capa tiene su pane, así que es el z-index de ese pane. `z` nulo
+  // vuelve al derivado en el alta.
+  setLayerZ(layerId, z) {
+    const record = this.#layers.get(layerId)
+    const zIndex = z ?? record?.zIndex
+    const pane   = record && zIndex != null ? this.#map.getPane(record.paneName) : null
+    pane && (pane.style.zIndex = String(zIndex))
+    return this
   }
 
   /* ── Enfoque por ÍTEM: mientras alguna capa lo declare, todas se atenúan (el basemap no es capa) y

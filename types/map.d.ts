@@ -187,13 +187,32 @@ export interface HtmlHandle<T = unknown> {
 }
 
 // ── Labels (src/render/LabelLayer.js) ───────────────────────────────────────
+/** Etiqueta resuelta que recibe el painter: posición, texto y acento opcional. */
+export interface Label {
+  id: string | number;
+  lat: number;
+  lng: number;
+  text: string;
+  accent?: string;
+  [k: string]: unknown;
+}
+/** Paleta con la que se pinta la etiqueta. */
+export interface LabelStyle { surface: string; text: string; accent: string }
+/** Painter de etiqueta: recibe el ctx ya preparado y la etiqueta resuelta. */
+export type LabelPaint = (
+  ctx: CanvasRenderingContext2D,
+  point: { x: number; y: number },
+  label: Label,
+  hovered: boolean,
+  style: LabelStyle,
+) => void;
 /** Painter default de etiquetas (inyectable en la label-layer vía `paint`). */
 export function drawLabel(
   ctx: CanvasRenderingContext2D,
   point: { x: number; y: number },
-  label: string,
+  label: Label,
   hovered: boolean,
-  style?: Record<string, unknown>,
+  style?: LabelStyle,
 ): void;
 
 // ── Tiles (src/tiles/presets.js) ─────────────────────────────────────────────
@@ -394,8 +413,8 @@ export interface LabelLayerConfig<T = unknown> {
   bindTo?: string;
   pane?: string;
   z?: number;
-  paint?: unknown;
-  style?: Record<string, unknown>;
+  paint?: LabelPaint;
+  style?: LabelStyle;
   textOf?: (item: T) => string;
   accessors?: { idOf: (item: T) => string | number; positionOf: (item: T) => { lat: number; lng: number } };
   source?: CristaeSource<T>;
@@ -542,6 +561,9 @@ export class MapEngine {
    *  los ítems enfocados se reponen brillantes encima. `ids` falsy = todo atenuado; `undefined` =
    *  la capa se retira del eje. Varias capas pueden declararlo a la vez (cross-layer). */
   setLayerFocus(layerId: string, ids?: Iterable<string | number> | null | false): this;
+
+  /** Reapila una capa montada (z-index de su pane). `z` nulo vuelve al derivado en el alta. */
+  setLayerZ(layerId: string, z?: number | null): this;
 
   on(
     event: string,

@@ -166,6 +166,29 @@ El overlay no captura el puntero (deja pasar drag/zoom); cada hijo sloteado lo r
 
 ## Capas
 
+### Apilado — `z` / `pane`
+
+Toda capa hoja (`point` / `line` / `polygon` / `html` / `label`) los hereda de la base:
+
+| Miembro | Tipo | Atributo / prop |
+|---|---|---|
+| `z` | number | atributo — z-index del pane. Reactivo |
+| `pane` | string | atributo — pane propio (default `cristae-<kind>-<id>`). Se lee en el alta |
+
+Sin `z`, el motor lo deriva del orden de declaración (`400 + orden·10`): las mismas capas montadas en
+otro orden apilan distinto.
+
+```html
+<cristae-line-layer z="378"></cristae-line-layer>   <!-- recorrido: debajo de los marcadores -->
+<cristae-point-layer></cristae-point-layer>          <!-- z automático -->
+```
+
+Panes nativos de Leaflet que conviven en el mismo mapa: tiles `200` · overlay `400` · shadow `500` ·
+marker `600` · tooltip `650` · popup `700`.
+
+Los modificadores (`<cristae-cluster>`, `<cristae-overlay>`) no los aceptan: sus capas las crea la
+gramática. Imperativo equivalente: `engine.setLayerZ(id, z)`.
+
 ### `<cristae-point-layer>` — puntos WebGL
 
 | Miembro | Tipo | Atributo / prop |
