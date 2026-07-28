@@ -1,6 +1,6 @@
 {
   "name": "cristae",
-  "version": "0.23.1",
+  "version": "0.25.0",
   "type": "module",
   "description": "Librería de mapas WebGL + tabla virtual sobre un núcleo de datos reactivo compartido. Tres entry points desacoplados (core / table / map); table y map nunca se importan entre sí.",
   "keywords": [
@@ -49,11 +49,16 @@
       "types": "./types/grammar.d.ts",
       "default": "./src/grammar/index.js"
     },
+    "./react": {
+      "types": "./react/types/index.d.ts",
+      "default": "./react/src/index.js"
+    },
     "./package.json": "./package.json"
   },
   "peerDependencies": {
     "leaflet": "^1.9.4",
-    "lit": "^3.3.3"
+    "lit": "^3.3.3",
+    "react": ">=18"
   },
   "dependencies": {
     "leaflet.glify": "^3.3.1",
@@ -68,6 +73,8 @@
   "files": [
     "src",
     "types",
+    "react/src",
+    "react/types",
     "docs",
     "SKILL.md",
     "MODELO.md",
@@ -76,5 +83,10 @@
     "CHANGELOG.md",
     "LICENSE",
     "build.mjs"
-  ]
+  ],
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
+  }
 }

@@ -5,6 +5,36 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
 [`docs/versionado.md`](docs/versionado.md) — en `0.x`, el **minor cuenta los cambios medios**
 (capacidad o eje de API nuevo) y el **patch los menores desde el último medio** (fix / perf / revert).
 
+## [0.25.0] - 2026-07-28
+
+### Agregado
+- **`cristae/react` — el binding React, ahora publicado.** Existía en el repo (`react/`) pero no
+  viajaba en el paquete. Se expone como subpath (`exports["./react"]`) con `react` de peer
+  **opcional**: quien use Cristae sin React no lo instala ni ve warnings, y el core sigue sin
+  importar React en ningún camino. Diez componentes tipados sobre los `<cristae-*>` — el DATO entra
+  por propiedad, así que el hot-path no reconcilia React. Incluye los tipos de elemento para el
+  `ref` (`CristaeMapElement`, `Cristae*LayerElement` con su `controls`, `CristaePopupElement`,
+  `CristaeClusterElement`), los hits como unión discriminada por `kind`, y los handlers de los
+  canales que viajan por el BUS del motor y no por el DOM (`cluster:*`, `secondary-click`,
+  `hover:start`/`hover:end`, y el `click`/`hover` filtrado por capa).
+- **Apilado declarativo — `z` y `pane` en toda capa hoja.** Los declara `CristaeLayerElement`, así
+  que los heredan `point` / `line` / `polygon` / `html` / `label` sin declararlos. Sin `z` el motor
+  lo deriva del ORDEN de declaración, con lo que las mismas capas montadas en otro orden apilaban
+  distinto; declararlo lo vuelve reproducible. Los modificadores (`cluster` / `overlay`) no lo
+  aceptan: sus capas las crea la gramática y un solo `z` no mapearía a una sola capa.
+- **`MapEngine.setLayerZ(layerId, z)`** — reapila una capa YA montada moviendo el z-index de su pane,
+  sin recrearla (recrear rehace los buffers GPU, y una capa dentro de un modificador no se monta a sí
+  misma). `z` nulo vuelve al derivado en el alta. El elemento lo usa para que `z` sea **reactivo**;
+  `pane` se lee sólo en el alta.
+- **Tipos `Label`, `LabelStyle` y `LabelPaint`** en `cristae/map`, usados por `drawLabel` y por
+  `LabelLayerConfig`.
+
+### Corregido
+- **`drawLabel` no calzaba en la prop `paint`.** Los tipos declaraban `label: string`, pero el painter
+  recibe el objeto de la etiqueta (lee `label.text` y `label.accent`), y `style` estaba como
+  `Record<string, unknown>`. La composición canónica `paint={drawLabel}` no compilaba.
+- **`LabelLayerConfig.paint` estaba tipado `unknown`** y `style` como `Record<string, unknown>`.
+
 ## [0.23.1] - 2026-07-27
 
 ### Corregido
