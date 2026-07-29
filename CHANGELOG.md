@@ -5,6 +5,31 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
 [`docs/versionado.md`](docs/versionado.md) — en `0.x`, el **minor cuenta los cambios medios**
 (capacidad o eje de API nuevo) y el **patch los menores desde el último medio** (fix / perf / revert).
 
+## [0.26.0] - 2026-07-29
+
+### Agregado
+- **El núcleo tipa sus propios canales de bus.** `types/map.d.ts` declara `BusChannels` — un canal
+  por entrada con la firma que el bus invoca — y los payloads que el motor construye: los hits como
+  unión discriminada por `kind` (`HitBase` + `PointHit`/`PolygonHit`/`HtmlHit`/`CircleHit`/`LineHit`),
+  la sesión de expansión (`ClusterEntity`/`ClusterGroup`/`ClusterSession`/`ClusterDismiss`) y el eje
+  marked (`ClusterMarked`). Vivían a medias en el binding y a medias en ningún lado, y el consumidor
+  terminaba reconstruyéndolos a mano.
+- **`CristaeOverlayElement`** — el `<cristae-overlay>` era el único componente sin tipo de `ref`.
+
+### Cambiado
+- **`MapEngine.on` deja de aceptar cualquier string.** Pasa de `(event: string, cb: (detail: unknown)
+  => void)` a overloads sobre `BusChannels`: el canal se valida y el payload llega tipado. Un canal
+  inexistente ahora falla en compilación.
+- **`LineHit` es un hit completo.** Antes describía sólo la parte que aporta el resolver de líneas;
+  ahora extiende `HitBase` (con `layerId`, `kind`, `zIndex`, `order`), que es lo que el registro
+  entrega de verdad. `ClusterDismiss.reason` se corrige a `'collapse' | 'zoom'`.
+- **El binding aliasea el núcleo en vez de duplicarlo.** `CristaeHit`, `CristaeCluster*`,
+  `CristaeLabel*` y los hits pasan a ser alias de los tipos de `cristae/map`, así que no pueden
+  divergir. `LineHit` estaba declarado dos veces.
+- **Estilo**: `arrow-parens: as-needed` pasa a ser regla de eslint (AGENTS.md ya lo pedía y nada lo
+  sostenía), el lint cubre `react/src`, y AGENTS.md documenta la alineación en corridas — que se
+  aplicó a los `.d.ts`, que nunca la habían seguido.
+
 ## [0.25.0] - 2026-07-28
 
 ### Agregado
