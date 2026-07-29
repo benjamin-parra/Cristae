@@ -15,6 +15,39 @@ Estas instrucciones aplican a todo el repositorio.
 La forma preferida es la expresión equivalente más corta, siempre que conserve el contrato,
 el orden de evaluación, el receptor de `this` y la identidad de las funciones.
 
+### Alineación en corridas
+
+En una corrida de dos o más líneas consecutivas del mismo tipo, los valores quedan en columna.
+Aplica a declaraciones sucesivas, literales de objeto, miembros de interface y alias de tipo.
+
+La columna es la **mínima**: la fija el nombre más largo de la corrida. Se admite un espacio antes
+del operador (preferido), pero no relleno de más.
+
+```js
+const cx   = size / 2
+const tipY = size / 2                // la punta marca el punto
+const r    = size * 0.2
+
+static properties = {
+  focusIds : { attribute: 'focus-ids' },
+  pane     : {},
+  z        : { type: Number },
+}
+```
+
+Un bloque usa UNA sola forma: si el nombre más largo lleva espacio antes del operador, lo llevan
+todos. Mezclarlas —el más largo pegado y el resto separado— es el error típico:
+
+```js
+focusIds: { attribute: 'focus-ids' },   // ✗ pegado
+pane    : {},                           // ✗ separado, en el mismo bloque
+```
+
+Una línea suelta no se alinea con nada, y los parámetros de una firma multilínea tampoco son una
+corrida (son argumentos, no una tabla). Un comentario intercalado NO la corta. Los índices de firma
+(`[k: string]: unknown`) quedan fuera de la tabla. Al agregar una entrada que estira la columna, se
+re-alinea la corrida entera.
+
 ### Arrow functions
 
 - Omitir los paréntesis cuando existe un único parámetro identificador:

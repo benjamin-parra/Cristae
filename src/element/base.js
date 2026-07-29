@@ -13,12 +13,12 @@ export class CristaeLayerElement extends LitElement {
 
   // Eje `focus-ids`, común a TODA capa (por eso vive acá y no en cada subclase). Se llama así y no
   // `focus` porque una propiedad `focus` pisaría `HTMLElement.prototype.focus()`.
-  // `pane`/`z` fijan el APILADO; sin `z` el motor lo deriva del orden de declaración. Los
-  // modificadores (cluster/overlay) no los consumen: sus capas las crea la gramática.
+  // Sin `z`, el motor lo deriva del ORDEN de declaración. Los modificadores (cluster/overlay) no
+  // consumen `pane`/`z`: sus capas las crea la gramática.
   static properties = {
-    focusIds: { attribute: 'focus-ids' },
-    pane: {},
-    z: { type: Number },
+    focusIds : { attribute: 'focus-ids' },
+    pane     : {},
+    z        : { type: Number },
   }
 
   _handle = null
@@ -26,7 +26,6 @@ export class CristaeLayerElement extends LitElement {
 
   render() { return nothing }                 // shadow vacío; los hijos light-DOM quedan intactos
 
-  // Apilado declarado, para el alta de la capa.
   get _placement() { return { pane: this.pane, z: this.z } }
 
   // Handle imperativo de la capa (lo que devolvió el engine al montar): set/move/patch/filtros/

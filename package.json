@@ -24,7 +24,7 @@
     "node": ">=20"
   },
   "scripts": {
-    "lint": "eslint src build.mjs",
+    "lint": "eslint src react/src build.mjs",
     "build": "node build.mjs",
     "test": "node --test \"test/**/*.test.mjs\""
   },

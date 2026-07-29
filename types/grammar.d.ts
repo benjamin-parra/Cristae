@@ -5,33 +5,33 @@
 
 // ── Firmas (src/grammar/grammar.js) ─────────────────────────────────────────
 /** `'fold'` = un apply sobre TODOS los targets; `'map'` = uno por target; `null` = hoja. */
-export type GrammarCombine = "fold" | "map" | null;
-export type GrammarArity = "leaf" | "wrapper";
+export type GrammarCombine = "fold" | "map" | null
+export type GrammarArity   = "leaf" | "wrapper"
 
 export interface GrammarSignature {
   /** Kinds que el nodo transforma de sus hijos; `[]` (u omitido) ⇒ hoja. */
-  consumes?: string[];
+  consumes?    : string[];
   /** Kinds que aporta hacia arriba (≥1). */
-  produces: string[];
-  combine?: GrammarCombine;
-  arity: GrammarArity;
+  produces     : string[];
+  combine?     : GrammarCombine;
+  arity        : GrammarArity;
   /** Productores ligados (label/overlay): kind del host cuyo `suppressed` leen. */
-  bindsTo?: string;
+  bindsTo?     : string;
   /** El wrapper re-emite hacia arriba los hijos consumidos (default `true`). */
-  passThrough?: boolean;
+  passThrough? : boolean;
 }
 
 // ── Units (src/grammar/reduce.js) ───────────────────────────────────────────
 /** Lo que un nodo aporta a su padre en el recorrido post-orden. */
 export interface GrammarUnit {
-  kind: string;
-  id: string | number;
+  kind                : string;
+  id                  : string | number;
   /** Handle imperativo de la capa (set/move/patch). */
-  handle: unknown;
+  handle              : unknown;
   /** Source que lee la unit (point/bubble/label). */
-  source?: unknown;
+  source?             : unknown;
   /** Ref VIVA del set de supresión del host (getter), o `null` si no hay capa. */
-  readonly suppressed: Set<unknown> | null;
+  readonly suppressed : Set<unknown> | null;
 }
 
 /** Transformación que aporta un modificador; el intérprete hace el dispatch fold/map. */
@@ -45,8 +45,8 @@ export type GrammarApply = (
 /** Instancia de gramática: universo de kinds + registro de firmas. Los tags son
  *  case-insensitive. Los lectores devuelven `null` para un tag no registrado. */
 export interface Grammar {
-  readonly kinds: Set<string>;
-  readonly mode: "throw" | "warn";
+  readonly kinds : Set<string>;
+  readonly mode  : "throw" | "warn";
   register(
     tag: string,
     signature: GrammarSignature,
@@ -67,7 +67,7 @@ export function defineGrammar(config: {
 // ── Validación (src/grammar/validate.js) ────────────────────────────────────
 /** R1 hoja con hijos · R2 wrapper sin hijo que produzca lo que consume · R3 wrapper
  *  sin hijos · R4 firma incoherente o kind fuera del universo. */
-export type GrammarErrorCode = "R1" | "R2" | "R3" | "R4";
+export type GrammarErrorCode = "R1" | "R2" | "R3" | "R4"
 
 export class GrammarError extends Error {
   constructor(code: GrammarErrorCode, node: Element | null, message: string);
@@ -88,9 +88,9 @@ export function validateSignature(
 export function validate(
   root: Element,
   ctx: {
-    signatureFor: (tag: string) => GrammarSignature | null;
-    isRegistered: (tag: string) => boolean;
-    mode: "throw" | "warn";
+    signatureFor : (tag: string) => GrammarSignature | null;
+    isRegistered : (tag: string) => boolean;
+    mode         : "throw" | "warn";
   },
 ): boolean;
 
@@ -115,9 +115,9 @@ export function reduceModifier(
   el: Element,
   engine: unknown,
   ctx: {
-    signatureFor: (tag: string) => GrammarSignature | null;
-    applyFor: (tag: string) => GrammarApply | null;
-    isRegistered: (tag: string) => boolean;
+    signatureFor : (tag: string) => GrammarSignature | null;
+    applyFor     : (tag: string) => GrammarApply | null;
+    isRegistered : (tag: string) => boolean;
   },
 ): GrammarUnit[];
 

@@ -23,52 +23,52 @@ export function paginationModel(
 ): Array<{ label: number | "..."; pageIndex: number; isCurrent: boolean }>;
 
 export interface PageInfo {
-  page: number;
-  pageSize: number;
-  total: number;
-  pages: number;
-  offset: number;
+  page     : number;
+  pageSize : number;
+  total    : number;
+  pages    : number;
+  offset   : number;
 }
 
 /** Meta que acompaña a cada slice visible (callback `onSlice`). */
 export interface SliceMeta {
-  page: number;
-  pages: number;
-  total: number;
-  offset: number;
+  page   : number;
+  pages  : number;
+  total  : number;
+  offset : number;
 }
 
 /** Opciones de construcción del motor headless. */
 export interface PagedTableOptions<T = unknown> {
   /** Contenedor de filas (un <tbody> cuando se monta dentro de una <table>). */
-  container: HTMLElement;
+  container     : HTMLElement;
   /** Elemento con `overflow:auto` que define el viewport del scroll virtual. */
-  scrollElement: HTMLElement;
+  scrollElement : HTMLElement;
   /** HTML de UNA fila con atributos `data-ref` (molde clonado al pool). */
-  template: string;
+  template      : string;
   /** Llena los nodos `data-ref` de la fila clonada (sin reconstruir el árbol). */
-  binder: (refs: Record<string, HTMLElement>, item: T, rowNumber: number) => void;
+  binder        : (refs: Record<string, HTMLElement>, item: T, rowNumber: number) => void;
   /** Alto fijo de fila en px (default 28). */
-  rowHeight?: number;
+  rowHeight?    : number;
   /** Filas por página (default 50). */
-  pageSize?: number;
+  pageSize?     : number;
   /** Orden del slice de la página. `null` ⇒ sin quickselect (camino rápido sin orden). */
-  comparator?: ((a: T, b: T) => number) | null;
+  comparator?   : ((a: T, b: T) => number) | null;
   /** Campo a buscar por ítem (habilita la búsqueda). */
-  searchBy?: ((item: T) => unknown) | null;
+  searchBy?     : ((item: T) => unknown) | null;
   /** Predicado de match custom (default: `includes` case-insensitive). */
-  searchFilter?: ((query: string, item: T, value: unknown) => boolean) | null;
+  searchFilter? : ((query: string, item: T, value: unknown) => boolean) | null;
   /**
    * Predicado de MEMBRESÍA por tabla (subconjunto de vista). Se aplica en el pipeline
    * ANTES del text-search. `null` (default) ⇒ sin filtro. N tablas comparten UNA Source
    * y cada una muestra su subconjunto sin afectar a las otras (a diferencia de
    * `source.addFilter`, compartido por todos los consumidores de la Source).
    */
-  where?: ((item: T) => boolean) | null;
+  where?        : ((item: T) => boolean) | null;
   /** Slice visible tras cada pipeline. */
-  onSlice?: (slice: T[], meta: SliceMeta) => void;
+  onSlice?      : (slice: T[], meta: SliceMeta) => void;
   /** Cambio de página o de total (dirty-skip: no se dispara con `move`). */
-  onPage?: (info: PageInfo) => void;
+  onPage?       : (info: PageInfo) => void;
 }
 
 /** Motor imperativo de la tabla (scroll virtual con pool de DOM, [0-alloc] en estable). */

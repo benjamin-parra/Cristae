@@ -16,7 +16,7 @@
 // el booleano crudo). Devuelve el estado aplicado (para el próximo diff). `eventNameOf(key)` mapea la key
 // del handler al nombre del evento del elemento (inyectable; default = quita 'on' y minúsculas: onFoo → 'foo').
 
-const isEvent = (key) => /^on[A-Z]/.test(key)
+const isEvent = key => /^on[A-Z]/.test(key)
 // Atributo = escalar serializable a texto (string/número), o ausencia (null/undefined). El booleano NO:
 // va por propiedad (ver cabecera). El objeto/función tampoco (el dato). Y tampoco lo que el elemento
 // declara `attribute: false`: detrás del atributo no hay setter reactivo, así que el valor nunca llega
@@ -26,10 +26,10 @@ const isEvent = (key) => /^on[A-Z]/.test(key)
 const isAttr = (el, key, v) =>
   (v == null || typeof v === 'string' || typeof v === 'number') &&
   el.constructor?.elementProperties?.get(key)?.attribute !== false
-const defaultEventName = (key) => key.slice(2).toLowerCase()
+const defaultEventName = key => key.slice(2).toLowerCase()
 
 // camelCase → kebab-case para el nombre de atributo (initialZoom → initial-zoom).
-const attrName = (key) => key.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase()
+const attrName = key => key.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase()
 
 export function applyElementProps(el, prev, next, eventNameOf = defaultEventName) {
   const before = prev ?? {}

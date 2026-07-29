@@ -943,8 +943,7 @@ export class MapEngine {
     if (rec?.paneName) this.#applyOpacity(rec.paneName, alpha)
   }
 
-  // Reapila una capa montada: cada capa tiene su pane, así que es el z-index de ese pane. `z` nulo
-  // vuelve al derivado en el alta.
+  // `z` nulo vuelve al derivado en el alta.
   setLayerZ(layerId, z) {
     const record = this.#layers.get(layerId)
     const zIndex = z ?? record?.zIndex

@@ -4,18 +4,18 @@
 
 /** Accessors que describen cómo leer cada ítem del consumidor. */
 export interface SourceAccessors<T> {
-  idOf: (item: T) => string | number;
+  idOf        : (item: T) => string | number;
   /** Geometría de PUNTO (point/label). Una de `positionOf` | `pathOf` es obligatoria. */
-  positionOf?: (item: T) => { lat: number; lng: number };
+  positionOf? : (item: T) => { lat: number; lng: number };
   /** Geometría de LÍNEA (line-layer): vértices `[lat,lng]` del path, plano —donde un vértice no
    *  finito CORTA la línea— o anidado con las partes explícitas. Ver `toParts` en `./map`. */
-  pathOf?: (item: T) =>
+  pathOf?     : (item: T) =>
     | Iterable<[number, number]>
     | Iterable<Iterable<[number, number]>>;
-  variantOf?: (item: T) => string;
-  headingOf?: (item: T) => number;
-  sizeOf?: (item: T) => number;
-  hashOf?: (item: T) => string | number;
+  variantOf?  : (item: T) => string;
+  headingOf?  : (item: T) => number;
+  sizeOf?     : (item: T) => number;
+  hashOf?     : (item: T) => string | number;
 }
 
 /**
@@ -79,23 +79,23 @@ export function createSource<T = unknown>(
  * mutación queda del lado de esa librería, así que devuelve SÓLO lectura.
  */
 export function defineSource<T = unknown>(config: {
-  accessors: SourceAccessors<T>;
-  getSnapshot: () => T[];
-  subscribe: (cb: () => void) => () => void;
-  variants?: string[];
-  version?: () => number;
-  dirtyIds?: () => Set<string | number> | null;
-  itemById?: (id: string | number) => T | undefined;
+  accessors   : SourceAccessors<T>;
+  getSnapshot : () => T[];
+  subscribe   : (cb: () => void) => () => void;
+  variants?   : string[];
+  version?    : () => number;
+  dirtyIds?   : () => Set<string | number> | null;
+  itemById?   : (id: string | number) => T | undefined;
 }): CristaeReadSource<T>;
 
 // ── Filtros / listeners (src/data/filters.js) ──
 export interface CristaeFilter<T = unknown> {
-  id: string;
-  f: (item: T) => boolean;
+  id : string;
+  f  : (item: T) => boolean;
 }
 export interface CristaeListener<T = unknown> {
-  id: string;
-  callback: (items: T[]) => void;
+  id       : string;
+  callback : (items: T[]) => void;
 }
 /** Filtro de membresía aplicable a una Source (`addFilter`). */
 export function makeFilter<T = unknown>(
