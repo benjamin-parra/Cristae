@@ -2,7 +2,8 @@
 // Cubre: (1) el drag de un vértice de polígono emite onChange con la geometría nueva (vértice movido);
 // (2) el borrado por dblclick respeta el mínimo topológico (≥3 en polígono); (3) insertar en una arista
 // agrega un vértice en el midpoint; (4) el modo draw agrega puntos al recibir un click de mapa y captura
-// un punto vía el handler expuesto; (5) destroy limpia handles y listeners.
+// un punto vía el handler expuesto; (5) destroy limpia handles y listeners; (6) el costo en el arena:
+// insertar desplaza a lo sumo un chunk y el drag no renumera nada.
 //
 // El harness (engine-stub) shimea window/document — se importa PRIMERO. Su `L` ya trae marker/divIcon y
 // el log de creaciones (`L.log.markers`, en orden), que es por donde el test dispara los handlers.
@@ -22,6 +23,16 @@ const makeEditLeaflet = () => {
 
 // Un polígono cuadrado (anillo simple, sin cerrar): 4 vértices → 4 midpoints.
 const SQUARE = [[0, 0], [0, 10], [10, 10], [10, 0]]
+
+// Los vértices de un trazo en orden, por su ref del arena. El ref ES la posición de la entrada, así que
+// un ref que cambia es una entrada que se desplazó — es la unidad en la que se mide el costo de editar.
+const refsDe = path => {
+  const out = []
+  path.forEachVertex((x, y, ref) => out.push(ref))
+  return out
+}
+
+const diagonal = n => Array.from({ length: n }, (_, i) => [i * 0.01, i * 0.02])
 
 /* ── Tests ── */
 
@@ -320,6 +331,65 @@ test('onChange es live por drag; onCommit asienta al soltar (y en cada edición 
   created[0].fire('dblclick', {})                       // edición discreta: borra un vértice (4 → 3)
   assert.equal(changes.length, 4, 'la edición discreta también emite onChange')
   assert.equal(commits.length, 2, 'y asienta onCommit en el mismo gesto')
+
+  ed.destroy()
+})
+
+/* ── Costo en el arena: insertar toca un chunk, arrastrar no toca la estructura ── */
+
+test('insertar un vértice desplaza a lo sumo un chunk del arena, no el trazo entero', () => {
+  const { L } = makeEditLeaflet()
+  const N      = 2500                                     // varios chunks con el tamaño de producción
+  const puntos = diagonal(N)
+  const ed     = new EditableGeometry({ L, map: makeMap(), kind: 'polyline', value: puntos })
+  const path   = ed.paths[0]
+  assert.ok(path.chunkCount > 1, 'el trazo tiene que ocupar más de un chunk')
+
+  // El midpoint del PRIMER segmento: insertar ahí deja los otros N-1 vértices por detrás, que es el peor
+  // caso del modelo viejo (el splice del array los corría a todos).
+  const antes = refsDe(path)
+  L.log.markers.find(m => !m.opts.draggable).fire('click', {})
+
+  const despues = refsDe(path)
+  assert.equal(despues.length, N + 1, 'entró un vértice')
+  assert.deepEqual(
+    ed.getValue()[1],
+    [(puntos[0][0] + puntos[1][0]) / 2, (puntos[0][1] + puntos[1][1]) / 2],
+    'y quedó en el midpoint de la arista',
+  )
+
+  const sobrevivientes = despues.filter((ref, i) => i !== 1)
+  const movidos        = sobrevivientes.filter((ref, i) => ref !== antes[i]).length
+  assert.ok(movidos * 2 <= path.entriesPerChunk, `las entradas desplazadas caben en UN chunk (${movidos * 2})`)
+  assert.ok(movidos < N / 2, `${movidos} vértices movidos contra los ${N - 1} que corría un splice`)
+  assert.deepEqual(sobrevivientes.slice(-1000), antes.slice(-1000), 'la cola del trazo no se movió del arena')
+
+  ed.destroy()
+})
+
+test('arrastrar no renumera el arena: el ref que capturó el handle sigue valiendo todo el gesto', () => {
+  const { L, created } = makeEditLeaflet()
+  const changes = []
+  const ed      = new EditableGeometry({ L, map: makeMap(), kind: 'polygon', value: SQUARE, onChange: g => changes.push(g) })
+  const path    = ed.paths[0]
+  const antes   = refsDe(path)
+  const sello   = path.structRev
+
+  const vertex1 = created[1]                              // vértice índice 1 = [0,10]
+  Array.from({ length: 30 }, (_, i) => i).forEach(i => {
+    vertex1.setLatLng([i, 10 + i])
+    vertex1.fire('drag', {})
+  })
+
+  assert.equal(changes.length, 30, 'emitió por cada frame del gesto')
+  assert.deepEqual(refsDe(path), antes, 'ningún vértice cambió de lugar en el arena')
+  assert.equal(path.structRev, sello, 'y el gesto no fue un cambio estructural')
+  assert.deepEqual(ed.getValue()[1], [29, 39], 'el vértice quedó donde lo soltó el último frame')
+
+  // Los dos midpoints que tocan al vértice lo siguieron: el que LLEGA es el del vértice anterior.
+  const mids = created.filter(m => !m.opts.draggable)
+  assert.deepEqual(mids[0].getLatLng(), { lat: 14.5, lng: 19.5 }, 'midpoint del segmento que llega')
+  assert.deepEqual(mids[1].getLatLng(), { lat: 19.5, lng: 24.5 }, 'midpoint del segmento que arranca')
 
   ed.destroy()
 })

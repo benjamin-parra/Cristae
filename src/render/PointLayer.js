@@ -14,12 +14,9 @@ const DEFAULT_VARIANT = 'default'
 const NORM = 1 / 360
 const angleNorm = deg => (((deg % 360) + 360) % 360) * NORM
 
-// Picking jerárquico (objeto / chunk / local): el índice LOCAL del vértice ocupa 12 bits en los canales
-// b,a del atributo `color`, con la convención `local + 1` — el valor 0 significa «el objeto, pero no una
-// entrada». De ahí las 4.095 entradas por chunk. El objeto y el chunk NO viajan por vértice: son uniform
-// del DRAW, así que el buffer se recorre en un draw por chunk y el eje `chunk` completa la dirección.
-// El `% LOCAL_CAP` del packer sostiene el invariante del que depende el pase para sumarle el chunk al
-// canal rojo sin desbordar el byte (b ≤ 15).
+// El índice local del picking ocupa los canales b,a del atributo `color` con la convención `local + 1`:
+// el 0 significa «el objeto, pero no una entrada». Objeto y chunk son uniform del draw, y el `% LOCAL_CAP`
+// mantiene b ≤ 15 para que el pase pueda sumarle el chunk al canal rojo sin desbordar el byte.
 const LOCAL_CAP = (1 << LOCAL_BITS) - 1
 const PICK_CAP  = (1 << CHUNK_BITS) * LOCAL_CAP
 const NOOP      = () => {}
@@ -39,9 +36,7 @@ export class PointLayer {
   // un click no puede pisar las partes que el cache de hover todavía tiene vigentes.
   #hoverParts  = { pool: [], out: [] }
   #clickParts  = { pool: [], out: [] }
-  // Descriptores del pase, uno por chunk, reusados entre picks ([0-alloc] en ruta caliente salvo cuando
-  // el set cruza un múltiplo de LOCAL_CAP). `bind` es no-op: el pase hereda el vertexAttribPointer que
-  // dejó montado glify (§17.5) — la capa no tiene nada que bindear.
+  // `bind` es no-op: el pase hereda el vertexAttribPointer que dejó montado glify (§17.5).
   #draws       = []
   #batch       = { draws: this.#draws, length: 0, matrix: null }
   #pickMode    = 0
@@ -127,22 +122,15 @@ export class PointLayer {
 
   cancelHoverHit() { this.#picking?.abort() }
 
-  // Batch del pase: un draw por chunk de LOCAL_CAP entradas, con el objeto que asignó el motor. El
-  // índice local sólo tiene 12 bits, así que un draw único cortaría el pase en 4.095 puntos y el resto
-  // quedaría mudo al picking; repartirlo lleva el techo a PICK_CAP. Más allá de eso se degrada a «no
-  // pickeable», nunca a un hit de otro punto.
-  // Los descriptores se reusan y se ponen al día acá —el pick corre por mousemove—, y el pase los
-  // guarda por REFERENCIA: el pedido que quedó encolado dispara con el estado del último pick, que es
-  // el único que vale con el cursor en movimiento.
+  // Un draw por chunk: el índice local direcciona LOCAL_CAP entradas, y más allá de PICK_CAP la capa se
+  // degrada a «no pickeable», nunca a un hit ajeno. El pase toma los descriptores por REFERENCIA, así
+  // que el pedido encolado dispara con el estado del último pick.
   #pickBatch() {
     const total  = Math.min(this.#count, PICK_CAP)
     const chunks = Math.ceil(total / LOCAL_CAP)
     const draws  = this.#draws
-    while (draws.length < chunks)
-      draws.push({ bind: NOOP, texture: this.#pickTexture, mode: this.#pickMode, first: 0, count: 0, obj: 0, chunk: draws.length })
     for (let k = 0; k < chunks; k++) {
-      const d = draws[k]
-      d.first = k * LOCAL_CAP
+      const d = draws[k] ??= { bind: NOOP, texture: this.#pickTexture, mode: this.#pickMode, chunk: k, first: k * LOCAL_CAP, count: 0, obj: 0 }
       d.count = Math.min(LOCAL_CAP, total - d.first)
       d.obj   = this.#pickObj
     }

@@ -8,6 +8,9 @@
 // FORMA en sí: el display se ata afuera enlazando el mismo `value` a una capa de exhibición
 // (addPolygonLayer / addLineLayer). Así el editor es puro estado→handles→cambio, sin duplicar el render.
 //
+// Almacenamiento: polygon y polyline viven en un `ChunkedPath` —el arena—, donde mover un vértice es O(1)
+// e insertar o borrar toca UN chunk, no el trazo entero. `point` y `rectangle` se quedan en pares sueltos.
+//
 // Sistema de coordenadas: pares [lat, lng] (se aceptan también {lat, lng} en la entrada; la salida SIEMPRE
 // es [lat, lng]). Formas por `kind`:
 //   · polygon   → rings: anillo simple [[lat,lng],…] o multi-anillo [[[lat,lng],…],…] (sin cerrar: el
@@ -15,14 +18,13 @@
 //   · polyline  → path: [[lat,lng],…]
 //   · point     → [lat,lng]  (o null mientras no se dibujó)
 //   · rectangle → bounds: [[sur,oeste],[norte,este]]  (o null mientras no se dibujó)
+import { ChunkedPath, ROLE } from '../geometry/ChunkedPath.js'
 
 const MIN_VERTICES = { polygon: 3, polyline: 2 }   // mínimo bajo el cual el borrado por dblclick se ignora
 const KINDS        = new Set(['polygon', 'rectangle', 'polyline', 'point'])
 
 const toPair    = c => (Array.isArray(c) ? [c[0], c[1]] : [c.lat, c.lng])
 const clonePair = p => [p[0], p[1]]
-const midpoint  = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]
-const samePoint = (a, b) => !!a && !!b && a[0] === b[0] && a[1] === b[1]
 
 // Un par [lat,lng] finito (rechaza NaN/Infinity/undefined). Garbage-in: se descarta, no se propaga.
 const isFinitePair = p => Number.isFinite(p[0]) && Number.isFinite(p[1])
@@ -33,6 +35,9 @@ const toFinitePair = c => {
   const p = toPair(c)
   return isFinitePair(p) ? p : null
 }
+
+const trazo    = (coords, closed) => new ChunkedPath({ points: coords.map(toFinitePair).filter(Boolean), closed })
+const vertexAt = (path, v, p) => v >= 0 && path.xAt(v) === p[0] && path.yAt(v) === p[1]
 
 // ¿`value` es multi-anillo? Un anillo simple tiene COORDENADAS como elementos (pares [lat,lng] U objetos
 // {lat,lng}); un multi-anillo tiene ANILLOS como elementos. Se discrimina por `value[0]`: si es un par de
@@ -49,7 +54,6 @@ export class EditableGeometry {
   #mode        = 'edit'
   #geom        = null                      // representación interna viva (mutada in place por los handles)
   #simpleRing  = true                      // polygon: recordar si la entrada era anillo simple (para la salida)
-  #pathRecs    = []                        // por-anillo/path: { coords, closed, vMarkers, mMarkers }
   #rectMarkers = []                        // rectangle: 4 esquinas [SW, NW, NE, SE]
   #drawAnchor  = null                      // rectangle draw: primera esquina fijada por click
   #vertexIcon  = null
@@ -92,6 +96,13 @@ export class EditableGeometry {
 
   getValue() { return this.#serialize() }
 
+  // Los trazos del arena en orden de dibujo: los anillos del polígono, o el path único de la polilínea.
+  // Vacío para point y rectangle, que no entran al arena.
+  get paths() {
+    if (this.#kind === 'polygon') return [...this.#geom.rings]
+    return this.#kind === 'polyline' ? [this.#geom.path] : []
+  }
+
   // Sub-pieza "click en mapa vacío → latlng": expuesta para que el consumidor rutee su propia captura de
   // punto (además de la suscripción nativa a map.on('click') que hace el modo draw). En draw, agrega/coloca.
   handleMapClick(latlng) {
@@ -100,12 +111,11 @@ export class EditableGeometry {
     if (!p) return                                          // garbage-in en el trazado tampoco entra
     if (this.#kind === 'point') { this.#geom.pt = p; this.#settle(); return }
     if (this.#kind === 'rectangle') return this.#drawRectClick(p)
-    const coords = this.#kind === 'polygon' ? this.#geom.rings[0] : this.#geom.path
-    // No agregar un vértice idéntico al último: Leaflet dispara un `click` en la MISMA posición junto al
-    // `dblclick` de cierre; deduplicarlo acá neutraliza ese click (no se duplica el último punto ni se
-    // emite una geometría con un punto repetido).
-    if (samePoint(coords[coords.length - 1], p)) return
-    coords.push(p)
+    const path = this.paths[0]
+    // Leaflet dispara un `click` en la MISMA posición junto al `dblclick` de cierre: deduplicarlo acá
+    // neutraliza ese click (no se duplica el último punto ni se emite una geometría con uno repetido).
+    if (vertexAt(path, path.lastVertex, p)) return
+    path.append(p[0], p[1])
     this.#settle()
   }
 
@@ -114,7 +124,6 @@ export class EditableGeometry {
     this.#group?.clearLayers()
     this.#group?.remove()
     this.#group = null
-    this.#pathRecs = []
     this.#rectMarkers = []
   }
 
@@ -126,14 +135,11 @@ export class EditableGeometry {
   #ingest(value) {
     switch (this.#kind) {
       case 'polygon': {
-        if (!value?.length) { this.#simpleRing = true; return { rings: [[]] } }
+        if (!value?.length) { this.#simpleRing = true; return { rings: [trazo([], true)] } }
         this.#simpleRing = !isMultiRing(value)
-        const rings = this.#simpleRing
-          ? [value.map(toFinitePair).filter(Boolean)]
-          : value.map(r => (r ?? []).map(toFinitePair).filter(Boolean))
-        return { rings }
+        return { rings: this.#simpleRing ? [trazo(value, true)] : value.map(r => trazo(r ?? [], true)) }
       }
-      case 'polyline': return { path: (value ?? []).map(toFinitePair).filter(Boolean) }
+      case 'polyline': return { path: trazo(value ?? [], false) }
       case 'point': return { pt: toFinitePair(value) }
       case 'rectangle': {
         const a = toFinitePair(value?.[0]), b = toFinitePair(value?.[1])
@@ -146,10 +152,10 @@ export class EditableGeometry {
     const g = this.#geom
     switch (this.#kind) {
       case 'polygon': {
-        const rings = g.rings.map(r => r.map(clonePair))
+        const rings = g.rings.map(r => r.toPairs())
         return this.#simpleRing ? rings[0] : rings
       }
-      case 'polyline': return g.path.map(clonePair)
+      case 'polyline': return g.path.toPairs()
       case 'point': return g.pt ? clonePair(g.pt) : null
       case 'rectangle': return g.bounds ? g.bounds.map(clonePair) : null
     }
@@ -158,25 +164,26 @@ export class EditableGeometry {
   #emit()   { this.#onChange?.(this.#serialize()) }
   #commit() { this.#onCommit?.(this.#serialize()) }
   // Edición DISCRETA (agregar / borrar / insertar / cerrar): cambia, asienta y rehace los handles,
-  // cuyos índices corrieron. El drag no pasa por acá: emite live y sólo asienta al soltar.
+  // cuyos refs corrieron. El drag no pasa por acá: emite live y sólo asienta al soltar.
   #settle() { this.#emit(); this.#commit(); this.#rebuild() }
 
   /* ── Suscripción nativa al mapa (modo draw) ─────────────────────────────────────────────── */
   // map.on/off es API de Leaflet (NO sniffing del DOM). El dblclick CIERRA el trazo (polígono/polilínea):
-  // Leaflet emite uno o dos `click` en la misma posición junto al `dblclick` — el dedup de handleMapClick ya
-  // los neutraliza, así que acá sólo se colapsa cualquier duplicado final que se haya colado y se emite
-  // SÓLO si de verdad cambió algo (nunca una re-emisión de una geometría idéntica).
+  // el dedup de handleMapClick ya neutraliza los `click` que Leaflet emite junto al `dblclick`, así que acá
+  // sólo se colapsa el duplicado final que se haya colado y se emite SÓLO si de verdad cambió algo.
   #onMapClick    = e => this.handleMapClick(e?.latlng)
   #onMapDblClick = e => {
     if (this.#mode !== 'draw') return
     if (this.#kind !== 'polygon' && this.#kind !== 'polyline') return
-    const coords = this.#kind === 'polygon' ? this.#geom.rings[0] : this.#geom.path
-    if (coords.length < 2) return
-    const p = e?.latlng ? toFinitePair(e.latlng) : coords[coords.length - 1]
+    const path = this.paths[0]
+    if (path.length < 2) return
+    const fin = path.lastVertex
+    const p   = e?.latlng ? toFinitePair(e.latlng) : [path.xAt(fin), path.yAt(fin)]
     if (!p) return
-    const antes = coords.length
-    while (coords.length > 1 && samePoint(coords[coords.length - 1], p) && samePoint(coords[coords.length - 2], p)) coords.pop()
-    coords.length !== antes && this.#settle()
+    const antes     = path.length
+    const duplicado = v => vertexAt(path, v, p) && vertexAt(path, path.prevVertex(v), p)
+    while (path.length > 1 && duplicado(path.lastVertex)) path.remove(path.lastVertex)
+    path.length !== antes && this.#settle()
   }
   #attachMap() { this.#map.on('click', this.#onMapClick); this.#map.on('dblclick', this.#onMapDblClick) }
   #detachMap() { this.#map.off('click', this.#onMapClick); this.#map.off('dblclick', this.#onMapDblClick) }
@@ -185,13 +192,11 @@ export class EditableGeometry {
 
   #rebuild() {
     this.#group.clearLayers()
-    this.#pathRecs = []
     this.#rectMarkers = []
     if (this.#mode !== 'edit') return                       // en draw no hay handles: se colocan puntos
     if (this.#kind === 'rectangle') return this.#buildRectangle()
     if (this.#kind === 'point') return this.#buildPoint()
-    const rings = this.#kind === 'polygon' ? this.#geom.rings : [this.#geom.path]
-    rings.forEach(coords => this.#buildPath(coords, this.#kind === 'polygon'))
+    this.paths.forEach(path => this.#buildPath(path))
   }
 
   #marker(pos, icon, draggable) {
@@ -200,25 +205,25 @@ export class EditableGeometry {
       .addTo(this.#group)
   }
 
-  // Un anillo/path editable: un marcador draggable por vértice + un marcador de arista (midpoint) por
-  // segmento. `closed` cierra el último segmento contra el primero (polígono).
-  #buildPath(coords, closed) {
-    if (!coords.length) return
-    const rec = { coords, closed, vMarkers: [], mMarkers: [] }
-    coords.forEach((c, i) => {
-      const m = this.#marker(c, this.#vertexIcon, true)
-      m.on('drag', () => this.#onVertexDrag(rec, i, m.getLatLng()))
+  // Un anillo/path editable: un marcador draggable por vértice más uno por midpoint ACTIVO (el del
+  // segmento que arranca en ese vértice; en un trazo abierto el del último no lo está). Los vértices se
+  // crean todos antes que los midpoints — ese orden es el que ve quien consume los handles.
+  #buildPath(path) {
+    if (!path.length) return
+    const rec = { path, mids: new Map() }
+    path.forEachVertex((x, y, ref) => {
+      const m = this.#marker([x, y], this.#vertexIcon, true)
+      m.on('drag', () => this.#onVertexDrag(rec, ref, m.getLatLng()))
       m.on('dragend', () => this.#commit())
-      m.on('dblclick', () => this.#onVertexDelete(rec, i))
-      rec.vMarkers.push(m)
+      m.on('dblclick', () => this.#onVertexDelete(rec, ref))
     })
-    const segCount = closed ? coords.length : coords.length - 1
-    rec.mMarkers = Array.from({ length: segCount }, (_, s) => {
-      const mm = this.#marker(midpoint(coords[s], coords[(s + 1) % coords.length]), this.#midIcon, false)
-      mm.on('click', () => this.#onMidInsert(rec, s))
-      return mm
+    path.forEachVertex((x, y, ref) => {
+      const mid = path.midOf(ref)
+      if (path.roleAt(mid) !== ROLE.midpoint) return
+      const mm = this.#marker([path.xAt(mid), path.yAt(mid)], this.#midIcon, false)
+      mm.on('click', () => this.#onMidInsert(rec, ref))
+      rec.mids.set(ref, mm)
     })
-    this.#pathRecs.push(rec)
   }
 
   #buildPoint() {
@@ -245,33 +250,33 @@ export class EditableGeometry {
 
   /* ── Ediciones ──────────────────────────────────────────────────────────────────────────── */
 
-  // Arrastre de vértice: muta la coord en su lugar (misma referencia que geom), reubica SOLO los dos
-  // midpoints adyacentes (no un rebuild por frame → no se destruye el marcador en pleno drag) y emite.
-  #onVertexDrag(rec, i, ll) {
-    rec.coords[i] = toPair(ll)
-    const len = rec.coords.length
-    const segCount = rec.closed ? len : len - 1
-    // Cerrado, los segmentos envuelven (el anterior al 0 es el último); abierto no, y los índices que se
-    // salen del rango los descarta el guard. Esa es toda la diferencia entre ambos casos.
-    const wrap   = s => (rec.closed ? (s + len) % len : s)
-    const setMid = s => s >= 0 && s < segCount &&
-      rec.mMarkers[s]?.setLatLng(midpoint(rec.coords[s], rec.coords[(s + 1) % len]))
-    setMid(wrap(i - 1))
-    setMid(wrap(i))
+  // Arrastre de vértice: el arena reescribe el vértice y los DOS midpoints que lo tocan —el suyo y el del
+  // anterior, que puede vivir en otro chunk— sin desplazar nada, así el ref del marcador bajo el dedo
+  // sigue valiendo. Acá sólo se reubican esos dos marcadores (no un rebuild por frame).
+  #onVertexDrag(rec, ref, ll) {
+    const p = toPair(ll)
+    if (!rec.path.moveVertex(ref, p[0], p[1])) return
+    const prev = rec.path.prevVertex(ref)
+    this.#placeMid(rec, ref)
+    prev >= 0 && this.#placeMid(rec, prev)
     this.#emit()
   }
 
-  #onVertexDelete(rec, i) {
-    if (rec.coords.length <= (MIN_VERTICES[this.#kind] ?? 1)) return   // no bajar del mínimo topológico
-    rec.coords.splice(i, 1)
-    this.#settle()
+  #placeMid(rec, v) {
+    const mid = rec.path.midOf(v)
+    return rec.mids.get(v)?.setLatLng([rec.path.xAt(mid), rec.path.yAt(mid)])
   }
 
-  // Insertar vértice en el midpoint del segmento `s` (promueve el punto de arista a vértice real).
-  #onMidInsert(rec, s) {
-    const len = rec.coords.length
-    rec.coords.splice(s + 1, 0, midpoint(rec.coords[s], rec.coords[(s + 1) % len]))
-    this.#settle()
+  #onVertexDelete(rec, ref) {
+    if (rec.path.length <= (MIN_VERTICES[this.#kind] ?? 1)) return   // no bajar del mínimo topológico
+    rec.path.remove(ref) && this.#settle()
+  }
+
+  // Insertar vértice en el midpoint del segmento que ARRANCA en `ref` (promueve el punto de arista a
+  // vértice real).
+  #onMidInsert(rec, ref) {
+    const mid = rec.path.midOf(ref)
+    rec.path.insertAfter(ref, rec.path.xAt(mid), rec.path.yAt(mid)) >= 0 && this.#settle()
   }
 
   // Arrastre de esquina de rectángulo: la esquina opuesta queda fija; el bounds se recompone por min/max
