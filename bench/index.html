@@ -316,6 +316,9 @@ tbody tr:hover td, tbody tr:hover .fase { background: color-mix(in srgb, var(--a
   </div>
 </section>
 
+<!-- Sólo lo llena la corrida automática (?auto=1): es por donde un navegador headless lee el JSON. -->
+<pre id="salida" hidden></pre>
+
 <script type="module">
 import 'leaflet/dist/leaflet.css'
 
@@ -594,8 +597,8 @@ el.capa.addEventListener('change', () => {
 })
 
 el.n.addEventListener('input', sincronizarPresets)
-el.backendA.addEventListener('change', () => rotular(el.backendA, el.rotuloA))
-el.backendB.addEventListener('change', () => rotular(el.backendB, el.rotuloB))
+el.backendA.addEventListener('change', () => rotular(el.backendA, el.rotuloA, 'A'))
+el.backendB.addEventListener('change', () => rotular(el.backendB, el.rotuloB, 'B'))
 el.correr.addEventListener('click', ejecutar)
 el.exportar.addEventListener('click', descargar)
 el.copiar.addEventListener('click', () => navigator.clipboard.writeText(json())
@@ -610,6 +613,32 @@ rotularAmbos()
 
 el.correr.disabled = CAPAS.length === 0
 CAPAS.length || anunciar('No hay backends en bench/backends/.', 'error')
+
+/* ── corrida automática ─────────────────────────────────────────────── */
+// `?auto=1&capa=&n=&a=&b=&semilla=` corre sola y deja el JSON en `#salida`, para que un navegador
+// headless pueda leerlo del DOM sin conducir la UI. `a`/`b` son subcadenas del nombre del backend.
+
+const elegir = (select, aguja) => {
+  const opcion = aguja && [...select.options].find(o => o.value.includes(aguja))
+  opcion && (select.value = opcion.value)
+}
+
+const auto = new URLSearchParams(location.search)
+if (auto.get('auto') === '1' && CAPAS.length) {
+  const capa = auto.get('capa')
+  capa && CAPAS.includes(capa) && (el.capa.value = capa)
+  poblarBackends()
+  refrescarUnidad()
+  elegir(el.backendA, auto.get('a'))
+  elegir(el.backendB, auto.get('b') ?? auto.get('a'))
+  el.n.value = auto.get('n') ?? el.n.value
+  el.semilla.value = auto.get('semilla') ?? el.semilla.value
+  sincronizarPresets()
+  rotularAmbos()
+    .then(ejecutar)
+    .then(() => { document.getElementById('salida').textContent = ultimo ? json() : 'sin resultado' })
+    .catch(error => { document.getElementById('salida').textContent = `ERROR ${error?.message ?? error}` })
+}
 </script>
 </body>
 </html>
