@@ -1,6 +1,6 @@
 import { POINT_VERTEX, POINT_FRAGMENT } from './shaders.js'
 import { GpuAtlasBinding } from '../atlas/GpuAtlasBinding.js'
-import { Picking } from './Picking.js'
+import { Picking, LOCAL_BITS, CHUNK_BITS } from './Picking.js'
 import { projX0, projY0 } from './project.js'
 import { loseGlContext, cancelPendingRedraw } from './gl-teardown.js'
 
@@ -8,11 +8,21 @@ import { loseGlContext, cancelPendingRedraw } from './gl-teardown.js'
 //   rebuild   → glify.setData (O(n), aloca; set/filtro/cluster/regrow). Reusa arrays + trunca length.
 //   incremental → escribe el slot del buffer interleaved por bufferSubData (O(1), [0-alloc];
 //                 move y patch sin cambio de membresía). NO pasa por setData. (§17.5)
-// El layout glify es [x, y, r, g, b, a, size] (bytes=7): r=tile, g=ángulo, b,a=id de picking.
+// El layout glify es [x, y, r, g, b, a, size] (bytes=7): r=tile, g=ángulo, b,a=índice local de picking.
 
 const DEFAULT_VARIANT = 'default'
 const NORM = 1 / 360
 const angleNorm = deg => (((deg % 360) + 360) % 360) * NORM
+
+// Picking jerárquico (objeto / chunk / local): el índice LOCAL del vértice ocupa 12 bits en los canales
+// b,a del atributo `color`, con la convención `local + 1` — el valor 0 significa «el objeto, pero no una
+// entrada». De ahí las 4.095 entradas por chunk. El objeto y el chunk NO viajan por vértice: son uniform
+// del DRAW, así que el buffer se recorre en un draw por chunk y el eje `chunk` completa la dirección.
+// El `% LOCAL_CAP` del packer sostiene el invariante del que depende el pase para sumarle el chunk al
+// canal rojo sin desbordar el byte (b ≤ 15).
+const LOCAL_CAP = (1 << LOCAL_BITS) - 1
+const PICK_CAP  = (1 << CHUNK_BITS) * LOCAL_CAP
+const NOOP      = () => {}
 
 export class PointLayer {
 
@@ -23,6 +33,19 @@ export class PointLayer {
   #binding     = null
   #picking     = null
   #hoverPick   = { hits: [], sample: null }   // cache del último pick de hover; sample.seq valida hits
+  #pickObj     = 0      // identidad de objeto en el pase (la asigna el motor; 0 = el pase la saltea)
+  // Partes de hit por canal: `out` (lo que se devuelve, truncado al nº de hits) referencia objetos de
+  // `pool`, que sólo crece → en régimen permanente el hover no asigna nada por pick. Un pool por canal:
+  // un click no puede pisar las partes que el cache de hover todavía tiene vigentes.
+  #hoverParts  = { pool: [], out: [] }
+  #clickParts  = { pool: [], out: [] }
+  // Descriptores del pase, uno por chunk, reusados entre picks ([0-alloc] en ruta caliente salvo cuando
+  // el set cruza un múltiplo de LOCAL_CAP). `bind` es no-op: el pase hereda el vertexAttribPointer que
+  // dejó montado glify (§17.5) — la capa no tiene nada que bindear.
+  #draws       = []
+  #batch       = { draws: this.#draws, length: 0, matrix: null }
+  #pickMode    = 0
+  #pickTexture = null
 
   // Reusados en rebuild — [0-alloc] entre rebuilds salvo crecimiento del set.
   #positions    = []   // [lat, lng] por slot (data de glify)
@@ -69,17 +92,23 @@ export class PointLayer {
 
   /* ── Picking (la capa de interacción orquesta; la capa resuelve hits) ── */
 
+  // Identidad de OBJETO de la capa dentro del pase de picking: la asigna el motor al darla de alta y la
+  // capa se la pasa al pase, que la emite como uniform del draw (no viaja por vértice).
+  set pickObject(obj) { this.#pickObj = obj ?? 0 }
+  get pickObject() { return this.#pickObj }
+
   // Encola un pick GPU para la muestra del puntero. `sample` lleva containerPoint + seq.
   requestHoverHit(sample) {
-    return !!this.#picking &&
-      this.#picking.request(sample.containerPoint.x, sample.containerPoint.y, this.#count, this.#layer.mapMatrix.array, sample)
+    if (!this.#picking) return false
+    const cp = sample.containerPoint
+    return this.#picking.request(cp.x, cp.y, this.#pickBatch(), sample)
   }
 
   // Recoge el pick encolado (no bloqueante). Cachea los hits + la muestra para resolveHover.
   collectHoverHit() {
     const pick = this.#picking?.collect()
     if (!pick) return null
-    this.#hoverPick.hits   = this.#hitsFromSlots(pick.slots)
+    this.#hoverPick.hits   = this.#partsFrom(pick.hits, this.#hoverParts)
     this.#hoverPick.sample = pick.metadata
     return pick.metadata
   }
@@ -89,21 +118,64 @@ export class PointLayer {
     return this.#hoverPick.sample?.seq === baseEvent.seq ? this.#hoverPick.hits : []
   }
 
-  // resolveClick hace un pick síncrono (un tiro) en el punto del evento.
+  // resolveClick hace un pick síncrono (un tiro) en el punto del evento, con el mismo batch.
   resolveClick(baseEvent) {
-    const cp = baseEvent.containerPoint ?? this.#map.latLngToContainerPoint(baseEvent.latlng)
-    const pick = this.#picking?.pickSync(cp.x, cp.y, this.#count, this.#layer.mapMatrix.array, baseEvent)
-    return pick ? this.#hitsFromSlots(pick.slots) : []
+    const cp   = baseEvent.containerPoint ?? this.#map.latLngToContainerPoint(baseEvent.latlng)
+    const pick = this.#picking?.pickSync(cp.x, cp.y, this.#pickBatch(), baseEvent)
+    return pick ? this.#partsFrom(pick.hits, this.#clickParts) : []
   }
 
   cancelHoverHit() { this.#picking?.abort() }
 
-  // Slots del picking → partes de hit. El ref y el id del punto son su id de dato; el pick GPU
-  // es exacto → distancePx 0. El registro envuelve estas partes con layerId/zIndex/order.
-  #hitsFromSlots(slots) {
-    const parts = []
-    slots.forEach(slot => { const id = this.#idBySlot[slot]; parts.push({ ref: id, id, distancePx: 0 }) })
-    return parts
+  // Batch del pase: un draw por chunk de LOCAL_CAP entradas, con el objeto que asignó el motor. El
+  // índice local sólo tiene 12 bits, así que un draw único cortaría el pase en 4.095 puntos y el resto
+  // quedaría mudo al picking; repartirlo lleva el techo a PICK_CAP. Más allá de eso se degrada a «no
+  // pickeable», nunca a un hit de otro punto.
+  // Los descriptores se reusan y se ponen al día acá —el pick corre por mousemove—, y el pase los
+  // guarda por REFERENCIA: el pedido que quedó encolado dispara con el estado del último pick, que es
+  // el único que vale con el cursor en movimiento.
+  #pickBatch() {
+    const total  = Math.min(this.#count, PICK_CAP)
+    const chunks = Math.ceil(total / LOCAL_CAP)
+    const draws  = this.#draws
+    while (draws.length < chunks)
+      draws.push({ bind: NOOP, texture: this.#pickTexture, mode: this.#pickMode, first: 0, count: 0, obj: 0, chunk: draws.length })
+    for (let k = 0; k < chunks; k++) {
+      const d = draws[k]
+      d.first = k * LOCAL_CAP
+      d.count = Math.min(LOCAL_CAP, total - d.first)
+      d.obj   = this.#pickObj
+    }
+    this.#batch.length = chunks
+    this.#batch.matrix = this.#layer.mapMatrix.array
+    return this.#batch
+  }
+
+  // PickHits → partes de hit, en el orden en que vienen: centro-hacia-afuera, así que la primera es la
+  // más cercana al cursor. El pick GPU es exacto → distancePx 0 en todas, y ese orden ES la
+  // desambiguación (el registro lo conserva: sort estable con la misma distancia). El repetido se
+  // descarta —el parche cubre un mismo sprite en varios texeles— para entregar lo mismo que el `Set` de
+  // antes, pero ordenado. El ref y el id del punto son su id de dato. No se filtra por objeto: la capa
+  // tiene su PROPIO pase, así que todo impacto del parche es suyo — el eje `obj` discrimina recién
+  // cuando varias entidades comparten un pase. El chunk sí entra en la cuenta del slot global, aunque
+  // con un solo draw valga siempre 0.
+  #partsFrom(hits, dest) {
+    const { pool, out } = dest
+    let n = 0
+    for (let i = 0; i < hits.count; i++) {
+      const local = hits.slots[i]
+      const id    = local < 0 ? undefined : this.#idBySlot[hits.chunks[i] * LOCAL_CAP + local]
+      if (id === undefined) continue                    // objeto sin entrada, o fuera del buffer vigente
+      let repetido = false
+      for (let k = 0; k < n; k++) if (out[k].id === id) { repetido = true; break }
+      if (repetido) continue
+      const part = pool[n] ??= { ref: null, id: null, distancePx: 0 }
+      part.ref   = id
+      part.id    = id
+      out[n++]   = part
+    }
+    out.length = n
+    return out
   }
 
   /* ── Lifecycle ── */
@@ -311,19 +383,21 @@ export class PointLayer {
       this.#picking = new Picking()
       const pickProgram = this.#picking.attach(gl, this.#layer.program, this.#binding.texture)
       this.#binding.register(pickProgram)
+      this.#pickMode    = gl.POINTS
+      this.#pickTexture = this.#binding.texture
     }
     this.#suppressGlifyZoom()     // el ViewAnimator del motor reproyecta el zoom por frame (no glify)
   }
 
   // Color por punto (path de rebuild): scratch mutado-y-retornado — glify lo spreadea sincrónicamente.
   #colorAt(i) {
-    const m = this.#meta[i]
-    const c = this.#scratchColor
+    const m     = this.#meta[i]
+    const c     = this.#scratchColor
+    const local = i % LOCAL_CAP + 1              // 1..4.095 dentro del chunk; el 0 es «objeto sin entrada»
     c.r = this.#iconSet.atlas.tileChannel(m.tileIdx)
     c.g = m.angleNorm
-    const id = i + 1
-    c.b = ((id >> 8) & 0xff) / 255
-    c.a = (id & 0xff) / 255
+    c.b = (local >> 8) / 255                     // 4 bits altos del local; el pase le suma el chunk arriba
+    c.a = (local & 255) / 255
     return c
   }
 
@@ -356,8 +430,8 @@ export class PointLayer {
     gl.bufferSubData(gl.ARRAY_BUFFER, base * 4, this.#verts, base, 2)
   }
 
-  // patch de un ítem sucio: posición + color + size (7 floats). El id (b,a) es función del slot,
-  // que es estable → se reescribe igual sin coste extra.
+  // patch de un ítem sucio: posición + color + size (7 floats). El índice local (b,a) es función del
+  // slot, que es estable → se reescribe igual sin coste extra.
   #writeSlot(s, item) {
     const a = this.#accessors
     const { lat, lng } = a.positionOf(item)   // copia inmediata: los accessors de abajo pueden reusar el objeto
@@ -371,15 +445,15 @@ export class PointLayer {
     m.tileIdx   = tileIdx
     m.angleNorm = an
     m.size      = sz
-    const v = this.#verts
-    const base = s * 7
-    v[base] = projX0(lng) - this.#cx
+    const v     = this.#verts
+    const base  = s * 7
+    const local = s % LOCAL_CAP + 1
+    v[base]     = projX0(lng) - this.#cx
     v[base + 1] = projY0(lat) - this.#cy
     v[base + 2] = this.#iconSet.atlas.tileChannel(tileIdx)
     v[base + 3] = an
-    const id = s + 1
-    v[base + 4] = ((id >> 8) & 0xff) / 255
-    v[base + 5] = (id & 0xff) / 255
+    v[base + 4] = (local >> 8) / 255             // 4 bits altos del local; el pase le suma el chunk arriba
+    v[base + 5] = (local & 255) / 255
     v[base + 6] = sz
     const gl = this.#layer.gl
     gl.bindBuffer(gl.ARRAY_BUFFER, this.#buf)

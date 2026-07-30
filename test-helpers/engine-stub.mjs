@@ -51,17 +51,59 @@ if (!globalThis.window) {
 // + drawingBuffer*; el resto (métodos y constantes del picking: createRenderbuffer, fenceSync, FRAMEBUFFER…)
 // cae al no-op del Proxy que devuelve {} — sirve como retorno de create*/getParameter y como arg ignorado
 // de los métodos no-op. Las capas INTERACTIVAS del fold (burbuja/espiral) arman un FBO de picking en su
-// construcción; el picking en sí NUNCA se ejercita en el harness (no se disparan clicks/hover).
+// construcción; el pase en sí sólo corre si el test dispara click/hover, y entonces lo observa por
+// `gl.spy` (makePickSpy).
 const GL_CONSTS = {
   ARRAY_BUFFER: 1, DYNAMIC_DRAW: 2, TEXTURE_2D: 3, RGBA: 4, UNSIGNED_BYTE: 5, TEXTURE0: 6,
   LINEAR: 7, CLAMP_TO_EDGE: 8, TEXTURE_MIN_FILTER: 9, TEXTURE_MAG_FILTER: 10,
   TEXTURE_WRAP_S: 11, TEXTURE_WRAP_T: 12, CURRENT_PROGRAM: 13,
+  // Enums reales: el pase de picking los COMPARA (el status del fence) y los ADJUNTA (el destino), así
+  // que no pueden caer al no-op del Proxy —que devolvería una función distinta en cada lectura—.
+  POINTS: 0x0000, RGBA8: 0x8058, COLOR_ATTACHMENT0: 0x8CE0, DEPTH_ATTACHMENT: 0x8D00,
+  TIMEOUT_EXPIRED: 0x911A, WAIT_FAILED: 0x911D,
   drawingBufferWidth: 800, drawingBufferHeight: 600,
 }
+
+// Espía del pase de PICKING, la única parte del GL que se le lee de vuelta a la GPU. `frame` es el
+// parche que devuelven readPixels/getBufferSubData (lo pinta el test) y `status` guioniza el fence;
+// el resto registra lo que el pase PIDIÓ —tamaño del destino, adjuntos, origen del viewport, tags de
+// draw y draws—, que es lo caracterizable sin GPU. Vive en `gl.spy` de toda capa del harness.
+const PICK_PATCH = 6
+
+export const makePickSpy = () => ({
+  frame         : new Uint8Array(PICK_PATCH * PICK_PATCH * 4),
+  status        : 0,
+  renderbuffers : 0,
+  framebuffers  : 0,
+  storage       : null,
+  attachments   : [],
+  viewports     : [],
+  readbacks     : [],
+  tags          : [],
+  draws         : [],
+})
+
+// Los tags se guardan ya en bytes: el uniform viaja normalizado (÷255) y compararlo en float sería
+// comparar redondeos.
+const pickGl = spy => ({
+  createRenderbuffer      : () => { spy.renderbuffers++; return {} },
+  createFramebuffer       : () => { spy.framebuffers++;  return {} },
+  renderbufferStorage     : (_target, format, width, height) => { spy.storage = { format, width, height } },
+  framebufferRenderbuffer : (_target, attachment) => spy.attachments.push(attachment),
+  viewport                : (x, y, width, height) => spy.viewports.push({ x, y, width, height }),
+  uniform3fv              : (_loc, tag) => spy.tags.push([...tag].map(c => Math.round(c * 255))),
+  drawArrays              : (mode, first, count) => spy.draws.push({ mode, first, count }),
+  clientWaitSync          : () => spy.status,
+  getBufferSubData        : (_target, _offset, dst) => dst.set(spy.frame),
+  readPixels              : (x, y, width, height, _format, _type, dst) => {
+    spy.readbacks.push({ x, y, width, height })
+    if (dst instanceof Uint8Array) dst.set(spy.frame)   // la lectura diferida pasa el offset del PBO, no un array
+  },
+})
 // `onLose`: spy de WEBGL_lose_context.loseContext() (para caracterizar el teardown de contexto GL).
 // getExtension('WEBGL_lose_context') → { loseContext: onLose }; cualquier otra extensión → {} (como
 // antes). El resto de métodos/constantes cae al no-op del Proxy.
-const makeGl = (onLose) => new Proxy({ ...GL_CONSTS }, {
+export const makeGl = (onLose, spy = makePickSpy()) => new Proxy({ ...GL_CONSTS, ...pickGl(spy), spy }, {
   get: (t, p) => {
     if (p === 'getExtension') return (name) => (name === 'WEBGL_lose_context' ? { loseContext: onLose ?? (() => {}) } : {})
     return p in t ? t[p] : () => ({})

@@ -652,6 +652,9 @@ export class MapEngine {
 
   attachSource(id: string, source: CristaeSource): this;
   getLayer(id: string): unknown;
+  /** Capa dueña de un objeto del pase de picking: el decodificador entrega (obj, chunk, local) y esto
+   *  resuelve el primer eje. `null` si el id no está asignado (el 0 significa «nada»). */
+  pickLayerOf(obj: number): { layerId: string; layer: unknown; obj: number } | null;
   removeLayer(id: string): boolean;
   setLayerVisibility(id: string, visible: boolean): boolean;
   setLayerEnabled(id: string, enabled: boolean): boolean;
