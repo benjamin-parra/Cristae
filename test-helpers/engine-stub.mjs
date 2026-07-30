@@ -1,6 +1,7 @@
-// Stubs para montar un MapEngine headless en node:test y caracterizar el FOLD de cluster
-// (addClusterFold). No es un jsdom ni un Leaflet real: sólo existe lo que el motor toca en el camino
-// del cluster —construcción + addPointLayer + addClusterFold + control.*—. El GL/glify reusa el mismo
+// Stubs para montar un MapEngine o una capa headless en node:test. No es un jsdom ni un Leaflet real:
+// existe lo que las capas y el motor tocan —construcción + addPointLayer + addClusterFold + control.*,
+// más las factories nativas de Leaflet (marker / divIcon / polyline / polygon / rectangle / circle /
+// latLngBounds / layerGroup) bajo UNA convención de log, ver makeLeaflet—. El GL/glify reusa el mismo
 // enfoque que test/pointlayer.test.mjs (la capa no lee nada de vuelta salvo el buffer). Los iconSets
 // de burbuja/sub-cluster que arma el fold son los REALES (defineClusterIconSet); rasterizan a un canvas
 // stub cuyo ctx es no-op y cuyos píxeles nunca se leen en CPU (Atlas.tileAt guarda el canvas; sólo se
@@ -187,33 +188,123 @@ export const makeMap = ({ zoom = 3 } = {}) => {
   return map
 }
 
-export const makeLeaflet = () => ({
-  DomUtil: { getPosition: () => ({ x: 0, y: 0 }) },
-  layerGroup: () => {
-    const g = {
-      _layers: [],
-      addTo: () => g,
-      addLayer(l) { g._layers.push(l); return g },
-      clearLayers() { g._layers.length = 0; return g },
-      remove() {},
-    }
-    return g
-  },
-  // `addTo` devuelve el propio layer (como Leaflet) y expone setStyle/setLatLngs: las capas nativas
-  // guardan la instancia por id y le re-aplican estilo (eje focus, patch).
-  polyline: (pts, opts) => {
-    const l = { pts, opts, setStyle(s) { Object.assign(l.opts, s) }, addTo(g) { g.addLayer?.(l); return l } }
-    return l
-  },
-  polygon: (rings, opts) => {
+// Toda coordenada se normaliza a {lat,lng} —venga par o objeto— como hace Leaflet al construir.
+const toLatLng = ll => (Array.isArray(ll) ? { lat: ll[0], lng: ll[1] } : { lat: ll.lat, lng: ll.lng })
+
+// `L` COMPLETO bajo UNA convención de log (antes cada test se armaba su propio doble y convivían dos
+// nombres para lo mismo). Cada factory apila su instancia en el array de su naturaleza —en orden de
+// creación— y cada instancia cuenta sus mutaciones en `<mutador>Calls` y guarda su último estado
+// (`latlng` / `latlngs` / `radius` / `style` / `opacity`). Con eso una capa se caracteriza sin doble
+// local: cuántos nodos creó, de qué naturaleza y qué se le tocó después.
+export const makeLeaflet = () => {
+  const log = { markers: [], paths: [], icons: [], clearLayers: 0, addLayer: 0 }
+
+  // Molde único de path vectorial: expone TODOS los mutadores de path y cada capa usa los suyos
+  // (polygon → setLatLngs, circle → setLatLng/setRadius) contra los mismos campos.
+  const path = (tipo, { latlngs = null, latlng = null, opts = {} }) => {
     const p = {
-      rings, opts,
-      setStyle(s) { Object.assign(p.opts, s) },
-      setLatLngs(r) { p.rings = r },
+      tipo, opts, latlngs, latlng,
+      style:   { ...opts },
+      radius:  opts.radius,
+      removed: false,
+      setStyleCalls: 0, setLatLngsCalls: 0, setLatLngCalls: 0, setRadiusCalls: 0,
+      setStyle(s)    { p.setStyleCalls++;   p.style   = s;            return p },
+      setLatLngs(ll) { p.setLatLngsCalls++; p.latlngs = ll;           return p },
+      setLatLng(ll)  { p.setLatLngCalls++;  p.latlng  = toLatLng(ll); return p },
+      setRadius(r)   { p.setRadiusCalls++;  p.radius  = r;            return p },
+      getLatLngs: () => p.latlngs,
+      getLatLng:  () => p.latlng,
+      getRadius:  () => p.radius,
       addTo(g) { g.addLayer?.(p); return p },
+      remove()  { p.removed = true },
     }
+    log.paths.push(p)
     return p
+  }
+
+  // Marcador con handlers propios: `fire` los dispara como haría Leaflet ante el gesto real
+  // (drag / dragend / dblclick / click), que es como el test ejerce una edición.
+  const marker = (latlng, opts = {}) => {
+    const handlers = new Map()
+    const m = {
+      opts, handlers,
+      latlng:  toLatLng(latlng),
+      icon:    opts.icon ?? null,
+      opacity: opts.opacity ?? 1,
+      removed: false,
+      setLatLngCalls: 0, setOpacityCalls: 0,
+      on(type, cb)  { (handlers.get(type) ?? handlers.set(type, []).get(type)).push(cb); return m },
+      fire(type, e) { handlers.get(type)?.forEach(cb => cb(e)); return m },
+      setLatLng(ll) { m.setLatLngCalls++;  m.latlng  = toLatLng(ll); return m },
+      setOpacity(o) { m.setOpacityCalls++; m.opacity = o;            return m },
+      getLatLng: () => m.latlng,
+      addTo(g) { g.addLayer?.(m); return m },
+      remove()  { m.removed = true },
+    }
+    log.markers.push(m)
+    return m
+  }
+
+  return {
+    log,
+    marker,
+    DomUtil: { getPosition: () => ({ x: 0, y: 0 }) },
+    point:   (x, y) => ({ x, y }),
+    latLng:  (lat, lng) => ({ lat, lng }),
+    divIcon(opts = {}) {
+      const icon = { isDivIcon: true, ...opts }
+      log.icons.push(icon)
+      return icon
+    },
+    polyline:  (latlngs, opts) => path('polyline',  { latlngs, opts }),
+    polygon:   (latlngs, opts) => path('polygon',   { latlngs, opts }),
+    rectangle: (bounds,  opts) => path('rectangle', { latlngs: bounds, opts }),
+    circle:    (latlng,  opts) => path('circle',    { latlng: toLatLng(latlng), opts }),
+    layerGroup: (iniciales = [], opts = {}) => {
+      const g = {
+        opts,
+        layers: [...iniciales],
+        addTo: () => g,
+        addLayer(l)   { log.addLayer++;    g.layers.push(l);    return g },
+        clearLayers() { log.clearLayers++; g.layers.length = 0; return g },
+        remove() {},
+      }
+      return g
+    },
+    latLngBounds: (pts = []) => {
+      let minLat = Infinity, minLng = Infinity, maxLat = -Infinity, maxLng = -Infinity
+      const bounds = {
+        extend(ll) {
+          const { lat, lng } = toLatLng(ll)
+          minLat = Math.min(minLat, lat); maxLat = Math.max(maxLat, lat)
+          minLng = Math.min(minLng, lng); maxLng = Math.max(maxLng, lng)
+          return bounds
+        },
+        contains(ll) {
+          const { lat, lng } = toLatLng(ll)
+          return lat >= minLat && lat <= maxLat && lng >= minLng && lng <= maxLng
+        },
+        isValid:   () => minLat <= maxLat,
+        getCenter: () => ({ lat: (minLat + maxLat) / 2, lng: (minLng + maxLng) / 2 }),
+        // Caja acumulada: deja asertar el encuadre sin depender de la aritmética interna de Leaflet.
+        get box() { return { minLat, minLng, maxLat, maxLng } },
+      }
+      pts.forEach(pt => bounds.extend(pt))
+      return bounds
+    },
+  }
+}
+
+// Presupuesto de NODOS sobre el log de un `L`: `markers` son nodos DOM (uno por ítem en las capas que
+// no llegaron a la GPU), `paths` son paths SVG de Leaflet, `elementos` es el total que el navegador
+// tiene que mantener vivo por esa capa. Es la contraparte barata del banco: mide la COTA estructural
+// —cuántos nodos cuesta un set— sin navegador, sin reloj y sin medirse a sí misma.
+export const contadorCreaciones = ({ log }) => ({
+  get markers()   { return log.markers.length },
+  get paths()     { return log.paths.length },
+  get elementos() { return log.markers.length + log.paths.length },
+  reset() {
+    log.markers.length = log.paths.length = log.icons.length = 0
+    log.clearLayers = log.addLayer = 0
   },
-  point: (x, y) => ({ x, y }),
-  latLng: (lat, lng) => ({ lat, lng }),
 })

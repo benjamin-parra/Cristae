@@ -1,0 +1,615 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Banco de medición — Cristae</title>
+<style>
+*, *::before, *::after { box-sizing: border-box }
+
+:root {
+  color-scheme: light dark;
+  --fondo  : #f6f7f9;
+  --papel  : #ffffff;
+  --borde  : #e2e5ea;
+  --linea  : #edeff3;
+  --texto  : #15181d;
+  --tenue  : #697080;
+  --acento : #2f5fd0;
+  --mejor  : #14764a;
+  --peor   : #b12318;
+  --lienzo : #e8ebf0;
+  --sombra : 0 1px 2px rgb(16 24 40 / .06);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --fondo  : #0d0f13;
+    --papel  : #15181d;
+    --borde  : #272c34;
+    --linea  : #1e222a;
+    --texto  : #e7e9ee;
+    --tenue  : #99a1b0;
+    --acento : #7aa2f7;
+    --mejor  : #4ec98a;
+    --peor   : #f0776c;
+    --lienzo : #191d24;
+    --sombra : none;
+  }
+}
+
+body {
+  margin: 0;
+  padding: 22px 22px 56px;
+  background: var(--fondo);
+  color: var(--texto);
+  font: 14px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1 { margin: 0; font-size: 17px; font-weight: 650; letter-spacing: -.01em }
+h2 { margin: 0; font-size: 11px; font-weight: 650; text-transform: uppercase; letter-spacing: .07em; color: var(--tenue); white-space: nowrap }
+
+.lema { margin: 5px 0 0; color: var(--tenue); font-size: 13px; max-width: 84ch }
+.cabecera { margin-bottom: 18px }
+
+.tarjeta {
+  background: var(--papel);
+  border: 1px solid var(--borde);
+  border-radius: 10px;
+  box-shadow: var(--sombra);
+}
+
+/* ── panel de control ───────────────────────────────────────────────── */
+
+.panel { min-inline-size: 0; padding: 14px 16px; margin: 0 0 16px }
+.panel:disabled { opacity: .55 }
+
+.campos { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px 18px }
+.campo  { display: flex; flex-direction: column; gap: 5px; min-width: 0 }
+.campo > label { font-size: 11px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--tenue) }
+.doble  { display: flex; gap: 8px }
+
+select, input[type="number"] {
+  height: 32px;
+  padding: 0 8px;
+  background: var(--papel);
+  border: 1px solid var(--borde);
+  border-radius: 7px;
+  color: inherit;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+}
+select { min-width: 150px; padding-right: 4px }
+input[type="number"] { width: 104px }
+select:focus-visible, input:focus-visible, button:focus-visible { outline: 2px solid var(--acento); outline-offset: 1px }
+
+button {
+  height: 32px;
+  padding: 0 12px;
+  background: var(--papel);
+  border: 1px solid var(--borde);
+  border-radius: 7px;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+button:hover:not(:disabled) { border-color: var(--acento); color: var(--acento) }
+button:disabled { opacity: .5; cursor: not-allowed }
+
+.presets { display: flex }
+.presets button { border-radius: 0; margin-left: -1px; font-variant-numeric: tabular-nums }
+.presets button:first-child { border-radius: 7px 0 0 7px; margin-left: 0 }
+.presets button:last-child  { border-radius: 0 7px 7px 0 }
+.presets button[aria-pressed="true"] { background: var(--acento); border-color: var(--acento); color: #fff }
+
+.principal { background: var(--acento); border-color: var(--acento); color: #fff; font-weight: 600 }
+.principal:hover:not(:disabled) { color: #fff; filter: brightness(1.1) }
+
+.separa   { flex: 1 1 20px }
+.acciones { display: flex; gap: 8px; align-items: flex-end }
+
+.pie-panel {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 16px;
+  margin-top: 12px;
+  padding-top: 11px;
+  border-top: 1px solid var(--linea);
+  color: var(--tenue);
+  font-size: 12px;
+}
+.pie-panel code, .pie-panel b { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-weight: 600; color: var(--texto) }
+
+/* ── escenarios ─────────────────────────────────────────────────────── */
+
+.stages { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px }
+
+.stage { display: flex; flex-direction: column; overflow: hidden }
+.stage > header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 41px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--linea);
+}
+
+.lado {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  background: var(--acento);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.rotulo { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 13px; overflow: hidden }
+.rotulo .capa     { font-weight: 600 }
+.rotulo .variante { color: var(--tenue) }
+.rotulo .vacio    { color: var(--tenue); font-style: italic }
+
+.insignia {
+  padding: 2px 8px;
+  border: 1px solid var(--borde);
+  border-radius: 999px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  color: var(--tenue);
+  white-space: nowrap;
+}
+.insignia[data-alerta] { border-color: var(--peor); color: var(--peor) }
+
+.lienzo { height: clamp(260px, 40vh, 470px); background: var(--lienzo) }
+.lienzo .leaflet-container { width: 100%; height: 100%; background: var(--lienzo); font: inherit }
+
+/* ── resultados ─────────────────────────────────────────────────────── */
+
+.barra { display: flex; align-items: center; gap: 14px; padding: 11px 16px; border-bottom: 1px solid var(--linea) }
+
+.progreso { flex: 1 1 auto; height: 4px; border-radius: 999px; background: var(--linea); overflow: hidden }
+.progreso > i { display: block; height: 100%; width: 0; background: var(--acento); transition: width .1s linear }
+
+.estado { font-size: 12.5px; color: var(--tenue); font-variant-numeric: tabular-nums; white-space: nowrap }
+.estado[data-tono="error"] { color: var(--peor) }
+
+.envoltura { overflow-x: auto }
+
+table { width: 100%; border-collapse: separate; border-spacing: 0; font-variant-numeric: tabular-nums }
+th, td { padding: 7px 10px; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--linea) }
+
+thead th { position: sticky; top: 0; z-index: 2; background: var(--papel); font-size: 11px; font-weight: 650; color: var(--tenue) }
+thead tr.grupos th { text-transform: uppercase; letter-spacing: .05em }
+thead tr.grupos th .u { font-weight: 400; text-transform: none; letter-spacing: 0; opacity: .7 }
+thead tr.lados th { padding-top: 0; font-size: 10.5px; letter-spacing: .06em }
+
+.fase { position: sticky; left: 0; z-index: 3; background: var(--papel); text-align: left; font-weight: 600 }
+thead .fase { z-index: 4 }
+tbody .fase { border-right: 1px solid var(--linea) }
+.fase small { display: block; font-size: 11px; font-weight: 400; color: var(--tenue) }
+
+.grupo { border-left: 1px solid var(--linea) }
+
+td.a { color: var(--tenue) }
+td.d { font-weight: 650 }
+td.d.mejor  { color: var(--mejor) }
+td.d.peor   { color: var(--peor) }
+td.d.neutro { color: var(--tenue) }
+
+tbody tr:hover td, tbody tr:hover .fase { background: color-mix(in srgb, var(--acento) 7%, var(--papel)) }
+
+.vacia { padding: 28px 16px; text-align: center; color: var(--tenue); font-style: italic; border-bottom: 0 }
+
+.leyenda {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--linea);
+  color: var(--tenue);
+  font-size: 12px;
+}
+
+@media (max-width: 900px) {
+  .stages { grid-template-columns: 1fr }
+  .barra  { flex-wrap: wrap }
+}
+</style>
+</head>
+<body>
+
+<header class="cabecera">
+  <h1>Banco de medición — Cristae</h1>
+  <p class="lema">
+    Dos escenas idénticas en <strong>un solo rAF</strong>, misma semilla y mismo guion.
+    El medidor corre en ese mismo frame y es <strong>[0-alloc]</strong>: no se mide a sí mismo.
+  </p>
+</header>
+
+<fieldset class="tarjeta panel" id="panel">
+  <div class="campos">
+    <div class="campo">
+      <label for="capa">Capa</label>
+      <select id="capa"></select>
+    </div>
+
+    <div class="campo">
+      <label for="n">N</label>
+      <div class="doble">
+        <div class="presets" id="presets">
+          <button type="button" data-n="400">400</button>
+          <button type="button" data-n="5000">5.000</button>
+          <button type="button" data-n="50000">50.000</button>
+        </div>
+        <input type="number" id="n" min="1" step="1" value="5000" aria-label="N libre">
+      </div>
+    </div>
+
+    <div class="campo">
+      <label for="backend-a">Backend A</label>
+      <select id="backend-a"></select>
+    </div>
+
+    <div class="campo">
+      <label for="backend-b">Backend B</label>
+      <select id="backend-b"></select>
+    </div>
+
+    <div class="campo">
+      <label for="semilla">Semilla</label>
+      <input type="number" id="semilla" min="0" step="1" value="1">
+    </div>
+
+    <div class="separa"></div>
+
+    <div class="acciones">
+      <button type="button" class="principal" id="correr">Correr</button>
+      <button type="button" id="copiar" disabled>Copiar JSON</button>
+      <button type="button" id="exportar" disabled>Exportar</button>
+    </div>
+  </div>
+
+  <div class="pie-panel">
+    <span>N se cuenta en <b id="unidad">—</b></span>
+    <span>Guion: montar → primer paint → 3 s reposo → 3 s pan → 3 s zoom → 3 s vivo → destruir</span>
+    <span>Resultado en <code>window.__BENCH__</code></span>
+  </div>
+</fieldset>
+
+<section class="stages">
+  <article class="tarjeta stage">
+    <header>
+      <span class="lado">A</span>
+      <span class="rotulo" id="rotulo-a"><span class="vacio">sin backend</span></span>
+    </header>
+    <div class="lienzo" id="stage-a"></div>
+  </article>
+
+  <article class="tarjeta stage">
+    <header>
+      <span class="lado">B</span>
+      <span class="rotulo" id="rotulo-b"><span class="vacio">sin backend</span></span>
+    </header>
+    <div class="lienzo" id="stage-b"></div>
+  </article>
+</section>
+
+<section class="tarjeta">
+  <div class="barra">
+    <h2>Resultados por fase</h2>
+    <div class="progreso"><i id="barra-progreso"></i></div>
+    <span class="estado" id="estado">Sin corrida.</span>
+  </div>
+
+  <div class="envoltura">
+    <table id="tabla"></table>
+  </div>
+
+  <div class="leyenda">
+    <span>Δ = B respecto de A · menor es mejor</span>
+    <span>Frametime en p50 / p95 / peor 1 % — nunca promedio</span>
+    <span>Mapa sin tiles: aísla red y repintado</span>
+  </div>
+</section>
+
+<script type="module">
+import 'leaflet/dist/leaflet.css'
+
+const PREFIJO = './backends/'
+const RUTAS   = import.meta.glob('./backends/*.js')
+
+const ORDEN = ['points', 'lines', 'heat', 'polygon', 'circle', 'editable', 'html', 'label']
+
+const UNIDAD_N = {
+  points   : 'ítems',
+  lines    : 'vértices totales',
+  heat     : 'ítems',
+  polygon  : 'anillos × vértices',
+  circle   : 'círculos',
+  editable : 'vértices de un trazo',
+  html     : 'ítems',
+  label    : 'ítems',
+}
+
+const el = {
+  capa     : document.getElementById('capa'),
+  n        : document.getElementById('n'),
+  semilla  : document.getElementById('semilla'),
+  presets  : document.getElementById('presets'),
+  backendA : document.getElementById('backend-a'),
+  backendB : document.getElementById('backend-b'),
+  rotuloA  : document.getElementById('rotulo-a'),
+  rotuloB  : document.getElementById('rotulo-b'),
+  stageA   : document.getElementById('stage-a'),
+  stageB   : document.getElementById('stage-b'),
+  panel    : document.getElementById('panel'),
+  correr   : document.getElementById('correr'),
+  copiar   : document.getElementById('copiar'),
+  exportar : document.getElementById('exportar'),
+  unidad   : document.getElementById('unidad'),
+  progreso : document.getElementById('barra-progreso'),
+  estado   : document.getElementById('estado'),
+  tabla    : document.getElementById('tabla'),
+}
+
+/* ── formato ────────────────────────────────────────────────────────── */
+
+const ENTERO  = new Intl.NumberFormat('es-CL')
+const DECIMAL = new Intl.NumberFormat('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+const FUGA    = { '&': '&amp;', '<': '&lt;', '>': '&gt;' }
+
+const escapar = texto => String(texto).replace(/[&<>]/g, caracter => FUGA[caracter])
+const decimal = valor => DECIMAL.format(valor)
+const enteros = valor => ENTERO.format(Math.round(valor))
+
+const enBytes = valor => {
+  const magnitud = Math.abs(valor)
+  if (magnitud >= 1048576) return `${DECIMAL.format(valor / 1048576)} MB`
+  if (magnitud >= 1024)    return `${DECIMAL.format(valor / 1024)} kB`
+  return `${ENTERO.format(Math.round(valor))} B`
+}
+
+// Los caminos son los del informe de `metrics.js`; leer una ruta que no existe pinta «—» en toda la
+// columna sin que nada falle, así que cualquier cambio de forma allá se refleja acá.
+const METRICAS = [
+  { titulo: 'frametime p50', unidad: 'ms', leer: fase => fase.frametime?.p50,              formato: decimal },
+  { titulo: 'frametime p95', unidad: 'ms', leer: fase => fase.frametime?.p95,              formato: decimal },
+  { titulo: 'peor 1 %',      unidad: 'ms', leer: fase => fase.frametime?.peor1pct,         formato: decimal },
+  { titulo: 'nodos creados', unidad: '',   leer: fase => fase.dom?.creados,                formato: enteros },
+  { titulo: 'nodos vivos',   unidad: '',   leer: fase => fase.dom?.vivosFin,               formato: enteros },
+  { titulo: 'draws / frame', unidad: '',   leer: fase => fase.gl?.drawsPorFrame,           formato: decimal },
+  // Asignado y todavía no recolectado: es el número que decide si una ruta es [0-alloc] de verdad.
+  { titulo: 'churn / frame', unidad: '',   leer: fase => fase.memoria?.bytesPorFrameCrudo, formato: enBytes },
+]
+
+/* ── catálogo de backends: se descubre del directorio, no se escribe ── */
+
+const REGISTRO = new Map(Object.keys(RUTAS).map(ruta => {
+  const base  = ruta.slice(PREFIJO.length, -3)
+  const corte = base.indexOf('.')
+  const capa  = corte < 0 ? base : base.slice(0, corte)
+  return [ruta, { capa, variante: corte < 0 ? 'única' : base.slice(corte + 1) }]
+}))
+
+const CATALOGO = [...REGISTRO].reduce((mapa, [ruta, ficha]) => {
+  const grupo = mapa[ficha.capa] ??= []
+  grupo.push({ ruta, variante: ficha.variante })
+  return mapa
+}, {})
+
+const rango = capa => ORDEN.includes(capa) ? ORDEN.indexOf(capa) : ORDEN.length
+const CAPAS = Object.keys(CATALOGO).sort((uno, otro) => rango(uno) - rango(otro))
+
+const opcion = (valor, texto) => {
+  const nodo = document.createElement('option')
+  nodo.value = valor
+  nodo.textContent = texto
+  return nodo
+}
+
+const poblarCapas = () => el.capa.replaceChildren(...CAPAS.map(capa => opcion(capa, capa)))
+
+const poblarBackends = () => {
+  const variantes = CATALOGO[el.capa.value] ?? []
+  const preferir = (select, indice) => {
+    const previo = select.value
+    select.replaceChildren(...variantes.map(entrada => opcion(entrada.ruta, entrada.variante)))
+    select.value = variantes.some(entrada => entrada.ruta === previo) ? previo : variantes[Math.min(indice, variantes.length - 1)]?.ruta ?? ''
+    select.disabled = variantes.length === 0
+  }
+  preferir(el.backendA, 0)
+  preferir(el.backendB, 1)
+}
+
+/* ── rótulos: el backend lo DECLARA el módulo ───────────────────────── */
+
+// Los backends guardan su estado en el módulo, y ESM cachea por URL: cargar el MISMO archivo para
+// los dos stages devolvería una sola instancia y el segundo montaje pisaría al primero en silencio.
+// La query distinta obliga a dos registros de módulo — y con ella la corrida de calibración (una
+// variante contra sí misma, que es como se valida que el instrumento sea justo) mide dos escenas
+// independientes. El glob queda como catálogo; la carga real va por URL.
+const cargarModulo = async (ruta, lado) => {
+  const modulo = await import(/* @vite-ignore */ `${ruta}?stage=${lado}`)
+  return modulo.default ?? modulo
+}
+
+const pintarRotulo = (modulo, ruta) => {
+  if (!modulo) return '<span class="vacio">sin backend</span>'
+  if (modulo instanceof Error) return `<span class="insignia" data-alerta>no carga · ${escapar(modulo.message)}</span>`
+  const ficha     = REGISTRO.get(ruta)
+  const desajuste = modulo.id === ficha.capa ? '' : `<span class="insignia" data-alerta>declara id «${escapar(modulo.id ?? '?')}»</span>`
+  return `<span class="capa">${escapar(ficha.capa)}</span>`
+    + `<span class="variante">${escapar(ficha.variante)}</span>`
+    + `<span class="insignia">${escapar(modulo.backend ?? 'backend sin declarar')}</span>`
+    + desajuste
+}
+
+// El rótulo carga con el MISMO `lado` que va a usar la corrida: así lee la instancia que se va a
+// montar en vez de crear un tercer registro de módulo sólo para mirarle el `id`.
+const rotular = async (select, rotulo, lado) => {
+  const ruta = select.value
+  rotulo.dataset.esperando = ruta
+  const modulo = ruta ? await cargarModulo(ruta, lado).catch(error => error) : null
+  rotulo.dataset.esperando === ruta && (rotulo.innerHTML = pintarRotulo(modulo, ruta))
+}
+
+const rotularAmbos = () => Promise.all([
+  rotular(el.backendA, el.rotuloA, 'A'),
+  rotular(el.backendB, el.rotuloB, 'B'),
+])
+
+/* ── tabla de resultados ────────────────────────────────────────────── */
+
+const delta = (a, b) => {
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return { texto: '—', clase: 'neutro' }
+  if (a === 0) return b === 0 ? { texto: '=', clase: 'neutro' } : { texto: '+∞', clase: 'peor' }
+  const porcentaje = (b - a) / a * 100
+  const magnitud   = Math.abs(porcentaje)
+  const clase      = magnitud < 1 ? 'neutro' : porcentaje < 0 ? 'mejor' : 'peor'
+  return { texto: `${porcentaje > 0 ? '+' : ''}${porcentaje.toFixed(magnitud < 10 ? 1 : 0)} %`, clase }
+}
+
+const celda = (fase, metrica) => {
+  const valor = fase ? metrica.leer(fase) : undefined
+  return Number.isFinite(valor) ? metrica.formato(valor) : '—'
+}
+
+const cabecera = () => `<thead>
+  <tr class="grupos">
+    <th class="fase" rowspan="2">Fase</th>
+    ${METRICAS.map(metrica => `<th class="grupo" colspan="3">${escapar(metrica.titulo)}${metrica.unidad ? ` <span class="u">${metrica.unidad}</span>` : ''}</th>`).join('')}
+  </tr>
+  <tr class="lados">
+    ${METRICAS.map(() => '<th class="grupo">A</th><th>B</th><th>Δ</th>').join('')}
+  </tr>
+</thead>`
+
+const fila = (faseA, faseB) => {
+  const nombre   = faseA?.nombre ?? faseB?.nombre ?? '—'
+  const duracion = [faseA, faseB].map(fase => Number.isFinite(fase?.duracion) ? `${Math.round(fase.duracion)} ms` : '—').join(' · ')
+  const celdas   = METRICAS.map(metrica => {
+    const marca = delta(faseA ? metrica.leer(faseA) : undefined, faseB ? metrica.leer(faseB) : undefined)
+    return `<td class="a grupo">${celda(faseA, metrica)}</td><td class="b">${celda(faseB, metrica)}</td><td class="d ${marca.clase}">${marca.texto}</td>`
+  }).join('')
+  return `<tr><th scope="row" class="fase">${escapar(nombre)}<small>${escapar(duracion)}</small></th>${celdas}</tr>`
+}
+
+const renderTabla = resultado => {
+  const fases   = resultado?.a?.fases ?? []
+  const gemelas = new Map((resultado?.b?.fases ?? []).map(fase => [fase.nombre, fase]))
+  const cuerpo  = fases.map(fase => fila(fase, gemelas.get(fase.nombre))).join('')
+  el.tabla.innerHTML = cabecera() + (cuerpo
+    ? `<tbody>${cuerpo}</tbody>`
+    : `<tbody><tr><td class="vacia" colspan="${METRICAS.length * 3 + 1}">Sin corrida todavía.</td></tr></tbody>`)
+}
+
+/* ── corrida ────────────────────────────────────────────────────────── */
+
+let ultimo = null
+
+const anunciar = (texto, tono = '') => {
+  el.estado.textContent = texto
+  el.estado.dataset.tono = tono
+}
+
+const avanzar = fraccion => { el.progreso.style.width = `${Math.min(1, Math.max(0, fraccion)) * 100}%` }
+
+const resumen = resultado => {
+  const config = resultado.config ?? {}
+  return `${config.capa ?? '—'} · N ${ENTERO.format(config.n ?? 0)} · semilla ${config.semilla ?? 0} · ${resultado.a?.fases?.length ?? 0} fases`
+}
+
+const medir = async () => {
+  const { correr } = await import('./runtime/harness.js')
+  const [moduloA, moduloB] = await Promise.all([
+    cargarModulo(el.backendA.value, 'A'),
+    cargarModulo(el.backendB.value, 'B'),
+  ])
+  const n       = Math.max(1, Math.round(Number(el.n.value) || 0))
+  const semilla = Math.round(Number(el.semilla.value) || 0)
+  const onProgreso = evento => {
+    Number.isFinite(evento?.progreso) && avanzar(evento.progreso)
+    evento?.fase && anunciar(`Fase: ${evento.fase}`)
+  }
+  return correr({ elA: el.stageA, elB: el.stageB, moduloA, moduloB, n, semilla, onProgreso })
+}
+
+const ejecutar = async () => {
+  if (!el.backendA.value || !el.backendB.value) return anunciar('No hay backends en bench/backends/.', 'error')
+
+  el.panel.disabled = true
+  avanzar(0)
+  anunciar('Cargando módulos…')
+
+  const resultado = await medir().catch(error => error)
+  el.panel.disabled = false
+
+  if (resultado instanceof Error) {
+    avanzar(0)
+    console.error(resultado)
+    return anunciar(`Falló: ${resultado.message}`, 'error')
+  }
+
+  ultimo = resultado
+  el.copiar.disabled = false
+  el.exportar.disabled = false
+  avanzar(1)
+  renderTabla(resultado)
+  anunciar(resumen(resultado))
+}
+
+const json = () => JSON.stringify(ultimo, null, 2)
+
+const descargar = () => {
+  const config = ultimo.config ?? {}
+  const enlace = document.createElement('a')
+  enlace.href = URL.createObjectURL(new Blob([json()], { type: 'application/json' }))
+  enlace.download = `bench-${config.capa ?? 'capa'}-n${config.n ?? 0}-s${config.semilla ?? 0}.json`
+  enlace.click()
+  URL.revokeObjectURL(enlace.href)
+}
+
+/* ── cableado ───────────────────────────────────────────────────────── */
+
+const sincronizarPresets = () => el.presets.querySelectorAll('button')
+  .forEach(boton => boton.setAttribute('aria-pressed', String(Number(boton.dataset.n) === Number(el.n.value))))
+
+const refrescarUnidad = () => { el.unidad.textContent = UNIDAD_N[el.capa.value] ?? '—' }
+
+el.presets.addEventListener('click', evento => {
+  const boton = evento.target.closest('button')
+  if (!boton) return
+  el.n.value = boton.dataset.n
+  sincronizarPresets()
+})
+
+el.capa.addEventListener('change', () => {
+  poblarBackends()
+  refrescarUnidad()
+  rotularAmbos()
+})
+
+el.n.addEventListener('input', sincronizarPresets)
+el.backendA.addEventListener('change', () => rotular(el.backendA, el.rotuloA))
+el.backendB.addEventListener('change', () => rotular(el.backendB, el.rotuloB))
+el.correr.addEventListener('click', ejecutar)
+el.exportar.addEventListener('click', descargar)
+el.copiar.addEventListener('click', () => navigator.clipboard.writeText(json())
+  .then(() => anunciar('JSON copiado al portapapeles.'), () => anunciar('No se pudo copiar.', 'error')))
+
+poblarCapas()
+poblarBackends()
+refrescarUnidad()
+sincronizarPresets()
+renderTabla(null)
+rotularAmbos()
+
+el.correr.disabled = CAPAS.length === 0
+CAPAS.length || anunciar('No hay backends en bench/backends/.', 'error')
+</script>
+</body>
+</html>

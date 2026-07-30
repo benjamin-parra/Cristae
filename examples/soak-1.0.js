@@ -4,7 +4,6 @@
 // edición reactiva y fit=all. NO es lib code — es una herramienta de QC visual (examples/). Cada control
 // escribe en el log lo que hay que ver, para validar a ojo. Servido por vite (imports ESM de la lib real).
 
-/* global window, document, setInterval, requestAnimationFrame */
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { MapEngine, shapePresetIconSet, createSource } from '../src/index.js'

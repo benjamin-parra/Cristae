@@ -4,8 +4,8 @@
 // agrega un vértice en el midpoint; (4) el modo draw agrega puntos al recibir un click de mapa y captura
 // un punto vía el handler expuesto; (5) destroy limpia handles y listeners.
 //
-// El harness (engine-stub) shimea window/document — se importa PRIMERO. makeLeaflet no trae marker/divIcon
-// (sólo lo que el fold de cluster toca), así que se EXTIENDE localmente acá (sin tocar engine-stub.mjs).
+// El harness (engine-stub) shimea window/document — se importa PRIMERO. Su `L` ya trae marker/divIcon y
+// el log de creaciones (`L.log.markers`, en orden), que es por donde el test dispara los handlers.
 
 import './../../test-helpers/engine-stub.mjs'
 import { makeMap, makeLeaflet } from '../../test-helpers/engine-stub.mjs'
@@ -13,37 +13,12 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { EditableGeometry } from '../../src/render/EditableGeometry.js'
 
-/* ── Extensión local del stub de Leaflet: marker draggable + divIcon + registro de markers ── */
-
-// `created` recolecta todos los markers creados (en orden de creación) para que el test dispare sus
-// handlers (drag/dblclick/click) como lo haría Leaflet. Cada marker guarda su latlng y sus listeners.
+// `created` es el array VIVO de markers del stub: la capa los va apilando y el test dispara sus
+// handlers (drag/dblclick/click) como lo haría Leaflet ante el gesto real.
 const makeEditLeaflet = () => {
-  const base = makeLeaflet()
-  const created = []
-  const L = {
-    ...base,
-    divIcon: (opts) => ({ _icon: true, ...opts }),
-    marker(latlng, opts = {}) {
-      const m = {
-        _ll: toLatLng(latlng),
-        _opts: opts,
-        _h: new Map(),
-        _removed: false,
-        on(type, cb) { (m._h.get(type) ?? m._h.set(type, []).get(type)).push(cb); return m },
-        fire(type, e) { (m._h.get(type) ?? []).forEach(cb => cb(e)); return m },
-        getLatLng: () => m._ll,
-        setLatLng(ll) { m._ll = toLatLng(ll); return m },
-        addTo(group) { group.addLayer?.(m); return m },
-        remove() { m._removed = true },
-      }
-      created.push(m)
-      return m
-    },
-  }
-  return { L, created }
+  const L = makeLeaflet()
+  return { L, created: L.log.markers }
 }
-
-const toLatLng = (ll) => (Array.isArray(ll) ? { lat: ll[0], lng: ll[1] } : { lat: ll.lat, lng: ll.lng })
 
 // Un polígono cuadrado (anillo simple, sin cerrar): 4 vértices → 4 midpoints.
 const SQUARE = [[0, 0], [0, 10], [10, 10], [10, 0]]
@@ -89,7 +64,7 @@ test('dblclick borra el vértice pero respeta el mínimo (≥3 en polígono)', (
   assert.equal(changes[0].length, 3, 'quedan 3 vértices')
 
   // Tras el rebuild los primeros 3 markers son los vértices vivos; borrar uno más caería a 2 → se ignora.
-  const liveVertices = created.filter(m => !m._removed && m._opts.draggable).slice(-3)
+  const liveVertices = created.filter(m => !m.removed && m.opts.draggable).slice(-3)
   liveVertices[0].fire('dblclick', {})
   assert.equal(changes.length, 1, 'no baja del mínimo topológico (sigue en 1 emisión)')
   assert.deepEqual(ed.getValue().length, 3, 'la geometría sigue con 3 vértices')
@@ -103,7 +78,7 @@ test('click en un midpoint inserta un vértice en la arista', () => {
   const ed = new EditableGeometry({ L, kind: 'polygon', value: SQUARE, map: makeMap(), onChange: g => changes.push(g) })
 
   // Los midpoints son los handles no-draggable; el del segmento 0 une [0,0]-[0,10] → [0,5].
-  const mids = created.filter(m => !m._opts.draggable)
+  const mids = created.filter(m => !m.opts.draggable)
   assert.deepEqual(mids[0].getLatLng(), { lat: 0, lng: 5 }, 'midpoint del segmento 0')
   mids[0].fire('click', {})
 
@@ -171,7 +146,7 @@ test('setValue reconstruye los handles: una edición posterior sí emite', () =>
   assert.equal(changes.length, 0, 'setValue seguía sin emitir')
 
   // Los últimos 3 markers draggables vivos son los vértices del path nuevo; arrastramos el del medio.
-  const vertices = created.filter(m => !m._removed && m._opts.draggable).slice(-3)
+  const vertices = created.filter(m => !m.removed && m.opts.draggable).slice(-3)
   vertices[1].setLatLng([7, 7])
   vertices[1].fire('drag', {})
 
@@ -219,7 +194,7 @@ test('polígono multi-anillo: edita un vértice y conserva ambos anillos (forma 
 
   // Cada anillo emite sus vértices y LUEGO sus midpoints; los vértices draggables en orden son
   // externo[0..3] + interno[0..3]. El 5º vértice draggable es el primer vértice del anillo interno.
-  const vertices = created.filter(m => m._opts.draggable)
+  const vertices = created.filter(m => m.opts.draggable)
   const innerV0 = vertices[4]
   assert.deepEqual(innerV0.getLatLng(), { lat: 2, lng: 2 }, 'primer vértice del anillo interno')
   innerV0.setLatLng([9, 9])
