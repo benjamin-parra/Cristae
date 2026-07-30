@@ -13,23 +13,65 @@ Cualquier número que aparezca más abajo y contradiga esta tabla está superado
 
 | Parámetro | Valor | Consecuencia |
 | --- | --- | --- |
-| Destino de picking | `RGBA8` (sin gemelo ESSL3) | `obj + chunk` comparten 16 bits: es la restricción que ata todo lo demás |
-| Reparto `A:B` | **14 / 2** | 16.384 objetos · 4 chunks |
-| Índice local `R:G` | 16 bits | 65.536 **entradas** por chunk |
-| Entrelazado | par = vértice · impar = midpoint | ⇒ 32.768 **vértices** por chunk |
-| **C (capacidad de chunk)** | **32.768 vértices — el máximo** | Forzado por el reparto: con C=512 el techo caería a 2.048 vértices/objeto |
-| **Techo por objeto** | **131.072 vértices** | `4 chunks × 32.768` |
+| Destino de picking | `RGBA8` (sin gemelo ESSL3) | 32 bits a repartir entre los tres ejes |
+| **Reparto `objeto / chunk / local`** | **14 / 6 / 12** | 16.384 objetos · 64 chunks · 4.096 entradas |
+| Entrelazado | par = vértice · impar = midpoint | ⇒ **2.048 vértices** por chunk |
+| **Techo por objeto** | **131.072 vértices** | `64 × 2.048` |
+| Insertar / borrar | memmove ≤ 16 KB | media hoja; a ritmo humano, no por frame |
+| Arrastrar | O(1) | una escritura de un texel, independiente de C |
+| Draws peor caso | 64 por objeto | culleables por bbox; en zoom-out se dibujan todos |
 
-La relación es `vértices por objeto = 2^bits_de_chunk × C`, así que **el tamaño de chunk no se elige
-por separado del reparto de bits**: más bits de chunk dan más capacidad *y* chunks más chicos (e
-inserciones más baratas), a costa de objetos. 14/2 privilegia generalidad de objetos.
+🔴 **La capacidad depende SÓLO de los bits de objeto**, no del reparto entre chunk y local:
 
-Qué cuesta C al máximo: insertar o borrar un vértice desplaza media hoja ⇒ memmove acotado de
-~256 KB. **No toca el arrastre**, que es O(1) (una escritura de un texel) independientemente de C —
-el costo de C sólo aparece en ediciones estructurales, que ocurren a ritmo humano y no por frame.
+```
+vértices/objeto = 2^chunk_bits × 2^(local_bits − 1) = 2^(31 − obj_bits)
+```
 
-Alternativa registrada por si un caso tensa el techo: **12 / 4** con C = 8.192 ⇒ 4.096 objetos ×
-524.288 vértices, con inserciones de ~64 KB.
+Robarle bits al índice local para dárselos al chunk es un reequilibrio **gratis**: no cambia el techo,
+sólo hace los chunks más chicos (inserciones más baratas) a costa de más draw calls. Con `obj = 14`
+cualquiera de estos da los mismos 131.072 vértices por objeto:
+
+| chunk / local | Chunks | Vértices/chunk | Insertar | Draws |
+| --- | ---: | ---: | ---: | ---: |
+| 2 / 16 | 4 | 32.768 | 256 KB | 4 |
+| **6 / 12** | **64** | **2.048** | **16 KB** | **64** |
+| 8 / 10 | 256 | 512 | 4 KB | 256 |
+
+**Empaquetado.** Los campos NO calzan en bytes, pero objeto y chunk son *uniform*: la CPU
+pre-empaqueta y al fragment le queda una sola suma, exacta porque ambos sumandos son múltiplos de
+1/255 y la CPU garantiza que no desborden:
+
+```glsl
+gl_FragColor = vec4(vColor.b, vColor.a + uPickTag.x, uPickTag.y, uPickTag.z)
+```
+
+Consecuencia: el objeto ya no vive entero en alfa, así que **`alpha === 0` deja de significar «nada»**
+(falla para los objetos 1..63). Se reemplaza por `word === 0` sobre los cuatro bytes combinados —
+gratis, porque el decode ya los combina para desempaquetar.
+
+Alternativa registrada por si un caso tensa el techo: **12 / 6 / 14** ⇒ 4.096 objetos × 524.288
+vértices, con chunks de 8.192 vértices.
+
+## Cruce de chunks — la familia de casos límite
+
+El entrelazado define impar = midpoint del segmento que **arranca** en ese vértice, así que el
+midpoint del segmento que **llega** al vértice activo pertenece al par del vértice ANTERIOR, que
+puede vivir en otro chunk. **Un solo arrastre escribe en hasta dos chunks**, aun sin activar nada.
+
+🔴 Por eso la firma `moveVertex(objectId, chunkId, index, x, y)` NO alcanza: hay que resolver por la
+lista enlazada y agrupar las escrituras por chunk.
+
+- **Extremos de trazo abierto** — el primero no tiene `prev`, el último no tiene `next`: se activan
+  2 handles, no 3.
+- **Anillo cerrado** — el `prev` del primero es el último, en el chunk más lejano del arena. Ahí el
+  cruce es garantizado, no eventual.
+- **Culling** — la escritura que apaga o prende el sprite de un adyacente NO puede condicionarse a
+  que su chunk esté visible. Con un segmento largo a zoom alto el vecino queda fuera de pantalla, su
+  chunk se cullea del dibujo, y saltear la escritura deja el sprite pegado en el estado anterior: un
+  fantasma que sólo aparece al alejar.
+
+El relleno no participa de esto: su textura de posiciones es por OBJETO y no ve fronteras de chunk.
+El cruce es exclusivo del batching de dibujo y del picking.
 
 ## Decisiones de diseño
 
