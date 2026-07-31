@@ -13,6 +13,30 @@
 // real NO se usa en el fold (L va inyectado por makeLeaflet). Mismo `document` sirve para el canvas que
 // rasteriza defineClusterIconSet. El test importa este helper ANTES que MapEngine, así el shim ya está.
 
+/* ── Registro de nodos DOM (alimenta el presupuesto; ver contadorNodos abajo) ── */
+
+// El harness no monta nodos: los DECLARA. Dos entradas alimentan el registro y el contador no distingue
+// cuál — el `document` del shim (todo lo que sale de createElement/createElementNS) y los dobles de
+// Leaflet, donde un `L.marker` es el div de su icono y un path vectorial es su <path>. Por eso el
+// presupuesto no miente cuando una capa deja de usar `L.marker`: si pasa a colgar nodos por su cuenta los
+// cuenta igual, y si no cuelga ninguno mide 0 sin que haya que tocar el test.
+const registro = { serie: 0, muertes: [] }
+
+// Un nodo nace numerado y devuelve su baja, idempotente (quitarlo dos veces no descuenta dos).
+const nodoDom = () => {
+  const serie = registro.serie++
+  let vivo = true
+  return () => { vivo && registro.muertes.push(serie); vivo = false }
+}
+
+// Elemento del `document` del shim: no-op salvo lo que las capas tocan, más su baja.
+const elemento = (base = {}) => Object.assign(base, {
+  style:  base.style ?? {},
+  remove: nodoDom(),
+  setAttribute() {}, appendChild() {}, addEventListener() {}, removeEventListener() {},
+  removeChild(hijo) { hijo?.remove?.() },
+})
+
 const NOOP_CTX = new Proxy({}, { get: () => () => {}, set: () => true })
 const makeCanvas = () => ({ width: 0, height: 0, style: {}, getContext: () => NOOP_CTX })
 
@@ -20,10 +44,8 @@ if (!globalThis.window) {
   const doc = {
     documentElement: { style: {} },
     body: { style: {} },
-    createElement: (tag) => (String(tag).toLowerCase() === 'canvas'
-      ? makeCanvas()
-      : { style: {}, setAttribute() {}, appendChild() {}, addEventListener() {}, removeEventListener() {} }),
-    createElementNS: () => ({ style: {}, setAttribute() {} }),
+    createElement: (tag) => elemento(String(tag).toLowerCase() === 'canvas' ? makeCanvas() : {}),
+    createElementNS: () => elemento(),
     addEventListener() {}, removeEventListener() {},
   }
   const win = {
@@ -269,6 +291,7 @@ export const makeLeaflet = () => {
   // Molde único de path vectorial: expone TODOS los mutadores de path y cada capa usa los suyos
   // (polygon → setLatLngs, circle → setLatLng/setRadius) contra los mismos campos.
   const path = (tipo, { latlngs = null, latlng = null, opts = {} }) => {
+    const morir = nodoDom()
     const p = {
       tipo, opts, latlngs, latlng,
       style:   { ...opts },
@@ -283,7 +306,7 @@ export const makeLeaflet = () => {
       getLatLng:  () => p.latlng,
       getRadius:  () => p.radius,
       addTo(g) { g.addLayer?.(p); return p },
-      remove()  { p.removed = true },
+      remove()  { p.removed = true; morir() },
     }
     log.paths.push(p)
     return p
@@ -293,6 +316,7 @@ export const makeLeaflet = () => {
   // (drag / dragend / dblclick / click), que es como el test ejerce una edición.
   const marker = (latlng, opts = {}) => {
     const handlers = new Map()
+    const morir = nodoDom()
     const m = {
       opts, handlers,
       latlng:  toLatLng(latlng),
@@ -306,7 +330,7 @@ export const makeLeaflet = () => {
       setOpacity(o) { m.setOpacityCalls++; m.opacity = o;            return m },
       getLatLng: () => m.latlng,
       addTo(g) { g.addLayer?.(m); return m },
-      remove()  { m.removed = true },
+      remove()  { m.removed = true; morir() },
     }
     log.markers.push(m)
     return m
@@ -328,13 +352,15 @@ export const makeLeaflet = () => {
     rectangle: (bounds,  opts) => path('rectangle', { latlngs: bounds, opts }),
     circle:    (latlng,  opts) => path('circle',    { latlng: toLatLng(latlng), opts }),
     layerGroup: (iniciales = [], opts = {}) => {
+      // Vaciar el grupo —o quitarlo del mapa— da de baja los nodos de sus hijos, como el onRemove real.
+      const vaciar = () => { g.layers.forEach(l => l.remove?.()); g.layers.length = 0 }
       const g = {
         opts,
         layers: [...iniciales],
         addTo: () => g,
-        addLayer(l)   { log.addLayer++;    g.layers.push(l);    return g },
-        clearLayers() { log.clearLayers++; g.layers.length = 0; return g },
-        remove() {},
+        addLayer(l)   { log.addLayer++;    g.layers.push(l); return g },
+        clearLayers() { log.clearLayers++; vaciar();         return g },
+        remove: vaciar,
       }
       return g
     },
@@ -362,16 +388,27 @@ export const makeLeaflet = () => {
   }
 }
 
-// Presupuesto de NODOS sobre el log de un `L`: `markers` son nodos DOM (uno por ítem en las capas que
-// no llegaron a la GPU), `paths` son paths SVG de Leaflet, `elementos` es el total que el navegador
-// tiene que mantener vivo por esa capa. Es la contraparte barata del banco: mide la COTA estructural
-// —cuántos nodos cuesta un set— sin navegador, sin reloj y sin medirse a sí misma.
-export const contadorCreaciones = ({ log }) => ({
-  get markers()   { return log.markers.length },
-  get paths()     { return log.paths.length },
-  get elementos() { return log.markers.length + log.paths.length },
-  reset() {
-    log.markers.length = log.paths.length = log.icons.length = 0
-    log.clearLayers = log.addLayer = 0
-  },
-})
+// Presupuesto de nodos DOM en DOS ejes, porque contestan preguntas distintas y ninguno implica al otro:
+//   · `vivos` (ESTADO) — cuántos nodos mantiene vivos el navegador AHORA por culpa de la capa; es lo que
+//     se paga mientras la pantalla está abierta.
+//   · `creados` / `destruidos` (FLUJO) — el trabajo de DOM que costó llegar hasta acá. Crear y tirar 800
+//     nodos por edición deja `vivos` clavado y cuesta lo mismo que tenerlos: sólo el flujo lo ve.
+// `vivos` se mide contra el origen del contador, que NO se mueve; el flujo contra la última `marcar()`,
+// para aislar el costo de un gesto sin perder el estado acumulado. Medir desde el origen en vez de en
+// absoluto es lo que impide que un test herede los nodos que otro dejó montados.
+// Es la contraparte barata del banco: mide la COTA estructural sin navegador, sin reloj y sin medirse a
+// sí misma. La NATURALEZA de cada nodo no es asunto suyo (por eso no miente) — para eso está `L.log`.
+export const contadorNodos = () => {
+  const origen = registro.serie
+  let marca = origen, marcaBajas = registro.muertes.length
+  // La asimetría es a propósito: `vivos` cuenta las bajas de los nodos NACIDOS desde el origen, y el
+  // flujo cuenta las bajas OCURRIDAS desde la marca —hayan nacido cuando hayan nacido—, porque un
+  // rebuild tira los de la vuelta anterior y ese trabajo es justamente lo que se quiere ver.
+  const bajasDelOrigen = () => registro.muertes.filter(m => m >= origen).length
+  return {
+    get vivos()      { return registro.serie - origen - bajasDelOrigen() },
+    get creados()    { return registro.serie - marca },
+    get destruidos() { return registro.muertes.length - marcaBajas },
+    marcar() { marca = registro.serie; marcaBajas = registro.muertes.length },
+  }
+}
