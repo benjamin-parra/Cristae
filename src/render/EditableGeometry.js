@@ -391,10 +391,11 @@ export class EditableGeometry {
     if (!t || h.ref < 0) return
     const rol = t.path.roleAt(h.ref)
     consumir(e)
-    // El midpoint no arrastra: la pulsación lo promueve a vértice y ahí termina el gesto. Su dueño es el
-    // vértice de la entrada anterior — el midpoint describe el segmento que ARRANCA en él.
-    if (rol === ROLE.midpoint) return this.#onMidInsert(t, h.ref - 1)
-    if (rol === ROLE.vertex) this.#beginInteraction(t, h.ref, e, p)
+    // El midpoint se agarra DIRECTO: la pulsación lo vuelve vértice y el MISMO gesto lo arrastra, sin
+    // soltar. Su dueño es el vértice de la entrada anterior — el midpoint describe el segmento que ARRANCA
+    // en él—, y el vértice nuevo nace bajo el cursor, así que el offset de agarre sale solo.
+    const ref = rol === ROLE.midpoint ? this.#onMidInsert(t, h.ref - 1) : rol === ROLE.vertex ? h.ref : -1
+    ref >= 0 && this.#beginInteraction(t, ref, e, p)
   }
 
   #onPointerMove = e => {
@@ -681,18 +682,19 @@ export class EditableGeometry {
   }
 
   // Insertar vértice en el midpoint del segmento que ARRANCA en `ref` (promueve el punto de arista a
-  // vértice real). El vértice nuevo nace donde estaba el midpoint —bajo el cursor—, así que la caché
-  // pasa a apuntarlo: la pulsación siguiente sobre el mismo píxel lo agarra a él y no vuelve a insertar.
+  // vértice real) y devolver su ref, o -1 si el kind no crece. El vértice nuevo nace donde estaba el
+  // midpoint —bajo el cursor—, así que la caché pasa a apuntarlo: la pulsación siguiente sobre el mismo
+  // píxel lo agarra a él y no vuelve a insertar.
   #onMidInsert(t, ref) {
-    if (!CRECEN.has(this.#kind)) return false
+    if (!CRECEN.has(this.#kind)) return -1
     const mid   = t.path.midOf(ref)
     const nuevo = t.path.insertAfter(ref, t.path.xAt(mid), t.path.yAt(mid))
-    if (nuevo < 0) return false
+    if (nuevo < 0) return -1
     this.#espejar(t, false)
     this.#settle()
     const h = this.#hover
     this.#cachear(t.orden, nuevo, h.x, h.y)
-    return true
+    return nuevo
   }
 
   // Trazado de rectángulo: primer click fija una esquina; el segundo cierra el bounds contra ella.

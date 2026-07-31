@@ -222,6 +222,23 @@ test('pulsar un midpoint inserta un vértice en la arista', () => {
   esc.ed.destroy()
 })
 
+// Sin esto el midpoint cuesta dos gestos: uno que inserta y otro que agarra el vértice recién nacido.
+test('el midpoint se agarra directo: la pulsación lo vuelve vértice y el MISMO gesto lo arrastra', () => {
+  const esc  = montar({ kind: 'polygon', value: SQUARE })
+  const path = esc.ed.paths[0]
+
+  tomar(esc, path.midOf(refsDe(path)[0]))
+  mover(esc, 7, 3)
+  soltar(esc)
+
+  const geom = esc.ed.getValue()
+  assert.equal(geom.length, 5, 'insertó UN vértice, no uno por muestra del arrastre')
+  assert.deepEqual(geom[1], [7, 3], 'y el arrastre siguió sobre él sin soltar: no quedó en el midpoint')
+  assert.equal(esc.commits.length, 2, 'la inserción asienta, y el arrastre asienta al soltar')
+
+  esc.ed.destroy()
+})
+
 test('modo draw: click de mapa agrega puntos y el handler expuesto captura un punto', () => {
   const esc = montar({ kind: 'polyline', value: [], mode: 'draw' })
 
