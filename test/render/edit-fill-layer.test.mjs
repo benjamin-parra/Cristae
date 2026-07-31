@@ -475,6 +475,20 @@ test('sin anillos no dibuja, y el contorno fuera de pantalla tampoco', () => {
   assert.ok(!escena.gl.log.some(({ op }) => op === 'drawArrays'), 'y no encendió el scissor para nada')
 })
 
+test('la cobertura pinta con el color del estilo, y restilar no le habla a la GPU', () => {
+  const escena = montar([cuadrado(24, 0.02)])
+  const capa   = new EditFillLayer({ gl: escena.gl, rings: escena.rings, color: '#f59e0b', opacity: 0.2 })
+  const color  = log => log.find(({ op }) => op === 'uColor').args
+
+  assert.deepEqual(color(dibujar({ ...escena, capa })), [0xf5 / 255, 0x9e / 255, 0x0b / 255, 0.2])
+
+  escena.gl.log.length = 0
+  capa.style({ color: '#2563eb' })
+  assert.equal(escena.gl.log.length, 0, 'el color es un uniform del próximo draw: restilar no dibuja ni sube nada')
+  assert.deepEqual(color(dibujar({ ...escena, capa })), [0x25 / 255, 0x63 / 255, 0xeb / 255, 0.2],
+    'estilo PARCIAL: la opacidad que no vino queda como estaba')
+})
+
 /* ── El harness no miente ── */
 
 test('la rejilla toca las tres regiones, y el oráculo reconoce la corona', () => {

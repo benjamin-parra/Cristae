@@ -53,10 +53,21 @@ const contenedor = () => {
 
 const conDomUtil = L => ({ ...L, DomUtil: { ...L.DomUtil, setPosition: () => {} } })
 
-const montar = ({ kind = 'polygon', value = null, mode = 'edit', dpr = 1 } = {}) => {
+// El doble de gl devuelve `{}` por cada localización, así que las capas son indistinguibles por sus
+// uniforms. Etiquetarlas con el NOMBRE deja leer con qué color dibujó cada una.
+const conUniformes = (gl, pintado) => new Proxy(gl, {
+  get: (t, p) =>
+    p === 'getUniformLocation' ? (_program, nombre) => ({ nombre })
+      : p === 'uniform4f'      ? (loc, ...rgba) => pintado.set(loc.nombre, rgba)
+        : p === 'uniform4fv'   ? (loc, rgba) => pintado.set(loc.nombre, [...rgba])
+          : t[p],
+})
+
+const montar = ({ kind = 'polygon', value = null, mode = 'edit', dpr = 1, style, pintado } = {}) => {
   const spy = makePickSpy()
   spy.tileVacio = TILE_VACIO
   glVigente = makeEditGl(spy, makeSurface({ dpr }))
+  pintado && (glVigente = conUniformes(glVigente, pintado))
   const container = contenedor()
   // El gesto es NUESTRO mientras dura, así que apaga el arrastre del mapa; el doble deja ver que lo
   // devuelve por todos los caminos de salida (soltar, y también los cortes de afuera).
@@ -64,7 +75,7 @@ const montar = ({ kind = 'polygon', value = null, mode = 'edit', dpr = 1 } = {})
   const map       = { ...makeMap(), getContainer: () => container, dragging }
   const changes   = [], commits = []
   const ed = new EditableGeometry({
-    L: conDomUtil(makeLeaflet()), map, pane: 'edit', kind, value, mode,
+    L: conDomUtil(makeLeaflet()), map, pane: 'edit', kind, value, mode, style,
     onChange: g => changes.push(g), onCommit: g => commits.push(g),
   })
   return { ed, kind, map, container, dragging, spy, changes, commits, punto: [0, 0] }
@@ -288,6 +299,25 @@ test('ingest descarta coordenadas no-finitas (NaN / Infinity / undefined)', () =
   const rect = montar({ kind: 'rectangle', value: [[0, 0], [Infinity, 10]] })
   assert.equal(rect.ed.getValue(), null, 'un rectangle con esquina no-finita degenera a null')
   rect.ed.destroy()
+})
+
+// El editor DIBUJA la geometría, así que el estilo es suyo: sin esto habría que atarle una capa de
+// display al mismo value y se verían las dos, superpuestas.
+test('el estilo llega al relleno y al contorno, y restilar no rehace la geometría', () => {
+  const RING    = [[0, 0], [0, 10], [10, 10], [10, 0]]
+  const pintado = new Map()
+  const esc     = montar({ value: RING, pintado, style: { color: '#f59e0b', weight: 2, fillColor: '#f59e0b', fillOpacity: 0.2 } })
+  const naranjo = [0xf5 / 255, 0x9e / 255, 0x0b / 255]
+
+  assert.deepEqual(pintado.get('uColor'), [...naranjo, 0.2], 'el relleno')
+  assert.deepEqual(pintado.get('color'), [...naranjo, 1], 'y el contorno')
+
+  esc.ed.setStyle({ fillColor: '#2563eb' })
+  assert.deepEqual(pintado.get('uColor'), [0x25 / 255, 0x63 / 255, 0xeb / 255, 0.2], 'estilo PARCIAL: la opacidad que no vino queda')
+  assert.deepEqual(pintado.get('color'), [...naranjo, 1], 'y lo que no se nombró tampoco se movió')
+  assert.deepEqual(esc.ed.getValue(), RING, 'restilar es un uniform, no una reingesta')
+
+  esc.ed.destroy()
 })
 
 /* ── Multi-anillo (paths enteros), en forma par y en forma objeto ── */

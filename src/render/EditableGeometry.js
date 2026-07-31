@@ -39,6 +39,10 @@ const KINDS        = new Set(['polygon', 'rectangle', 'polyline', 'point'])
 const CERRADOS     = new Set(['polygon', 'rectangle'])   // el trazo cierra el anillo, y por eso se rellena
 const CRECEN       = new Set(['polygon', 'polyline'])    // la cantidad de vértices la decide el usuario
 
+// El editor DIBUJA la geometría, así que hereda el vocabulario de estilo de las capas de display que
+// reemplaza (`PolygonLayer`/`LineLayer`): las mismas claves que ya escribe un `styleOf`.
+const ESTILO = { color: '#2563eb', weight: 3, fillColor: '#6366f1', fillOpacity: 0.42 }
+
 const PANE  = 'cristae-edit'
 const CAPTU = { capture: true }
 
@@ -119,6 +123,7 @@ export class EditableGeometry {
   #simpleRing = true                       // polygon: recordar si la entrada era anillo simple (para la salida)
   #drawAnchor = null                       // rectangle draw: primera esquina fijada por click
   #fill       = null                       // relleno: uno solo, porque el XOR entre anillos es lo que abre el hueco
+  #style      = null                       // el vocabulario Leaflet del display que el editor reemplaza
   #paths      = []                         // ChunkedPath por índice de trazo, REUSADOS entre ingestas
   #trazos     = []                         // { orden, path, arena, picking, handles, stroke, bank }
   #panePropio = false                      // el pane es de los editores, así que se devuelve en destroy
@@ -143,8 +148,9 @@ export class EditableGeometry {
   #punto    = [0, 0]                       // el píxel que se convierte a latlng por frame; Leaflet sólo desarma arrays
   #esquina  = [0, 0]                       // la esquina que devuelve el arrastre de rectángulo
 
-  constructor({ L, map, pane, kind = 'polygon', value = null, mode = 'edit', onChange, onCommit } = {}) {
+  constructor({ L, map, pane, kind = 'polygon', value = null, mode = 'edit', style, onChange, onCommit } = {}) {
     if (!KINDS.has(kind)) throw new Error(`EditableGeometry: kind inválido "${kind}"`)
+    this.#style      = { ...ESTILO, ...style }
     this.#L          = L
     this.#map        = map
     this.#pane       = pane ?? PANE
@@ -156,7 +162,7 @@ export class EditableGeometry {
     this.#surface    = new EditSurface({ L, map, pane: this.#pane })
     this.#gl         = this.#surface.attach()
     this.#iconSet    = defineEditIconSet()
-    this.#fill       = CERRADOS.has(kind) ? new EditFillLayer({ gl: this.#gl, rings: this.#trazos }) : null
+    this.#fill       = CERRADOS.has(kind) ? new EditFillLayer({ gl: this.#gl, rings: this.#trazos, color: this.#style.fillColor, opacity: this.#style.fillOpacity }) : null
     this.#geom       = this.#ingest(value)
     this.#mode       = mode
     this.#map.on('moveend zoomend resize', this.#onView)
@@ -187,6 +193,14 @@ export class EditableGeometry {
     mode === 'draw' && this.#attachMap()
     mode === 'edit' && this.#attachPointer()
     this.#promover(-1, -1)
+    this.#draw()
+  }
+
+  // Restilar no toca la GPU: los dos colores y el ancho son uniforms. Parcial — lo que no venga, queda.
+  setStyle(style) {
+    Object.assign(this.#style, style)
+    this.#fill?.style({ color: this.#style.fillColor, opacity: this.#style.fillOpacity })
+    this.#trazos.forEach(t => t.stroke.style({ width: this.#style.weight, color: this.#style.color }))
     this.#draw()
   }
 
@@ -730,7 +744,7 @@ export class EditableGeometry {
     handles.pickObject = orden + 1
     return {
       orden, path, arena, picking, handles,
-      stroke : new EditStrokeLayer({ gl, arena, path, project }),
+      stroke : new EditStrokeLayer({ gl, arena, path, project, width: this.#style.weight, color: this.#style.color }),
       bank   : new EditHandleDom({ L: this.#L, map: this.#map, pane: this.#pane, path, arena, project, iconSet }),
     }
   }

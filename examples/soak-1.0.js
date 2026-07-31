@@ -158,24 +158,15 @@ $('heatR').oninput = e => { heat.setRadius(+e.target.value); $('heatRv').textCon
 
 /* ── 5 · Edición reactiva (input controlado, Leaflet-native) ─────────────────────────────────────
    Verificar: arrastrar un vértice / clic en punto medio (inserta) / dblclick (borra) emiten onChange;
-   el conteo de vértices se refleja en el log. */
-// El editor POSEE los handles (vértices/puntos medios) pero NO dibuja la forma: el display se ata
-// afuera enlazando el MISMO value a una capa de polígono (así se ve el relleno mientras se edita).
-const editRing    = ring([-33.44, -70.598], 0.014)
-const editDisplay = [{ id: 'ed', rings: editRing, fill: '#f59e0b' }]
-const editSource  = createSource({
-  idOf:    p => p.id,
-  ringsOf: p => p.rings,
-  styleOf: p => ({ color: p.fill, weight: 2, fillColor: p.fill, fillOpacity: 0.2 }),
-})
-engine.addPolygonLayer({ id: 'edit-display', source: editSource, interactive: false })
-editSource.set(editDisplay)
+   el conteo de vértices se refleja en la barra de estado. */
+// El editor dibuja la geometría ENTERA en su propia superficie GL —relleno, contorno y handles—, así que
+// no se le ata una capa de display: se vería superpuesta. El estilo va por `style`, con las mismas claves
+// que un `styleOf` de PolygonLayer.
+const editRing = ring([-33.44, -70.598], 0.014)
 engine.addEditableLayer({
   id: 'edit-0', kind: 'polygon', value: editRing, mode: 'edit',
-  onChange: v => {
-    editDisplay[0].rings = v
-    editSource.patch(editDisplay, ['ed'])
-  },
+  style: { color: '#f59e0b', weight: 2, fillColor: '#f59e0b', fillOpacity: 0.2 },
+  onChange: v => ($('editN').textContent = v.length),
   onCommit: v => log(`edición commit → ${v.length} vértices (una vez, al soltar)`),
 })
 log('editable montado: arrastrá los vértices (blancos), clic en punto medio inserta, dblclick borra')

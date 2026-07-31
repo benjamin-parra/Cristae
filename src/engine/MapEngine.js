@@ -366,21 +366,24 @@ export class MapEngine {
   }
 
   /* ── Edición de geometría como INPUT CONTROLADO (Leaflet-native): value entra, cambios salen por
-       onChange. No es capa de Source; el DISPLAY se ata con addPolygonLayer/addLineLayer al mismo value. ── */
+       onChange. No es capa de Source, y DIBUJA la geometría entera —relleno, contorno y handles— en su
+       propia superficie GL: no se le ata un display aparte, que se vería superpuesto. `style` toma las
+       mismas claves que un `styleOf` de PolygonLayer/LineLayer. ── */
 
   addEditableLayer(cfg) {
-    const { id, kind = 'polygon', value = null, mode = 'edit', onChange, onCommit, pane, z } = cfg
+    const { id, kind = 'polygon', value = null, mode = 'edit', style, onChange, onCommit, pane, z } = cfg
     const order    = this.#order++
     const paneName = pane ?? `cristae-edit-${id}`
     const zIndex   = z ?? (BASE_Z + order * Z_STEP + LABEL_Z_OFFSET)   // handles por encima de las capas
     this.#ensurePane(paneName, zIndex, false)                          // markers interactivos → pane con puntero
-    const editor = new EditableGeometry({ L: this.#L, map: this.#map, pane: paneName, kind, value, mode, onChange, onCommit })
+    const editor = new EditableGeometry({ L: this.#L, map: this.#map, pane: paneName, kind, value, mode, style, onChange, onCommit })
     const record = { kind: 'editable', editor, paneName, zIndex, order, visible: true, enabled: true }
     this.#layers.set(id, record)
     return {
       id,
       setValue:       v => editor.setValue(v),
       setMode:        m => editor.setMode(m),
+      setStyle:       s => editor.setStyle(s),
       getValue:       () => editor.getValue(),
       handleMapClick: ll => editor.handleMapClick(ll),
       destroy:        () => this.removeLayer(id),

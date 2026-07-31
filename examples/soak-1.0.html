@@ -31,9 +31,7 @@
   .meta b { color: #cbd5e1; font-variant-numeric: tabular-nums; }
   #log { margin-top: 8px; padding-top: 8px; border-top: 1px solid #263043; white-space: pre-wrap;
     font: 10.5px/1.45 ui-monospace, Menlo, monospace; color: #94a3b8; max-height: 150px; overflow: auto; }
-  /* Handles del editor (divIcon sin CSS = invisibles) */
-  .cristae-edit-vertex { background: #fff; border: 2px solid var(--accent); border-radius: 50%; cursor: grab; }
-  .cristae-edit-midpoint { background: rgba(255,255,255,.55); border: 1px solid var(--accent); border-radius: 50%; cursor: copy; }
+  /* Los handles del editor los dibuja la GPU; el banco DOM del vecindario trae su sprite inline. */
 </style>
 </head>
 <body>
@@ -74,7 +72,7 @@
 
   <div class="card">
     <h2>5 · Edición reactiva</h2>
-    <p class="exp">Arrastrá los vértices blancos; clic en punto medio inserta; dblclick borra. onChange loguea el conteo.</p>
+    <p class="exp">Arrastrá los vértices blancos; clic en punto medio inserta; dblclick borra. El editor dibuja su relleno y su contorno: no lleva capa de display aparte.</p>
   </div>
 
   <div class="card">
@@ -83,7 +81,7 @@
     <div class="row"><button id="fit">fit=all</button><button id="leak">leak test ×20</button></div>
   </div>
 
-  <div class="meta"><span>zoom <b id="zoom">13</b></span><span>flota <b id="nfleet">250</b></span><span>hover <b id="hoverInfo">—</b></span></div>
+  <div class="meta"><span>zoom <b id="zoom">13</b></span><span>flota <b id="nfleet">250</b></span><span>hover <b id="hoverInfo">—</b></span><span>vértices <b id="editN">4</b></span></div>
   <div id="log"></div>
 </div>
 

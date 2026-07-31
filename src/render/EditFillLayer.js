@@ -14,6 +14,8 @@
 // parte en los tramos que quedan— y se dibujan aparte con la posición viva como uniform. La paridad
 // telescopa, así que quitarlas y sumarlas por separado da el mismo relleno, exacto.
 
+import { toRGBA } from './color.js'
+
 const BIT = 0x01                       // el relleno vive en el bit 0 del stencil
 
 const PRELUDIO = `#version 300 es
@@ -100,8 +102,10 @@ const crecer = arr => {
 export class EditFillLayer {
 
   rings                                 // [{ path, arena }] — el XOR de sus paridades abre los agujeros
-  color                                 // [r, g, b, a] en 0..1
 
+  #hex
+  #opacity
+  #rgba
   #gl
   #paridad
   #vivas
@@ -116,9 +120,8 @@ export class EditFillLayer {
   #rangos = 0
   #promo  = { ring: -1, vertex: -1, prev: -1, next: -1, x: 0, y: 0 }
 
-  constructor({ gl, rings = [], color = [0.39, 0.40, 0.95, 0.42] }) {
+  constructor({ gl, rings = [], color = '#6366f1', opacity = 0.42 }) {
     this.rings     = rings
-    this.color     = color
     this.#gl       = gl
     this.#vao      = gl.createVertexArray()
     this.#paridad  = programa(gl, VS_PARIDAD, FS_PARIDAD, ['uPos', 'uMatrix', 'uFirst', 'uEdges', 'uTail'])
@@ -128,6 +131,15 @@ export class EditFillLayer {
       gl.useProgram(u.program)
       gl.uniform1i(u.uPos, 0)           // las posiciones viajan siempre por la unidad 0
     })
+    this.style({ color, opacity })
+  }
+
+  // El color vive en un uniform: restilar no toca la GPU. Un hex con alpha propio manda sobre `opacity`.
+  style({ color = this.#hex, opacity = this.#opacity } = {}) {
+    this.#hex     = color
+    this.#opacity = opacity
+    this.#rgba    = toRGBA(color, opacity)
+    return this
   }
 
   // `drag` = { ring, vertex, x, y } con la posición viva en world0 px. Devuelve si dibujó: el contorno
@@ -290,7 +302,7 @@ export class EditFillLayer {
   }
 
   #cubrir() {
-    const gl = this.#gl, u = this.#cubierta, color = this.color
+    const gl = this.#gl, u = this.#cubierta, color = this.#rgba
     gl.useProgram(u.program)
     gl.colorMask(true, true, true, true)
     gl.enable(gl.BLEND)
