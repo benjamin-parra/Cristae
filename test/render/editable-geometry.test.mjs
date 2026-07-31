@@ -53,21 +53,21 @@ const contenedor = () => {
 
 const conDomUtil = L => ({ ...L, DomUtil: { ...L.DomUtil, setPosition: () => {} } })
 
-// El doble de gl devuelve `{}` por cada localización, así que las capas son indistinguibles por sus
-// uniforms. Etiquetarlas con el NOMBRE deja leer con qué color dibujó cada una.
-const conUniformes = (gl, pintado) => new Proxy(gl, {
-  get: (t, p) =>
-    p === 'getUniformLocation' ? (_program, nombre) => ({ nombre })
-      : p === 'uniform4f'      ? (loc, ...rgba) => pintado.set(loc.nombre, rgba)
-        : p === 'uniform4fv'   ? (loc, rgba) => pintado.set(loc.nombre, [...rgba])
-          : t[p],
-})
-
 const montar = ({ kind = 'polygon', value = null, mode = 'edit', dpr = 1, style, pintado } = {}) => {
   const spy = makePickSpy()
   spy.tileVacio = TILE_VACIO
   glVigente = makeEditGl(spy, makeSurface({ dpr }))
-  pintado && (glVigente = conUniformes(glVigente, pintado))
+  // El doble devuelve `{}` por cada localización, así que las capas son indistinguibles por sus uniforms.
+  // Etiquetarlas con el NOMBRE deja leer con qué color dibujó cada una.
+  if (pintado) {
+    const trampa = {
+      __proto__          : null,
+      getUniformLocation : (_program, nombre) => ({ nombre }),
+      uniform4f          : (loc, ...rgba) => pintado.set(loc.nombre, rgba),
+      uniform4fv         : (loc, rgba) => pintado.set(loc.nombre, [...rgba]),
+    }
+    glVigente = new Proxy(glVigente, { get: (t, p) => trampa[p] ?? t[p] })
+  }
   const container = contenedor()
   // El gesto es NUESTRO mientras dura, así que apaga el arrastre del mapa; el doble deja ver que lo
   // devuelve por todos los caminos de salida (soltar, y también los cortes de afuera).
@@ -617,6 +617,22 @@ test('el hover monta el vecindario —tres nodos— y salir lo devuelve entero',
   posar(vaciar(esc), 90, 90)
   assert.deepEqual({ vivos: nodos.vivos, destruidos: nodos.destruidos }, { vivos: 0, destruidos: 3 },
     'salir del handle los devuelve: en reposo el editor no cuelga un solo nodo por vértice')
+
+  esc.ed.destroy()
+})
+
+// El hover se cobra en la muestra SIGUIENTE, así que un vecindario que sobrevive al gesto queda atado a
+// que el puntero vuelva a moverse: se detiene tras soltar y la afordancia se queda encendida.
+test('soltar devuelve el vecindario: la afordancia no sobrevive al gesto', () => {
+  const esc   = montar({ kind: 'polygon', value: SQUARE })
+  const nodos = contadorNodos()
+
+  tomar(esc, refsDe(esc.ed.paths[0])[1])
+  mover(esc, 4, 4)
+  assert.equal(nodos.vivos, 3, 'durante el gesto el vecindario está montado')
+
+  soltar(esc)
+  assert.equal(nodos.vivos, 0, 'y al soltar se devuelve, sin esperar otra muestra del puntero')
 
   esc.ed.destroy()
 })

@@ -586,10 +586,13 @@ export class EditableGeometry {
   // El gesto termina: asienta y deja la caché apuntando al vértice soltado, que sigue bajo el cursor —y que
   // el pase sigue reconociendo, aunque el visual lo tenga apagado bajo su nodo—. Sin movimiento no hubo
   // edición: las dos pulsaciones de un doble click no pueden pasar por acá como si lo hubieran sido.
+  // El vecindario se devuelve acá: la afordancia describe el gesto, y el gesto terminó. El hover se cobra
+  // en la muestra SIGUIENTE, así que dejarlo prendido lo ata a que el puntero vuelva a moverse.
   #endInteraction(p) {
     const { t, ref, movido } = this.#releaseInteraction()
     movido && this.#commit()
     this.#cachear(t.orden, ref, p[0], p[1])
+    this.#promover(-1, -1)
     this.#draw()
   }
 

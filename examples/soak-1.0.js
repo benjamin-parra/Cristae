@@ -165,7 +165,7 @@ $('heatR').oninput = e => { heat.setRadius(+e.target.value); $('heatRv').textCon
 const editRing = ring([-33.44, -70.598], 0.014)
 engine.addEditableLayer({
   id: 'edit-0', kind: 'polygon', value: editRing, mode: 'edit',
-  style: { color: '#f59e0b', weight: 2, fillColor: '#f59e0b', fillOpacity: 0.2 },
+  style: { color: '#f59e0b', weight: 2, fillColor: '#f59e0b', fillOpacity: 0.35 },
   onChange: v => ($('editN').textContent = v.length),
   onCommit: v => log(`edición commit → ${v.length} vértices (una vez, al soltar)`),
 })
