@@ -20,6 +20,7 @@ import { readFile } from 'node:fs/promises'
 import { ChunkedPath } from '../../src/geometry/ChunkedPath.js'
 import { EditArena } from '../../src/render/EditArena.js'
 import { EditFillLayer } from '../../src/render/EditFillLayer.js'
+import { RingStore } from '../../src/render/RingStore.js'
 import { pointInPoly } from '../../src/geometry/polygon.js'
 
 // cap 31 · 15 parejas por chunk: un anillo de 48 vértices cruza varios chunks con pocos puntos.
@@ -513,6 +514,45 @@ test('el doble de gl etiqueta los uniforms: sin eso el plan de dibujo no se lee'
     'todo draw de paridad sale con la matriz de SU anillo puesta')
 })
 
+/* ── El MISMO pase sobre anillos estáticos ── */
+
+// El relleno no conoce el arena: le pide `texture`/`anchor`/`matrixFor`/`eachRange`/`boxOfChunk`. Un
+// anillo que no se edita honra ese contrato sin chunks —un rango contiguo— y con paso 1, porque no
+// intercala midpoints. De acá sale que la capa de polígonos reuse este pase en vez de forkearlo.
+const estatico = (gl, puntos) => ({ arena: new RingStore({ gl, points: puntos, project }) })
+
+test('el relleno sirve un anillo ESTÁTICO: un rango contiguo, paso 1 y el cierre contra su propio primero', () => {
+  const gl     = espiar(makeGl())
+  const puntos = cuadrado(6, 0.02)
+  const anillo = estatico(gl, puntos)
+  const capa   = new EditFillLayer({ gl, rings: [anillo], paso: 1 })
+
+  gl.log.length = 0
+  assert.equal(capa.draw({ zoom: 13, center: anillo.arena.anchor, size: SIZE, drag: null }), true)
+
+  const paridad = dibujos(gl.log).filter(d => 'uEdges' in d)
+  assert.equal(paridad.length, 1, 'sin chunks el anillo entero es UN draw')
+  assert.deepEqual([paridad[0].uFirst[0], paridad[0].uEdges[0], paridad[0].uTail[0]], [0, puntos.length, 0],
+    'arranca en 0, emite una arista por vértice, y la última cierra contra el primero')
+  assert.equal(paridad[0].count, puntos.length * 3, 'tres vértices de abanico por arista')
+})
+
+test('dos anillos estáticos componen su paridad antes de UNA cobertura: el XOR abre el agujero', () => {
+  const gl    = espiar(makeGl())
+  const fuera = estatico(gl, cuadrado(8, 0.02))
+  const hueco = estatico(gl, HUECO)
+  const capa  = new EditFillLayer({ gl, rings: [fuera, hueco], paso: 1 })
+
+  gl.log.length = 0
+  assert.equal(capa.draw({ zoom: 13, center: fuera.arena.anchor, size: SIZE, drag: null }), true)
+
+  const draws = dibujos(gl.log)
+  assert.equal(draws.filter(d => 'uEdges' in d).length, 2, 'un pase de paridad por anillo')
+  assert.equal(draws.filter(d => 'uColor' in d).length, 1, 'y UNA sola cobertura: el hueco lo abre el XOR, no un pase aparte')
+  assert.deepEqual(draws.filter(d => 'uEdges' in d).map(d => d.bindTexture[0]),
+    [fuera.arena.texture, hueco.arena.texture], 'cada anillo dibujó con la textura y el ancla SUYOS')
+})
+
 /* ── Canario de la duplicación ── */
 
 // Estos tests leen los uniforms que la capa setea; nunca ejecutan GLSL. La derivación de la arista
@@ -523,7 +563,10 @@ test('el doble de gl etiqueta los uniforms: sin eso el plan de dibujo no se lee'
 test('la derivación de la arista del shader es la que reimplementa el oráculo', async () => {
   const fuente = await readFile(new URL('../../src/render/EditFillLayer.js', import.meta.url), 'utf8')
   assert.ok(
-    fuente.includes('arista + 1 < uEdges ? uFirst + 2 * (arista + 1) : uTail'),
+    fuente.includes('arista + 1 < uEdges ? uFirst + ${paso} * (arista + 1) : uTail'),
     'el vertex shader cambió su derivación: actualizá también ARISTAS.uEdges en este archivo',
   )
+  // El oráculo lee las entradas de dos en dos porque monta sobre el arena entrelazado. Si el default
+  // del paso cambia, los 17 tests siguen verdes midiendo un layout que ya no es el que se dibuja.
+  assert.ok(fuente.includes('paso = 2 }'), 'el paso por default dejó de ser el del arena: revisá ARISTAS.uEdges')
 })

@@ -28,18 +28,18 @@ vec2 posAt(int ref) {
 }
 `
 
-// Abanico attributeless: 3 vértices por arista, esquina 0 = el ancla. Dentro de un chunk los vértices
-// van de dos en dos (la impar es su midpoint), y la última arista cierra contra `uTail`, que vive en
-// otro chunk.
-const VS_PARIDAD = `${PRELUDIO}
+// Abanico attributeless: 3 vértices por arista, esquina 0 = el ancla. `paso` es cada cuántas entradas
+// viene el vértice siguiente (2 con midpoints intercalados, 1 sin ellos) y la última arista cierra
+// contra `uTail`, que vive en otro rango.
+const VS_PARIDAD = paso => `${PRELUDIO}
 uniform int uFirst;
 uniform int uEdges;
 uniform int uTail;
 void main() {
   int arista  = gl_VertexID / 3;
   int esquina = gl_VertexID % 3;
-  int fin     = arista + 1 < uEdges ? uFirst + 2 * (arista + 1) : uTail;
-  vec2 p = esquina == 0 ? vec2(0.0) : posAt(esquina == 1 ? uFirst + 2 * arista : fin);
+  int fin     = arista + 1 < uEdges ? uFirst + ${paso} * (arista + 1) : uTail;
+  vec2 p = esquina == 0 ? vec2(0.0) : posAt(esquina == 1 ? uFirst + ${paso} * arista : fin);
   gl_Position = uMatrix * vec4(p, 0.0, 1.0);
 }`
 
@@ -106,6 +106,7 @@ export class EditFillLayer {
   #hex
   #opacity
   #rgba
+  #paso                                 // entradas entre dos vértices consecutivos del mismo rango
   #gl
   #paridad
   #vivas
@@ -120,11 +121,12 @@ export class EditFillLayer {
   #rangos = 0
   #promo  = { ring: -1, vertex: -1, prev: -1, next: -1, x: 0, y: 0 }
 
-  constructor({ gl, rings = [], color = '#6366f1', opacity = 0.42 }) {
+  constructor({ gl, rings = [], color = '#6366f1', opacity = 0.42, paso = 2 }) {
     this.rings     = rings
     this.#gl       = gl
+    this.#paso     = paso
     this.#vao      = gl.createVertexArray()
-    this.#paridad  = programa(gl, VS_PARIDAD, FS_PARIDAD, ['uPos', 'uMatrix', 'uFirst', 'uEdges', 'uTail'])
+    this.#paridad  = programa(gl, VS_PARIDAD(paso), FS_PARIDAD, ['uPos', 'uMatrix', 'uFirst', 'uEdges', 'uTail'])
     this.#vivas    = programa(gl, VS_VIVAS,   FS_PARIDAD, ['uPos', 'uMatrix', 'uPrev', 'uNext', 'uVivo'])
     this.#cubierta = programa(gl, VS_CUBRIR,  FS_COLOR,   ['uColor'])
     ;[this.#paridad, this.#vivas].forEach(u => {
@@ -134,7 +136,7 @@ export class EditFillLayer {
     this.style({ color, opacity })
   }
 
-  // El color vive en un uniform: restilar no toca la GPU. Un hex con alpha propio manda sobre `opacity`.
+  // Un hex con alpha propio manda sobre `opacity`.
   style({ color = this.#hex, opacity = this.#opacity } = {}) {
     this.#hex     = color
     this.#opacity = opacity
@@ -256,8 +258,6 @@ export class EditFillLayer {
     if (cy > clip[3]) clip[3] = cy
   }
 
-  // El run de un chunk son parejas (vértice, midpoint) desde un local par: la mitad son vértices y van
-  // de dos en dos en ref.
   #anotarRango = (_ordinal, first, count) => {
     if (!count) return
     if (this.#rangos === this.#firsts.length) {
@@ -265,14 +265,15 @@ export class EditFillLayer {
       this.#verts  = crecer(this.#verts)
     }
     this.#firsts[this.#rangos] = first
-    this.#verts[this.#rangos]  = count >> 1
+    this.#verts[this.#rangos]  = Math.ceil(count / this.#paso)
     this.#rangos++
   }
 
   // Índice de la arista que ARRANCA en `u` dentro del rango `j`, o -1 si `u` no vive ahí.
   #aristaEn(j, u) {
     const first = this.#firsts[j]
-    return u >= first && u < first + 2 * this.#verts[j] ? (u - first) >> 1 : -1
+    const paso  = this.#paso
+    return u >= first && u < first + paso * this.#verts[j] ? (u - first) / paso | 0 : -1
   }
 
   // Aristas [desde, hasta) del rango `j`. La última cierra contra el vértice que sigue: el de al lado
@@ -281,9 +282,10 @@ export class EditFillLayer {
   #tramo(j, desde, hasta) {
     if (hasta <= desde) return
     const gl    = this.#gl
+    const paso  = this.#paso
     const first = this.#firsts[j]
-    const tail  = hasta < this.#verts[j] ? first + 2 * hasta : this.#firsts[(j + 1) % this.#rangos]
-    gl.uniform1i(this.#paridad.uFirst, first + 2 * desde)
+    const tail  = hasta < this.#verts[j] ? first + paso * hasta : this.#firsts[(j + 1) % this.#rangos]
+    gl.uniform1i(this.#paridad.uFirst, first + paso * desde)
     gl.uniform1i(this.#paridad.uEdges, hasta - desde)
     gl.uniform1i(this.#paridad.uTail, tail)
     gl.drawArrays(gl.TRIANGLES, 0, (hasta - desde) * 3)

@@ -14,6 +14,7 @@
 // de picking direcciona el chunk con 6 bits. Numerar por índice daría hits atribuidos a otro chunk sin
 // ningún error a la vista.
 import { ROLE } from '../geometry/ChunkedPath.js'
+import { anchorMatrix } from './anchor-matrix.js'
 
 const FLOATS_PER_ENTRY = 7                       // [x, y, tile, angle, b, a, size]
 const BYTES_PER_ENTRY  = FLOATS_PER_ENTRY * 4
@@ -196,24 +197,8 @@ export class EditArena {
     return out
   }
 
-  // rel-ancla → clip. `center` es el centro del mapa en world0 px y `size` el viewport en px CSS. La
-  // aritmética va en float64 y sólo el resultado baja a float32: la traslación es una diferencia entre
-  // magnitudes world0 que, escaladas a z18, no entran en 24 bits de mantisa.
   matrixFor(zoom, center, size) {
-    const m       = this.#matrix
-    const scale   = 2 ** zoom
-    const sx      =  2 * scale / size.x
-    const sy      = -2 * scale / size.y
-    const originX = center.x - size.x / (2 * scale)          // esquina NW del viewport, en world0
-    const originY = center.y - size.y / (2 * scale)
-    m.fill(0)
-    m[0]  = sx
-    m[5]  = sy
-    m[10] = 1
-    m[12] = sx * (this.#anchorX - originX) - 1
-    m[13] = sy * (this.#anchorY - originY) + 1
-    m[15] = 1
-    return m
+    return anchorMatrix(this.#matrix, this.#anchorX, this.#anchorY, zoom, center, size)
   }
 
   destroy() {

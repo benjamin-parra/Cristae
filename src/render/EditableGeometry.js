@@ -39,8 +39,7 @@ const KINDS        = new Set(['polygon', 'rectangle', 'polyline', 'point'])
 const CERRADOS     = new Set(['polygon', 'rectangle'])   // el trazo cierra el anillo, y por eso se rellena
 const CRECEN       = new Set(['polygon', 'polyline'])    // la cantidad de vértices la decide el usuario
 
-// El editor DIBUJA la geometría, así que hereda el vocabulario de estilo de las capas de display que
-// reemplaza (`PolygonLayer`/`LineLayer`): las mismas claves que ya escribe un `styleOf`.
+// Mismas claves que el `styleOf` de `PolygonLayer`/`LineLayer`.
 const ESTILO = { color: '#2563eb', weight: 3, fillColor: '#6366f1', fillOpacity: 0.42 }
 
 const PANE  = 'cristae-edit'
@@ -196,7 +195,7 @@ export class EditableGeometry {
     this.#draw()
   }
 
-  // Restilar no toca la GPU: los dos colores y el ancho son uniforms. Parcial — lo que no venga, queda.
+  // Parcial: lo que no venga en `style` queda como estaba.
   setStyle(style) {
     Object.assign(this.#style, style)
     this.#fill?.style({ color: this.#style.fillColor, opacity: this.#style.fillOpacity })
@@ -391,9 +390,7 @@ export class EditableGeometry {
     if (!t || h.ref < 0) return
     const rol = t.path.roleAt(h.ref)
     consumir(e)
-    // El midpoint se agarra DIRECTO: la pulsación lo vuelve vértice y el MISMO gesto lo arrastra, sin
-    // soltar. Su dueño es el vértice de la entrada anterior — el midpoint describe el segmento que ARRANCA
-    // en él—, y el vértice nuevo nace bajo el cursor, así que el offset de agarre sale solo.
+    // El dueño del midpoint es el vértice de la entrada anterior: describe el segmento que ARRANCA en él.
     const ref = rol === ROLE.midpoint ? this.#onMidInsert(t, h.ref - 1) : rol === ROLE.vertex ? h.ref : -1
     ref >= 0 && this.#beginInteraction(t, ref, e, p)
   }
@@ -587,8 +584,6 @@ export class EditableGeometry {
   // El gesto termina: asienta y deja la caché apuntando al vértice soltado, que sigue bajo el cursor —y que
   // el pase sigue reconociendo, aunque el visual lo tenga apagado bajo su nodo—. Sin movimiento no hubo
   // edición: las dos pulsaciones de un doble click no pueden pasar por acá como si lo hubieran sido.
-  // El vecindario se devuelve acá: la afordancia describe el gesto, y el gesto terminó. El hover se cobra
-  // en la muestra SIGUIENTE, así que dejarlo prendido lo ata a que el puntero vuelva a moverse.
   #endInteraction(p) {
     const { t, ref, movido } = this.#releaseInteraction()
     movido && this.#commit()
