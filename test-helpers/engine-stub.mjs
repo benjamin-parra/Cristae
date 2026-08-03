@@ -57,6 +57,7 @@ const GL_CONSTS = {
   ARRAY_BUFFER: 1, DYNAMIC_DRAW: 2, TEXTURE_2D: 3, RGBA: 4, UNSIGNED_BYTE: 5, TEXTURE0: 6,
   LINEAR: 7, CLAMP_TO_EDGE: 8, TEXTURE_MIN_FILTER: 9, TEXTURE_MAG_FILTER: 10,
   TEXTURE_WRAP_S: 11, TEXTURE_WRAP_T: 12, CURRENT_PROGRAM: 13,
+  NEAREST: 14, RG: 15, RG32F: 16, FLOAT: 17, STATIC_DRAW: 18,
   // Enums reales: el pase de picking los COMPARA (el status del fence) y los ADJUNTA (el destino), así
   // que no pueden caer al no-op del Proxy —que devolvería una función distinta en cada lectura—.
   POINTS: 0x0000, RGBA8: 0x8058, COLOR_ATTACHMENT0: 0x8CE0, DEPTH_ATTACHMENT: 0x8D00,
@@ -70,17 +71,26 @@ const GL_CONSTS = {
 // draw y draws—, que es lo caracterizable sin GPU. Vive en `gl.spy` de toda capa del harness.
 const PICK_PATCH = 6
 
+// Los campos de subida (`tex*`, `buffer*`, `uploads`) son la otra mitad observable sin GPU: lo que se
+// ESCRIBE. De un espejo de datos en GPU no se puede leer el contenido, pero sí el TRABAJO que costó
+// mantenerlo —cuántas subidas, de qué tamaño y a qué offset—, que es lo que distingue una escritura
+// incremental de una reconstrucción.
 export const makePickSpy = () => ({
-  frame         : new Uint8Array(PICK_PATCH * PICK_PATCH * 4),
-  status        : 0,
-  renderbuffers : 0,
-  framebuffers  : 0,
-  storage       : null,
-  attachments   : [],
-  viewports     : [],
-  readbacks     : [],
-  tags          : [],
-  draws         : [],
+  frame          : new Uint8Array(PICK_PATCH * PICK_PATCH * 4),
+  status         : 0,
+  renderbuffers  : 0,
+  framebuffers   : 0,
+  storage        : null,
+  attachments    : [],
+  viewports      : [],
+  readbacks      : [],
+  tags           : [],
+  draws          : [],
+  texImages      : [],
+  texSubImages   : [],
+  bufferDatas    : [],
+  bufferSubDatas : [],
+  uploads        : [],
 })
 
 // Los tags se guardan ya en bytes: el uniform viaja normalizado (÷255) y compararlo en float sería
@@ -100,10 +110,25 @@ const pickGl = spy => ({
     if (dst instanceof Uint8Array) dst.set(spy.frame)   // la lectura diferida pasa el offset del PBO, no un array
   },
 })
+// Subidas a GPU. Los registros guardan la GEOMETRÍA del pedido —origen y tamaño del rectángulo,
+// byteOffset y largo del rango—, que es lo que distingue una escritura acotada de una reconstrucción y no
+// depende de la GPU. El PAYLOAD del rango va aparte, en `uploads` y con el mismo índice, para que
+// caracterizar el trabajo y caracterizar el encoding no se pisen en el mismo aserto.
+const uploadGl = spy => ({
+  texImage2D    : (_target, _level, _internal, width, height) => spy.texImages.push({ width, height }),
+  texSubImage2D : (_target, _level, x, y, width, height, _format, _type, _src, srcOffset) =>
+    spy.texSubImages.push({ x, y, width, height, srcOffset }),
+  bufferData    : (_target, src) => spy.bufferDatas.push({ length: src?.length ?? src }),
+  bufferSubData : (_target, offset, src, srcOffset, length) => {
+    spy.bufferSubDatas.push({ offset, srcOffset, length })
+    spy.uploads.push(src.slice(srcOffset, srcOffset + length))
+  },
+})
+
 // `onLose`: spy de WEBGL_lose_context.loseContext() (para caracterizar el teardown de contexto GL).
 // getExtension('WEBGL_lose_context') → { loseContext: onLose }; cualquier otra extensión → {} (como
 // antes). El resto de métodos/constantes cae al no-op del Proxy.
-export const makeGl = (onLose, spy = makePickSpy()) => new Proxy({ ...GL_CONSTS, ...pickGl(spy), spy }, {
+export const makeGl = (onLose, spy = makePickSpy()) => new Proxy({ ...GL_CONSTS, ...pickGl(spy), ...uploadGl(spy), spy }, {
   get: (t, p) => {
     if (p === 'getExtension') return (name) => (name === 'WEBGL_lose_context' ? { loseContext: onLose ?? (() => {}) } : {})
     return p in t ? t[p] : () => ({})

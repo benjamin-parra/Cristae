@@ -69,6 +69,7 @@ export class ChunkedPath {
   #used  = new Uint16Array(0)    // entradas vivas del run, siempre PAR
   #next  = new Int32Array(0)     // -1 = fin · también encadena la free-list
   #prev  = new Int32Array(0)
+  #crev  = new Int32Array(0)     // revisión del contenido del chunk
 
   #chunks    = 0
   #head      = -1
@@ -111,6 +112,12 @@ export class ChunkedPath {
   chunkUsed(k)  { return this.#used[k] }
   chunkNext(k)  { return this.#next[k] }
   chunkPrev(k)  { return this.#prev[k] }
+
+  // Único testigo de que el contenido del chunk se movió: la firma (first, used) no alcanza, porque
+  // borrar el arranque del run corre el `first` y el borrow del chunk ANTERIOR lo devuelve, dejando el
+  // par IDÉNTICO con otro contenido. Sólo sube, así que tampoco puede volver al valor con el que un
+  // chunk se fue a la free-list.
+  chunkRev(k) { return this.#crev[k] }
 
   chunkOf(ref)        { return (ref / this.#cap) | 0 }
   localOf(ref)        { return ref - this.chunkOf(ref) * this.#cap }
@@ -169,7 +176,8 @@ export class ChunkedPath {
     return at
   }
 
-  // Única vía de alta con el trazo vacío; con vértices es el insert detrás del último.
+  // Única vía de alta con el trazo vacío; con vértices es el insert detrás del último. Estrena contenido
+  // sin moverlo, así que el embudo no lo ve y el sello va acá.
   append(x, y) {
     if (this.#length) return this.insertAfter(this.lastVertex, x, y)
     const k   = this.#tail
@@ -181,6 +189,7 @@ export class ChunkedPath {
     this.#role[ref]       = ROLE.vertex
     this.#role[ref + 1]   = ROLE.free
     this.#length          = 1
+    this.#crev[k]++
     this.#bumpStruct()
     return ref
   }
@@ -297,9 +306,13 @@ export class ChunkedPath {
     while (cur.next()) this.#refreshMid(cur.ref)
   }
 
+  // Embudo de TODO movimiento de contenido —los dos huecos, el split, el borrow y el merge pasan por
+  // acá—, así que sellar el origen y el destino alcanza para que `chunkRev` no se pierda un traslado.
   #copyEntries(from, to, n) {
     this.#xy.copyWithin(to * 2, from * 2, (from + n) * 2)
     this.#role.copyWithin(to, from, from + n)
+    this.#crev[this.chunkOf(from)]++
+    this.#crev[this.chunkOf(to)]++
   }
 
   // Abre dos entradas en `at` desplazando el lado MÁS CORTO; si ese lado no tiene aire, el otro siempre
@@ -449,6 +462,7 @@ export class ChunkedPath {
     this.#used   = new Uint16Array(chunks)
     this.#next   = new Int32Array(chunks).fill(-1)
     this.#prev   = new Int32Array(chunks).fill(-1)
+    this.#crev   = new Int32Array(chunks)
     this.#chunks = chunks
   }
 
@@ -463,6 +477,7 @@ export class ChunkedPath {
     this.#used   = regrow(Uint16Array,  this.#used,  chunks)
     this.#next   = regrow(Int32Array,   this.#next,  chunks)
     this.#prev   = regrow(Int32Array,   this.#prev,  chunks)
+    this.#crev   = regrow(Int32Array,   this.#crev,  chunks)
     this.#chunks = chunks
     Array.from({ length: chunks - before }, (_, i) => chunks - 1 - i).forEach(k => {
       this.#next[k]  = this.#freeHead

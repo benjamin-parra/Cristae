@@ -412,6 +412,52 @@ test('insertar y borrar rechazan lo que no es un vértice vivo', () => {
   assert.deepEqual(path.toPairs(), pares(23))
 })
 
+// ── revisión de contenido por chunk ──────────────────────────────────────────
+
+test('chunkRev delata el traslado que la firma (first, used) no ve', () => {
+  const path   = nuevo(23)
+  const modelo = pares(23)
+  path.remove(refs(path)[7])                               // merge: el vecino de la izquierda queda gordo
+  modelo.splice(7, 1)
+
+  const flaco  = cadena(path)[1]
+  const cabeza = refs(path).findIndex(ref => path.chunkOf(ref) === flaco)
+  const firma  = [path.chunkFirst(flaco), path.chunkUsed(flaco)]
+  const rev    = path.chunkRev(flaco)
+  const cedido = path.prevVertex(refs(path)[cabeza])
+  assert.notEqual(path.chunkOf(cedido), flaco, 'el vértice que va a migrar todavía vive en el anterior')
+
+  path.remove(refs(path)[cabeza])                          // borra el ARRANQUE del run: el borrow sale del anterior
+  modelo.splice(cabeza, 1)
+
+  assert.deepEqual([path.chunkFirst(flaco), path.chunkUsed(flaco)], firma,
+    'el borrado corre el `first` dos entradas y el borrow lo devuelve')
+  assert.equal(path.xAt(path.refOf(flaco, path.chunkFirst(flaco))), path.xAt(cedido),
+    'con el run entero corrido y un vértice ajeno al frente')
+  assert.notEqual(path.chunkRev(flaco), rev, 'y la revisión es lo único que lo cuenta')
+  verificar(path, modelo, 'tras el borrow')
+})
+
+test('mover un vértice no toca la revisión de ningún chunk: cambia el valor, no el lugar', () => {
+  const path  = nuevo(23)
+  const antes = cadena(path).map(k => path.chunkRev(k))
+  path.moveVertex(refs(path)[9], 100, 200)
+  assert.deepEqual(cadena(path).map(k => path.chunkRev(k)), antes)
+})
+
+test('el chunk que vuelve de la free-list no puede reestrenar la revisión con la que se fue', () => {
+  const path = nuevo(23)
+  path.remove(refs(path)[7])                               // merge: libera un chunk
+  const liberado = [0, 1, 2, 3].find(k => !cadena(path).includes(k))
+  const rev      = path.chunkRev(liberado)
+
+  while (path.chunkUsed(path.lastChunk) < RUN) path.insertAfter(path.lastVertex, path.length, 0)
+  path.insertAfter(path.lastVertex, 777, 0)                // desborda: el split lo toma de la free-list
+
+  assert.ok(cadena(path).includes(liberado), 'volvió a la lista')
+  assert.ok(path.chunkRev(liberado) > rev, 'con la revisión adelantada: sólo sube')
+})
+
 // ── cursor ───────────────────────────────────────────────────────────────────
 
 test('el cursor recorre en orden de trazo sin materializar el array, y se reusa', () => {
