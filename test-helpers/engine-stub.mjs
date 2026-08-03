@@ -69,8 +69,8 @@ if (!globalThis.window) {
 
 /* ── WebGL + glify (idéntico contrato al de pointlayer.test) ── */
 
-// Constantes numéricas explícitas (para que cualquier comparación/aritmética sobre ellas se sostenga)
-// + drawingBuffer*; el resto (métodos y constantes del picking: createRenderbuffer, fenceSync, FRAMEBUFFER…)
+// Constantes numéricas explícitas (para que cualquier comparación/aritmética sobre ellas se sostenga);
+// el resto (métodos y constantes del picking: createRenderbuffer, fenceSync, FRAMEBUFFER…)
 // cae al no-op del Proxy que devuelve {} — sirve como retorno de create*/getParameter y como arg ignorado
 // de los métodos no-op. Las capas INTERACTIVAS del fold (burbuja/espiral) arman un FBO de picking en su
 // construcción; el pase en sí sólo corre si el test dispara click/hover, y entonces lo observa por
@@ -83,13 +83,30 @@ const GL_CONSTS = {
   // Enums reales: el pase de picking los COMPARA (el status del fence) y los ADJUNTA (el destino), así
   // que no pueden caer al no-op del Proxy —que devolvería una función distinta en cada lectura—.
   POINTS: 0x0000, RGBA8: 0x8058, COLOR_ATTACHMENT0: 0x8CE0, DEPTH_ATTACHMENT: 0x8D00,
-  TIMEOUT_EXPIRED: 0x911A, WAIT_FAILED: 0x911D,
-  drawingBufferWidth: 800, drawingBufferHeight: 600,
+  TIMEOUT_EXPIRED: 0x911A, WAIT_FAILED: 0x911D, PIXEL_PACK_BUFFER: 0x88EB,
 }
 
-// Espía del pase de PICKING, la única parte del GL que se le lee de vuelta a la GPU. `frame` es el
-// parche que devuelven readPixels/getBufferSubData (lo pinta el test) y `status` guioniza el fence;
-// el resto registra lo que el pase PIDIÓ —tamaño del destino, adjuntos, origen del viewport, tags de
+// La superficie sobre la que rinde un contexto: el canvas MIDE `width × height` px CSS y su drawing
+// buffer va a `× dpr`. Los dos tamaños hacen falta para que el harness vea un desajuste CSS↔dispositivo:
+// con DPR 1 son el mismo número, y ahí cualquier confusión de unidades pasa en verde.
+export const makeSurface = ({ width = 800, height = 600, dpr = 1 } = {}) => ({
+  width        : Math.round(width * dpr),
+  height       : Math.round(height * dpr),
+  clientWidth  : width,
+  clientHeight : height,
+  style        : {},
+})
+
+const enSuperficie = canvas => ({
+  canvas,
+  drawingBufferWidth  : canvas.width,
+  drawingBufferHeight : canvas.height,
+})
+
+// Espía del pase de PICKING, la única parte del GL que se le lee de vuelta a la GPU. El parche que
+// devuelven readPixels/getBufferSubData sale de `bajoElCursor` DERIVADO de los draws del pase (ver
+// `componer`) o, si nadie lo declaró, del `frame` crudo que pinta el test; `status` guioniza el fence.
+// El resto registra lo que el pase PIDIÓ —tamaño del destino, adjuntos, origen del viewport, tags de
 // draw y draws—, que es lo caracterizable sin GPU. Vive en `gl.spy` de toda capa del harness.
 const PICK_PATCH = 6
 
@@ -99,6 +116,8 @@ const PICK_PATCH = 6
 // incremental de una reconstrucción.
 export const makePickSpy = () => ({
   frame          : new Uint8Array(PICK_PATCH * PICK_PATCH * 4),
+  bajoElCursor   : undefined,   // ver `componer`: declarado (aunque sea null) ⇒ el parche lo deriva el pase
+  tileVacio      : undefined,   // canal de tile transparente; sin declararlo ninguna entrada descarta
   status         : 0,
   renderbuffers  : 0,
   framebuffers   : 0,
@@ -113,7 +132,49 @@ export const makePickSpy = () => ({
   bufferDatas    : [],
   bufferSubDatas : [],
   uploads        : [],
+  pase           : null,        // draws emitidos contra el framebuffer de picking, con su tag
+  tagVivo        : null,        // el tag del draw en curso; se limpia al bindear, así ninguno hereda el anterior
+  pack           : null,        // PBO bindeado: la lectura diferida deja el parche EN él
+  array          : null,        // ARRAY_BUFFER bindeado; su `datos` es el espejo de lo que se le subió
+  vao            : null,        // VAO bindeado; su `buffer` es el que leen sus atributos
 })
+
+// El texel del cursor —el pase traslada el viewport, así que siempre es el centro del parche— y el objeto
+// que codifica un tag ya en bytes.
+const CURSOR = ((PICK_PATCH >> 1) * PICK_PATCH + (PICK_PATCH >> 1)) * 4
+const objDe  = tag => (tag[1] >> 2) | (tag[2] << 6)
+
+// El fragment descarta por SILUETA (`if (tex.a < 0.01) discard`), así que una entrada con el tile
+// TRANSPARENTE no escribe texel aunque el draw la cubra —es con lo que se apaga un handle del visual y del
+// pase de una sola escritura—. El tile sale del espejo del VBO que alimenta al draw, que es de donde lo lee
+// la GPU; `tileVacio` es el canal que el test declara transparente.
+const FLOATS_ENTRADA = 7                  // layout de glify: [x, y, tile, angle, b, a, size]
+const CANAL_TILE     = 2
+
+const descarta = (spy, d, entrada) =>
+  spy.tileVacio !== undefined
+  && d.vbo?.datos?.[entrada * FLOATS_ENTRADA + CANAL_TILE] === Math.fround(spy.tileVacio)
+
+// El parche que devuelve el pase NO lo pinta el test: lo COMPONE el doble con los draws que el pase emitió
+// contra su framebuffer. `spy.bajoElCursor = { obj, entrada, local }` declara qué hay bajo el puntero —un
+// hecho de la GEOMETRÍA—, y el texel sale sólo si algún draw de ese objeto cubrió esa entrada sin descartarla,
+// con el tag de ESE draw; sin DEPTH_TEST gana el último, como en el pase real. Así una entrada que la capa
+// dejó fuera de sus rangos NO se pickea: un doble que la contestara igual deja pasar un handle inagarrable
+// en verde.
+// `spy.frame` sigue siendo el parche CRUDO —bytes que no corresponden a ningún draw: otro objeto, el objeto
+// sin entrada, el parche limpio— y es lo que caracteriza el DECODE, donde la entrada de verdad son bytes.
+const componer = spy => {
+  const frame = spy.frame
+  const o     = spy.bajoElCursor
+  if (o === undefined) return frame
+  frame.fill(0)
+  const d = o && spy.pase?.findLast(
+    d => d.tag && objDe(d.tag) === o.obj && o.entrada >= d.first && o.entrada < d.first + d.count)
+  if (!d || descarta(spy, d, o.entrada)) return frame
+  const id = o.local + 1                    // el fragment suma el índice local +1 al tag del draw
+  frame.set([d.tag[0] + (id >> 8), id & 255, d.tag[1], d.tag[2]], CURSOR)
+  return frame
+}
 
 // Los tags se guardan ya en bytes: el uniform viaja normalizado (÷255) y compararlo en float sería
 // comparar redondeos.
@@ -123,39 +184,100 @@ const pickGl = spy => ({
   renderbufferStorage     : (_target, format, width, height) => { spy.storage = { format, width, height } },
   framebufferRenderbuffer : (_target, attachment) => spy.attachments.push(attachment),
   viewport                : (x, y, width, height) => spy.viewports.push({ x, y, width, height }),
-  uniform3fv              : (_loc, tag) => spy.tags.push([...tag].map(c => Math.round(c * 255))),
-  drawArrays              : (mode, first, count) => spy.draws.push({ mode, first, count }),
+  bindFramebuffer         : (_target, fbo) => { spy.pase = fbo ? [] : null; spy.tagVivo = null },
+  bindBuffer              : (target, buf) => {
+    target === GL_CONSTS.PIXEL_PACK_BUFFER && (spy.pack  = buf)
+    target === GL_CONSTS.ARRAY_BUFFER      && (spy.array = buf)
+  },
+  uniform3fv              : (_loc, tag) => {
+    spy.tagVivo = [...tag].map(c => Math.round(c * 255))
+    spy.tags.push(spy.tagVivo)
+  },
+  drawArrays              : (mode, first, count) => {
+    spy.draws.push({ mode, first, count })
+    spy.pase?.push({ first, count, tag: spy.tagVivo, vbo: spy.vao?.buffer })
+  },
   clientWaitSync          : () => spy.status,
-  getBufferSubData        : (_target, _offset, dst) => dst.set(spy.frame),
+  getBufferSubData        : (_target, _offset, dst) => dst.set(spy.pack?.parche ?? spy.frame),
   readPixels              : (x, y, width, height, _format, _type, dst) => {
     spy.readbacks.push({ x, y, width, height })
-    if (dst instanceof Uint8Array) dst.set(spy.frame)   // la lectura diferida pasa el offset del PBO, no un array
+    const parche = componer(spy)
+    // La lectura diferida pasa el offset del PBO, no un array: el parche queda EN el buffer hasta que lo
+    // cobre `getBufferSubData` —que corre después del `#restore`, con el pase ya cerrado—.
+    if (dst instanceof Uint8Array) dst.set(parche)
+    else if (spy.pack && spy.bajoElCursor !== undefined) spy.pack.parche = parche.slice()
   },
 })
 // Subidas a GPU. Los registros guardan la GEOMETRÍA del pedido —origen y tamaño del rectángulo,
 // byteOffset y largo del rango—, que es lo que distingue una escritura acotada de una reconstrucción y no
 // depende de la GPU. El PAYLOAD del rango va aparte, en `uploads` y con el mismo índice, para que
 // caracterizar el trabajo y caracterizar el encoding no se pisen en el mismo aserto.
+//
+// Del ARRAY_BUFFER se guarda ADEMÁS el espejo (`datos`, en el buffer mismo): `bufferData` lo estrena y
+// `bufferSubData` le parcha un rango, como en GPU. Es la única copia que el doble puede leer, y de ahí sale
+// el tile de cada entrada. La copia es a propósito: el origen es un espejo VIVO que se escribe entero y se
+// sube por tramos, así que retenerlo mostraría datos que nunca viajaron.
+const arrayBuffer = (spy, target) => (target === GL_CONSTS.ARRAY_BUFFER ? spy.array : null)
+
 const uploadGl = spy => ({
   texImage2D    : (_target, _level, _internal, width, height) => spy.texImages.push({ width, height }),
   texSubImage2D : (_target, _level, x, y, width, height, _format, _type, _src, srcOffset) =>
     spy.texSubImages.push({ x, y, width, height, srcOffset }),
-  bufferData    : (_target, src) => spy.bufferDatas.push({ length: src?.length ?? src }),
-  bufferSubData : (_target, offset, src, srcOffset, length) => {
-    spy.bufferSubDatas.push({ offset, srcOffset, length })
-    spy.uploads.push(src.slice(srcOffset, srcOffset + length))
+  bufferData    : (target, src) => {
+    spy.bufferDatas.push({ length: src?.length ?? src })
+    const buf = src?.length && arrayBuffer(spy, target)
+    buf && (buf.datos = src.slice())
   },
+  bufferSubData : (target, offset, src, srcOffset, length) => {
+    const rango = src.slice(srcOffset, srcOffset + length)
+    spy.bufferSubDatas.push({ offset, srcOffset, length })
+    spy.uploads.push(rango)
+    arrayBuffer(spy, target)?.datos?.set(rango, offset / rango.BYTES_PER_ELEMENT)
+  },
+})
+
+// Qué buffer alimenta a un VAO: lo captura el ATRIBUTO al declararse, tomando el ARRAY_BUFFER vigente,
+// igual que en GL. De ahí sale, por draw, cuál de los espejos hay que leer cuando hay varios arenas sobre
+// el mismo contexto (un polígono con dos anillos son dos VBOs).
+const vaoGl = spy => ({
+  bindVertexArray     : vao => { spy.vao = vao ?? null },
+  vertexAttribPointer : () => { spy.vao && (spy.vao.buffer = spy.array) },
 })
 
 // `onLose`: spy de WEBGL_lose_context.loseContext() (para caracterizar el teardown de contexto GL).
 // getExtension('WEBGL_lose_context') → { loseContext: onLose }; cualquier otra extensión → {} (como
 // antes). El resto de métodos/constantes cae al no-op del Proxy.
-export const makeGl = (onLose, spy = makePickSpy()) => new Proxy({ ...GL_CONSTS, ...pickGl(spy), ...uploadGl(spy), spy }, {
+export const makeGl = (onLose, spy = makePickSpy(), canvas = makeSurface()) => new Proxy({ ...GL_CONSTS, ...enSuperficie(canvas), ...pickGl(spy), ...uploadGl(spy), ...vaoGl(spy), spy }, {
   get: (t, p) => {
     if (p === 'getExtension') return (name) => (name === 'WEBGL_lose_context' ? { loseContext: onLose ?? (() => {}) } : {})
     return p in t ? t[p] : () => ({})
   },
 })
+
+/* ── La costura de `document.createElement` ── */
+
+// El `document` del shim fabrica elementos no-op; el test que necesita más —un WebGL2 de verdad en el
+// canvas de una superficie, un espía de listeners— DECORA lo que sale de la fábrica. Devuelve la
+// restauración, que es lo que un parche a un global no puede no tener: `after(decorarElementos(…))`.
+export const decorarElementos = decorar => {
+  const crear = document.createElement
+  document.createElement = tag => decorar(crear(tag), String(tag).toLowerCase())
+  return () => { document.createElement = crear }
+}
+
+// El contexto que abre `EditSurface`. `gl()` se lee por llamada: cada montaje estrena el suyo. Cualquier
+// otro contexto cae al no-op del shim, como sin decorar.
+export const conGlDeEdicion = gl => decorarElementos((el, tag) => {
+  if (tag === 'canvas') el.getContext = kind => (kind === 'webgl2' ? gl() : NOOP_CTX)
+  return el
+})
+
+// El doble de GL que `EditSurface` acepta: el del repo más `getContextAttributes`, por donde comprueba que
+// consiguió el stencil (sin él tira, porque el relleno par-impar no es representable).
+const CON_STENCIL = () => ({ stencil: true })
+
+export const makeEditGl = (spy = makePickSpy(), canvas = makeSurface()) =>
+  new Proxy(makeGl(null, spy, canvas), { get: (t, p) => (p === 'getContextAttributes' ? CON_STENCIL : t[p]) })
 
 // UN glify por engine; cada points() devuelve una capa nueva (el fold crea host/burbuja/spider/sub).
 // `layers` expone las capas creadas (con `_lost`, que el spy de loseContext marca) para caracterizar
@@ -253,7 +375,18 @@ export const makeMap = ({ zoom = 3 } = {}) => {
     getZoom: () => map._zoom,
     // Helper del TEST: fija el zoom lógico (el que lee recluster). No dispara eventos por sí solo.
     setZoomForTest(z) { map._zoom = z; return map },
-    getCenter: () => ({ lat: 0, lng: 0 }),
+    getCenter: () => map._center,
+    _center: { lat: 0, lng: 0 },
+    getZoomScale: (a, b) => 2 ** (a - (b ?? map._zoom)),
+    // Helper del TEST: un frame de zoom ANIMADO como lo hace Leaflet — emite `zoomanim` con la vista
+    // DESTINO y recién DESPUÉS mueve la vista viva (durante la transición, getZoom/getCenter ya son las
+    // del destino: por eso una capa que se reproyecte contra el mapa vivo aterriza en el final).
+    animarZoom(zoom, center = map._center) {
+      map.fire('zoomanim', { zoom, center })
+      map._zoom   = zoom
+      map._center = center
+      return map
+    },
     getBounds: () => ({}),
     getSize: () => makePoint(800, 600),
     // Proyección a píxeles dependiente del zoom (px = coord·P·2^z), para el reproyectado de vista.
@@ -275,6 +408,19 @@ export const makeMap = ({ zoom = 3 } = {}) => {
     remove() {},
   }
   return map
+}
+
+// Doble del handler `map.dragging`. Expone la MISMA superficie que `L.Handler` —`enable`/`disable`/
+// `enabled()`—, que es por donde una capa averigua si el arrastre estaba prendido antes de tomarlo
+// prestado; `activo` es el campo que leen los asertos.
+export const makeDragging = ({ activo = true } = {}) => {
+  const h = {
+    activo,
+    enable()  { h.activo = true;  return h },
+    disable() { h.activo = false; return h },
+    enabled:  () => h.activo,
+  }
+  return h
 }
 
 // Toda coordenada se normaliza a {lat,lng} —venga par o objeto— como hace Leaflet al construir.
@@ -339,7 +485,11 @@ export const makeLeaflet = () => {
   return {
     log,
     marker,
-    DomUtil: { getPosition: () => ({ x: 0, y: 0 }) },
+    DomUtil: {
+      getPosition:  () => ({ x: 0, y: 0 }),
+      // Lo que Leaflet le aplica a un elemento `leaflet-zoom-animated` en cada frame de zoom.
+      setTransform: (el, pt, escala) => { el.style.transform = `translate3d(${pt.x}px, ${pt.y}px, 0) scale(${escala})` },
+    },
     point:   (x, y) => ({ x, y }),
     latLng:  (lat, lng) => ({ lat, lng }),
     divIcon(opts = {}) {

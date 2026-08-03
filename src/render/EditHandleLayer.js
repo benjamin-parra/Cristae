@@ -4,13 +4,14 @@
 // vértices cuesta ceil(2N/cap) draws y CERO nodos DOM.
 //
 // El vecindario que el banco DOM promueve no se apaga escribiendo el VBO: se apaga abriendo AGUJEROS en
-// el rango de cada draw, derivados por frame de la promoción vigente. Que el apagado no sea estado
+// el rango de cada draw VISUAL, derivados por frame de la promoción vigente. Que el apagado no sea estado
 // residente vuelve irrepresentable el sprite «pegado» —un chunk culleado no dibuja, y al volver a la
 // vista su rango se arma de cero, sin nada que restaurar—.
 //
-// Los agujeros viajan en `first`/`count`, que el PickDraw ya declara, y no en un uniform de rango: el
-// pase de picking compila SU programa desde POINT_VERTEX, así que un uniform nuevo sólo alcanzaría a la
-// mitad visual y el handle promovido seguiría siendo pickeable por GPU además de por su nodo DOM.
+// El agujero es del VISUAL y sólo de él: el PASE recorre el run entero. El nodo del banco es afordancia
+// —`pointer-events: none` y cero listeners, nunca pickea—, así que el pase es lo ÚNICO que sabe
+// direccionar al promovido; sacarlo de ahí lo vuelve inagarrable y realimenta al hover, que lo despromueve
+// para volver a encontrarlo en el frame siguiente.
 import { GpuAtlasBinding } from '../atlas/GpuAtlasBinding.js'
 import { defineIconSet } from '../atlas/IconSet.js'
 import { ROLE } from '../geometry/ChunkedPath.js'
@@ -63,7 +64,7 @@ const disco = (ctx, size, d) => {
 // IconSet de edición: chico, cerrado y propio de esta capa. `hover` y `grabbing` no los dibuja la GPU
 // —el handle bajo el dedo ya está promovido a DOM—: el banco los reusa por `iconSet.sprite(variante)`,
 // así el nodo promovido muestra los MISMOS píxeles que el sprite al que reemplaza.
-export const defineEditIconSet = ({ color = '#2563eb', accent = '#f59e0b' } = {}) => {
+const editIconSet = (color, accent) => {
   const descriptores = {
     off      : { shape: 'nada' },
     vertex   : { shape: 'nodo',  radio: 0.44, fill: '#ffffff', line: color },
@@ -80,12 +81,26 @@ export const defineEditIconSet = ({ color = '#2563eb', accent = '#f59e0b' } = {}
   })
 }
 
+// UNO por configuración, memoizado por módulo: se instancia por EDITOR y sus cinco tiles viven tanto como
+// el atlas que los guarda, así que montar y destruir editores los iría acumulando. Compartirlo es seguro
+// —el atlas es de sólo lectura y cada contexto GL tiene su propio binding, que es el multi-mapa de siempre—.
+const SETS = new Map()
+
+export const defineEditIconSet = ({ color = '#2563eb', accent = '#f59e0b' } = {}) => {
+  const clave = `${color} ${accent}`
+  return SETS.get(clave) ?? SETS.set(clave, editIconSet(color, accent)).get(clave)
+}
+
 // Canales del arena por ROL: el tile ya normalizado por la capacidad del atlas, y el tamaño en pantalla.
 // El set de edición es CERRADO (cinco variantes en una capacidad de dieciséis), así que nunca hay regrow
 // y el canal de un rol no se mueve bajo los datos ya escritos.
-export const editHandleChannels = iconSet => ({
+//
+// `scale` lleva el tamaño a píxeles del FRAMEBUFFER, que es la unidad de `gl_PointSize`: sobre una
+// superficie a DPR el handle mediría la mitad de lo que declara —y el pase, que comparte el atributo, la
+// misma mitad—, mientras el nodo que lo releva en el banco DOM sigue midiendo lo declarado.
+export const editHandleChannels = (iconSet, scale = 1) => ({
   tiles : ROLE_VARIANT.map(v => iconSet.atlas.tileChannel(iconSet.resolve(v))),
-  sizes : ROLE_SIZE,
+  sizes : ROLE_SIZE.map(s => s * scale),
 })
 
 export class EditHandleLayer {
@@ -106,7 +121,6 @@ export class EditHandleLayer {
   #draws = []                              // pool de PickDraw; `#batch.length` dice cuántos valen
   #batch = { draws: this.#draws, length: 0, matrix: null }
   #hit   = { ref: -1, metadata: null }
-  #sink  = null
 
   // La identidad que le asigna el motor. El pase descarta el objeto 0.
   pickObject = 0
@@ -146,8 +160,7 @@ export class EditHandleLayer {
     gl.enable(gl.BLEND)
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
     gl.bindVertexArray(this.#vao)
-    this.#sink = this.#paint
-    this.#arena.eachRange(this.#range)
+    this.#arena.eachRange(this.#visual)
     gl.bindVertexArray(null)
     return this
   }
@@ -158,10 +171,8 @@ export class EditHandleLayer {
     const batch = this.#batch
     batch.length = 0
     if (!this.#view) return batch
-    this.#syncHoles()
     batch.matrix = this.#matrix()
-    this.#sink = this.#enqueue
-    this.#arena.eachRange(this.#range)
+    this.#arena.eachRange(this.#pase)
     return batch
   }
 
@@ -191,31 +202,31 @@ export class EditHandleLayer {
 
   /* ── Rangos de draw ─────────────────────────────────────────────────────────────────────── */
 
-  // Un draw por chunk visible, partido por los agujeros del vecindario promovido. `#sink` elige destino
-  // —pintar o encolar al batch— sin cerrar sobre nada, que es lo que deja la ruta [0-alloc].
-  #range = (ordinal, first, count, chunk) => {
+  // VISUAL: un draw por chunk visible, partido por los agujeros del vecindario promovido —esas entradas
+  // las dibuja el banco DOM—. Los campos son de la instancia y las dos travesías son arrows estables: la
+  // ruta queda [0-alloc].
+  #visual = (_ordinal, first, count, chunk) => {
     if (count <= 0 || !this.#inView(chunk)) return
     const end = first + count
     let from  = first
     for (let i = 0; i < this.#holeCount; i++) {
       const h = this.#holes[i]
       if (h.chunk !== chunk) continue
-      this.#span(ordinal, from, h.from)
+      this.#span(from, h.from)
       from = Math.max(from, h.to)
     }
-    this.#span(ordinal, from, end)
+    this.#span(from, end)
   }
 
-  #span(ordinal, from, to) {
-    if (to > from) this.#sink(ordinal, from, to - from)
+  #span(from, to) {
+    if (to > from) this.#gl.drawArrays(this.#gl.POINTS, from, to - from)
   }
 
-  #paint = (_ordinal, first, count) => this.#gl.drawArrays(this.#gl.POINTS, first, count)
-
-  // Un ordinal ≥ 64 no entra: el pase lo atribuiría por módulo a otro chunk y el hit volvería como un ref
-  // AJENO, sin ningún error a la vista. Fuera del batch degrada a «no pickeable», que es recuperable.
-  #enqueue = (ordinal, first, count) => {
-    if (ordinal >= ORDINAL_CAP) return
+  // PASE: el run ENTERO, agujeros incluidos. Un ordinal ≥ 64 no entra: el pase lo atribuiría por módulo a
+  // otro chunk y el hit volvería como un ref AJENO, sin ningún error a la vista. Fuera del batch degrada a
+  // «no pickeable», que es recuperable.
+  #pase = (ordinal, first, count, chunk) => {
+    if (count <= 0 || ordinal >= ORDINAL_CAP || !this.#inView(chunk)) return
     const n = this.#batch.length
     const d = this.#draws[n] ??= this.#newDraw()
     d.first = first

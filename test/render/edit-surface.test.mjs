@@ -18,7 +18,7 @@ const makeGl = (host, attrs) => ({
 
 const makeCanvas = host => {
   const canvas = {
-    width: 0, height: 0, style: {}, pane: null,
+    width: 0, height: 0, style: {}, className: '', pane: null,
     listeners  : {},
     addEventListener(tipo, cb) { (canvas.listeners[tipo] ??= []).push(cb) },
     emit(tipo)                 { canvas.listeners[tipo]?.forEach(cb => cb()) },
@@ -34,12 +34,24 @@ globalThis.document = { createElement: () => makeCanvas(host) }   // la superfic
 
 // El pane NO está en el origen del contenedor: así el aserto de posicionamiento no es vacuo.
 const DESPLAZAMIENTO = { x: -120, y: -40 }
+const ZOOM_INICIAL   = 10
+const P              = 100                              // proyección lineal del harness: un grado son 100 px a zoom 0
 
 const makeMap = ({ width = 800, height = 600 } = {}) => {
-  const panes = new Map()
-  return {
-    panes,
+  const panes    = new Map()
+  const oyentes  = new Map()
+  const map = {
+    panes, oyentes,
+    zoom       : ZOOM_INICIAL,
+    center     : { lat: 0, lng: 0 },
+    on         : (tipo, cb) => (oyentes.get(tipo) ?? oyentes.set(tipo, new Set()).get(tipo)).add(cb),
+    off        : (tipo, cb) => oyentes.get(tipo)?.delete(cb),
+    fire       : (tipo, e) => oyentes.get(tipo)?.forEach(cb => cb(e)),
     getSize    : () => ({ x: width, y: height }),
+    getZoom    : () => map.zoom,
+    getCenter  : () => map.center,
+    getZoomScale: (a, b) => 2 ** (a - b),
+    project    : (ll, z) => ({ x: ll.lng * P * 2 ** z, y: ll.lat * P * 2 ** z }),
     getPane    : n => panes.get(n) ?? null,
     createPane : n => {
       const pane = { hijos: [], appendChild(c) { pane.hijos.push(c); c.pane = pane } }
@@ -47,13 +59,42 @@ const makeMap = ({ width = 800, height = 600 } = {}) => {
       return pane
     },
     containerPointToLayerPoint: ([x, y]) => ({ x: x + DESPLAZAMIENTO.x, y: y + DESPLAZAMIENTO.y }),
+    // Un frame de zoom ANIMADO como lo hace Leaflet: emite `zoomanim` con la vista DESTINO y recién
+    // DESPUÉS mueve la vista viva. Durante la transición CSS `getZoom`/`getCenter` ya son las del destino
+    // —por eso una capa que se reproyecte contra el mapa vivo aterriza en el final y se teletransporta—.
+    animarZoom(zoom, center = map.center) {
+      map.fire('zoomanim', { zoom, center })
+      map.zoom   = zoom
+      map.center = center
+      return map
+    },
   }
+  return map
 }
 
-const makeL = espia => ({ DomUtil: { setPosition: (_el, punto) => espia.positions.push(punto) } })
+// El punto de contenedor que una vista (zoom, center) le asigna a una coordenada: el patrón de medida
+// contra el que se compara el transform de la animación.
+const enContenedor = (map, ll, zoom, center) => ({
+  x: map.project(ll, zoom).x - map.project(center, zoom).x + map.getSize().x / 2,
+  y: map.project(ll, zoom).y - map.project(center, zoom).y + map.getSize().y / 2,
+})
+
+const makeL = espia => ({
+  point   : (x, y) => ({ x, y }),
+  DomUtil : {
+    setPosition  : (el, punto) => {
+      espia.positions.push(punto)
+      el.style.transform = `translate3d(${punto.x}px, ${punto.y}px, 0)`
+    },
+    setTransform : (el, punto, escala) => {
+      espia.transforms.push({ x: punto.x, y: punto.y, escala })
+      el.style.transform = `translate3d(${punto.x}px, ${punto.y}px, 0) scale(${escala})`
+    },
+  },
+})
 
 const montar = ({ stencil = true, ...opciones } = {}) => {
-  host = { stencilOtorgado: stencil, contexts: 0, lost: 0, canvases: [], viewports: [], positions: [] }
+  host = { stencilOtorgado: stencil, contexts: 0, lost: 0, canvases: [], viewports: [], positions: [], transforms: [] }
   const map = makeMap(opciones)
   return { host, map, surface: new EditSurface({ L: makeL(host), map, pane: 'cristae-edit-0' }) }
 }
@@ -139,6 +180,68 @@ test('resetCanvasReference reposiciona siempre pero NO realoca el drawing buffer
   surface.resetCanvasReference()
   assert.equal(espia.viewports.length, 1, 'un solo realoque: `move` llega por frame durante un arrastre')
   assert.equal(espia.positions.length, 4, 'la posición sí se actualiza en cada llamada')
+})
+
+/* ── Zoom animado: el canvas CABALGA el transform (no se re-rasteriza por frame ni asienta al final) ── */
+
+test('el canvas es un elemento zoom-animado de Leaflet', () => {
+  const { surface, host: espia } = montar()
+  surface.attach()
+  // La clase es lo que le aplica la transición CSS del pane y el `transform-origin: 0 0` del que depende
+  // la escala; sin ella el transform salta en vez de animar.
+  assert.match(espia.canvases[0].className, /\bleaflet-zoom-animated\b/)
+})
+
+test('en zoomanim el transform deja cada punto del contenido donde la vista destino lo pone', () => {
+  const { surface, map, host: espia } = montar()
+  surface.attach()                                        // ancla: zoom 10, centro (0,0)
+  const g     = { lat: 0.02, lng: 0.05 }                  // una coordenada cualquiera del contenido
+  const antes = enContenedor(map, g, ZOOM_INICIAL, map.getCenter())
+
+  const destino = { lat: 0.01, lng: -0.01 }
+  map.animarZoom(ZOOM_INICIAL + 1, destino)
+
+  // Composición del transform sobre el píxel que el punto ocupaba en el ancla (origen 0 0), llevada de
+  // coordenadas de capa a las de contenedor. Debe coincidir con lo que proyecta la vista destino.
+  const t        = espia.transforms.at(-1)
+  const esperado = enContenedor(map, g, ZOOM_INICIAL + 1, destino)
+  assert.equal(t.escala, 2, 'la escala es la del salto de zoom')
+  assert.deepEqual([
+    t.x + t.escala * antes.x - DESPLAZAMIENTO.x,
+    t.y + t.escala * antes.y - DESPLAZAMIENTO.y,
+  ], [esperado.x, esperado.y])
+})
+
+test('mientras anima, resetCanvasReference no reancla: el transform es de la animación', () => {
+  const { surface, map, host: espia } = montar()
+  surface.attach()
+  map.animarZoom(ZOOM_INICIAL + 1)
+  const posiciones = espia.positions.length
+  surface.resetCanvasReference()
+  assert.equal(espia.positions.length, posiciones)
+  assert.match(espia.canvases[0].style.transform, /scale/, 'la escala del frame sobrevive al redibujo')
+})
+
+test('al asentar, zoomend devuelve el ancla, suelta la escala y RECUERDA la vista nueva', () => {
+  const { surface, map, host: espia } = montar()
+  surface.attach()
+  map.animarZoom(ZOOM_INICIAL + 1)
+  map.fire('zoomend')
+  assert.deepEqual(espia.positions.at(-1), DESPLAZAMIENTO)
+  assert.doesNotMatch(espia.canvases[0].style.transform, /scale/)
+
+  // El ancla pasa a ser la vista asentada: el próximo frame escala desde ELLA (×2), no desde la inicial.
+  espia.transforms.length = 0
+  map.animarZoom(ZOOM_INICIAL + 2)
+  assert.equal(espia.transforms.at(-1).escala, 2)
+})
+
+test('destroy desengancha del zoom del mapa', () => {
+  const { surface, map } = montar()
+  surface.attach()
+  surface.destroy()
+  assert.equal(map.oyentes.get('zoomanim').size, 0)
+  assert.equal(map.oyentes.get('zoomend').size, 0)
 })
 
 /* ── Teardown ── */

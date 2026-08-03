@@ -551,13 +551,17 @@ export class MapEngine {
     let cssW  = 0, cssH = 0
     // Reposiciona el canvas al top-left del viewport en coords de capa (el pane se traslada con el mapa en
     // pan → el canvas queda fijo al viewport) y lo redimensiona sólo si cambió (setear width lo limpia).
+    // El buffer va en px de dispositivo y la CAJA en px CSS: sin caja el canvas MIDE su buffer, y el pase
+    // entero sale a dpr× de su lugar —el realce deja de caer sobre su sprite— además de borroso.
     const reposition = () => {
       const r = map.getContainer().getBoundingClientRect()
       if (r.width !== cssW || r.height !== cssH) {
-        cssW          = r.width
-        cssH          = r.height
-        canvas.width  = Math.round(cssW * dpr)
-        canvas.height = Math.round(cssH * dpr)
+        cssW                = r.width
+        cssH                = r.height
+        canvas.width        = Math.round(cssW * dpr)
+        canvas.height       = Math.round(cssH * dpr)
+        canvas.style.width  = `${cssW}px`
+        canvas.style.height = `${cssH}px`
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
       }
       const origin = map.containerPointToLayerPoint([0, 0])

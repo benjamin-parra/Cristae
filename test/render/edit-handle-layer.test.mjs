@@ -1,7 +1,12 @@
 // Contrato de los handles como sprites: el pase jerárquico tiene que devolver el ref EXACTO del
 // `ChunkedPath` —vértice y midpoint, cruzando de chunk—, el ordinal que no entra en los 6 bits del pase
 // tiene que degradar a «no pickeable» y NUNCA a un ref ajeno, y el vecindario que el banco DOM promueve
-// tiene que salir del pase como un agujero de cinco entradas repartido entre los draws que lo contienen.
+// tiene que salir del VISUAL como un agujero de cinco entradas repartido entre los draws que lo contienen
+// —y seguir ENTERO en el pase, que es lo único que sabe direccionar al handle bajo el dedo—.
+//
+// El pick se ejerce por su doble DERIVADO (`spy.bajoElCursor`): se declara qué entrada hay bajo el cursor y
+// el parche sale de los draws que la capa emitió. El `spy.frame` crudo queda para el DECODE, donde la
+// entrada de verdad son bytes que no corresponden a ningún draw.
 //
 // El invariante que cierra la tanda: el apagado NO es estado residente. Se mide como trabajo —cuántas
 // escrituras al VBO cuesta prender y apagar handles— y como comportamiento: un chunk que se va de la
@@ -106,6 +111,10 @@ const pintar = (frame, obj, ordinal, local) => {
   frame.set([byte((id >> 8) / 255 + tag[0]), byte((id & 255) / 255), byte(tag[1]), byte(tag[2])], CENTRO * 4)
 }
 
+// Lo que HAY bajo el cursor: la entrada del arena y su índice local. El ordinal —y con él el tag— sale del
+// draw que la capa emitió, no de acá; si no la dibujó, el pase contesta «nada».
+const apuntar = (spy, path, ref) => { spy.bajoElCursor = { obj: OBJ, entrada: ref, local: path.localOf(ref) } }
+
 /* ── 1. El pase devuelve el ref del trazo ── */
 
 test('el hit vuelve al ref EXACTO del `ChunkedPath`: vértice y midpoint, cruzando de chunk', () => {
@@ -115,10 +124,9 @@ test('el hit vuelve al ref EXACTO del `ChunkedPath`: vértice y midpoint, cruzan
   const entradas = refs(path).flatMap(ref => [ref, path.midOf(ref)])
   const ordinales = new Set()
   entradas.forEach(ref => {
-    const ordinal = arena.ordinalOfChunk(path.chunkOf(ref))
-    ordinales.add(ordinal)
-    pintar(spy.frame, OBJ, ordinal, path.localOf(ref))
-    assert.equal(layer.pickRef(10, 10), ref, `entrada ${ref} (ordinal ${ordinal})`)
+    ordinales.add(arena.ordinalOfChunk(path.chunkOf(ref)))
+    apuntar(spy, path, ref)
+    assert.equal(layer.pickRef(10, 10), ref, `entrada ${ref}`)
   })
 
   assert.ok(ordinales.size > 1, 'el trazo tiene que repartirse en varios chunks')
@@ -148,9 +156,8 @@ test('con el arena desordenado el ref sale del ORDINAL, no del índice del chunk
     'el `chunk` que tagea el draw ES el ordinal del trazo')
 
   refs(path).forEach(ref => {
-    const ordinal = arena.ordinalOfChunk(path.chunkOf(ref))
-    pintar(spy.frame, OBJ, ordinal, path.localOf(ref))
-    assert.equal(layer.pickRef(10, 10), ref, `vértice ${ref} (ordinal ${ordinal}, chunk ${path.chunkOf(ref)})`)
+    apuntar(spy, path, ref)
+    assert.equal(layer.pickRef(10, 10), ref, `vértice ${ref} (chunk ${path.chunkOf(ref)})`)
   })
 })
 
@@ -190,6 +197,9 @@ test('un chunk con ordinal ≥ 64 no entra al batch: degrada a «no pickeable»,
   assert.ok(suyas.length > 0)
   assert.deepEqual(expandir(batch).filter(ref => suyas.includes(ref)), [],
     'ninguna entrada del ordinal 64 se dibuja al parche: sin impacto no hay ref que atribuir')
+
+  apuntar(spy, path, suyas[0])
+  assert.equal(layer.pickRef(10, 10), -1, 'y el pick sobre una de ellas contesta «nada», no un ref ajeno')
 })
 
 /* ── 3. El agujero del vecindario promovido ── */
@@ -272,15 +282,24 @@ test('cerrar el trazo le estrena vecino al primer vértice, y el agujero lo toma
   assert.deepEqual(dibujadas(spy), vivas(arena).filter(ref => !ocultas.includes(ref)))
 })
 
-test('el agujero vale igual para el pase: el handle promovido no es pickeable por GPU', () => {
-  const { path, layer, vista } = montar(23)
+// La asimetría ES el contrato. El nodo que repone el banco es afordancia —`pointer-events: none` y cero
+// listeners, nunca pickea—, así que el pase es lo ÚNICO que sabe direccionar al vecindario promovido:
+// apagarlo también ahí lo vuelve inagarrable y realimenta al hover, que lo suelta para volver a
+// encontrarlo al frame siguiente. Vale igual para prev y next, que se apagan por el mismo motivo.
+test('el agujero NO alcanza al pase: el vecindario promovido sigue siendo pickeable', () => {
+  const { spy, path, layer, vista } = montar(23)
   const v = refs(path)[3]
   layer.draw(vista)
-  assert.ok(expandir(delBatch(layer.pickBatch())).includes(v))
 
   layer.promote(v)
-  assert.deepEqual(expandir(delBatch(layer.pickBatch())).filter(ref => vecindario(path, v).includes(ref)), [],
-    'su nodo DOM es el único que lo maneja: dos fuentes para el mismo handle sería el bug')
+  const cubiertas = expandir(delBatch(layer.pickBatch()))
+  assert.deepEqual(vecindario(path, v).filter(ref => !cubiertas.includes(ref)), [],
+    'las cinco entradas que el visual apaga entran ENTERAS al batch')
+
+  vecindario(path, v).forEach(ref => {
+    apuntar(spy, path, ref)
+    assert.equal(layer.pickRef(10, 10), ref, `el promovido y su vecindario se direccionan igual (${ref})`)
+  })
 })
 
 /* ── 4. El fantasma: el apagado no es estado residente ── */
@@ -358,6 +377,18 @@ test('el canal del rol `free` es el tile TRANSPARENTE, que apaga visual y pickin
   assert.equal(tiles[ROLE.free], canal('off'))
   assert.equal(sizes.length, 3)
   assert.notEqual(canal('vertex'), canal('midpoint'), 'y cada rol tiene el suyo')
+})
+
+// `gl_PointSize` se mide en píxeles del FRAMEBUFFER: sobre una superficie a DPR 2 el sprite declarado en
+// px CSS sale a la mitad de tamaño —y el pase, que lee el MISMO atributo, con la mitad de silueta—,
+// mientras el nodo del banco DOM que lo releva sigue midiendo lo declarado.
+test('el tamaño del handle se declara en px CSS y baja a la superficie en px del FRAMEBUFFER', () => {
+  const iconSet = defineEditIconSet()
+  const css     = editHandleChannels(iconSet).sizes
+  const doble   = editHandleChannels(iconSet, 2)
+
+  assert.deepEqual(doble.sizes, css.map(s => s * 2))
+  assert.deepEqual(doble.tiles, editHandleChannels(iconSet).tiles, 'el tile no depende de la resolución')
 })
 
 test('el VAO lee el buffer del arena con el layout de glify, una sola vez', () => {

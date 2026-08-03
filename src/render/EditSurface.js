@@ -27,6 +27,16 @@ export class EditSurface {
   #attached  = false
   #lost      = false
   #destroyed = false
+  #animando  = false
+  #ancla     = { x: 0, y: 0, zoom: 0, center: null }   // ancla y vista con las que se rasterizó el contenido
+
+  // Zoom animado: el canvas NO se re-rasteriza por frame —eso vibra— ni espera a `zoomend` —eso
+  // teletransporta—. Recibe el mismo transform que los tiles y la transición CSS del pane lo lleva.
+  #onZoomAnim = e => this.#animar(e.center, e.zoom)
+  #onZoomEnd  = () => {
+    this.#animando = false
+    this.resetCanvasReference()
+  }
 
   // `antialias` queda fijado para toda la vida del contexto —alternarlo exigiría recrearlo, que es
   // justo lo que el presupuesto prohíbe—: con MSAA el abanico multiplica su fill-rate.
@@ -35,6 +45,8 @@ export class EditSurface {
     this.#map      = map
     this.#paneName = pane
     this.#attrs    = { ...ATTRS, antialias }
+    map.on('zoomanim', this.#onZoomAnim)
+    map.on('zoomend', this.#onZoomEnd)
   }
 
   get gl()          { return this.#gl }
@@ -78,10 +90,12 @@ export class EditSurface {
       c.style.height = `${y}px`
       this.#gl.viewport(0, 0, w, h)
     }
-    this.#L.DomUtil.setPosition(c, this.#map.containerPointToLayerPoint(ORIGIN))
+    this.#animando || this.#anclar()                    // mientras anima, el transform es de la animación
   }
 
   destroy() {
+    this.#map.off('zoomanim', this.#onZoomAnim)
+    this.#map.off('zoomend', this.#onZoomEnd)
     this.#canvas?.remove()
     loseGlContext(this)                                 // nadie devuelve un contexto solo: el techo de ~16 es acumulativo
     this.#destroyed = true
@@ -89,8 +103,41 @@ export class EditSurface {
     this.#gl = this.#canvas = null
   }
 
+  // Ancla el canvas al origen del contenedor y RECUERDA con qué vista quedó rasterizado: de esa vista
+  // sale el transform del zoom animado.
+  #anclar() {
+    const map = this.#map
+    const a   = this.#ancla
+    const p   = map.containerPointToLayerPoint(ORIGIN)
+    this.#L.DomUtil.setPosition(this.#canvas, p)
+    a.x      = p.x
+    a.y      = p.y
+    a.zoom   = map.getZoom()
+    a.center = map.getCenter()
+  }
+
+  // El transform de un frame de zoom: la esquina rasterizada —que en la vista del ancla era el origen del
+  // contenedor— reproyectada a la vista destino, y la escala entre ambos zooms. Con `transform-origin: 0 0`
+  // (lo pone `leaflet-zoom-animated`) eso lleva CADA píxel del canvas a donde le toca.
+  #animar(center, zoom) {
+    if (!this.#attached) return
+    const map = this.#map
+    const a   = this.#ancla
+    const s   = map.getZoomScale(zoom, a.zoom)
+    const c0  = map.project(a.center, zoom)
+    const c1  = map.project(center ?? a.center, zoom)
+    const { x: w, y: h } = map.getSize()
+    this.#animando = true
+    this.#L.DomUtil.setTransform(this.#canvas, this.#L.point(
+      a.x + c0.x - c1.x + w * (1 - s) / 2,
+      a.y + c0.y - c1.y + h * (1 - s) / 2), s)
+  }
+
   #create() {
     const canvas = document.createElement('canvas')
+    // `leaflet-zoom-animated` es lo que hace que la transición CSS del pane (0.25s, el easing del tile)
+    // anime el transform del zoom, y lo que fija `transform-origin: 0 0`, del que depende la escala.
+    canvas.className           = 'cristae-edit-canvas leaflet-zoom-animated'
     canvas.style.position      = 'absolute'
     canvas.style.pointerEvents = 'none'
     canvas.addEventListener('webglcontextlost', () => { this.#lost = true })

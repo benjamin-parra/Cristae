@@ -1,3 +1,4 @@
+import { pixelScaleOf } from './pixel-scale.js'
 import { POINT_VERTEX, POINT_PICKING_FRAGMENT } from './shaders.js'
 
 // Picking GPU no-bloqueante: micro-FBO + lectura diferida por PBO/fenceSync (WebGL2).
@@ -88,6 +89,8 @@ export class Picking {
   #queued        = { active: false, cx: 0, cy: 0, batch: null, metadata: null }
   #result        = { hits: null, metadata: null }   // reusado por pick, como los hits que envuelve
   #visualProgram = null   // programa visual de glify → se restaura tras el pick (glify dibuja con él, sin re-useProgram)
+  #scale         = 1      // px del buffer por px CSS (ver #scaleFor)
+  #scaledAt      = 0      // ancho del buffer con el que se midió; 0 = sin medir
 
   get ready() { return !!this.#gl }
   get program() { return this.#program }
@@ -163,8 +166,8 @@ export class Picking {
     this.#queued.active = false
   }
 
-  // El destino mide PATCH×PATCH: no depende del tamaño del drawing buffer.
-  syncSize() {}
+  // El destino mide PATCH×PATCH y no depende del tamaño del drawing buffer; la escala CSS→buffer, sí.
+  syncSize() { this.#scaledAt = 0 }
 
   detach() {
     const gl = this.#gl
@@ -194,6 +197,14 @@ export class Picking {
     return true
   }
 
+  // Se remide sólo cuando cambia el buffer (y en `syncSize`): `clientWidth` fuerza layout, y el pick
+  // corre por muestra del puntero.
+  #scaleFor(w) {
+    if (w === this.#scaledAt) return this.#scale
+    this.#scaledAt = w
+    return this.#scale = pixelScaleOf(this.#gl)
+  }
+
   #flush() {
     const q = this.#queued
     if (!q.active) return
@@ -213,11 +224,15 @@ export class Picking {
   // un sprite grande centrado fuera del parche, que hoy sí cubre el píxel del cursor, dejaría de
   // pickearse. La traslación conserva el clip y la escala NDC→píxel (y con ella gl_PointSize), y lo
   // que antes recortaba el scissor ahora lo recorta el borde del framebuffer.
+  //
+  // `cx, cy` llegan en píxeles CSS del contenedor y el recorte va en píxeles del BUFFER: la escala de la
+  // superficie los separa, y sin ella una superficie a DPR 2 lee un píxel a media pantalla del cursor.
   #begin(cx, cy, batch) {
     const gl = this.#gl
     const w = gl.drawingBufferWidth, h = gl.drawingBufferHeight
-    const ox = Math.round(cx) - HALF
-    const oy = h - Math.round(cy) - HALF
+    const k = this.#scaleFor(w)
+    const ox = Math.round(cx * k) - HALF
+    const oy = h - Math.round(cy * k) - HALF
     this.#blend = gl.getParameter(gl.BLEND)
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.#target.framebuffer)
     gl.viewport(-ox, -oy, w, h)

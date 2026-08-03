@@ -5,7 +5,7 @@
 // pase pidió (tamaño del destino, adjuntos, origen del viewport, tags y draws).
 //
 // El harness va PRIMERO: instala los globals de módulo (window/document) que Leaflet toca al evaluarse.
-import { makeGl, makePickSpy, makeGlify, makeIconSet, makeMap } from '../../test-helpers/engine-stub.mjs'
+import { makeGl, makePickSpy, makeGlify, makeIconSet, makeMap, makeSurface } from '../../test-helpers/engine-stub.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { Picking, packTag, OBJ_BITS, CHUNK_BITS, LOCAL_BITS } from '../../src/render/Picking.js'
@@ -165,6 +165,57 @@ test('syncSize no reasigna el destino: no depende del drawing buffer', () => {
   const { picking, spy } = montar()
   for (let i = 0; i < 100; i++) picking.syncSize()
   assert.deepEqual([spy.renderbuffers, spy.framebuffers], [1, 1])
+})
+
+/* ── 6. Las DOS unidades: el cursor llega en px CSS y el parche se recorta en px del buffer ── */
+
+// El texel del cursor —que con el viewport trasladado es el centro del parche— traído a píxeles del
+// DRAWING BUFFER: con el origen en (-ox, -oy), el texel (HALF, HALF) ES el píxel (ox + HALF, oy + HALF).
+// GL cuenta la y desde ABAJO, así que un cursor a `cy` del borde superior está a `alto - cy`.
+const pixelLeido = ({ x, y }) => ({ x: -x + HALF, y: -y + HALF })
+
+const montarSobre = superficie => {
+  const spy     = makePickSpy()
+  const picking = new Picking()
+  picking.attach(makeGl(null, spy, superficie), {}, {})
+  return { picking, spy }
+}
+
+const leerEn = (picking, spy, cx, cy) => {
+  spy.viewports.length = 0
+  picking.pickSync(cx, cy, PASE, null)
+  return pixelLeido(spy.viewports[0])
+}
+
+test('el parche se recorta sobre el píxel del CURSOR, con la superficie a 1× y a 2×', () => {
+  const [cx, cy] = [100, 90]
+  ;[1, 2].forEach(dpr => {
+    const { picking, spy } = montarSobre(makeSurface({ width: ANCHO, height: ALTO, dpr }))
+    assert.deepEqual(leerEn(picking, spy, cx, cy), { x: cx * dpr, y: (ALTO - cy) * dpr },
+      `dpr ${dpr}: el número CSS interpretado como píxel de dispositivo lee a media pantalla del cursor`)
+  })
+})
+
+// La superficie de edición rinde a CSS × DPR y la de glify a tamaño CSS: en la misma pantalla conviven
+// las dos, así que la escala tiene que salir del CANVAS y no de `devicePixelRatio`.
+test('la escala sale del canvas: una superficie a tamaño CSS pickea igual en una pantalla HiDPI', () => {
+  const previo = globalThis.devicePixelRatio
+  globalThis.devicePixelRatio = 2
+  try {
+    const { picking, spy } = montarSobre(makeSurface({ width: ANCHO, height: ALTO }))
+    assert.deepEqual(leerEn(picking, spy, 100, 90), { x: 100, y: ALTO - 90 })
+  } finally { globalThis.devicePixelRatio = previo }
+})
+
+test('syncSize remide la escala: el canvas puede cambiar de caja sin cambiar de buffer', () => {
+  const superficie = makeSurface({ width: ANCHO, height: ALTO })
+  const { picking, spy } = montarSobre(superficie)
+  assert.deepEqual(leerEn(picking, spy, 100, 90), { x: 100, y: ALTO - 90 })
+
+  superficie.clientWidth /= 2                        // misma resolución, media caja → el doble de escala
+  assert.deepEqual(leerEn(picking, spy, 100, 90), { x: 100, y: ALTO - 90 }, 'la medida vale hasta el resize')
+  picking.syncSize()
+  assert.deepEqual(leerEn(picking, spy, 100, 90), { x: 200, y: ALTO - 180 })
 })
 
 /* ── La costura con la capa: el pase sólo dibuja si la capa le arma el BATCH ── */
