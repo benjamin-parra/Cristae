@@ -17,6 +17,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { ChunkedPath, ROLE } from '../../src/geometry/ChunkedPath.js'
 import { EditArena } from '../../src/render/EditArena.js'
+import { RingStore } from '../../src/render/RingStore.js'
 import { EditStrokeLayer } from '../../src/render/EditStrokeLayer.js'
 
 // cap 31 · siete vértices por chunk al ingerir: el trazo cruza de chunk con pocos puntos y el `cap`
@@ -412,7 +413,9 @@ test('lo que no se ve no se dibuja: el rango por la caja del chunk y la costura 
   assert.deepEqual(log.draws, [], 'corrido sólo en y, nada')
 })
 
-test('destroy libera el programa y el VAO', () => {
+// El programa se comparte por (contexto, paso) y muere con el contexto, así que borrarlo desde una capa
+// dejaría mudas a las demás. El ciclo de vida compartido está en `edit-programs.test.mjs`.
+test('destroy libera el VAO, que es de la capa, y no el programa, que es del contexto', () => {
   const gl      = makeGl()
   const borrado = { programas: 0, vaos: 0 }
   gl.deleteProgram      = () => { borrado.programas++ }
@@ -421,5 +424,25 @@ test('destroy libera el programa y el VAO', () => {
   const arena = new EditArena({ gl, path, project })
 
   new EditStrokeLayer({ gl, arena, path, project }).destroy()
-  assert.deepEqual(borrado, { programas: 1, vaos: 1 })
+  assert.deepEqual(borrado, { programas: 0, vaos: 1 })
+})
+
+// El trazo consume del almacén `relX`/`relY`/`textureWidth` y la topología `rev`/`roleAt`/`nextVertex`.
+// Un anillo estático los cumple con aritmética y sin chunks, de donde el pase es un span y un cierre.
+test('anillo estático: un span contiguo de n-1 segmentos y el cierre del anillo suelto', () => {
+  const log   = { draws: [], uniformes: {} }
+  const gl    = conPrograma(makeGl(), log)
+  const N     = 6
+  const store = new RingStore({ gl, points: puntos(N), project })
+  const layer = new EditStrokeLayer({ gl, arena: store, path: store, project, paso: 1, width: ANCHO })
+
+  layer.draw(vistaSobre(store, 8))
+
+  const contiguos = log.draws.filter(d => !d.loose)
+  const sueltos   = log.draws.filter(d => d.loose)
+  assert.deepEqual(contiguos.map(d => [d.base, d.count]), [[0, (N - 1) * 6]],
+    'sin chunks el rango no se parte: un span con los n-1 segmentos contiguos')
+  assert.equal(sueltos.length, 1, 'y un único suelto')
+  assert.deepEqual(sueltos[0].loose, [store.relX(N - 1), store.relY(N - 1), store.relX(0), store.relY(0)],
+    'que es el cierre: del último vértice al primero')
 })

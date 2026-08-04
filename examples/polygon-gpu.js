@@ -5,6 +5,7 @@ import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { EditSurface } from '../src/render/EditSurface.js'
 import { EditFillLayer } from '../src/render/EditFillLayer.js'
+import { EditStrokeLayer } from '../src/render/EditStrokeLayer.js'
 import { RingStore } from '../src/render/RingStore.js'
 import { projX0, projY0 } from '../src/render/project.js'
 import { FORMAS, DEGENERADAS, crear, cuentaVertices } from '../test/fixtures/polygons.mjs'
@@ -51,6 +52,7 @@ const estado = { forma: 'agujero', n: 400, modo: 'ambos' }
 
 let anillos = []
 let capaGpu = null
+let trazos  = []
 let stores  = []
 let svg     = null
 
@@ -71,10 +73,11 @@ const encuadre = () => {
 
 const soltar = () => {
   capaGpu?.destroy()
+  trazos.forEach(t => t.destroy())
   stores.forEach(s => s.destroy())
   svg && map.removeLayer(svg)
   capaGpu = svg = null
-  stores  = []
+  trazos  = stores = []
 }
 
 const instalar = () => {
@@ -84,6 +87,7 @@ const instalar = () => {
 
   stores  = anillos.map(points => new RingStore({ gl, points, project }))
   capaGpu = new EditFillLayer({ gl, rings: stores.map(arena => ({ arena })), paso: 1, color: GPU, opacity: ALPHA })
+  trazos  = stores.map(arena => new EditStrokeLayer({ gl, arena, path: arena, project, paso: 1, width: 2, color: GPU }))
 
   svg = L.polygon(anillos, { color: LEAFLET, weight: 1, fillColor: LEAFLET, fillOpacity: ALPHA, interactive: false })
 
@@ -111,7 +115,9 @@ const pintar = () => {
   gl.clearColor(0, 0, 0, 0)
   gl.clear(gl.COLOR_BUFFER_BIT | gl.STENCIL_BUFFER_BIT)
   const t0 = performance.now()
-  const dibujo = capaGpu.draw(encuadre())
+  const vista  = encuadre()
+  const dibujo = capaGpu.draw(vista)
+  trazos.forEach(t => t.draw(vista))
   gl.finish()                                // sin esto se mide el encolado, no el dibujo
   $('msDraw').textContent     = ms(performance.now() - t0)
   $('enPantalla').textContent = dibujo ? 'sí' : 'no (fuera del viewport)'

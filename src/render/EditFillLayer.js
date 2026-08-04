@@ -15,6 +15,7 @@
 // telescopa, así que quitarlas y sumarlas por separado da el mismo relleno, exacto.
 
 import { toRGBA } from './color.js'
+import { programaCompartido } from './gl-programs.js'
 
 const BIT = 0x01                       // el relleno vive en el bit 0 del stencil
 
@@ -93,6 +94,22 @@ const programa = (gl, vs, fs, uniformes) => {
   return u
 }
 
+// Los tres programas del pase con las ubicaciones de sus uniformes: todo lo que es del PROGRAMA y no de
+// la capa. `uPos` se fija acá porque el sampler lo es —queda con el enlace y ninguna instancia lo mueve—;
+// color, matriz y rangos siguen viajando por draw, que sí son de la capa.
+const programasDelPase = (gl, paso) => programaCompartido(gl, `relleno:${paso}`, () => {
+  const pase = {
+    paridad  : programa(gl, VS_PARIDAD(paso), FS_PARIDAD, ['uPos', 'uMatrix', 'uFirst', 'uEdges', 'uTail']),
+    vivas    : programa(gl, VS_VIVAS,  FS_PARIDAD, ['uPos', 'uMatrix', 'uPrev', 'uNext', 'uVivo']),
+    cubierta : programa(gl, VS_CUBRIR, FS_COLOR,   ['uColor']),
+  }
+  ;[pase.paridad, pase.vivas].forEach(u => {
+    gl.useProgram(u.program)
+    gl.uniform1i(u.uPos, 0)             // las posiciones viajan siempre por la unidad 0
+  })
+  return pase
+})
+
 const crecer = arr => {
   const mayor = new Int32Array(arr.length * 2)
   mayor.set(arr)
@@ -122,17 +139,14 @@ export class EditFillLayer {
   #promo  = { ring: -1, vertex: -1, prev: -1, next: -1, x: 0, y: 0 }
 
   constructor({ gl, rings = [], color = '#6366f1', opacity = 0.42, paso = 2 }) {
+    const pase = programasDelPase(gl, paso)
     this.rings     = rings
     this.#gl       = gl
     this.#paso     = paso
     this.#vao      = gl.createVertexArray()
-    this.#paridad  = programa(gl, VS_PARIDAD(paso), FS_PARIDAD, ['uPos', 'uMatrix', 'uFirst', 'uEdges', 'uTail'])
-    this.#vivas    = programa(gl, VS_VIVAS,   FS_PARIDAD, ['uPos', 'uMatrix', 'uPrev', 'uNext', 'uVivo'])
-    this.#cubierta = programa(gl, VS_CUBRIR,  FS_COLOR,   ['uColor'])
-    ;[this.#paridad, this.#vivas].forEach(u => {
-      gl.useProgram(u.program)
-      gl.uniform1i(u.uPos, 0)           // las posiciones viajan siempre por la unidad 0
-    })
+    this.#paridad  = pase.paridad
+    this.#vivas    = pase.vivas
+    this.#cubierta = pase.cubierta
     this.style({ color, opacity })
   }
 
@@ -191,10 +205,9 @@ export class EditFillLayer {
     return true
   }
 
+  // El VAO es de esta capa; los tres programas son del contexto y los comparten todas las geometrías.
   destroy() {
-    const gl = this.#gl
-    ;[this.#paridad, this.#vivas, this.#cubierta].forEach(u => gl.deleteProgram(u.program))
-    gl.deleteVertexArray(this.#vao)
+    this.#gl.deleteVertexArray(this.#vao)
     this.rings = []
   }
 

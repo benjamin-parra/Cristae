@@ -1,14 +1,17 @@
+import { ROLE } from '../geometry/ChunkedPath.js'
 import { anchorMatrix } from './anchor-matrix.js'
 
 // Espejo GPU de UN anillo estático: posiciones en una textura RG32F, relativas a un ancla propia.
-// Expone el contrato que consume el relleno por stencil (`texture`, `anchor`, `matrixFor`, `eachRange`,
-// `boxOfChunk`) con un único rango contiguo, sin la disciplina de chunks del arena editable.
+// Expone el contrato que consumen el relleno y el trazo (`texture`, `anchor`, `matrixFor`, `eachRange`,
+// `boxOfChunk`, más la topología `rev`/`roleAt`/`nextVertex`) con un único rango contiguo,
+// sin la disciplina de chunks del arena editable.
 
 const anchoDe = n => Math.min(2048, Math.max(1, 2 ** Math.ceil(Math.log2(Math.max(1, n)))))
 
 export class RingStore {
 
   #gl
+  #rel     = new Float32Array(0)
   #texture = null
   #width   = 1
   #rows    = 1
@@ -23,13 +26,21 @@ export class RingStore {
 
   // `points` son pares [lat, lng] u objetos {lat, lng}; `project(lat, lng, out)` los baja a world0 px.
   constructor({ gl, points, project, textureWidth }) {
-    this.#gl = gl
-    this.#subir(this.#proyectar(points, project), textureWidth)
+    this.#gl  = gl
+    this.#rel = this.#proyectar(points, project)
+    this.#subir(textureWidth)
   }
 
-  get texture() { return this.#texture }
-  get count()   { return this.#count }
-  get anchor()  { return { x: this.#anchorX, y: this.#anchorY } }
+  get texture()      { return this.#texture }
+  get textureWidth() { return this.#width }
+  get anchor()       { return { x: this.#anchorX, y: this.#anchorY } }
+  get rev()          { return 0 }              // inmutable: nada que resincronizar
+
+  relX(ref) { return this.#rel[ref * 2] }
+  relY(ref) { return this.#rel[ref * 2 + 1] }
+
+  roleAt(ref)     { return ref >= 0 && ref < this.#count ? ROLE.vertex : ROLE.free }
+  nextVertex(ref) { return ref + 1 < this.#count ? ref + 1 : 0 }
 
   eachRange(cb) { this.#count && cb(0, 0, this.#count, 0) }
 
@@ -80,12 +91,12 @@ export class RingStore {
     return rel
   }
 
-  #subir(rel, textureWidth) {
+  #subir(textureWidth) {
     const gl = this.#gl
     this.#width = textureWidth ?? anchoDe(this.#count)
     this.#rows  = Math.max(1, Math.ceil(this.#count / this.#width))
     const datos = new Float32Array(this.#width * this.#rows * 2)
-    datos.set(rel)
+    datos.set(this.#rel)
     this.#texture = gl.createTexture()
     gl.bindTexture(gl.TEXTURE_2D, this.#texture)
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)

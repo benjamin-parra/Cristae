@@ -17,6 +17,7 @@
 // —una cuenta más oscura sobre trazo translúcido— a cambio de nada visible.
 import { ROLE } from '../geometry/ChunkedPath.js'
 import { toRGBA } from './color.js'
+import { programaCompartido } from './gl-programs.js'
 
 // Medio píxel de borde a cada lado: el quad se expande lo mismo para que la rampa entre entera.
 const FEATHER = 0.5
@@ -24,12 +25,11 @@ const FEATHER = 0.5
 // Dos triángulos por segmento y dos entradas del arena por segmento. El arranque del rango viaja por
 // uniform y no en el `first` del draw: `LOCAL_CAP` es IMPAR, así que el ref de un vértice no tiene
 // paridad fija y `gl_VertexID` no alcanza para reconstruir la entrada.
-const ESQUINAS    = 6
-const POR_ENTRADA = ESQUINAS / 2
+const ESQUINAS = 6
 
 const UNIFORMS = ['matrix', 'positions', 'texGeom', 'pixel', 'halfWidth', 'color', 'base', 'loose', 'useLoose']
 
-const VERTEX = `#version 300 es
+const VERTEX = paso => `#version 300 es
 precision highp float;
 
 uniform mat4      matrix;
@@ -52,10 +52,10 @@ vec2 posicion(int entrada) {
 }
 
 void main() {
-  int   entrada = base + gl_VertexID / 6 * 2;
+  int   entrada = base + gl_VertexID / 6 * ${paso};
   vec2  quad    = QUAD[gl_VertexID % 6];
   vec2  a       = useLoose ? loose.xy : posicion(entrada);
-  vec2  b       = useLoose ? loose.zw : posicion(entrada + 2);
+  vec2  b       = useLoose ? loose.zw : posicion(entrada + ${paso});
   vec2  pa      = (matrix * vec4(a, 0.0, 1.0)).xy / pixel;
   vec2  pb      = (matrix * vec4(b, 0.0, 1.0)).xy / pixel;
   vec2  eje     = pb - pa;
@@ -83,9 +83,26 @@ void main() {
   fragColor = vec4(color.rgb, color.a * (1.0 - smoothstep(halfWidth - FEATHER, halfWidth + FEATHER, abs(dist))));
 }`
 
+// El programa del trazo con las ubicaciones de sus uniformes, por (contexto, paso): el fuente sólo
+// depende del paso, y el resto —ancho, color, matriz— viaja por draw, que es de la capa.
+const programaDelTrazo = (gl, paso) => programaCompartido(gl, `trazo:${paso}`, () => {
+  const program = gl.createProgram()
+  ;[[gl.VERTEX_SHADER, VERTEX(paso)], [gl.FRAGMENT_SHADER, FRAGMENT]].forEach(([type, source]) => {
+    const shader = gl.createShader(type)
+    gl.shaderSource(shader, source)
+    gl.compileShader(shader)
+    gl.attachShader(program, shader)
+    gl.deleteShader(shader)              // el programa las retiene hasta el link
+  })
+  gl.linkProgram(program)
+  if (!gl.getProgramParameter(program, gl.LINK_STATUS))
+    throw new Error(`[cristae] el programa del trazo no linkea: ${gl.getProgramInfoLog(program)}`)
+  return { program, uniform: Object.fromEntries(UNIFORMS.map(n => [n, gl.getUniformLocation(program, n)])) }
+})
+
 export class EditStrokeLayer {
 
-  #gl; #arena; #path; #project
+  #gl; #arena; #path; #project; #paso; #porEntrada
   #program = null
   #uniform = null
   #vao     = null
@@ -107,13 +124,16 @@ export class EditStrokeLayer {
   #box  = new Float64Array(4)              // salida de boxOfChunk, reusada [0-alloc]
   #xy   = new Float64Array(2)              // salida de project, reusada [0-alloc]
 
-  constructor({ gl, arena, path, project, width = 3, color = '#2563eb' }) {
-    this.#gl      = gl
+  constructor({ gl, arena, path, project, width = 3, color = '#2563eb', paso = 2 }) {
+    const compartido = programaDelTrazo(gl, paso)
+    this.#gl         = gl
+    this.#paso       = paso
+    this.#porEntrada = ESQUINAS / paso
     this.#arena   = arena
     this.#path    = path
     this.#project = project
-    this.#program = this.#link()
-    this.#uniform = Object.fromEntries(UNIFORMS.map(n => [n, gl.getUniformLocation(this.#program, n)]))
+    this.#program = compartido.program
+    this.#uniform = compartido.uniform
     this.#vao     = gl.createVertexArray() // sin atributos: el VAO sólo aísla el estado que dejó otra capa
     this.style({ width, color })
   }
@@ -172,10 +192,9 @@ export class EditStrokeLayer {
     return this
   }
 
+  // El VAO es de esta capa; el programa es del contexto y lo comparten todos los trazos.
   destroy() {
-    const gl = this.#gl
-    gl.deleteVertexArray(this.#vao)
-    gl.deleteProgram(this.#program)
+    this.#gl.deleteVertexArray(this.#vao)
     this.#vao = this.#program = null
     return this
   }
@@ -185,14 +204,14 @@ export class EditStrokeLayer {
   // Un draw por chunk visible: los segmentos cuyo otro extremo es contiguo en el run. El promovido abre
   // AGUJEROS en el rango, derivados por frame de la promoción vigente y no de estado residente.
   #range = (_ordinal, first, count, chunk) => {
-    const end = first + count - 2          // el último par arranca la costura, y va suelto
+    const end = first + count - this.#paso   // la última entrada arranca la costura, y va suelta
     if (end <= first || !this.#inView(chunk)) return
     let from = first
     for (let i = 0; i < this.#holeCount; i++) {
       const h = this.#holes[i]
       if (h < from || h >= end) continue
       this.#span(from, h)
-      from = h + 2
+      from = h + this.#paso
     }
     this.#span(from, end)
   }
@@ -200,14 +219,14 @@ export class EditStrokeLayer {
   #span(from, to) {
     if (to <= from) return
     this.#gl.uniform1i(this.#uniform.base, from)
-    this.#gl.drawArrays(this.#gl.TRIANGLES, 0, (to - from) * POR_ENTRADA)
+    this.#gl.drawArrays(this.#gl.TRIANGLES, 0, (to - from) * this.#porEntrada)
   }
 
   // El vértice que cierra el run no tiene al siguiente contiguo: su segmento sale suelto. Que no exista
   // es el final del trazo abierto, y que exista en el último chunk es el cierre del anillo.
   #seam = (_ordinal, first, count) => {
     if (count <= 0) return
-    const a = first + count - 2
+    const a = first + count - this.#paso
     const b = this.#path.nextVertex(a)
     if (b < 0 || a === this.#promoted || a === this.#prev) return
     this.#loose(this.#arena.relX(a), this.#arena.relY(a), this.#arena.relX(b), this.#arena.relY(b))
@@ -283,23 +302,5 @@ export class EditStrokeLayer {
     const b = this.#arena.boxOfChunk(chunk, this.#box)
     const r = this.#rect
     return b[0] <= r[2] && b[2] >= r[0] && b[1] <= r[3] && b[3] >= r[1]
-  }
-
-  /* ── GL ─────────────────────────────────────────────────────────────────────────────────── */
-
-  #link() {
-    const gl      = this.#gl
-    const program = gl.createProgram()
-    ;[[gl.VERTEX_SHADER, VERTEX], [gl.FRAGMENT_SHADER, FRAGMENT]].forEach(([type, source]) => {
-      const shader = gl.createShader(type)
-      gl.shaderSource(shader, source)
-      gl.compileShader(shader)
-      gl.attachShader(program, shader)
-      gl.deleteShader(shader)              // el programa las retiene hasta el link
-    })
-    gl.linkProgram(program)
-    if (!gl.getProgramParameter(program, gl.LINK_STATUS))
-      throw new Error(`[cristae] el programa del trazo no linkea: ${gl.getProgramInfoLog(program)}`)
-    return program
   }
 }
