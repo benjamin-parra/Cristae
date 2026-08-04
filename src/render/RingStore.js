@@ -8,6 +8,10 @@ import { anchorMatrix } from './anchor-matrix.js'
 
 const anchoDe = n => Math.min(2048, Math.max(1, 2 ** Math.ceil(Math.log2(Math.max(1, n)))))
 
+// Camino rápido: el intercalado [lat, lng, …] que la librería ya usa puertas adentro. Cualquier otra
+// forma —incluido un tipado de enteros, que truncaría las coordenadas— cae al camino genérico.
+const esPlano = points => points instanceof Float64Array || points instanceof Float32Array
+
 export class RingStore {
 
   #gl
@@ -24,7 +28,8 @@ export class RingStore {
   #out    = new Float64Array(4)
   #xy     = new Float64Array(2)      // salida del proyector, reusada [0-alloc]
 
-  // `points` son pares [lat, lng] u objetos {lat, lng}; `project(lat, lng, out)` los baja a world0 px.
+  // `points` son pares [lat, lng], objetos {lat, lng}, o un Float64Array/Float32Array plano con
+  // [lat, lng, …] intercalado; `project(lat, lng, out)` los baja a world0 px.
   constructor({ gl, points, project, textureWidth }) {
     this.#gl  = gl
     this.#rel = this.#proyectar(points, project)
@@ -61,21 +66,13 @@ export class RingStore {
 
   // El ancla va al centro de la caja: mantiene los rel en pocos píxeles y a float32 le sobra mantisa.
   #proyectar(points, project) {
-    const n   = points.length
-    const w0  = new Float64Array(n * 2)
-    const caja = this.#box
+    const plano = esPlano(points)
+    const n     = plano ? points.length >> 1 : points.length
+    const w0    = new Float64Array(n * 2)
+    const caja  = this.#box
     caja[0] = caja[1] = Infinity
     caja[2] = caja[3] = -Infinity
-    for (let i = 0; i < n; i++) {
-      const p = points[i]
-      project(Array.isArray(p) ? p[0] : p.lat, Array.isArray(p) ? p[1] : p.lng, this.#xy)
-      const x = w0[i * 2] = this.#xy[0]
-      const y = w0[i * 2 + 1] = this.#xy[1]
-      if (x < caja[0]) caja[0] = x
-      if (y < caja[1]) caja[1] = y
-      if (x > caja[2]) caja[2] = x
-      if (y > caja[3]) caja[3] = y
-    }
+    plano ? this.#ingerirPlano(points, project, w0, n) : this.#ingerirPares(points, project, w0, n)
     this.#anchorX = n ? (caja[0] + caja[2]) / 2 : 0
     this.#anchorY = n ? (caja[1] + caja[3]) / 2 : 0
     const rel = new Float32Array(n * 2)
@@ -89,6 +86,36 @@ export class RingStore {
     caja[3] -= this.#anchorY
     this.#count = n
     return rel
+  }
+
+  // Las dos formas de entrada llevan bucle propio [0-alloc]: leer el vértice tras un lector común
+  // vuelve megamórfico ese único call site y le cobraría el peaje también al camino rápido. Lo demás
+  // —proyectar y estirar la caja— es idéntico a propósito.
+  #ingerirPlano(points, project, w0, n) {
+    const caja = this.#box
+    for (let i = 0; i < n; i++) {
+      project(points[i * 2], points[i * 2 + 1], this.#xy)
+      const x = w0[i * 2]     = this.#xy[0]
+      const y = w0[i * 2 + 1] = this.#xy[1]
+      if (x < caja[0]) caja[0] = x
+      if (y < caja[1]) caja[1] = y
+      if (x > caja[2]) caja[2] = x
+      if (y > caja[3]) caja[3] = y
+    }
+  }
+
+  #ingerirPares(points, project, w0, n) {
+    const caja = this.#box
+    for (let i = 0; i < n; i++) {
+      const p = points[i]
+      project(Array.isArray(p) ? p[0] : p.lat, Array.isArray(p) ? p[1] : p.lng, this.#xy)
+      const x = w0[i * 2]     = this.#xy[0]
+      const y = w0[i * 2 + 1] = this.#xy[1]
+      if (x < caja[0]) caja[0] = x
+      if (y < caja[1]) caja[1] = y
+      if (x > caja[2]) caja[2] = x
+      if (y > caja[3]) caja[3] = y
+    }
   }
 
   #subir(textureWidth) {
