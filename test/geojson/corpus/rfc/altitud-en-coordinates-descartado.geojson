@@ -1,0 +1,48 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "nombre": "el coordinates ajeno de la coleccion trae 3 numeros y el documento sigue siendo 2D"
+      },
+      "geometry": {
+        "coordinates": [11.1, 22.2, 333.3],
+        "geometries": [
+          {
+            "type": "Point",
+            "coordinates": [-71.21, -34.21]
+          }
+        ],
+        "type": "GeometryCollection"
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "nombre": "coordinates duplicado: gana el ultimo, y la altitud del descartado no cuenta"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [-71.31, -34.31, 999.9],
+          [-71.32, -34.32, 999.9]
+        ],
+        "coordinates": [
+          [-71.33, -34.33],
+          [-71.34, -34.34]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "nombre": "control: una altitud RETENIDA si vuelve 3D al documento entero"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-71.41, -34.41, 55.5]
+      }
+    }
+  ]
+}

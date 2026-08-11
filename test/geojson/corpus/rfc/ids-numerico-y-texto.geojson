@@ -1,0 +1,35 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "id": 7,
+      "properties": {
+        "nombre": "id numerico, antes de geometry"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-70.81, -33.81]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "nombre": "id de texto, despues de geometry"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-70.82, -33.82]
+      },
+      "id": "bodega-07"
+    },
+    {
+      "type": "Feature",
+      "properties": null,
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-70.83, -33.83]
+      }
+    }
+  ]
+}

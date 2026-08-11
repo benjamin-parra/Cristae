@@ -1,0 +1,8 @@
+{
+  "fixture": "adversarios/null-suelto.geojson",
+  "bytes": 5,
+  "veredicto": "error",
+  "code": "formato",
+  "oraculo": "plantado",
+  "motivo": "oraculo: la raíz no es un objeto JSON: §17.9 lo manda a GeoJsonError(formato)"
+}

@@ -1,0 +1,16 @@
+{
+  "displayFieldName": "",
+  "fieldAliases": {},
+  "geometryType": "esriGeometryPoint",
+  "features": [
+    {
+      "attributes": {
+        "OBJECTID": 1
+      },
+      "geometry": {
+        "x": -70.6,
+        "y": -33.4
+      }
+    }
+  ]
+}

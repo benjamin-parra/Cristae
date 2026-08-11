@@ -1,0 +1,15 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": { "nombre": "el valor de type lleva escape" },
+      "geometry": {
+        "type": "Pol\u0079gon",
+        "coordinates": [
+          [ [ 3, 3 ], [ 4, 3 ], [ 4, 4 ], [ 3, 3 ] ]
+        ]
+      }
+    }
+  ]
+}

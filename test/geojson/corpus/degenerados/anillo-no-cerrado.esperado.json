@@ -1,0 +1,51 @@
+{
+  "fixture": "degenerados/anillo-no-cerrado.geojson",
+  "bytes": 316,
+  "veredicto": "lectura",
+  "oraculo": "ok",
+  "conteos": {
+    "f": 1,
+    "g": 1,
+    "p": 1,
+    "r": 1,
+    "v": 4
+  },
+  "tablas": {
+    "geometryAt": [
+      0,
+      1
+    ],
+    "partAt": [
+      0,
+      1
+    ],
+    "ringAt": [
+      0,
+      1
+    ],
+    "vertexAt": [
+      0,
+      4
+    ],
+    "kinds": [
+      5
+    ],
+    "featureOf": [
+      0
+    ],
+    "closed": [
+      0
+    ],
+    "xy": [
+      0,
+      0,
+      4,
+      0,
+      4,
+      4,
+      0,
+      4
+    ],
+    "z": null
+  }
+}

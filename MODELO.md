@@ -145,6 +145,7 @@ legacy (Rollup matchea `^@cristae(/|$)`, no captura `@cristae`):
 | `cristae/core` | `src/data/index.js` | nada (sin DOM/Lit/Leaflet) | — |
 | `cristae/table` | `src/table/index.js` | `lit` (+ re-export del núcleo) | `<cristae-table>` |
 | `cristae/map` | `index.js` | `leaflet`/`glify`/`lit` (+ re-export del núcleo) | `<cristae-*>` de mapa |
+| `cristae/geojson` | `src/geojson/index.js` | nada (sin DOM/Lit/Leaflet) | — |
 
 La garantía "una tabla no baja Leaflet" la da el **grafo de imports disjunto** (`table/` no importa
 `engine/`/`render/`), no el `sideEffects`. `map` y `table` re-exportan la superficie del núcleo por

@@ -1,0 +1,21 @@
+{
+  "type": "Topology",
+  "objects": {
+    "capa": {
+      "type": "GeometryCollection",
+      "geometries": []
+    }
+  },
+  "arcs": [
+    [
+      [
+        0,
+        0
+      ],
+      [
+        1,
+        1
+      ]
+    ]
+  ]
+}

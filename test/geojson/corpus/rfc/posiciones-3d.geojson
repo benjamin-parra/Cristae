@@ -1,0 +1,29 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "nombre": "vertice con altitud"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-70.51, -33.51, 560.4]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "nombre": "tramo con altitud en las tres posiciones"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [-70.52, -33.52, 561.0],
+          [-70.53, -33.53, 575.25],
+          [-70.54, -33.54, 590.5]
+        ]
+      }
+    }
+  ]
+}

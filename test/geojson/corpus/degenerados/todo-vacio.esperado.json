@@ -1,0 +1,44 @@
+{
+  "fixture": "degenerados/todo-vacio.geojson",
+  "bytes": 520,
+  "veredicto": "lectura",
+  "oraculo": "ok",
+  "conteos": {
+    "f": 4,
+    "g": 2,
+    "p": 0,
+    "r": 0,
+    "v": 0
+  },
+  "tablas": {
+    "geometryAt": [
+      0,
+      0,
+      0,
+      1,
+      2
+    ],
+    "partAt": [
+      0,
+      0,
+      0
+    ],
+    "ringAt": [
+      0
+    ],
+    "vertexAt": [
+      0
+    ],
+    "kinds": [
+      6,
+      3
+    ],
+    "featureOf": [
+      2,
+      3
+    ],
+    "closed": [],
+    "xy": [],
+    "z": null
+  }
+}

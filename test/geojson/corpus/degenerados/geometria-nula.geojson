@@ -1,0 +1,29 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "id": "antes",
+      "properties": { "n": 1 },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [[0, 0], [1, 1]]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "sin-geometria",
+      "properties": { "n": 2 },
+      "geometry": null
+    },
+    {
+      "type": "Feature",
+      "id": "despues",
+      "properties": { "n": 3 },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [[2, 2], [3, 3]]
+      }
+    }
+  ]
+}

@@ -483,6 +483,9 @@ La **ley** (MODELO §5.4) formalizada como contrato que un implementador debe cu
 | `safeDispatch` | O(L) **[0-alloc]** | — | — |
 | `followPoint` | O(1)/update | — | — |
 | render (draw) | O(n_visibles) | — | — |
+| `readGeoJson` (§17) | — | — | O(B) una pasada **[0-alloc]** en el bucle |
+| ascenso CSR del lector (§17) | O(log n) **[0-alloc]** | — | — |
+| `propertiesOf` (§17) | — | O(largo del rango) | — |
 
 **Objetivo de estado estable** (miles de updates/seg): la ruta caliente —`move`/recolor → encode → `bufferSubData` → draw— es **O(1) por elemento y [0-alloc]**, *bajo precondición de set sin cambios* (id con slot vigente) — path incremental, MODELO §17.5. Es la única garantía de alloc incondicional. Si una implementación asigna por elemento en esta ruta, está mal. **El rebuild NO tiene esa garantía:** `set`/filtro/cluster pasa por el `setData` de glify, que es O(n) y aloca O(n) (glify stock no tiene update in-place). El coalescing acota la *tasa* a ≤1 rebuild/flush de rAF, **no** el costo: si el set cambia cada frame se paga O(n)/frame. Mantener barato el rebuild es responsabilidad del *uso* (que el set cambie poco), no del scheduler (MODELO §17 intro).
 
@@ -518,6 +521,7 @@ La **ley** (MODELO §5.4) formalizada como contrato que un implementador debe cu
 | cámara | `followPoint` re-centra sin bombeo; insets aplicados |
 | eventos | `hover` solo emite al cambiar el set; `click` entrega hits ordenados; cursor automático |
 | lifecycle | StrictMode doble-mount ⇒ 1 motor; `destroy()` cancela rAF y quita listeners (sin leak) |
+| lector GeoJSON (§17) | corpus de conformidad contra un **oráculo diferencial** sobre `JSON.parse`, nunca contra la implementación; las cuatro formas de entrada dan salidas idénticas byte a byte; fuzzer de mutación sin lectura fuera de rango ni excepción cruda; ausencia de grafo (conteo de asignaciones, no milisegundos) |
 
 ---
 
@@ -569,3 +573,375 @@ La **ley** (MODELO §5.4) formalizada como contrato que un implementador debe cu
 7. **Una sola instancia de Leaflet**, inyectada.
 
 > Si una decisión de implementación obliga a violar una invariante, **es la implementación la que está mal**, no la invariante. Volver a MODELO.md/SPECS.md antes de improvisar.
+
+---
+
+## 17. Lector de GeoJSON — `cristae/geojson`
+
+> Va al final y no entre las secciones de API porque es un **segmento** (como `core`), no una pieza
+> del mapa: se contrata entero acá —firmas, invariantes, bordes— sin depender de §0-§11. Guía de uso
+> en [`docs/geojson.md`](./docs/geojson.md).
+
+Lee bytes UTF-8 y produce geometría en arrays tipados **sin construir nunca el grafo de `JSON.parse`**.
+Cero DOM, cero Leaflet, cero dependencias. Lo consume `RingStore` (§17.6) y sirve suelto.
+
+Convenciones locales: `B` = bytes de entrada, `v` = vértices, `r` = anillos, `g` = geometrías,
+`f` = features.
+
+### 17.1 El modelo de salida: CSR de cuatro niveles
+
+**feature → geometría → parte → anillo → vértice.** Cuatro tablas de offsets, cada una en formato CSR:
+el rango de `i` es `a[i] .. a[i+1]`.
+
+El nivel **parte** no es decorativo. Sin él, un `MultiPolygon` de dos polígonos donde el primero tiene
+un hoyo entrega tres anillos y **nadie puede decidir** si el anillo 1 es hoyo del polígono 0 o exterior
+del polígono 1: o el hoyo no se recorta, o el segundo polígono se dibuja como hoyo del primero.
+
+```ts
+interface GeoJsonRead {
+  readonly geometryAt : Uint32Array   // [f+1] feature    → rango de geometrías  (1:N por GeometryCollection)
+  readonly partAt     : Uint32Array   // [g+1] geometría  → rango de partes
+  readonly ringAt     : Uint32Array   // [p+1] parte      → rango de anillos
+  readonly vertexAt   : Uint32Array   // [r+1] anillo     → rango de vértices
+  readonly kinds      : Uint8Array    // [g]   GeoJsonKind (1..6). 0 no sobrevive al sellado
+  readonly featureOf  : Uint32Array   // [g]   geometría  → feature dueño
+  readonly closed     : Uint8Array    // [r]   1 = el último vértice repite al primero (§17.6)
+  readonly xy         : Float64Array  // [2v]  xy[2i]=lng  xy[2i+1]=lat   ← orden RFC, sin invertir
+  readonly z          : Float64Array | null   // [v] NaN = la posición era 2D; null = documento 2D
+  readonly bounds     : Float64Array | null   // [4g] minLng minLat maxLng maxLat; null salvo `bounds:true`
+  readonly propAt     : Uint32Array   // [2f]  rango de BYTE de los atributos del feature (§17.4)
+  readonly idAt       : Uint32Array   // [2f]  rango de BYTE de `id`
+  readonly bytes      : Uint8Array | null     // la entrada retenida; null tras `release()`
+  readonly stats      : GeoJsonStats
+}
+```
+
+`GeometryCollection` **no sobrevive a la salida**: sus geometrías hoja se emiten aplanadas en
+**recorrido en profundidad, en orden de documento** —no en anchura: con dos niveles de anidamiento los
+dos órdenes dan `kinds` y `featureOf` distintos— y `featureOf` las ata a su feature. El aplanado en
+profundidad es idempotente, así que el anidamiento —legal: el RFC dice SHOULD avoid, no MUST NOT— no
+necesita un quinto nivel. Se pierde la forma del árbol, que para render es irrelevante.
+
+**Tipo → partes y anillos.** Sin esta tabla no hay salida derivable, porque la profundidad de
+anidamiento no alcanza (§17.3-1) y dos lecturas razonables dan `partAt`/`ringAt` distintos para el
+mismo documento:
+
+| tipo | partes | anillos por parte | vértices por anillo |
+|---|---|---|---|
+| `Point` | 1 | 1 | 1 |
+| `LineString` | 1 | 1 | N |
+| `Polygon` | 1 | N (exterior + hoyos) | N |
+| `MultiLineString` | **N** (una por línea) | 1 | N |
+| `MultiPolygon` | **N** (una por polígono) | N | N |
+| `MultiPoint` | **1** | **1** | **N** |
+
+La regla es una sola: **una parte es una sub-geometría, y el nivel existe para preservar la
+pertenencia anillo→polígono.** `MultiPoint` es la única excepción y por eso mismo: un punto no tiene
+interior, así que entre sus posiciones no hay ninguna pertenencia que preservar, y subdividir sólo
+multiplicaría las tablas en el perfil de capa más común (N puntos ⇒ N partes ⇒ N anillos). Agrupar no
+pierde información; en `MultiLineString` sí la perdería, porque meter N líneas en una parte diría que
+son los anillos de un mismo polígono.
+
+**Invariante de la cola de la cadena:** `vertexAt[ringCount] === vertexCount` y
+`xy.length === 2 · vertexCount`. Sin ella, una implementación puede empujar a `xy` números que no
+cuelgan de ningún anillo y pasar igual la aserción de §17.3-3.
+
+### 17.2 Firmas
+
+| API | Firma | Complejidad | Notas |
+|---|---|---|---|
+| `readGeoJson` | `(input, options?) → GeoJson` | O(B) tiempo · O(v) memoria | `input`: `Uint8Array` (canónico) \| `ArrayBuffer` \| `ArrayBufferView` \| `string`. Una sola pasada. |
+
+```ts
+interface GeoJsonOptions {
+  bounds?       : boolean   // false — caja por geometría, en una barrida al sellar
+  capacityHint? : number    // 0 — vértices esperados; 0 = estimar del largo de la entrada
+  maxDepth?     : number    // 512 — tope de anidamiento; pasarlo es GeoJsonError('profundidad')
+}
+```
+
+El tope de anidamiento es una **cota anti-bomba**, no un límite del formato: la geometría más profunda
+del RFC anida 4 niveles dentro de `coordinates`, así que 512 deja margen de sobra para cualquier
+documento honesto y corta un `[[[[…` de un megabyte antes de que consuma pila o tablas.
+| `eachRing` | `(cb: (ring, first, count, part) → void) → void` | O(r) **[0-alloc]** | Recorrido sin cortar. El 4º argumento es la **parte** dueña, no relleno. |
+| `someRing` | `(pred: (ring, first, count, part) → boolean) → boolean` | O(r) **[0-alloc]** | Corte temprano con la semántica nativa de `some` — la vía para hit-test. |
+| `partOf` / `geometryOf` / `featureOfRing` | `(i) → number` | O(log n) **[0-alloc]** | Ascenso por la misma cadena CSR. |
+| `propertiesOf` / `idOf` | `(feature) → unknown` | O(largo del rango) | `JSON.parse` del fragmento. **No cachea.** Lanza `'liberado'` tras `release()`. |
+| `release` | `() → void` | O(1) | Suelta `bytes`. La geometría sobrevive; `propertiesOf`/`idOf` dejan de servir. |
+
+```js
+export const GeoJsonKind = Object.freeze({
+  Point: 1, MultiPoint: 2, LineString: 3, MultiLineString: 4, Polygon: 5, MultiPolygon: 6,
+})
+// GeometryCollection no tiene código: se aplana (§17.1).
+
+export class GeoJsonError extends Error {
+  code   // 'entrada'|'sintaxis'|'truncado'|'numero'|'posicion'|'estructura'|'tipo'
+         // |'profundidad'|'formato'|'properties'|'liberado'
+  at     // offset de BYTE donde se detectó (-1 si no aplica)
+  hint   // 'topojson'|'esrijson'|null — a qué se PARECE el documento
+}
+```
+
+### 17.3 Semántica obligatoria
+
+1. **`type` es entrada, no metadata.** La profundidad de anidamiento es ambigua —`MultiPoint` y
+   `LineString` comparten profundidad 2; `MultiLineString` y `Polygon` comparten 3— así que la
+   geometría **no se infiere de la forma**. Una geometría que cierra sin `type` reconocible es
+   `GeoJsonError('tipo')`, nunca una geometría adivinada.
+2. **El tipo se fija al CERRAR el objeto geometría**, retro-parchando `kinds`. El RFC §3 declara el
+   orden de los miembros irrelevante: `type` puede llegar **después** de `coordinates`.
+3. **La geometría se compromete de forma atómica.** `kinds`, `featureOf` y `partAt` se escriben en el
+   mismo bloque del cierre; nunca se reserva una ranura en un sitio y se compromete en otro. Invariante
+   verificada al sellar: `kinds.length === g && featureOf.length === g && partAt.length === g + 1`.
+   Sin esto, un `coordinates` como miembro ajeno de una `GeometryCollection` —legal— corre la cadena
+   CSR en uno **en silencio**, que es la clase de falla que este módulo existe para matar.
+4. **Una posición son 2 o 3 números, y puede variar dentro del mismo anillo.** Es legal. `xy` tiene
+   stride fijo 2 y la altitud vive en `z` con `NaN` donde la posición era 2D. Derivar el conteo con
+   `largo >> 1` es la falla que trata la altitud como latitud.
+   `z === null` significa **documento 2D**, y lo deciden las posiciones RETENIDAS: una altitud que
+   apareció en un `coordinates` descartado —duplicado, o miembro ajeno de una colección— no vuelve 3D
+   al documento. Sin esa precisión un miembro que el lector ni publica cambia la forma de la salida.
+5. **El lector CUENTA las violaciones; no las corrige.** Anillos abiertos, regla de la mano derecha,
+   anillos de menos de 4 posiciones: todo va a `stats`. Corregir geometría es dominio.
+6. **La entrada se normaliza por tipo explícito**, sin heurística de forma: `ArrayBuffer` →
+   `new Uint8Array(b)`; cualquier `ArrayBufferView` → `new Uint8Array(b.buffer, b.byteOffset,
+   b.byteLength)`; `string` → codificar; nada más → `GeoJsonError('entrada')`. El `byteOffset` es
+   obligatorio: un `Buffer` de Node vive en un **pool compartido**, y tomar su `.buffer` entero deja al
+   escáner recorriendo memoria de otras asignaciones que después saldría por `propertiesOf`. El portón
+   de tamaño se mide sobre la vista resultante, nunca sobre el `ArrayBuffer` subyacente. Un **BOM**
+   (`EF BB BF`) al principio se saltea y no desplaza los offsets que el lector publica: son offsets
+   dentro de la vista tal como se recibió, así que un rango de `propAt` sigue recortando el fragmento
+   correcto.
+7. **La clave se reconoce sólo en posición de clave**, y con escapes deshechos. Un *valor* de texto que
+   diga `"coordinates"` no abre una geometría. Los escapes se deshacen igual en el **valor** de `type`
+   (`"Point"` es JSON legal y significa `Point`): tratarlo distinto que a la clave sería una
+   asimetría sin razón.
+8. **El desempate del ascenso es `upperBound(a, x) - 1`, nunca `lowerBound`.** Las tablas CSR tienen
+   entradas repetidas por diseño (una geometría sin posiciones sale con 0 partes), y el dueño de `x` es
+   el único `i` con `a[i] <= x < a[i+1]`.
+9. **`propertiesOf`/`idOf` capturan sólo en el rol que es dueño del feature.** `bbox` se descarta en
+   documento, feature y geometría; `properties` e `id` sólo se capturan en el feature. Capturarlos en
+   la geometría hace que el resultado dependa del **orden de los miembros**, que el RFC declara
+   irrelevante.
+10. **El resultado retiene la entrada.** Los rangos perezosos exigen que `bytes` siga vivo: en un
+    documento con properties pesadas eso puede ser 5× lo que ocupa la geometría. `release()` es la vía
+    para soltarlo, y está en la superficie por eso.
+11. **Una geometría se reconoce por su POSICIÓN estructural, nunca por traer `coordinates`.** Son
+    geometría, y sólo ellas: el valor de un miembro **`geometry`** —a cualquier profundidad—, un
+    elemento del array **`geometries`**, y el **valor raíz** cuando la raíz misma es una geometría. Un
+    objeto con forma de geometría bajo cualquier otro nombre **no** lo es. Sin esta regla,
+    `{"estilo": {"type":"Point","coordinates":[…]}}` es indistinguible de la geometría real y el mismo
+    documento sale con una, dos o tres geometrías según cómo se implemente.
+    El **subárbol de `properties` no se recorre**: es un rango opaco (§17.4), así que una geometría
+    escondida ahí adentro tampoco cuenta.
+    El lector conoce los nombres estructurales del RFC (`type`, `geometry`, `geometries`,
+    `coordinates`, `features`, `properties`, `bbox`, `id`) — no puede leer GeoJSON sin conocerlos. Lo
+    que **no** asume es dónde puso el consumidor sus atributos ni cómo llamó al array que los contiene.
+12. **El feature es el objeto que POSEE el miembro `geometry`.** No «el elemento de `features`»: esa
+    lectura ata el lector al nombre de un array y deja afuera formas reales y legales —una colección de
+    documentos bajo `docs`, `items` o cualquier otro nombre, cada uno con su `geometry` adentro—, que
+    es justamente lo que §17.4 existe para soportar. Con la regla del poseedor los cuatro casos
+    colapsan en uno: en una `FeatureCollection` cada elemento de `features` posee su `geometry` y es el
+    feature; en la colección con nombre arbitrario, cada documento también; un `Feature` suelto en la
+    raíz se posee a sí mismo; y una geometría desnuda en la raíz es su propio feature.
+    Los features salen en **orden de documento**, por la posición de su miembro `geometry`.
+    Corolario: `featureCount` nunca es 0 con geometrías presentes — si lo fuera, una geometría no
+    caería en ningún rango de `geometryAt` y `featureOfRing` quedaría sin respuesta, contra §17.3-8.
+13. **`closed[r] === 1` sii el anillo tiene 2 o más vértices y su última posición es idéntica a la
+    primera**, comparando la posición **completa** —incluida la altitud cuando la hay— con la
+    semántica de `Object.is`, para que `NaN` cuente igual a `NaN` y `-0` no se confunda con `0`. El
+    piso de 2 vértices no es cosmético: §17.6 alimenta `RingStore` con `count - closed[r]`, y sin él un
+    anillo de un vértice entregaría cero.
+14. **Un contenedor vacío ocupa ranura en el nivel donde cierra.** `Polygon [[]]` es 1 parte / 1 anillo
+    / 0 vértices; `MultiPolygon [[]]` es 1 parte / 0 anillos. Determinar el nivel exige el `type`, que
+    llega al cerrar (§17.3-2): la forma de la salida se decide en el cierre, no al abrir el contenedor.
+    Distinto de `"coordinates": []`, que es 0 partes y 0 anillos (§17.9).
+15. **Un objeto que trae `geometries` y además se declara hoja es `GeoJsonError('estructura')`.**
+    Afirma dos cosas incompatibles: que contiene geometrías y que es una. Las dos lecturas pierden
+    algo —quedarse con el `type` tira las hojas que §17.3-11 ya reconoció como geometrías por su
+    posición; quedarse con la estructura tira la hoja que el documento declaró— y elegir una es
+    exactamente el adivinar que §17.3-1 prohíbe. Vale con `geometries` vacío: un `Point` que además
+    dice contener geometrías está roto igual. El veredicto **no depende del orden de los miembros**
+    (§17.3-2): ni de si `coordinates` llegó antes o después de `geometries`, ni de dónde cayó `type`.
+    Sin esta regla el mismo objeto sale como error, como colección o como una hoja que reclama los
+    vértices de sus propios hijos, según el orden — que fue lo que encontró el fuzzer.
+    Un `type: "GeometryCollection"` con un `coordinates` suelto **no** entra acá: ahí no hay
+    contradicción, el tipo dice contenedor y `coordinates` es un miembro ajeno que se descarta.
+
+### 17.4 Los atributos, sin interpretarlos
+
+El lector **no sabe** qué hay en los atributos: anota su rango de bytes y `propertiesOf(i)` corre un
+`JSON.parse` de ese fragmento, a demanda. Quien no los pide, no los paga.
+
+**Qué rango se anota, exactamente:**
+
+| el feature… | `propAt[2i] .. propAt[2i+1]` |
+|---|---|
+| trae miembro `properties` | el rango del **valor** de `properties` |
+| no lo trae | el rango del **objeto que envuelve a la geometría** |
+
+La primera fila es el `Feature` del RFC y es lo que hace verdadero el `propertiesOf(f)?.nombre` del
+ejemplo (§17.7). La segunda existe porque hay payloads reales y legales donde los atributos son
+**hermanos** de `geometry` —una colección de documentos con `geometry` adentro— y un lector que sólo
+mire un miembro llamado `properties` devuelve vacío justo para esa forma. Lo que no se asume es **dónde
+puso el consumidor sus atributos**, no los nombres estructurales del RFC (§17.3-11).
+
+Costo declarado de la segunda fila: el objeto envolvente incluye su `geometry`, así que ese
+`JSON.parse` rearma las coordenadas de **ese** feature. Es perezoso y por feature — se paga sólo por lo
+que se toca — pero es real y hay que saberlo antes de llamarlo en un bucle.
+
+**Ausencia y centinela.** Cuando el miembro no está, el par es **vacío** (`propAt[2i] ===
+propAt[2i+1]`) y `propertiesOf`/`idOf` devuelven **`null`**. Nunca lanzan: `JSON.parse('')` tira un
+`SyntaxError` crudo, que violaría la invariante §17.10-3.
+
+### 17.4bis `GeoJsonStats` — lo que el lector cuenta sin corregir
+
+Todos los campos son enteros y se cuentan **por documento**. Son la base del test de regresión, así que
+tienen forma cerrada: sin ella el oráculo no puede reproducirlos.
+
+```ts
+interface GeoJsonStats {
+  openRings       : number   // anillos con 2+ vértices cuya última posición NO repite a la primera
+  shortRings      : number   // anillos con 1..3 vértices (el RFC pide 4 o más)
+  degenerateRings : number   // anillos de área firmada 0 — ni horarios ni antihorarios
+  reversedRings   : number   // ver abajo la definición operativa
+  slowNumbers     : number   // números que cayeron al respaldo fuera del camino de Clinger (§17.5)
+  extraOrdinates  : number   // posiciones con 4 o más números; los extras se descartan
+  emptyGeometries : number   // geometrías con 0 partes
+  foreignMembers  : number   // miembros que el lector atravesó sin interpretar
+  bboxSkipped     : number   // bbox que superó la cota y no se parseó (§17.9)
+  roots           : number   // valores raíz (más de 1 ⇒ secuencia RFC 8142)
+}
+```
+
+**`reversedRings`, operativo:** el anillo de índice 0 de una parte es el exterior y el resto son
+interiores; se suma 1 por cada exterior **horario** y por cada interior **antihorario**. El área firmada
+se calcula sobre las posiciones del anillo cerrándolo de forma implícita si viene abierto. Área
+exactamente 0 no cuenta acá: va a `degenerateRings`, porque un anillo degenerado no tiene sentido de
+giro y contarlo como violación sería inventar una.
+
+### 17.5 Rendimiento
+
+- El bucle del escáner es **[0-alloc]**: sin array, sin objeto, sin clausura por byte ni por vértice.
+  Es una ruta donde el bucle explícito es la única forma verificable de cumplirlo, y por eso se aparta
+  de las colecciones expresivas que manda `AGENTS.md` — declarado acá **antes** de escribirlo.
+- **Conversión numérica, en dos caminos y los dos exactos.** El rápido es Clinger: mantisa **menor que
+  2⁵³** y potencia de diez exacta ⇒ una sola división IEEE correctamente redondeada. La condición es
+  sobre el VALOR de la mantisa, no sobre su cantidad de dígitos: con el corte en «≤15 dígitos» el
+  camino rápido cubre el 10,45 % de las coordenadas que emite `JSON.stringify`, y con la condición
+  real, el 85,38 % — medido, y bit a bit idéntico en los dos casos.
+  El resto sigue en el mismo barrido: los dígitos que no entran en la mantisa van a un **segundo limbo
+  exacto**, y el valor `a·10^nb + b` se divide con corrección por residuo (transformaciones de Dekker).
+  No se vuelve a leer un dígito — un respaldo que reinicie el barrido cuesta ~40 ns por número, medido.
+  Su alcance son ~31 dígitos significativos; **pasados, se delega en `Number`**, al que el estándar
+  obliga a redondear correctamente.
+  La paridad bit a bit con `JSON.parse` es **incondicional**, y esa delegación es lo que la sostiene:
+  un doble-doble que intente cubrir todo el rango falla en los empates exactos desde 34 dígitos —26,5 %
+  de ellos, medido—, y el corpus no lo detectaba porque ninguno de sus literales pasa de 31 dígitos.
+  La cobertura de esa frontera es obligatoria (§17.8).
+  Un respaldo que materialice un string por número **para todo el rango** no entra: medido, hunde el
+  perfil de emisor JS de 1,40× a 0,73× contra `JSON.parse`+aplanar.
+- **No se agrega una rama dedicada a saltear números fuera de `coordinates`.** Medido sobre un
+  escáner plano: la variante con esa rama sale 3–7 % **más lenta** en los tres pesos de properties,
+  dirección estable en 15 corridas — el relleno de un documento real es texto, que ya se atraviesa
+  barato, y la rama cuesta más que los pocos números que evita. Lo que la medición **no** dice es que
+  haya que convertir un número que se va a descartar: un autómata que ya sabe, por su estado, que no
+  está dentro de una posición, lo consume sin acumular mantisa porque es el camino más corto, no
+  porque sea una optimización.
+- El presupuesto de memoria se expresa como **función de los conteos de la fixture**, no como una
+  constante de bytes por vértice: un techo constante falla sobre documentos normales y un test que
+  falla se relaja, llevándose puesta la única defensa contra el regreso del grafo.
+
+### 17.6 Integración con `RingStore`
+
+`RingStore` toma `xy` en orden RFC `[lng, lat]` por un **tercer bucle de ingesta**: los bucles no se
+ramifican por vértice, cada uno queda monomórfico en la forma que consume.
+
+**Cierre de anillo.** Los anillos del RFC vienen **explícitamente** cerrados (§3.1.6: la última
+posición es idéntica a la primera); la cadena de render los asume **implícitamente** cerrados
+—`RingStore.nextVertex` vuelve a 0 y `EditStrokeLayer` traza la costura del último vértice al
+primero—. La ingesta descuenta ese vértice: el conteo que entra es `count - closed[r]`. `closed` es
+superficie pública para eso.
+
+**Una textura, N anillos, y el relleno consume VISTAS.** `RingStore` guarda todos los anillos
+seleccionados en la misma textura: N anillos no son N texturas. El pase de paridad **encadena los
+rangos que recibe** —el cierre de uno busca el primer vértice del siguiente—, así que con más de un
+anillo el relleno consume `store.viewOf(r)`: una vista emite un solo rango y cierra contra sí misma.
+La vista comparte textura, ancla y matriz; sólo el rango y la caja son propios.
+
+**Nombres de las tablas.** La integración usa los del lector, sin traducir: `vertexAt` es anillo →
+primer vértice y `ringAt` es parte → primer anillo.
+
+**`Point` y `MultiPoint` no aportan anillos.** No tienen interior: ni suben a la textura ni entran
+al índice de hit —un tramo de `LineString` tampoco, y además no cierra—. La selección la da
+`areasOf`, que devuelve las tablas del lector sin copiar más los ids de anillo (`rings`) y de parte
+(`parts`) de los `Polygon` y `MultiPolygon`.
+
+### 17.7 Ejemplo
+
+```js
+import { readGeoJson, GeoJsonKind } from 'cristae/geojson'
+
+const geo = readGeoJson(await (await fetch(url)).arrayBuffer())
+
+geo.eachRing((r, first, count, part) => {
+  const g = geo.geometryOf(part)
+  if (geo.kinds[g] === GeoJsonKind.Point || geo.kinds[g] === GeoJsonKind.MultiPoint) return
+  arenas[r] = new RingStore({ gl, xy: geo.xy, first, count: count - geo.closed[r], project })
+})
+
+etiquetaDe(r) { return geo.propertiesOf(geo.featureOfRing(r))?.nombre }   // se paga sólo lo que se toca
+```
+
+### 17.8 Test
+
+Corpus de conformidad con la salida esperada derivada de un **oráculo diferencial** —un recorredor de
+referencia sobre `JSON.parse` que produce las mismas tablas— nunca de la implementación. El mismo
+documento entregado como `string`, `ArrayBuffer`, `Uint8Array` y `Buffer` pooled (`Buffer.concat` de
+tres trozos) da salidas idénticas byte a byte. Fuzzer de mutación de bytes con presupuesto de tiempo:
+ninguna lectura fuera de rango, ningún camino sin terminación, ninguna excepción cruda.
+
+### 17.9 Bordes
+
+**Eliminados por arquitectura** — no chequear:
+
+| Borde | Por qué no ocurre |
+|---|---|
+| un valor de texto `"coordinates"` abre una geometría | la clave se reconoce sólo en posición de clave (§17.3-7) |
+| geometría con el tipo adivinado por la profundidad | `type` es entrada obligatoria (§17.3-1) |
+| tablas CSR corridas por una ranura huérfana | la geometría se compromete atómica + aserción al sellar (§17.3-3) |
+| la altitud leída como latitud | `xy` con stride fijo 2 y `z` aparte (§17.3-4) |
+| `propertiesOf` devolviendo memoria ajena | normalización por tipo con `byteOffset` (§17.3-6) |
+
+**Que SÍ requieren manejo:**
+
+| Borde | Manejo |
+|---|---|
+| `"coordinates": []` (geometría vacía, la emite `ST_AsGeoJSON`) | legal: 0 partes, 0 anillos. **No** es error de estructura |
+| clave escrita con escapes (`"coordinates"`) | deshacer el escape al comparar; es JSON legal y significa lo mismo |
+| `bbox` en cualquier rol | se atraviesa sin interpretar (§17.3-9): el lector no publica `bbox`. Para la caja está `bounds`, que sale de los vértices leídos y no de un miembro que puede mentir |
+| `bbox` de largo desmedido | se cuenta en `stats.bboxSkipped` y se sigue: un `bbox` de más de 256 bytes no es una caja, es un documento que no dice la verdad sobre sí mismo |
+| contadores de contenedores vacíos | enteros de 32 bits: un `Uint8Array` da la vuelta a los 256 y corrompe las tablas en silencio |
+| `geometry: null` en un feature | feature sin geometrías: `geometryAt[i] === geometryAt[i+1]` |
+| documento truncado | `GeoJsonError('truncado')` con el offset, nunca una salida parcial silenciosa |
+| documento vacío o sólo espacios | `GeoJsonError('sintaxis')`. Distinto de `'truncado'`, que es una estructura que empezó y no cerró |
+| raíz que no es un objeto (`null`, un número, un texto) | `GeoJsonError('formato')`, con `hint` cuando el documento se parece a otro formato conocido |
+| documento sin ninguna estructura GeoJSON reconocible (un TopoJSON, un EsriJSON) | `GeoJsonError('formato')` + `hint`. **No** es una lectura válida de cero features: eso lo es una colección que se declara vacía, y confundirlos entrega un mapa en blanco sin diagnóstico |
+| posición con 4 o más números | los extras se **descartan** y se cuentan en `stats.extraOrdinates`. El RFC dice SHOULD NOT extend, no MUST NOT: rechazar sería tirar salida real de exportadores que emiten M/measure |
+| número no finito (`1e999` ⇒ `Infinity`) | `GeoJsonError('numero')`. Una coordenada infinita envenena toda caja y toda matriz aguas abajo; es más barato pararla acá que diagnosticarla en el shader |
+| `type` reconocido y **sin** miembro `coordinates` | `GeoJsonError('estructura')`. Distinto de `"coordinates": []`, que sí es legal |
+| `GeometryCollection` sin `geometries`, o con `geometries` que no es array | `GeoJsonError('estructura')` |
+| clave duplicada en el mismo objeto | gana **la última**, que es la semántica de `JSON.parse`: la paridad con el oráculo lo exige |
+| secuencia RFC 8142 (varias raíces) | se leen todas; `stats.roots > 1`. **`JSON.parse` no puede leerlas**, así que el oráculo no produce referencia para esta familia y su corpus se contrasta contra la lectura raíz por raíz |
+
+### 17.10 Invariantes del segmento
+
+1. **El lector no construye el grafo.** Ninguna ruta materializa objetos por vértice ni por posición.
+   Un método que devuelva tuplas o arrays por anillo no entra a la superficie: publicado en un entry,
+   sale en un major, y el primer consumidor con una capa Leaflet andando lo llamaría porque es lo único
+   que sus APIs comen — deshaciendo la medición desde adentro del módulo escrito para arreglarla.
+2. **Cero dominio.** `feature`, `ring`, `part` son términos del RFC 7946, no del negocio.
+3. **Todo error es `GeoJsonError` con `code` y offset.** Ninguna excepción cruda escapa del lector.
+4. **Toda escritura verifica capacidad para las N entradas que va a escribir**, no para una: hay
+   cierres que escriben K entradas de una vez.

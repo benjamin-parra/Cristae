@@ -1,0 +1,49 @@
+{
+  "fixture": "felices/02-multipunto.geojson",
+  "bytes": 292,
+  "veredicto": "lectura",
+  "oraculo": "ok",
+  "conteos": {
+    "f": 1,
+    "g": 1,
+    "p": 1,
+    "r": 1,
+    "v": 3
+  },
+  "tablas": {
+    "geometryAt": [
+      0,
+      1
+    ],
+    "partAt": [
+      0,
+      1
+    ],
+    "ringAt": [
+      0,
+      1
+    ],
+    "vertexAt": [
+      0,
+      3
+    ],
+    "kinds": [
+      2
+    ],
+    "featureOf": [
+      0
+    ],
+    "closed": [
+      0
+    ],
+    "xy": [
+      -70.65,
+      -33.44,
+      -71.62,
+      -33.03,
+      -70.34,
+      -33.05
+    ],
+    "z": null
+  }
+}

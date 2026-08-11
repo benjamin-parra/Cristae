@@ -1,0 +1,15 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": { "nombre": "la n de coordinates va escapada" },
+      "geometry": {
+        "type": "Polygon",
+        "coordi\u006eates": [
+          [ [ 10, 20 ], [ 11, 20 ], [ 11, 21 ], [ 10, 20 ] ]
+        ]
+      }
+    }
+  ]
+}

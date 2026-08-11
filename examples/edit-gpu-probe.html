@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Cristae · Probe del relleno por stencil (tanda 1 del editable en GPU)</title>
+<style>
+  :root { --accent: #6366f1; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #0b1020; color: #e5e7eb;
+    font: 13px/1.5 ui-sans-serif, system-ui, -apple-system, sans-serif; overflow: hidden; }
+  #map { position: fixed; inset: 0; z-index: 0; background: #0b1020; }
+  .leaflet-container { background: #0b1020; }
+  #panel { position: fixed; top: 14px; left: 14px; z-index: 1000; width: 400px; max-height: calc(100vh - 28px);
+    overflow: auto; background: rgba(15,20,33,.94); border: 1px solid #263043; border-radius: 12px;
+    padding: 12px 14px; }
+  h1 { font-size: 13px; margin: 0 0 2px; letter-spacing: .02em; }
+  .sub { color: #94a3b8; font-size: 11px; margin-bottom: 10px; }
+  .card { border-top: 1px solid #263043; padding: 9px 0 7px; }
+  .card h2 { font-size: 11.5px; margin: 0 0 6px; color: #cbd5e1; text-transform: uppercase; letter-spacing: .04em; }
+  .card .exp { color: #64748b; font-size: 10.5px; margin: 0 0 7px; line-height: 1.4; }
+  .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 5px 0; }
+  .row label { color: #cbd5e1; font-size: 11px; display: flex; align-items: center; gap: 4px; }
+  button { background: #1f2937; color: #e5e7eb; border: 1px solid #374151; border-radius: 8px;
+    padding: 5px 11px; cursor: pointer; font: inherit; font-size: 12px; }
+  button:hover { border-color: #4b5563; }
+  dl { display: grid; grid-template-columns: 40% 60%; gap: 2px 8px; margin: 0; font-size: 11px; }
+  dt { color: #64748b; }
+  dd { margin: 0; color: #e5e7eb; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+  table { width: 100%; border-collapse: collapse; font: 10.5px/1.5 ui-monospace, Menlo, monospace; }
+  th { text-align: right; color: #64748b; font-weight: 500; border-bottom: 1px solid #263043; padding: 3px 4px; }
+  th:first-child, td:first-child { text-align: left; }
+  td { text-align: right; padding: 2px 4px; border-bottom: 1px solid #1a2233; }
+  tr.ok td:nth-child(5) { color: #4ade80; }
+  tr.ojo td:nth-child(5) { color: #fbbf24; }
+  tr.mal td:nth-child(5) { color: #f87171; }
+  b.ok { color: #4ade80; } b.ojo { color: #fbbf24; } b.mal { color: #f87171; }
+  #progreso { color: #94a3b8; font-size: 10.5px; margin-top: 6px; }
+  #veredicto { font-size: 11px; line-height: 1.6; margin-top: 8px; }
+  #tabla { max-height: 40vh; overflow: auto; margin-top: 6px; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+
+<div id="panel">
+  <h1>Probe · relleno por stencil-then-cover</h1>
+  <div class="sub">Tanda 1 del renderer de geometría editable en GPU. Mapa real + capa glify viva + contexto propio encima.</div>
+
+  <div class="card">
+    <h2>Contexto propio</h2>
+    <p class="exp">Si <b>stencil</b> no es <b>true</b> o <b>STENCIL_BITS</b> es 0, el relleno por paridad no va y no hay nada más que medir. Si <b>webglcontextlost</b> pasa a SÍ, el contexto de más no cabe junto al de glify.</p>
+    <dl>
+      <dt>stencil concedido</dt><dd id="stencil">—</dd>
+      <dt>STENCIL_BITS</dt><dd id="bits">—</dd>
+      <dt>SAMPLES</dt><dd id="samples">—</dd>
+      <dt>webglcontextlost</dt><dd id="perdido">—</dd>
+      <dt>cronómetro</dt><dd id="timer">—</dd>
+      <dt>GPU</dt><dd id="gpuName">—</dd>
+    </dl>
+    <div class="row">
+      <label><input type="checkbox" id="msaa" /> MSAA (recrea el contexto)</label>
+      <button id="aparcar">aparcar</button>
+      <button id="degeneradas">degeneradas</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Corrida del pase 1 (abanico)</h2>
+    <p class="exp">Mide sólo el pase de paridad, con <code>colorMask</code> apagada y <code>scissor</code> al bbox. Reporta la mediana de 12 muestras por caso (se descartan las 2 primeras). <b>No toques el mapa mientras corre</b>: el zoom cambia el área cubierta.</p>
+    <div class="row">
+      <label><input type="checkbox" name="tam" value="400" checked /> 400</label>
+      <label><input type="checkbox" name="tam" value="5000" checked /> 5.000</label>
+      <label><input type="checkbox" name="tam" value="50000" checked /> 50.000</label>
+    </div>
+    <div class="row">
+      <label><input type="checkbox" name="pct" value="0.1" checked /> 10 %</label>
+      <label><input type="checkbox" name="pct" value="0.25" checked /> 25 %</label>
+      <label><input type="checkbox" name="pct" value="0.5" checked /> 50 %</label>
+      <label><input type="checkbox" name="pct" value="1" checked /> 100 %</label>
+    </div>
+    <div class="row"><button id="correr">correr</button></div>
+    <div id="progreso">sin correr</div>
+    <div id="tabla"></div>
+    <div id="veredicto"></div>
+  </div>
+</div>
+
+<script type="module" src="./edit-gpu-probe.js"></script>
+</body>
+</html>

@@ -1,0 +1,8 @@
+{
+  "fixture": "adversarios/truncado-en-escape-unicode.geojson",
+  "bytes": 123,
+  "veredicto": "error",
+  "code": "truncado",
+  "oraculo": "json-invalido",
+  "motivo": "Bad Unicode escape in JSON at position 123 (line 6 column 44)"
+}

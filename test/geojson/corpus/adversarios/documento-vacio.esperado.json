@@ -1,0 +1,8 @@
+{
+  "fixture": "adversarios/documento-vacio.geojson",
+  "bytes": 0,
+  "veredicto": "error",
+  "code": "sintaxis",
+  "oraculo": "json-invalido",
+  "motivo": "Unexpected end of JSON input"
+}

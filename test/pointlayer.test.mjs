@@ -20,12 +20,13 @@ const makeGl = () => ({
 
 // Cuenta rebuilds (setData) y expone el array de posiciones vivo que la capa mantiene.
 const makeGlify = () => {
-  const log = { create: 0, setData: 0, redraw: 0, data: null }
+  const log = { create: 0, setData: 0, redraw: 0, data: null, color: null }
   const glify = {
     log,
-    points({ data }) {
+    points({ data, color }) {
       log.create++
       log.data = data
+      log.color = color        // el callback de color por slot: es donde la capa empaqueta el picking
       const layer = {
         gl: makeGl(),
         bytes: 7,
@@ -164,6 +165,33 @@ test('P5 — el move de un punto presente sigue siendo incremental', () => {
   source.emitMove(1)
   assert.equal(log.setData, before, 'sin cambio de membresía no hay setData')
   assert.deepEqual(log.data[0], [5, 6])
+})
+
+/* ── Picking jerárquico: el índice LOCAL que la capa empaqueta en los canales b,a ── */
+
+// El reparto obj(14)/chunk(6)/local(12) le deja al vértice 12 bits, con la convención `local + 1` (el 0
+// significa «el objeto, pero no un vértice»). El chunk lo suma el pase en el nibble ALTO de b, así que
+// el invariante que la capa no puede romper es que su b nunca pase de 15.
+const CANALES = 4097   // dos chunks: 4.095 entradas + el arranque del siguiente
+
+test('picking — el índice local se empaqueta en 12 bits con la convención +1 y vuelve a empezar por chunk', () => {
+  const items = Array.from({ length: CANALES }, (_, i) => ({ id: i + 1, pos: { lat: i, lng: i } }))
+  const { log } = mount(items, { idOf, positionOf })
+  const canal = i => { const c = log.color(i); return { b: Math.round(c.b * 255), a: Math.round(c.a * 255) } }
+
+  assert.deepEqual(canal(0), { b: 0, a: 1 }, 'el slot 0 se emite como local 1')
+  assert.deepEqual(canal(255), { b: 1, a: 0 }, 'el acarreo al byte alto cae en b')
+  assert.deepEqual(canal(4094), { b: 15, a: 255 }, 'última entrada del chunk 0: local 4.095')
+  assert.deepEqual(canal(4095), { b: 0, a: 1 }, 'el chunk siguiente arranca de nuevo en local 1')
+  assert.deepEqual(canal(4096), { b: 0, a: 2 })
+})
+
+test('picking — b nunca invade el nibble que el pase usa para el chunk', () => {
+  const items = Array.from({ length: CANALES }, (_, i) => ({ id: i + 1, pos: { lat: i, lng: i } }))
+  const { log } = mount(items, { idOf, positionOf })
+
+  for (let i = 0; i < CANALES; i++)
+    assert.ok(Math.round(log.color(i).b * 255) <= 15, `slot ${i} desborda los 4 bits altos del local`)
 })
 
 /* ── El objeto de `positionOf` no se retiene entre callbacks del consumidor ── */

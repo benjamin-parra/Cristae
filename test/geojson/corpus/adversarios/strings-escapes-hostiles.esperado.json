@@ -1,0 +1,51 @@
+{
+  "fixture": "adversarios/strings-escapes-hostiles.geojson",
+  "bytes": 848,
+  "veredicto": "lectura",
+  "oraculo": "ok",
+  "conteos": {
+    "f": 1,
+    "g": 1,
+    "p": 1,
+    "r": 1,
+    "v": 4
+  },
+  "tablas": {
+    "geometryAt": [
+      0,
+      1
+    ],
+    "partAt": [
+      0,
+      1
+    ],
+    "ringAt": [
+      0,
+      1
+    ],
+    "vertexAt": [
+      0,
+      4
+    ],
+    "kinds": [
+      5
+    ],
+    "featureOf": [
+      0
+    ],
+    "closed": [
+      1
+    ],
+    "xy": [
+      3,
+      4,
+      4,
+      4,
+      4,
+      5,
+      3,
+      4
+    ],
+    "z": null
+  }
+}

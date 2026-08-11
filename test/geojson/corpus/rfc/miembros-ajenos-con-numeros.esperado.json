@@ -1,0 +1,49 @@
+{
+  "fixture": "rfc/miembros-ajenos-con-numeros.geojson",
+  "bytes": 663,
+  "veredicto": "lectura",
+  "oraculo": "ok",
+  "conteos": {
+    "f": 1,
+    "g": 1,
+    "p": 1,
+    "r": 1,
+    "v": 3
+  },
+  "tablas": {
+    "geometryAt": [
+      0,
+      1
+    ],
+    "partAt": [
+      0,
+      1
+    ],
+    "ringAt": [
+      0,
+      1
+    ],
+    "vertexAt": [
+      0,
+      3
+    ],
+    "kinds": [
+      3
+    ],
+    "featureOf": [
+      0
+    ],
+    "closed": [
+      0
+    ],
+    "xy": [
+      -70.71,
+      -33.71,
+      -70.72,
+      -33.72,
+      -70.73,
+      -33.73
+    ],
+    "z": null
+  }
+}

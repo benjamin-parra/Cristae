@@ -1,0 +1,51 @@
+{
+  "fixture": "degenerados/numeros-mas-de-31-digitos.geojson",
+  "bytes": 412,
+  "veredicto": "lectura",
+  "oraculo": "ok",
+  "conteos": {
+    "f": 1,
+    "g": 1,
+    "p": 1,
+    "r": 1,
+    "v": 4
+  },
+  "tablas": {
+    "geometryAt": [
+      0,
+      1
+    ],
+    "partAt": [
+      0,
+      1
+    ],
+    "ringAt": [
+      0,
+      1
+    ],
+    "vertexAt": [
+      0,
+      4
+    ],
+    "kinds": [
+      3
+    ],
+    "featureOf": [
+      0
+    ],
+    "closed": [
+      0
+    ],
+    "xy": [
+      1.2345678901234567e+31,
+      -9.876543210987654e+34,
+      -9.876543210987654e+34,
+      1.2345678901234567,
+      1.2345678901234567,
+      -8,
+      -8,
+      1.2345678901234567e+59
+    ],
+    "z": null
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "nombre": "anillo exterior con posiciones 2D y 3D intercaladas; hoyo integramente 2D"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [-71.10, -34.10, 120.5],
+            [-71.12, -34.15],
+            [-71.06, -34.16, 145.25],
+            [-71.05, -34.12],
+            [-71.10, -34.10, 120.5]
+          ],
+          [
+            [-71.09, -34.13],
+            [-71.08, -34.12],
+            [-71.07, -34.13],
+            [-71.08, -34.14],
+            [-71.09, -34.13]
+          ]
+        ]
+      }
+    }
+  ]
+}

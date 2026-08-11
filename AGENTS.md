@@ -172,6 +172,38 @@ arrays, y una lambda local puede crear una clausura por invocación del método 
 rutas sólo usar un combinador si su callback ya es estable y no introduce basura; mantener un bucle
 explícito cuando sea la única forma verificable de cumplir `[0-alloc]`.
 
+### El costo decide, no la apariencia
+
+`Array.from`, `map`, `filter` y `reduce` son la forma normal **donde los datos son pocos y el array
+resultante se usa**: construcción de tablas al cargar el módulo, catálogos, configuración, sellado.
+Ahí son gratis y se prefieren.
+
+Donde hay volumen —o la ruta es caliente— la iteración no materializa: `forEach` sobre lo que ya
+existe, un iterador interno (`eachRange(cb)` y compañía) o el bucle explícito. Tres formas que
+parecen declarativas y no lo son:
+
+- **`Array.from({ length: n }, efecto)`** construye un array de `n` para tirarlo. «Hacer algo n
+  veces» no es una transformación: es un bucle.
+- **`subarray` / `slice` dentro de un bucle** asigna una vista por iteración. Si lo que se quiere es
+  recorrer un tramo, se recorre con índices.
+- **`reduce` que acumula en un array nuevo por elemento** — es `forEach` con basura.
+
+La prueba es siempre la misma: ¿el array intermedio lo lee alguien? Si no, no va.
+
+### Superficie: cuanto más chica, mejor
+
+Cada nombre expuesto es superficie que hay que leer, mantener y no romper — y eso vale **también
+para los privados**. Un `#helper` de un solo uso no es encapsulación: es el cuerpo de una función
+mudado de lugar, y obliga a saltar para leer el flujo.
+
+- Un archivo exporta lo mínimo que el consumidor necesita; lo demás vive adentro. El `index.js` de
+  un entry re-exporta menos todavía, y un test congela que lo interno no se filtró.
+- Una función —privada o libre— se justifica por reuso real, contrato propio o responsabilidad de
+  dominio. Si se usa una vez, va en línea o es una lambda local.
+- No envolver por envolver: un tipo contenedor sin operaciones propias no aporta nada sobre el valor
+  que envuelve. Los combinadores que sí hay —`safe`, `safeDispatch`— existen porque REEMPLAZAN una
+  estructura (el `try/catch` del hot-path), no porque decoren.
+
 ### Llaves y bloques de control
 
 - Omitir llaves en `if`, `else`, `for`, `for…of`, `while` y estructuras equivalentes cuando el cuerpo

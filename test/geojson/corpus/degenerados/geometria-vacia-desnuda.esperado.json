@@ -1,0 +1,38 @@
+{
+  "fixture": "degenerados/geometria-vacia-desnuda.geojson",
+  "bytes": 45,
+  "veredicto": "lectura",
+  "oraculo": "ok",
+  "conteos": {
+    "f": 1,
+    "g": 1,
+    "p": 0,
+    "r": 0,
+    "v": 0
+  },
+  "tablas": {
+    "geometryAt": [
+      0,
+      1
+    ],
+    "partAt": [
+      0,
+      0
+    ],
+    "ringAt": [
+      0
+    ],
+    "vertexAt": [
+      0
+    ],
+    "kinds": [
+      5
+    ],
+    "featureOf": [
+      0
+    ],
+    "closed": [],
+    "xy": [],
+    "z": null
+  }
+}

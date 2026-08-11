@@ -1,0 +1,8 @@
+{
+  "fixture": "adversarios/truncado-tras-barra-escape.geojson",
+  "bytes": 118,
+  "veredicto": "error",
+  "code": "truncado",
+  "oraculo": "json-invalido",
+  "motivo": "Unexpected end of JSON input"
+}

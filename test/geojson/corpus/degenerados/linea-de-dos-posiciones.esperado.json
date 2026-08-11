@@ -1,0 +1,47 @@
+{
+  "fixture": "degenerados/linea-de-dos-posiciones.geojson",
+  "bytes": 262,
+  "veredicto": "lectura",
+  "oraculo": "ok",
+  "conteos": {
+    "f": 1,
+    "g": 1,
+    "p": 1,
+    "r": 1,
+    "v": 2
+  },
+  "tablas": {
+    "geometryAt": [
+      0,
+      1
+    ],
+    "partAt": [
+      0,
+      1
+    ],
+    "ringAt": [
+      0,
+      1
+    ],
+    "vertexAt": [
+      0,
+      2
+    ],
+    "kinds": [
+      3
+    ],
+    "featureOf": [
+      0
+    ],
+    "closed": [
+      0
+    ],
+    "xy": [
+      0,
+      0,
+      1,
+      1
+    ],
+    "z": null
+  }
+}

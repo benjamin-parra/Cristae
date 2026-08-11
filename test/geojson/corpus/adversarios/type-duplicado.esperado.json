@@ -1,0 +1,8 @@
+{
+  "fixture": "adversarios/type-duplicado.geojson",
+  "bytes": 317,
+  "veredicto": "error",
+  "code": "estructura",
+  "oraculo": "plantado",
+  "motivo": "oraculo: MultiPoint con `coordinates` anidado 3 niveles; §17.1 pide 2"
+}

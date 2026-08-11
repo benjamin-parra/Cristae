@@ -1,0 +1,11 @@
+{
+  "type": "Feature",
+  "properties": {
+    "nombre": "geometries vacio no salva la contradiccion: sigue diciendo que contiene geometrias"
+  },
+  "geometry": {
+    "type": "Point",
+    "coordinates": [-70.41, -33.41],
+    "geometries": []
+  }
+}

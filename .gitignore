@@ -4,3 +4,7 @@ dist/
 .DS_Store
 Thumbs.db
 package-lock.json
+
+# Artefactos del proceso, no del producto: relevamientos, diseños y planes de trabajo.
+# Viven en disco para la sesión en curso; lo que sea durable va a docs/ o a MODELO/SPECS.
+notas/

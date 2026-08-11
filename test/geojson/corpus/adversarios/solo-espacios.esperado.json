@@ -1,0 +1,8 @@
+{
+  "fixture": "adversarios/solo-espacios.geojson",
+  "bytes": 7,
+  "veredicto": "error",
+  "code": "sintaxis",
+  "oraculo": "json-invalido",
+  "motivo": "Unexpected end of JSON input"
+}

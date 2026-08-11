@@ -1,0 +1,32 @@
+{
+  "fixture": "degenerados/coleccion-features-vacia.geojson",
+  "bytes": 52,
+  "veredicto": "lectura",
+  "oraculo": "ok",
+  "conteos": {
+    "f": 0,
+    "g": 0,
+    "p": 0,
+    "r": 0,
+    "v": 0
+  },
+  "tablas": {
+    "geometryAt": [
+      0
+    ],
+    "partAt": [
+      0
+    ],
+    "ringAt": [
+      0
+    ],
+    "vertexAt": [
+      0
+    ],
+    "kinds": [],
+    "featureOf": [],
+    "closed": [],
+    "xy": [],
+    "z": null
+  }
+}

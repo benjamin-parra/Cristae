@@ -1,0 +1,29 @@
+{
+  "features": [
+    {
+      "properties": {
+        "nombre": "poste de control"
+      },
+      "geometry": {
+        "coordinates": [-70.11, -33.11],
+        "type": "Point"
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          [-70.12, -33.12],
+          [-70.13, -33.13],
+          [-70.14, -33.14]
+        ],
+        "type": "LineString"
+      },
+      "properties": {
+        "nombre": "tramo de acceso"
+      },
+      "type": "Feature"
+    }
+  ],
+  "type": "FeatureCollection"
+}

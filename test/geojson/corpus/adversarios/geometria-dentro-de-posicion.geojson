@@ -1,0 +1,20 @@
+{
+  "type": "Polygon",
+  "coordinates": [
+    [
+      [
+        {
+          "a": {
+            "b": {
+              "type": "Point",
+              "coordinates": [
+                5,
+                5
+              ]
+            }
+          }
+        }
+      ]
+    ]
+  ]
+}

@@ -1,0 +1,54 @@
+{
+  "fixture": "felices/08-feature-collection.geojson",
+  "bytes": 364,
+  "veredicto": "lectura",
+  "oraculo": "ok",
+  "conteos": {
+    "f": 2,
+    "g": 2,
+    "p": 2,
+    "r": 2,
+    "v": 2
+  },
+  "tablas": {
+    "geometryAt": [
+      0,
+      1,
+      2
+    ],
+    "partAt": [
+      0,
+      1,
+      2
+    ],
+    "ringAt": [
+      0,
+      1,
+      2
+    ],
+    "vertexAt": [
+      0,
+      1,
+      2
+    ],
+    "kinds": [
+      1,
+      1
+    ],
+    "featureOf": [
+      0,
+      1
+    ],
+    "closed": [
+      0,
+      0
+    ],
+    "xy": [
+      -70.65,
+      -33.44,
+      -71.62,
+      -33.03
+    ],
+    "z": null
+  }
+}

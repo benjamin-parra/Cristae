@@ -1,0 +1,22 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "nota": "coordinates",
+        "cebo_plano": [ 111.5, 222.5, 333.5, 444.5 ],
+        "cebo_texto_y_numeros": "coordinates",
+        "cebo_tras_el_texto": [ 555.5, 666.5 ]
+      },
+      "geometry": {
+        "type": "Polygon",
+        "comentario": "coordinates",
+        "cebo_anidado": [ [ [ 999.5, 888.5 ], [ 777.5, 666.5 ] ] ],
+        "coordinates": [
+          [ [ 0, 0 ], [ 1, 0, 25.5 ], [ 1, 1 ], [ 0, 0 ] ]
+        ]
+      }
+    }
+  ]
+}

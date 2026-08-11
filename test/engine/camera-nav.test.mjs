@@ -1,7 +1,8 @@
 // Navegación MÚLTIPLE de Camera: followBounds encuadra el SUBCONJUNTO de ids (no toda la capa),
 // y followPoints/focusPoints delega según mode. El engine-stub se importa PRIMERO (instala el shim
-// window/document) — acá sólo reusamos makeMap/makeLeaflet y los completamos con lo que la Camera
-// toca (fitBounds/setZoom en el map; latLngBounds en L), más una Source REAL de 3 puntos.
+// window/document) — acá reusamos makeMap/makeLeaflet (su `L.latLngBounds` acumula la caja y la
+// expone como `bounds.box`) y sólo completamos el map con lo que Camera toca en esta ruta
+// (fitBounds/setZoom, con spies de lo que asertamos), más una Source REAL de 3 puntos.
 import '../../test-helpers/engine-stub.mjs'
 import { makeMap, makeLeaflet } from '../../test-helpers/engine-stub.mjs'
 import { createSource } from '../../src/data/Source.js'
@@ -9,17 +10,6 @@ import { Camera } from '../../src/engine/Camera.js'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-// latLngBounds mínimo e invertible: extend acumula el rango; isValid = tiene al menos un punto.
-const makeBounds = () => {
-  let minLat = Infinity, minLng = Infinity, maxLat = -Infinity, maxLng = -Infinity
-  return {
-    extend([lat, lng]) { minLat = Math.min(minLat, lat); minLng = Math.min(minLng, lng); maxLat = Math.max(maxLat, lat); maxLng = Math.max(maxLng, lng); return this },
-    isValid() { return minLat <= maxLat },
-    get box() { return { minLat, minLng, maxLat, maxLng } },
-  }
-}
-
-// Map + L reales del stub, completados con lo que Camera usa en esta ruta y spies de lo que asertamos.
 const setup = ({ zoom = 5 } = {}) => {
   const map = makeMap({ zoom })
   const calls = { fitBounds: [], setZoom: [] }
@@ -28,7 +18,6 @@ const setup = ({ zoom = 5 } = {}) => {
   map.setZoom = (z) => { calls.setZoom.push(z); map._zoom = z; return map }
 
   const L = makeLeaflet()
-  L.latLngBounds = () => makeBounds()
 
   // Source real de 3 puntos con posiciones conocidas.
   const source = createSource({ idOf: (o) => o.id, positionOf: (o) => o.pos })

@@ -1,0 +1,15 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": { "caso": "anillo abierto: la ultima posicion no repite la primera" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [[0, 0], [4, 0], [4, 4], [0, 4]]
+        ]
+      }
+    }
+  ]
+}

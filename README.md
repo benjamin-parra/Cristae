@@ -38,6 +38,7 @@ import { createSource, defineIconSet } from 'cristae/map'
 | `cristae/map`    | mapa + núcleo (Leaflet/glify/lit)      | `<cristae-*>` mapa  |
 | `cristae/table`  | tabla virtual + núcleo (solo `lit`)    | `<cristae-table>`   |
 | `cristae/core`   | solo el núcleo de datos (sin DOM)      | —                   |
+| `cristae/geojson`| lector de GeoJSON a arrays tipados      | —                   |
 
 `table` y `map` nunca se importan entre sí: una tabla no baja Leaflet.
 

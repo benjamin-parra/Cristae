@@ -1,0 +1,8 @@
+{
+  "fixture": "adversarios/geometria-dentro-de-posicion.geojson",
+  "bytes": 273,
+  "veredicto": "error",
+  "code": "estructura",
+  "oraculo": "plantado",
+  "motivo": "oraculo: posición de 1 números: §17.3-4 contrata 2 o 3"
+}

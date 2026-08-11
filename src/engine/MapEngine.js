@@ -3,9 +3,11 @@ import { EventBus } from '../events/EventBus.js'
 import { Interaction } from './Interaction.js'
 import { Camera } from './Camera.js'
 import { PointLayer } from '../render/PointLayer.js'
+import { OBJ_BITS } from '../render/Picking.js'
 import { LineLayer } from '../render/LineLayer.js'
 import { LeafletLineLayer } from '../render/LeafletLineLayer.js'
 import { PolygonLayer } from '../render/PolygonLayer.js'
+import { PolygonGpuLayer } from '../render/PolygonGpuLayer.js'
 import { CircleLayer } from '../render/CircleLayer.js'
 import { HeatLayer } from '../render/HeatLayer.js'
 import { EditableGeometry } from '../render/EditableGeometry.js'
@@ -24,6 +26,9 @@ import { createTileSnapshotRetention } from '../tiles/TileSnapshotRetention.js'
 
 const BASE_Z = 400
 const Z_STEP = 10
+// Techo de la identidad de OBJETO del pase de picking: el eje `obj` del píxel menos el 0, que significa
+// «nada» y no se asigna nunca. Sale de los bits que declara el codec — nunca de un número repetido acá.
+const PICK_OBJ_MAX = (1 << OBJ_BITS) - 1
 const SIN_FOCO = new Set()      // capa sin ids propios en el eje focus: se atenúa entera
 // Offset de la capa de LABELS sobre su host. El fold de cluster (burbujas + spider) se cuelga por ENCIMA
 // de esta banda para que las etiquetas de otros marcadores NO tapen los vehículos que el cluster superpone
@@ -99,7 +104,11 @@ export class MapEngine {
   #layers             = new Map()      // id → record { kind, source, layer, controls, paneName, order }
   #highlightOverlays  = new Set()      // overlays de interacción (canvas 2D fijo al contenedor) → dispose en destroy
   #fontHooked         = new WeakSet()  // iconSets ya cableados al font-gate (evita re-suscribir por cada capa)
-  #pickLayers         = []             // capas de puntos interactivas (para la sesión de picking)
+  // Capas de puntos interactivas = las que entran al pase de picking. Sobre las MISMAS entradas vive
+  // la identidad de OBJETO del pase (el primer eje del píxel): se asigna en el alta desde la free-list
+  // y se devuelve en la baja, así que un ciclo de alta/baja no agota el rango. `byObj` es el mapa
+  // inverso — el decodificador entrega (obj, chunk, local) y tiene que volver a la capa.
+  #pick               = { entries: [], byObj: new Map(), free: [], next: 1 }
   #glLayers           = new Set()      // capas GL (canvas glify propio) a reproyectar en move/zoom/resize
   #pendingBinds       = []             // label-layers cuyo host aún no existía (resolución por nombre)
   #signals            = new Map()      // eventos del motor (ready/viewportchange/interaction*) → handlers
@@ -140,7 +149,7 @@ export class MapEngine {
       map:        this.#map,
       registry:   this.#registry,
       bus:        this.#bus,
-      pickLayers: () => this.#pickLayers,
+      pickLayers: () => this.#pick.entries,
       hoverThrottleMs,
       onInteractionStart: () => this.#emit('interactionstart', {}),
       onInteractionEnd:   () => this.#emit('interactionend', {}),
@@ -194,7 +203,7 @@ export class MapEngine {
     if (!enabled) layer.enabled = false          // nace gateada: no reacciona a la Source hasta setLayerEnabled(true)
 
     if (interactive) {
-      this.#pickLayers.push({ layerId: id, layer })
+      this.#addPickLayer(id, layer)
       // Los resolvers leen record.layer (no capturan): attachSource puede swapear la capa.
       this.#registerResolver(id, 'point', zIndex, order, e => record.layer.resolveClick(e), e => record.layer.resolveHover(e), { capture, presentAs })
     }
@@ -213,15 +222,19 @@ export class MapEngine {
   // Polígonos REACTIVOS a una Source (styleOf + fast-path por dirtyIds), sustrato Leaflet-native (0
   // contextos WebGL). Como línea/vector: no va a #glLayers (Leaflet reproyecta solo), picking síncrono.
   addPolygonLayer(cfg) {
-    const { id, data, accessors, pane, z, interactive = true, visible = true } = cfg
+    // `backend: 'gpu'` monta la capa por stencil en el MISMO lugar: mismo Source, mismos accessors,
+    // mismo contrato de picking y de foco. Queda opt-in hasta que el reemplazo esté probado en pantalla.
+    const { id, data, accessors, pane, z, source: dado, interactive = true, visible = true, backend = 'leaflet', ...style } = cfg
     const order    = this.#order++
     const paneName = pane ?? `cristae-polygon-${id}`
     const zIndex   = z ?? (BASE_Z + order * Z_STEP)
     this.#ensurePane(paneName, zIndex, false)          // display puro; picking propio por índice
 
-    const controls = cfg.source ? null : createSource(accessors)   // dueño motor (data) vs consumidor (cfg.source)
-    const source   = cfg.source ?? controls
-    const layer    = new PolygonLayer({ L: this.#L, map: this.#map, pane: paneName, source, interactive })
+    const controls = dado ? null : createSource(accessors)          // dueño motor (data) vs consumidor (cfg.source)
+    const source   = dado ?? controls
+    const layer    = backend === 'gpu'
+      ? new PolygonGpuLayer({ L: this.#L, map: this.#map, pane: paneName, source, interactive, ...style })
+      : new PolygonLayer({ L: this.#L, map: this.#map, pane: paneName, source, interactive })
 
     const record = { kind: 'polygon', source, layer, controls, paneName, zIndex, order, interactive, visible, enabled: true }
     this.#layers.set(id, record)
@@ -233,6 +246,33 @@ export class MapEngine {
     if (data && controls) controls.set(data)
     this.#flushPendingBinds()
     return { id, source, set: items => controls?.set(items), setVisible: v => this.setLayerVisibility(id, v) }
+  }
+
+  // Polígonos ESTÁTICOS en GPU: stencil sobre geometría tipada e inmutable (miles de anillos), sin
+  // Source. Va a #glLayers: el stencil vive en el framebuffer y se rehace en cada reencuadre.
+  addPolygonGpuLayer(cfg) {
+    // El resto del cfg son opciones de path de Leaflet (color/weight/opacity/fill*): viajan tal cual,
+    // que es lo que hace que la capa entre en lugar de `addPolygonLayer` sin traducir nada.
+    const { id, geometry, pane, z, interactive = false, visible = true, idOf = null, ...style } = cfg
+    const order    = this.#order++
+    const paneName = pane ?? `cristae-polygon-gpu-${id}`
+    const zIndex   = z ?? (BASE_Z + order * Z_STEP)
+    this.#ensurePane(paneName, zIndex, false)          // display puro; picking propio por índice
+
+    const layer  = new PolygonGpuLayer({ L: this.#L, map: this.#map, pane: paneName, geometry, interactive, idOf, ...style })
+    const record = { kind: 'polygon', layer, paneName, zIndex, order, interactive, visible, enabled: true }
+    this.#layers.set(id, record)
+
+    if (interactive)
+      this.#registerResolver(id, 'polygon', zIndex, order, e => record.layer.resolveClick(e), e => record.layer.resolveHover(e))
+    this.#applyVisibility(id, paneName, visible)
+
+    return {
+      id,
+      redraw     : () => record.layer.redraw(),
+      style      : options => record.layer.style(options),
+      setVisible : v => this.setLayerVisibility(id, v),
+    }
   }
 
   /* ── Capas de líneas (GL glify.Lines + hit-testing nearest-segment CPU) ── */
@@ -358,21 +398,24 @@ export class MapEngine {
   }
 
   /* ── Edición de geometría como INPUT CONTROLADO (Leaflet-native): value entra, cambios salen por
-       onChange. No es capa de Source; el DISPLAY se ata con addPolygonLayer/addLineLayer al mismo value. ── */
+       onChange. No es capa de Source, y DIBUJA la geometría entera —relleno, contorno y handles— en su
+       propia superficie GL: no se le ata un display aparte, que se vería superpuesto. `style` toma las
+       mismas claves que un `styleOf` de PolygonLayer/LineLayer. ── */
 
   addEditableLayer(cfg) {
-    const { id, kind = 'polygon', value = null, mode = 'edit', onChange, onCommit, pane, z } = cfg
+    const { id, kind = 'polygon', value = null, mode = 'edit', style, onChange, onCommit, pane, z } = cfg
     const order    = this.#order++
     const paneName = pane ?? `cristae-edit-${id}`
     const zIndex   = z ?? (BASE_Z + order * Z_STEP + LABEL_Z_OFFSET)   // handles por encima de las capas
     this.#ensurePane(paneName, zIndex, false)                          // markers interactivos → pane con puntero
-    const editor = new EditableGeometry({ L: this.#L, map: this.#map, pane: paneName, kind, value, mode, onChange, onCommit })
+    const editor = new EditableGeometry({ L: this.#L, map: this.#map, pane: paneName, kind, value, mode, style, onChange, onCommit })
     const record = { kind: 'editable', editor, paneName, zIndex, order, visible: true, enabled: true }
     this.#layers.set(id, record)
     return {
       id,
       setValue:       v => editor.setValue(v),
       setMode:        m => editor.setMode(m),
+      setStyle:       s => editor.setStyle(s),
       getValue:       () => editor.getValue(),
       handleMapClick: ll => editor.handleMapClick(ll),
       destroy:        () => this.removeLayer(id),
@@ -543,13 +586,17 @@ export class MapEngine {
     let cssW  = 0, cssH = 0
     // Reposiciona el canvas al top-left del viewport en coords de capa (el pane se traslada con el mapa en
     // pan → el canvas queda fijo al viewport) y lo redimensiona sólo si cambió (setear width lo limpia).
+    // El buffer va en px de dispositivo y la CAJA en px CSS: sin caja el canvas MIDE su buffer, y el pase
+    // entero sale a dpr× de su lugar —el realce deja de caer sobre su sprite— además de borroso.
     const reposition = () => {
       const r = map.getContainer().getBoundingClientRect()
       if (r.width !== cssW || r.height !== cssH) {
-        cssW          = r.width
-        cssH          = r.height
-        canvas.width  = Math.round(cssW * dpr)
-        canvas.height = Math.round(cssH * dpr)
+        cssW                = r.width
+        cssH                = r.height
+        canvas.width        = Math.round(cssW * dpr)
+        canvas.height       = Math.round(cssH * dpr)
+        canvas.style.width  = `${cssW}px`
+        canvas.style.height = `${cssH}px`
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
       }
       const origin = map.containerPointToLayerPoint([0, 0])
@@ -608,8 +655,9 @@ export class MapEngine {
     }))
     if (!record.enabled) record.layer.enabled = false   // el swap conserva el gate de la entidad deshabilitada
     if (record.interactive) {
-      const entry = this.#pickLayers.find(e => e.layerId === id)
-      if (entry) entry.layer = record.layer
+      // La capa del pase es la MISMA entidad con otra fuente: conserva su id de objeto (no se recicla).
+      const entry = this.#pick.entries.find(e => e.layerId === id)
+      if (entry) { entry.layer = record.layer; record.layer.pickObject = entry.obj }
     }
     return this
   }
@@ -617,6 +665,11 @@ export class MapEngine {
   /* ── Acceso y lifecycle ── */
 
   getLayer(id) { return this.#layers.get(id) ?? null }
+
+  // Capa dueña de un objeto del pase de picking: el decodificador entrega (obj, chunk, local) y esto
+  // resuelve el primer eje. Devuelve la entrada del pase ({ layerId, layer, obj }), o null si el id
+  // no está asignado.
+  pickLayerOf(obj) { return this.#pick.byObj.get(obj) ?? null }
 
   removeLayer(id) {
     const record = this.#layers.get(id)
@@ -631,14 +684,19 @@ export class MapEngine {
     this.#focusOverlays.delete(id)
     const declarabaFoco = this.#itemFocus.delete(id)
     this.#registry.removeByLayerId(id)
-    this.#pickLayers = this.#pickLayers.filter(e => e.layerId !== id)
+    this.#removePickLayer(id)
     this.#bus.clearLayer(id)
     this.#layers.delete(id)
     // Libera el pane si ya NINGUNA capa lo usa. Cubre los dos casos sin conocerlos: el pane auto
     // (`cristae-<kind>-<id>`, único) se va con su capa; un pane COMPARTIDO (varias capas con el mismo
     // `cfg.pane`) sobrevive hasta que se desmonta la última. Sin esto los panes se acumulaban en un
     // mapa de vida larga (alta/baja de capas) — el cluster ya los borraba a mano en su `dispose`.
-    if (record.paneName && !this.#paneInUse(record.paneName)) this.#map.getPane(record.paneName)?.remove()
+    // Sacar el pane del DOM no alcanza: Leaflet lo retiene en `_panes` y `getPane` lo devolvería
+    // desconectado, así que el alta siguiente colgaría su contenido de un nodo fuera del documento.
+    if (record.paneName && !this.#paneInUse(record.paneName)) {
+      this.#map.getPane(record.paneName)?.remove()
+      delete this.#map._panes?.[record.paneName]
+    }
     declarabaFoco && this.#applyFocus()
     return true
   }
@@ -658,6 +716,7 @@ export class MapEngine {
     const host      = record.bindTo ? this.#layers.get(record.bindTo) : null
     const effective = visible && record.enabled && (!host || host.enabled)
     this.#applyVisibility(id, record.paneName, effective)
+    record.layer?.setVisible?.(effective)      // una capa que dibuja sola no se apaga ocultando el pane
     if (!effective) this.#bus.clearLayer(id)
     return true
   }
@@ -735,7 +794,7 @@ export class MapEngine {
   // puntos (un resize simétrico no desplaza el centro, así que el canvas glify no se redibuja solo).
   syncSize() {
     this.#map.invalidateSize({ pan: false })
-    this.#pickLayers.forEach(({ layer }) => layer.syncPickingSize())
+    this.#pick.entries.forEach(({ layer }) => layer.syncPickingSize())
     this.#resetCanvases()
   }
 
@@ -745,20 +804,42 @@ export class MapEngine {
   // vuelve a ser visible sin cambiar de tamaño (no dispara resize).
   invalidateCanvas() { this.#resetCanvases() }
 
-  // Encuadra por los bounds de VARIAS capas de datos a la vez (`ids`, o TODAS las que tengan Source si se
-  // omite) — la contraparte multi-capa de camera.fitToLayer (una sola). Une la geometría de cada Source
-  // según su tipo (positionOf | pathOf | ringsOf). One-shot; respeta insets/maxZoom.
+  // Encuadra por los bounds de VARIAS capas a la vez (`ids`, o TODAS si se omite) — la contraparte
+  // multi-capa de camera.fitToLayer (una sola). Une la geometría de cada Source según su tipo
+  // (positionOf | pathOf | ringsOf), y la caja propia de la capa que no tenga Source. One-shot;
+  // respeta insets/maxZoom.
   fitToLayers(ids = null, { insets, maxZoom } = {}) {
-    // Aplana cualquier coordenada (`{lat,lng}` | `[lat,lng]` | anidada de pathOf/ringsOf) a pares [lat,lng].
-    const pairs = v => Array.isArray(v)
-      ? (typeof v[0] === 'number' ? [v] : v.flatMap(pairs))
-      : [[v.lat, v.lng]]
-    const coordsOf = ({ accessors: a, getSnapshot }) => getSnapshot().flatMap(it =>
-      pairs(a.positionOf ? a.positionOf(it) : a.pathOf ? [...a.pathOf(it)] : a.ringsOf(it)))
-    const recs   = (ids ? [...ids].map(id => this.#layers.get(id)) : [...this.#layers.values()]).filter(r => r?.source)
-    const pts    = recs.flatMap(r => coordsOf(r.source)).filter(([lat, lng]) => Number.isFinite(lat) && Number.isFinite(lng))
-    const bounds = this.#L.latLngBounds(pts)
-    bounds.isValid() && this.camera.fitBounds(bounds, { insets })
+    const box  = new Float64Array([Infinity, Infinity, -Infinity, -Infinity])   // [minLat, minLng, maxLat, maxLng]
+    const grow = (lat, lng) => {
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return
+      if (lat < box[0]) box[0] = lat
+      if (lng < box[1]) box[1] = lng
+      if (lat > box[2]) box[2] = lat
+      if (lng > box[3]) box[3] = lng
+    }
+    const growTyped = v => {                     // tipado plano, intercalado [lat, lng, …]
+      for (let i = 0; i + 1 < v.length; i += 2) grow(v[i], v[i + 1])
+    }
+    // Una coordenada llega como `{lat,lng}`, `[lat,lng]`, un anidado de pathOf/ringsOf, un iterable o
+    // un tipado plano. Se recorre sin materializar pares.
+    const walk = v =>
+      ArrayBuffer.isView(v)        ? growTyped(v)
+      : Array.isArray(v)           ? (typeof v[0] === 'number' ? grow(v[0], v[1]) : v.forEach(walk))
+      : typeof v?.lat === 'number' ? grow(v.lat, v.lng)
+      : v?.[Symbol.iterator]       ? [...v].forEach(walk)
+      : undefined
+    const recs = ids ? [...ids].map(id => this.#layers.get(id)) : [...this.#layers.values()]
+    recs.forEach(r => {
+      const b = r?.layer?.bounds                 // capa sin Source: su geometría es fija y la informa ella
+      if (b) { grow(b.minLat, b.minLng); grow(b.maxLat, b.maxLng); return }
+      if (!r?.source) return
+
+      const { accessors: a, getSnapshot } = r.source
+      getSnapshot().forEach(it => walk(a.positionOf ? a.positionOf(it) : a.pathOf ? a.pathOf(it) : a.ringsOf(it)))
+    })
+    if (!Number.isFinite(box[0])) return this
+
+    this.camera.fitBounds(this.#L.latLngBounds([box[0], box[1]], [box[2], box[3]]), { insets })
     maxZoom != null && this.#map.getZoom() > maxZoom && this.#map.setZoom(maxZoom)
     return this
   }
@@ -863,6 +944,31 @@ export class MapEngine {
 
   #resetCanvases() {
     this.#forEachGlLayer(layer => layer.resetCanvasReference())
+  }
+
+  /* ── Registro de capas de pick: la sesión de picking y la identidad de OBJETO del pase ── */
+
+  // Alta en el pase: id de objeto de la free-list (o el siguiente sin estrenar) y entrada indexada por
+  // él. Agotado el rango la capa entra con obj 0, que el pase saltea: degrada a «no pickeable», nunca
+  // a un hit atribuido a otra capa.
+  #addPickLayer(layerId, layer) {
+    const p     = this.#pick
+    const obj   = p.free.pop() ?? (p.next <= PICK_OBJ_MAX ? p.next++ : 0)
+    const entry = { layerId, layer, obj }
+    layer.pickObject = obj
+    p.entries.push(entry)
+    obj && p.byObj.set(obj, entry)
+    return entry
+  }
+
+  // Baja: la entrada sale del pase y su id vuelve a la free-list.
+  #removePickLayer(layerId) {
+    const p = this.#pick
+    const i = p.entries.findIndex(e => e.layerId === layerId)
+    if (i < 0) return
+    const [entry] = p.entries.splice(i, 1)
+    p.byObj.delete(entry.obj)
+    entry.obj && p.free.push(entry.obj)
   }
 
   #registerResolver(id, kind, zIndex, order, resolveClick, resolveHover, overlay) {
@@ -1093,7 +1199,7 @@ export class MapEngine {
       visible: true, enabled: true,
     })
     if (interactive) {
-      this.#pickLayers.push({ layerId: siblingId, layer })
+      this.#addPickLayer(siblingId, layer)
       // La burbuja ocluye lo que tiene debajo (capa overlay): su click no se filtra a geocercas/puntos.
       // Hover real (demand-gated: sólo computa si alguien se suscribe) → la burbuja es una entidad
       // consultable como cualquier otra: hits por el bus + contentsOf del control.

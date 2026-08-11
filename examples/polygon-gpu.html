@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Cristae · Relleno de polígonos: stencil GPU contra L.polygon</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #0b1020; color: #e5e7eb;
+    font: 13px/1.5 ui-sans-serif, system-ui, -apple-system, sans-serif; overflow: hidden; }
+  #map { position: fixed; inset: 0; z-index: 0; background: #0b1020; }
+  .leaflet-container { background: #0b1020; }
+  #panel { position: fixed; top: 14px; left: 14px; z-index: 1000; width: 340px;
+    max-height: calc(100vh - 28px); overflow: auto; background: rgba(15,20,33,.94);
+    border: 1px solid #263043; border-radius: 12px; padding: 12px 14px; }
+  h1 { font-size: 13px; margin: 0 0 2px; letter-spacing: .02em; }
+  .sub { color: #94a3b8; font-size: 11px; margin-bottom: 10px; }
+  .card { border-top: 1px solid #263043; padding: 9px 0 7px; }
+  .card h2 { font-size: 11.5px; margin: 0 0 6px; color: #cbd5e1;
+    text-transform: uppercase; letter-spacing: .04em; }
+  .exp { color: #64748b; font-size: 10.5px; margin: 0 0 7px; line-height: 1.4; }
+  .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 5px 0; }
+  label { color: #cbd5e1; font-size: 11px; display: flex; align-items: center; gap: 4px; }
+  select { background: #1f2937; color: #e5e7eb; border: 1px solid #374151; border-radius: 8px;
+    padding: 4px 8px; font: inherit; font-size: 12px; }
+  b { color: #f1f5f9; font-variant-numeric: tabular-nums; }
+  .swatch { display: inline-block; width: 9px; height: 9px; border-radius: 2px; vertical-align: -1px; }
+  .meta { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; font-size: 11px; color: #94a3b8; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+
+<div id="panel">
+  <h1>Relleno de polígonos · stencil GPU vs <code>L.polygon</code></h1>
+  <p class="sub">La misma geometría por los dos caminos. Donde coinciden se ve la mezcla; donde
+    discrepan, queda el color de la mitad que pintó sola.</p>
+
+  <div class="card">
+    <h2>Geometría</h2>
+    <p class="exp">Las patológicas son las que rompen una triangulación: auto-intersección, agujeros,
+      winding invertido, isla dentro de laguna. Las degeneradas se descartan por anillo.</p>
+    <div class="row">
+      <label>forma <select id="forma"></select></label>
+      <label>vértices <select id="n">
+        <option value="400">400</option>
+        <option value="5000">5.000</option>
+        <option value="50000">50.000</option>
+      </select></label>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Qué se dibuja</h2>
+    <div class="row">
+      <label>modo <select id="modo">
+        <option value="ambos">ambos (comparar)</option>
+        <option value="gpu">sólo GPU (stencil)</option>
+        <option value="leaflet">sólo Leaflet (SVG)</option>
+      </select></label>
+    </div>
+    <div class="row" style="font-size:11px;color:#94a3b8">
+      <span><span class="swatch" style="background:#22d3ee"></span> GPU</span>
+      <span><span class="swatch" style="background:#f59e0b"></span> Leaflet</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Medición</h2>
+    <p class="exp">El tiempo es de pared, con <code>gl.finish()</code>: sin él se mide el encolado, no
+      el dibujo. Se paga por REDIBUJO —paso de zoom, resize, cambio de caso—, no por frame: panear
+      cabalga el transform del pane. <b>Arrastrá el mapa y mirá el contador: no tiene que moverse.</b></p>
+    <div class="meta">
+      <span>redibujos</span><b id="nRedibujos">0</b>
+      <span>vértices</span><b id="nVertices">—</b>
+      <span>anillos</span><b id="nAnillos">—</b>
+      <span>stores (uno por anillo)</span><b id="nStores">—</b>
+      <span>ms del redibujo GPU</span><b id="msDraw">—</b>
+      <span>en pantalla</span><b id="enPantalla">—</b>
+      <span>stencil otorgado</span><b id="stencil">—</b>
+      <span>GPU</span><b id="gpuName">—</b>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="./polygon-gpu.js"></script>
+</body>
+</html>

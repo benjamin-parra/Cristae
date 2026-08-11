@@ -1,0 +1,13 @@
+{
+  "type": "Feature",
+  "properties": {
+    "Topology": "es una property, no el formato"
+  },
+  "geometry": {
+    "type": "Point",
+    "coordinates": [
+      1,
+      2
+    ]
+  }
+}

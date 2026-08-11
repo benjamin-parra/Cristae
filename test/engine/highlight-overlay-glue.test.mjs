@@ -5,7 +5,7 @@
 // acá se verifica el CABLEADO.
 
 import '../../test-helpers/engine-stub.mjs'
-import { makeGlify, makeMap, makeLeaflet, makeIconSet } from '../../test-helpers/engine-stub.mjs'
+import { makeGlify, makeMap, makeLeaflet, makeIconSet, decorarElementos } from '../../test-helpers/engine-stub.mjs'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { MapEngine } from '../../src/engine/MapEngine.js'
@@ -63,6 +63,29 @@ test('addHighlightOverlay: el ViewAnimator lo reproyecta POR FRAME durante el zo
   engine.getLeafletMap().fire('zoomend')                // corta la interpolación
   ov.destroy()
   engine.destroy()
+})
+
+// El canvas del pase declara DOS tamaños, y sólo el par correcto lo deja caer sobre su sprite: con la caja
+// ausente el canvas mide su BUFFER, así que en pantalla ocupa dpr× el viewport y todo lo dibujado aparece a
+// dpr× de su punto —el realce se despega del marcador y arrastra en el zoom—, además de borroso.
+test('addHighlightOverlay: el canvas mide el viewport en px CSS y su buffer en px de dispositivo', async () => {
+  const previo = globalThis.window.devicePixelRatio
+  globalThis.window.devicePixelRatio = 2
+  const canvases = []
+  const restaurar = decorarElementos((el, tag) => (tag === 'canvas' && canvases.push(el), el))
+
+  const engine = newEngine()
+  engine.addPointLayer({ id: 'flota', accessors, iconSet: makeIconSet(), data: items })
+  await flushRaf()
+  engine.addHighlightOverlay({ id: 'hl', layerId: 'flota', drawHighlight: () => {} })
+
+  const canvas = canvases.at(-1)                        // el contenedor del stub mide 800×600
+  assert.deepEqual([canvas.width, canvas.height], [1600, 1200], 'buffer en px de dispositivo')
+  assert.deepEqual([canvas.style.width, canvas.style.height], ['800px', '600px'], 'caja CSS en px lógicos')
+
+  engine.destroy()
+  restaurar()
+  globalThis.window.devicePixelRatio = previo
 })
 
 test('addHighlightOverlay: rechaza un layerId ausente o que no es de puntos', () => {

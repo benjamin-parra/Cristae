@@ -1,0 +1,63 @@
+{
+  "fixture": "rfc/ids-numerico-y-texto.geojson",
+  "bytes": 679,
+  "veredicto": "lectura",
+  "oraculo": "ok",
+  "conteos": {
+    "f": 3,
+    "g": 3,
+    "p": 3,
+    "r": 3,
+    "v": 3
+  },
+  "tablas": {
+    "geometryAt": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "partAt": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "ringAt": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "vertexAt": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "kinds": [
+      1,
+      1,
+      1
+    ],
+    "featureOf": [
+      0,
+      1,
+      2
+    ],
+    "closed": [
+      0,
+      0,
+      0
+    ],
+    "xy": [
+      -70.81,
+      -33.81,
+      -70.82,
+      -33.82,
+      -70.83,
+      -33.83
+    ],
+    "z": null
+  }
+}

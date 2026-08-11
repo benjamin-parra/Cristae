@@ -1,0 +1,53 @@
+{
+  "fixture": "entradas/bom-al-inicio.geojson",
+  "bytes": 417,
+  "veredicto": "lectura",
+  "oraculo": "ok",
+  "conteos": {
+    "f": 1,
+    "g": 1,
+    "p": 1,
+    "r": 1,
+    "v": 5
+  },
+  "tablas": {
+    "geometryAt": [
+      0,
+      1
+    ],
+    "partAt": [
+      0,
+      1
+    ],
+    "ringAt": [
+      0,
+      1
+    ],
+    "vertexAt": [
+      0,
+      5
+    ],
+    "kinds": [
+      5
+    ],
+    "featureOf": [
+      0
+    ],
+    "closed": [
+      1
+    ],
+    "xy": [
+      -70.65,
+      -33.45,
+      -70.64,
+      -33.45,
+      -70.64,
+      -33.44,
+      -70.65,
+      -33.44,
+      -70.65,
+      -33.45
+    ],
+    "z": null
+  }
+}

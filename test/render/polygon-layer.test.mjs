@@ -3,9 +3,8 @@
 // sin `clearLayers` ni recreación de los demás — a diferencia del addPolygonLayer imperativo previo.
 //
 // Se importa el harness PRIMERO (shimea window/document + requestAnimationFrame, que la Source real
-// usa para coalescer su emit a rAF). Reusamos makeMap y makeLeaflet del harness; sobre-escribimos
-// `layerGroup` y `polygon` por versiones que REGISTRAN setStyle/setLatLngs/clearLayers/addLayer — el
-// stub base del harness (pensado para el fold de cluster) no instrumenta esas llamadas.
+// usa para coalescer su emit a rAF). Su `L` ya instrumenta layerGroup y polygon con la convención
+// única de log (`L.log.paths` + `setStyleCalls`/`setLatLngsCalls` por instancia).
 import { makeMap, makeLeaflet } from '../../test-helpers/engine-stub.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -14,36 +13,6 @@ import { createSource } from '../../src/data/Source.js'
 
 // La Source real emite en rAF (defer:'raf' → setTimeout(0) bajo el shim); un macrotask lo vacía.
 const flush = () => new Promise(r => globalThis.setTimeout(r, 0))
-
-// L instrumentado: reusa el harness y sólo cambia layerGroup + polygon para contar las llamadas.
-const makeRecordingL = () => {
-  const log = { polygons: [], clearLayers: 0, addLayer: 0 }
-  return {
-    ...makeLeaflet(),
-    layerGroup() {
-      const g = {
-        _layers: [],
-        addTo() { return g },
-        addLayer(l) { log.addLayer++; g._layers.push(l); return g },
-        clearLayers() { log.clearLayers++; g._layers.length = 0; return g },
-        remove() {},
-      }
-      return g
-    },
-    polygon(latlngs, opts) {
-      const p = {
-        latlngs, opts,
-        styleCalls: 0, latLngCalls: 0, lastStyle: opts,
-        setStyle(s) { p.styleCalls++; p.lastStyle = s; return p },
-        setLatLngs(ll) { p.latLngCalls++; p.latlngs = ll; return p },
-        addTo(g) { g.addLayer(p); return p },
-      }
-      log.polygons.push(p)
-      return p
-    },
-    log,
-  }
-}
 
 // Cuadrado unitario centrado en (lat,lng): anillo simple [[lat,lng], ...].
 const square = (lat, lng) => [[lat - 1, lng - 1], [lat - 1, lng + 1], [lat + 1, lng + 1], [lat + 1, lng - 1]]
@@ -76,7 +45,7 @@ const makeManualSource = (items) => {
 }
 
 const mount = async () => {
-  const L = makeRecordingL()
+  const L = makeLeaflet()
   const map = makeMap()
   const source = createSource(accessors)
   source.set([
@@ -93,10 +62,10 @@ test('patch de UN polígono re-estila SÓLO ese L.polygon (no clearLayers, no re
   const { L, source, layer } = await mount()
 
   assert.equal(layer.count, 2, 'los 2 polígonos quedaron montados')
-  assert.equal(L.log.polygons.length, 2, 'sólo se crearon 2 instancias L.polygon')
+  assert.equal(L.log.paths.length, 2, 'sólo se crearon 2 instancias L.polygon')
 
-  const [pa, pb] = L.log.polygons
-  const baseline = { clearLayers: L.log.clearLayers, polys: L.log.polygons.length, sa: pa.styleCalls, sb: pb.styleCalls }
+  const [pa, pb] = L.log.paths
+  const baseline = { clearLayers: L.log.clearLayers, polys: L.log.paths.length, sa: pa.setStyleCalls, sb: pb.setStyleCalls }
 
   // Muta el estilo de 'a' y patchea SÓLO su id.
   const snap = source.getSnapshot()
@@ -105,16 +74,16 @@ test('patch de UN polígono re-estila SÓLO ese L.polygon (no clearLayers, no re
   await flush()
 
   assert.equal(L.log.clearLayers, baseline.clearLayers, 'el patch NO llamó clearLayers')
-  assert.equal(L.log.polygons.length, baseline.polys, 'el patch NO creó nuevas instancias L.polygon')
-  assert.equal(pa.styleCalls, baseline.sa + 1, "sólo el polígono 'a' se re-estiló")
-  assert.equal(pb.styleCalls, baseline.sb, "el polígono 'b' quedó intacto")
-  assert.deepEqual(pa.lastStyle, { color: '#ff0000', fillColor: '#ff0000', weight: 2 }, 'el nuevo estilo llegó a setStyle')
+  assert.equal(L.log.paths.length, baseline.polys, 'el patch NO creó nuevas instancias L.polygon')
+  assert.equal(pa.setStyleCalls, baseline.sa + 1, "sólo el polígono 'a' se re-estiló")
+  assert.equal(pb.setStyleCalls, baseline.sb, "el polígono 'b' quedó intacto")
+  assert.deepEqual(pa.style, { color: '#ff0000', fillColor: '#ff0000', weight: 2 }, 'el nuevo estilo llegó a setStyle')
 })
 
 test('agregar un polígono (cambia el tamaño) cae a rebuild total (clearLayers + recreación)', async () => {
   const { L, source } = await mount()
   const baseClear = L.log.clearLayers
-  const baseCreated = L.log.polygons.length
+  const baseCreated = L.log.paths.length
 
   source.set([
     { id: 'a', color: '#111111', rings: square(0, 0) },
@@ -124,7 +93,7 @@ test('agregar un polígono (cambia el tamaño) cae a rebuild total (clearLayers 
   await flush()
 
   assert.equal(L.log.clearLayers, baseClear + 1, 'el cambio de membresía dispara clearLayers')
-  assert.equal(L.log.polygons.length, baseCreated + 3, 'rebuild total recreó los 3 polígonos')
+  assert.equal(L.log.paths.length, baseCreated + 3, 'rebuild total recreó los 3 polígonos')
 })
 
 test('swap de MISMA cardinalidad (quita a, agrega c) cae a rebuild pese a coincidir el tamaño', async () => {
@@ -132,7 +101,7 @@ test('swap de MISMA cardinalidad (quita a, agrega c) cae a rebuild pese a coinci
   // de seguridad debe detectarlo porque el id sucio 'c' no tiene `L.polygon` montado y forzar rebuild.
   const { L, source, layer } = await mount()
   const baseClear = L.log.clearLayers
-  const baseCreated = L.log.polygons.length
+  const baseCreated = L.log.paths.length
 
   source.set([
     { id: 'b', color: '#222222', rings: square(10, 10) },
@@ -141,7 +110,7 @@ test('swap de MISMA cardinalidad (quita a, agrega c) cae a rebuild pese a coinci
   await flush()
 
   assert.equal(L.log.clearLayers, baseClear + 1, 'el swap a igual tamaño igual cae a rebuild (clearLayers)')
-  assert.equal(L.log.polygons.length, baseCreated + 2, 'rebuild recreó los 2 polígonos del nuevo set')
+  assert.equal(L.log.paths.length, baseCreated + 2, 'rebuild recreó los 2 polígonos del nuevo set')
   assert.equal(layer.count, 2, 'quedan 2 polígonos montados')
   // El picking prueba que el rebuild fue real (no un patch a medias): 'a' desapareció, 'c' entró.
   assert.equal(layer.resolveClick({ latlng: { lat: 0, lng: 0 } }).length, 0, "'a' ya no pica: fue removido")
@@ -150,7 +119,7 @@ test('swap de MISMA cardinalidad (quita a, agrega c) cae a rebuild pese a coinci
 
 test('id sucio SIN polígono montado (misma cardinalidad) cae a rebuild, no estila sobre un poly inexistente', () => {
   // Fast-path entrado (tamaño coincide) pero el id sucio no está en #byId → clause `!byId.has(id)`.
-  const L = makeRecordingL()
+  const L = makeLeaflet()
   const source = makeManualSource([
     { id: 'a', color: '#111111', rings: square(0, 0) },
     { id: 'b', color: '#222222', rings: square(10, 10) },
@@ -171,7 +140,7 @@ test('id sucio SIN polígono montado (misma cardinalidad) cae a rebuild, no esti
 test('id sucio MONTADO pero ausente del Source (itemById null) cae a rebuild, no crashea con item null', () => {
   // Fast-path entrado (tamaño coincide) y el id sucio SÍ está en #byId, pero desapareció del Source →
   // clause `itemById(id) == null`. Sin ese guard, `styleOf(null)`/`ringsOf(null)` reventarían.
-  const L = makeRecordingL()
+  const L = makeLeaflet()
   const source = makeManualSource([
     { id: 'a', color: '#111111', rings: square(0, 0) },
     { id: 'b', color: '#222222', rings: square(10, 10) },
@@ -217,16 +186,16 @@ test('resolveClick devuelve el id del polígono que contiene el punto', async ()
 
 test('applyFocus atenúa sólo los NO enfocados, modulando la opacidad de su estilo', async () => {
   const { L, layer } = await mount()
-  const [a, b] = L.log.polygons
+  const [a, b] = L.log.paths
 
   assert.equal(layer.applyFocus(new Set(['a']), 0.25), true, 'declara que resolvió el foco por feature')
-  assert.equal(a.lastStyle.opacity, undefined, 'el enfocado conserva su estilo intacto (no se le pisa opacidad)')
-  assert.equal(b.lastStyle.opacity, 0.25, 'el resto se atenúa')
-  assert.equal(b.lastStyle.fillOpacity, 0.2 * 0.25, 'y también su relleno (default 0.2 de Leaflet)')
-  assert.equal(b.lastStyle.color, '#222222', 'conserva el resto del estilo del accessor')
+  assert.equal(a.style.opacity, undefined, 'el enfocado conserva su estilo intacto (no se le pisa opacidad)')
+  assert.equal(b.style.opacity, 0.25, 'el resto se atenúa')
+  assert.equal(b.style.fillOpacity, 0.2 * 0.25, 'y también su relleno (default 0.2 de Leaflet)')
+  assert.equal(b.style.color, '#222222', 'conserva el resto del estilo del accessor')
 
   layer.applyFocus(null)
-  assert.equal(b.lastStyle.opacity ?? 1, 1, 'sin foco vuelve a pleno')
+  assert.equal(b.style.opacity ?? 1, 1, 'sin foco vuelve a pleno')
 })
 
 test('el foco sobrevive a un rebuild sin re-aplicarlo a mano', async () => {
@@ -240,6 +209,6 @@ test('el foco sobrevive a un rebuild sin re-aplicarlo a mano', async () => {
   ])
   await flush()
 
-  const nuevo = L.log.polygons.at(-1)
+  const nuevo = L.log.paths.at(-1)
   assert.equal(nuevo.opts.opacity, 0.25, 'un feature nuevo nace ya atenuado (el rebuild pliega el foco)')
 })

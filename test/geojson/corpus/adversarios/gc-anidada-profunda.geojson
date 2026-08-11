@@ -1,0 +1,121 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "nombre": "colecciones anidadas"
+      },
+      "geometry": {
+        "type": "GeometryCollection",
+        "geometries": [
+          {
+            "type": "GeometryCollection",
+            "geometries": []
+          },
+          {
+            "type": "GeometryCollection",
+            "geometries": [
+              {
+                "type": "GeometryCollection",
+                "geometries": [
+                  {
+                    "type": "Polygon",
+                    "coordinates": [
+                      [
+                        [
+                          0,
+                          0
+                        ],
+                        [
+                          1,
+                          0
+                        ],
+                        [
+                          1,
+                          1
+                        ],
+                        [
+                          0,
+                          0
+                        ]
+                      ]
+                    ]
+                  },
+                  {
+                    "type": "GeometryCollection",
+                    "geometries": [
+                      {
+                        "type": "GeometryCollection",
+                        "geometries": [
+                          {
+                            "type": "GeometryCollection",
+                            "geometries": [
+                              {
+                                "type": "GeometryCollection",
+                                "geometries": [
+                                  {
+                                    "type": "GeometryCollection",
+                                    "geometries": [
+                                      {
+                                        "type": "GeometryCollection",
+                                        "geometries": [
+                                          {
+                                            "type": "GeometryCollection",
+                                            "geometries": [
+                                              {
+                                                "type": "GeometryCollection",
+                                                "geometries": [
+                                                  {
+                                                    "type": "GeometryCollection",
+                                                    "geometries": [
+                                                      {
+                                                        "type": "Polygon",
+                                                        "coordinates": [
+                                                          [
+                                                            [
+                                                              100,
+                                                              0
+                                                            ],
+                                                            [
+                                                              101,
+                                                              0
+                                                            ],
+                                                            [
+                                                              101,
+                                                              1
+                                                            ],
+                                                            [
+                                                              100,
+                                                              0
+                                                            ]
+                                                          ]
+                                                        ]
+                                                      }
+                                                    ]
+                                                  }
+                                                ]
+                                              }
+                                            ]
+                                          }
+                                        ]
+                                      }
+                                    ]
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

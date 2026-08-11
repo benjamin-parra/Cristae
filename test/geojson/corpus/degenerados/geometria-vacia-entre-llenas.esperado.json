@@ -1,0 +1,74 @@
+{
+  "fixture": "degenerados/geometria-vacia-entre-llenas.geojson",
+  "bytes": 703,
+  "veredicto": "lectura",
+  "oraculo": "ok",
+  "conteos": {
+    "f": 3,
+    "g": 3,
+    "p": 2,
+    "r": 2,
+    "v": 10
+  },
+  "tablas": {
+    "geometryAt": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "partAt": [
+      0,
+      1,
+      1,
+      2
+    ],
+    "ringAt": [
+      0,
+      1,
+      2
+    ],
+    "vertexAt": [
+      0,
+      5,
+      10
+    ],
+    "kinds": [
+      5,
+      5,
+      5
+    ],
+    "featureOf": [
+      0,
+      1,
+      2
+    ],
+    "closed": [
+      1,
+      1
+    ],
+    "xy": [
+      0,
+      0,
+      4,
+      0,
+      4,
+      4,
+      0,
+      4,
+      0,
+      0,
+      10,
+      10,
+      14,
+      10,
+      14,
+      14,
+      10,
+      14,
+      10,
+      10
+    ],
+    "z": null
+  }
+}

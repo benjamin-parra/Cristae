@@ -5,6 +5,77 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
 [`docs/versionado.md`](docs/versionado.md) — en `0.x`, el **minor cuenta los cambios medios**
 (capacidad o eje de API nuevo) y el **patch los menores desde el último medio** (fix / perf / revert).
 
+## [0.29.0] - 2026-08-11
+
+### Agregado
+- **`cristae/geojson` — el lector, como entry propio.** Lee las coordenadas de un documento GeoJSON
+  **desde los bytes**, en una pasada, y las deja en arrays tipados: nunca existe el grafo de
+  `JSON.parse`, así que tampoco la basura que hay que recoger después. Contra la capa de polígonos de
+  Leaflet, el estado dibujable retiene **26,8× menos memoria**, provoca **10,4× menos GC** y deja
+  **218× menos objetos vivos** — medido por asignación, no por reloj. En tiempo de carga empata: no
+  se vende por velocidad. Expone `readGeoJson`, `areasOf`, `GeoJsonKind` y `GeoJsonError`; no importa
+  el motor, ni Leaflet, ni Lit, y sirve suelto en Node o en un worker. Contrato en SPECS §17.
+- **`MapEngine.addPolygonGpuLayer`** — polígonos ESTÁTICOS en GPU: relleno por stencil y contorno, con
+  todos los anillos en UNA textura y descarte por viewport. Consume las tablas del lector sin
+  materializar un solo array. El perfil que `addPolygonLayer` no cubre: miles de figuras, donde un
+  `<path>` SVG por cada una satura el DOM.
+- **Eje `backend` en la capa de polígonos** (`addPolygonLayer` y `<cristae-polygon-layer>`): elige el
+  sustrato —`leaflet` por default, o `gpu`— con el MISMO Source, los mismos accessors y el mismo
+  contrato de picking y de foco. Misma clase de eje que `vector` en la capa de líneas. Ver
+  [`docs/polygons.md`](docs/polygons.md).
+- **Geometría tipada** en `geometry/`: `oddEvenRange`, `pointInPart`, `prepareRangeIndex`,
+  `partsAtPoint` y `growBoxOfRange` operan sobre `[lng, lat, …]` intercalado. Sin ellos el picking
+  materializaba el grafo sólo para indexar.
+- **`RingStore` sirve muchos anillos en una textura**, con un ancla POR ANILLO —un ancla común hace
+  crecer el error de float32 con la extensión del conjunto: a escala de país se corría un píxel a z20—
+  y una vista por anillo, porque el pase de paridad encadena los rangos de un arena.
+
+### Cambiado
+- **`pointInPoly` y `bboxOfRings` aceptan multipolígono.** Antes `pointInPoly` devolvía `false` a
+  profundidad 3 y `bboxOfRings` dejaba la caja en ±Infinity: un multipolígono se dibujaba y no se
+  podía pickear.
+- **`fitToLayers` recorre en vez de aplanar**, y deja de ignorar en silencio la geometría tipada.
+  Antes construía un par por vértice para descartarlo, y a un tipado le pedía `.lat`.
+- **El ancho de textura de `RingStore` sale de `MAX_TEXTURE_SIZE`**, no de una constante: con el tope
+  fijo en 2048, un conteo grande pedía más filas de las que la GPU acepta y la textura quedaba corta
+  —geometría faltante, sin error—.
+- **`setLayerVisibility` alcanza a la capa**, no sólo al `visibility` del pane: una capa que dibuja
+  sola no se apaga ocultando el pane.
+
+### Corregido
+- 🔴 **`pointInPoly` compone los anillos de un polígono con XOR, no con OR: el centro de un agujero
+  deja de contener el punto.** Afecta al picking de `addPolygonLayer` con el sustrato default.
+  *Migración*: si tenés geocercas con hoyos, un click en el hueco **ya no** devuelve esa geocerca. El
+  comportamiento anterior estaba desalineado con el propio render — `L.polygon` ya dibujaba el
+  agujero, así que el pick contestaba «adentro» sobre píxeles que la capa no pintaba.
+- **`removeLayer` saca el pane del registro `_panes` de Leaflet.** Sacarlo del DOM no alcanza:
+  `getPane` lo seguía devolviendo desconectado y el alta siguiente con el mismo id colgaba su
+  contenido de un nodo fuera del documento — invisible, sin error, hasta recargar.
+- **El respaldo numérico exacto erraba 1 ulp desde 34 dígitos significativos**, sólo en empates, y
+  SPECS afirmaba que la paridad con `JSON.parse` era incondicional. Ahora es un solo barrido con dos
+  limbos que delega en `Number` pasado su alcance —exacto por el estándar— y de paso ahorra el
+  re-escaneo: **14 % más rápido** en el perfil con números lentos.
+- **Ninguna excepción cruda escapa del lector (§17.10-3).** `maxDepth` y `capacityHint` dimensionan
+  buffers y no se validaban: un valor absurdo salía como `RangeError`. Y `geometryPos` recursaba, así
+  que con una cota alta un documento de pocos KB reventaba el stack; ahora itera.
+- **Un documento de otro formato deja de leerse como cero features.** Un TopoJSON o un EsriJSON
+  entregaba un mapa en blanco sin diagnóstico; ahora es `GeoJsonError('formato')` con su `hint`. La
+  marca sola no rechaza —`Topology` puede ser una property—: se cobra al sellar y sólo si el documento
+  no entregó geometría.
+- **`propertiesOf(f)` e `idOf(f)` fuera de rango devolvían el documento entero parseado**, con sus
+  miembros ajenos adentro. Ahora `null`.
+- **El `id` numérico de un feature no se capturaba** (el RFC admite string o número).
+- **`fitToLayers` perdía el clamp de `maxZoom`** cuando no había nada que encuadrar.
+- **La capa de polígonos GPU se quedaba con su contexto WebGL** si el alta fallaba después de abrirlo
+  —un `styleOf` del consumidor que tira alcanzaba—, quemando uno de los ~16 del navegador para toda
+  la vida de la página. Y su reingesta destruía el store viejo antes de construir el nuevo: un fallo
+  la dejaba dibujando contra una textura nula.
+- **El picking del sustrato GPU contesta una vez por entidad.** Un multipolígono con piezas
+  superpuestas devolvía su id repetido, contra la promesa de que los dos sustratos pickean igual.
+- **Regresión de 3,5× en `pointInPoly`**: el despacho por profundidad probaba el escalón más largo
+  primero, y con un anillo simple `rings[0][0]` es un número, así que el encadenado opcional forzaba
+  un lookup sobre `Number.prototype` en cada consulta.
+
 ## [0.26.0] - 2026-07-29
 
 ### Agregado
