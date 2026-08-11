@@ -1,0 +1,8 @@
+# Los .geojson del corpus son FIXTURES DE BYTES: el lector produce OFFSETS DE BYTE, así que el
+# esperado de cada uno depende de su tamaño exacto. Si git normaliza los finales de línea al hacer
+# checkout, el árbol de trabajo deja de coincidir con el blob y los `.esperado.json` —derivados de lo
+# que hay en disco— se desincronizan contra lo que ve cualquier otra plataforma.
+#
+# Se descubrió corriendo el CI en el runner Linux: en Windows con `core.autocrlf=true` los 81 fixtures
+# pasaban en local y fallaban los 81 en el clon limpio.
+*.geojson -text

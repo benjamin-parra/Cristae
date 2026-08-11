@@ -1,6 +1,6 @@
 {
   "fixture": "adversarios/solo-espacios.geojson",
-  "bytes": 7,
+  "bytes": 6,
   "veredicto": "error",
   "code": "sintaxis",
   "oraculo": "json-invalido",
