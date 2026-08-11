@@ -1,0 +1,67 @@
+{
+  "fixture": "degenerados/poligono-anillo-vacio-intermedio.geojson",
+  "bytes": 368,
+  "veredicto": "lectura",
+  "oraculo": "ok",
+  "conteos": {
+    "f": 1,
+    "g": 1,
+    "p": 1,
+    "r": 3,
+    "v": 10
+  },
+  "tablas": {
+    "geometryAt": [
+      0,
+      1
+    ],
+    "partAt": [
+      0,
+      1
+    ],
+    "ringAt": [
+      0,
+      3
+    ],
+    "vertexAt": [
+      0,
+      5,
+      5,
+      10
+    ],
+    "kinds": [
+      5
+    ],
+    "featureOf": [
+      0
+    ],
+    "closed": [
+      1,
+      0,
+      1
+    ],
+    "xy": [
+      0,
+      0,
+      10,
+      0,
+      10,
+      10,
+      0,
+      10,
+      0,
+      0,
+      2,
+      2,
+      2,
+      8,
+      8,
+      8,
+      8,
+      2,
+      2,
+      2
+    ],
+    "z": null
+  }
+}

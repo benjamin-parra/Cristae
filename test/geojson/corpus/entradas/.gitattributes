@@ -1,0 +1,5 @@
+# Los .geojson de este directorio son FIXTURES DE BYTES: llevan un BOM al inicio, un CR suelto como
+# espacio entre tokens y secuencias UTF-8 multibyte cuyos offsets son la expectativa. Si git
+# normaliza finales de linea al commitear o al hacer checkout, el corpus sigue pasando pero deja de
+# medir lo que dice medir, que es la peor forma de romperse.
+*.geojson -text

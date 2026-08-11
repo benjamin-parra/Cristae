@@ -1,0 +1,15 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": { "caso": "anillo cerrado de 3 posiciones (2 distintas, area cero)" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [[0, 0], [6, 0], [0, 0]]
+        ]
+      }
+    }
+  ]
+}

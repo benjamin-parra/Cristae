@@ -1,0 +1,50 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "nombre": "la coleccion trae un miembro ajeno llamado coordinates"
+      },
+      "geometry": {
+        "type": "GeometryCollection",
+        "coordinates": [11.1, 22.2],
+        "geometries": [
+          {
+            "type": "Point",
+            "coordinates": [-71.21, -34.21]
+          },
+          {
+            "type": "LineString",
+            "coordinates": [
+              [-71.22, -34.22],
+              [-71.23, -34.23]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "nombre": "control: misma forma sin el miembro ajeno"
+      },
+      "geometry": {
+        "type": "GeometryCollection",
+        "geometries": [
+          {
+            "type": "Point",
+            "coordinates": [-71.24, -34.24]
+          },
+          {
+            "type": "LineString",
+            "coordinates": [
+              [-71.25, -34.25],
+              [-71.26, -34.26]
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

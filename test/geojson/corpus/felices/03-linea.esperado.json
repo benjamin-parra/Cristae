@@ -1,0 +1,51 @@
+{
+  "fixture": "felices/03-linea.geojson",
+  "bytes": 313,
+  "veredicto": "lectura",
+  "oraculo": "ok",
+  "conteos": {
+    "f": 1,
+    "g": 1,
+    "p": 1,
+    "r": 1,
+    "v": 4
+  },
+  "tablas": {
+    "geometryAt": [
+      0,
+      1
+    ],
+    "partAt": [
+      0,
+      1
+    ],
+    "ringAt": [
+      0,
+      1
+    ],
+    "vertexAt": [
+      0,
+      4
+    ],
+    "kinds": [
+      3
+    ],
+    "featureOf": [
+      0
+    ],
+    "closed": [
+      0
+    ],
+    "xy": [
+      -70.7,
+      -33.5,
+      -70.6,
+      -33.45,
+      -70.5,
+      -33.4,
+      -70.4,
+      -33.3
+    ],
+    "z": null
+  }
+}

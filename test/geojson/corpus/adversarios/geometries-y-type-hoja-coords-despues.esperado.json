@@ -1,0 +1,8 @@
+{
+  "fixture": "adversarios/geometries-y-type-hoja-coords-despues.geojson",
+  "bytes": 379,
+  "veredicto": "error",
+  "code": "estructura",
+  "oraculo": "plantado",
+  "motivo": "oraculo: objeto con geometries y type=\"Point\": §17.3-15"
+}

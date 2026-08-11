@@ -1,0 +1,23 @@
+{
+  "w": {
+    "geometry": {
+      "geometries": [
+        0
+      ]
+    }
+  },
+  "type": "Polygon",
+  "coordinates": [
+    [
+      [
+        {
+          "type": "Point",
+          "coordinates": [
+            9,
+            9
+          ]
+        }
+      ]
+    ]
+  ]
+}

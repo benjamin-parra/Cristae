@@ -1,0 +1,29 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": { "caso": "poligono con un anillo vacio" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": { "caso": "multipoligono con un poligono sin anillos" },
+      "geometry": {
+        "type": "MultiPolygon",
+        "coordinates": [[]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": { "caso": "multipoligono con un poligono con un anillo vacio" },
+      "geometry": {
+        "type": "MultiPolygon",
+        "coordinates": [[[]]]
+      }
+    }
+  ]
+}

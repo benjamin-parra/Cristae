@@ -1,0 +1,65 @@
+{
+  "fixture": "adversarios/gc-anidada-profunda.geojson",
+  "bytes": 4735,
+  "veredicto": "lectura",
+  "oraculo": "ok",
+  "conteos": {
+    "f": 1,
+    "g": 2,
+    "p": 2,
+    "r": 2,
+    "v": 8
+  },
+  "tablas": {
+    "geometryAt": [
+      0,
+      2
+    ],
+    "partAt": [
+      0,
+      1,
+      2
+    ],
+    "ringAt": [
+      0,
+      1,
+      2
+    ],
+    "vertexAt": [
+      0,
+      4,
+      8
+    ],
+    "kinds": [
+      5,
+      5
+    ],
+    "featureOf": [
+      0,
+      0
+    ],
+    "closed": [
+      1,
+      1
+    ],
+    "xy": [
+      0,
+      0,
+      1,
+      0,
+      1,
+      1,
+      0,
+      0,
+      100,
+      0,
+      101,
+      0,
+      101,
+      1,
+      100,
+      0
+    ],
+    "z": null
+  }
+}

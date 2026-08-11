@@ -18,6 +18,7 @@ const pkg = JSON.parse(readFileSync(raiz('package.json'), 'utf8'))
 //    customElements al importarse (no deben: no figuran en `sideEffects`) reventaría acá.
 const core = await import('../src/data/index.js')
 const grammar = await import('../src/grammar/index.js')
+const geojson = await import('../src/geojson/index.js')
 
 // Módulos que DEFINEN cada export re-exportado por los dos entries anteriores. El golden de
 // nombres no distingue una función de otra (todas son `function`): la identidad contra el
@@ -29,6 +30,7 @@ const gMounting = await import('../src/grammar/mounting.js')
 const gUtil = await import('../src/grammar/util.js')
 const dSource = await import('../src/data/Source.js')
 const dFilters = await import('../src/data/filters.js')
+const jLector = await import('../src/geojson/geojson.js')
 
 // `table/` SÍ registra el custom element al importarse: se stubea el registry para observar
 // la definición sin DOM. El stub va después de los dos imports de arriba, a propósito.
@@ -155,14 +157,53 @@ test('importar cristae/table registra <cristae-table> una sola vez y guardado po
   assert.equal(ctor, table.CristaeTable)
 })
 
+// ── geojson: el lector NO filtra su autómata ──
+
+// El entry re-exporta TRES nombres y nada más. El autómata y su registro de estado —`stack`,
+// `flags`, las tablas de claves— son la mitad del archivo y no salen: si alguno aparece acá es que
+// se filtró un detalle de implementación que después alguien va a usar y no se va a poder mover.
+const GEOJSON = {
+  GeoJsonError: 'function',
+  GeoJsonKind: 'object',
+  readGeoJson: 'function',
+  areasOf: 'function',
+}
+
+test('cristae/geojson expone el lector, el enum, el error y la selección de áreas — nada del autómata', () => {
+  assert.deepEqual(Object.keys(geojson).sort(), Object.keys(GEOJSON).sort())
+  for (const [nombre, tipo] of Object.entries(GEOJSON)) {
+    assert.equal(typeof geojson[nombre], tipo, `${nombre} no es ${tipo}`)
+    assert.equal(geojson[nombre], jLector[nombre], `${nombre} no es el del módulo fuente`)
+  }
+})
+
+// El enum viaja congelado: es una tabla de códigos que entra a `kinds`, y un consumidor que le
+// agregue una entrada estaría inventando un tipo que el lector nunca emite.
+test('GeoJsonKind es inmutable y cubre los seis tipos del RFC', () => {
+  assert.ok(Object.isFrozen(geojson.GeoJsonKind))
+  assert.deepEqual(geojson.GeoJsonKind, {
+    Point: 1, MultiPoint: 2, LineString: 3, MultiLineString: 4, Polygon: 5, MultiPolygon: 6,
+  })
+})
+
+// El lector es el ÚNICO entry sin efectos: no toca `customElements` ni al importarse ni al correr.
+// Se verifica contra el registry stubeado, que para este punto ya registró lo de `table`.
+test('el lector no registra ningún custom element', () => {
+  const antes = registry.defines.length
+  geojson.readGeoJson('{"type":"Point","coordinates":[1,2]}')
+  assert.equal(registry.defines.length, antes)
+  assert.ok(!pkg.sideEffects.includes('./src/geojson/index.js'))
+})
+
 // ── package.json: rutas de exports y sideEffects ──
 
-test('el mapa exports congela las 5 rutas públicas más ./package.json', () => {
+test('el mapa exports congela las 6 rutas públicas más ./package.json', () => {
   assert.deepEqual(pkg.exports, {
     './core': { types: './types/core.d.ts', default: './src/data/index.js' },
     './table': { types: './types/table.d.ts', default: './src/table/index.js' },
     './map': { types: './types/map.d.ts', default: './src/index.js' },
     './grammar': { types: './types/grammar.d.ts', default: './src/grammar/index.js' },
+    './geojson': { types: './types/geojson.d.ts', default: './src/geojson/index.js' },
     './react': { types: './react/types/index.d.ts', default: './react/src/index.js' },
     './package.json': './package.json',
   })
@@ -189,6 +230,7 @@ const DESTINOS = [
   './types/table.d.ts', './src/table/index.js',
   './types/map.d.ts', './src/index.js',
   './types/grammar.d.ts', './src/grammar/index.js',
+  './types/geojson.d.ts', './src/geojson/index.js',
   './react/types/index.d.ts', './react/src/index.js',
   './package.json',
 ]

@@ -1,0 +1,8 @@
+{
+  "fixture": "adversarios/truncado-en-numero.geojson",
+  "bytes": 262,
+  "veredicto": "error",
+  "code": "truncado",
+  "oraculo": "json-invalido",
+  "motivo": "Unterminated fractional number in JSON at position 262 (line 10 column 59)"
+}

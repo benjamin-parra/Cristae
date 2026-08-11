@@ -1,0 +1,26 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "comilla_escapada": "dice \"coordinates\": [ 90, 91 ] y sigue",
+        "barra_al_final": "C:\\",
+        "barra_pegada_a_la_comilla_de_cierre": "ruta\\",
+        "comilla_como_unicode": "\u0022coordinates\u0022: [ 92, 93 ]",
+        "barra_como_unicode": "\u005C",
+        "barra_unicode_pegada_a_comilla": "\u005C\u0022coordinates\u0022: [ 94, 95 ]",
+        "doble_barra_y_comilla": "\\\"coordinates\\\": [ [ 96, 97 ] ]",
+        "solidus_escapado": "\/coordinates\/",
+        "controles": "\b\f\n\r\t fin",
+        "escape_que_no_es_escape": "\\u0022coordinates\\u0022"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [ [ 3, 4 ], [ 4, 4 ], [ 4, 5 ], [ 3, 4 ] ]
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+﻿{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "nombre": "Manzana"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [-70.65, -33.45],
+            [-70.64, -33.45],
+            [-70.64, -33.44],
+            [-70.65, -33.44],
+            [-70.65, -33.45]
+          ]
+        ]
+      }
+    }
+  ]
+}

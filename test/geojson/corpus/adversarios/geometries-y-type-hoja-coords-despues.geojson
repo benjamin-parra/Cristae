@@ -1,0 +1,19 @@
+{
+  "type": "Feature",
+  "properties": {
+    "nombre": "los mismos miembros que coords-antes, en el orden inverso: mismo veredicto"
+  },
+  "geometry": {
+    "geometries": [
+      {
+        "type": "LineString",
+        "coordinates": [
+          [-70.42, -33.42],
+          [-70.43, -33.43]
+        ]
+      }
+    ],
+    "type": "Point",
+    "coordinates": [-70.41, -33.41]
+  }
+}

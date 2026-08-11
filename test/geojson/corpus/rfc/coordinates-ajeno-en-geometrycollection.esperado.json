@@ -1,0 +1,74 @@
+{
+  "fixture": "rfc/coordinates-ajeno-en-geometrycollection.geojson",
+  "bytes": 1090,
+  "veredicto": "lectura",
+  "oraculo": "ok",
+  "conteos": {
+    "f": 2,
+    "g": 4,
+    "p": 4,
+    "r": 4,
+    "v": 6
+  },
+  "tablas": {
+    "geometryAt": [
+      0,
+      2,
+      4
+    ],
+    "partAt": [
+      0,
+      1,
+      2,
+      3,
+      4
+    ],
+    "ringAt": [
+      0,
+      1,
+      2,
+      3,
+      4
+    ],
+    "vertexAt": [
+      0,
+      1,
+      3,
+      4,
+      6
+    ],
+    "kinds": [
+      1,
+      3,
+      1,
+      3
+    ],
+    "featureOf": [
+      0,
+      0,
+      1,
+      1
+    ],
+    "closed": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "xy": [
+      -71.21,
+      -34.21,
+      -71.22,
+      -34.22,
+      -71.23,
+      -34.23,
+      -71.24,
+      -34.24,
+      -71.25,
+      -34.25,
+      -71.26,
+      -34.26
+    ],
+    "z": null
+  }
+}

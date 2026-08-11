@@ -1,0 +1,56 @@
+{
+  "fixture": "felices/04-multilinea.geojson",
+  "bytes": 402,
+  "veredicto": "lectura",
+  "oraculo": "ok",
+  "conteos": {
+    "f": 1,
+    "g": 1,
+    "p": 2,
+    "r": 2,
+    "v": 5
+  },
+  "tablas": {
+    "geometryAt": [
+      0,
+      1
+    ],
+    "partAt": [
+      0,
+      2
+    ],
+    "ringAt": [
+      0,
+      1,
+      2
+    ],
+    "vertexAt": [
+      0,
+      3,
+      5
+    ],
+    "kinds": [
+      4
+    ],
+    "featureOf": [
+      0
+    ],
+    "closed": [
+      0,
+      0
+    ],
+    "xy": [
+      -70.9,
+      -33.6,
+      -70.8,
+      -33.5,
+      -70.7,
+      -33.4,
+      -70.2,
+      -33.1,
+      -70.1,
+      -33.05
+    ],
+    "z": null
+  }
+}

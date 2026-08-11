@@ -1,0 +1,51 @@
+{
+  "w": {
+    "x": {
+      "geometry": {
+        "geometries": [
+          0
+        ]
+      }
+    }
+  },
+  "type": "MultiPolygon",
+  "coordinates": [
+    [
+      [
+        [
+          0,
+          0
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          2,
+          2
+        ],
+        [
+          0,
+          0
+        ]
+      ],
+      [
+        [
+          {
+            "type": "LineString",
+            "coordinates": [
+              [
+                1,
+                1
+              ],
+              [
+                2,
+                2
+              ]
+            ]
+          }
+        ]
+      ]
+    ]
+  ]
+}

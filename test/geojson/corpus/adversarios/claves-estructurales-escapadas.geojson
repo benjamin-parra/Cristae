@@ -1,0 +1,16 @@
+{
+  "\u0074ype": "FeatureCollection",
+  "f\u0065atures": [
+    {
+      "type": "Feature",
+      "\u0069d": "F-1",
+      "properti\u0065s": { "nombre": "claves de estructura escapadas" },
+      "g\u0065ometry": {
+        "ty\u0070e": "Polygon",
+        "coordinates": [
+          [ [ 0, 0 ], [ 1, 0 ], [ 1, 1 ], [ 0, 0 ] ]
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "par_al_final": "camion \uD83D\uDE9B",
+        "par_solo": "\uD83D\uDE9B",
+        "alto_huerfano": "\uD83D",
+        "bajo_huerfano": "\uDE9B",
+        "alto_y_barra": "\uD83D\\",
+        "par_partido_por_barra": "\uD83D\u005CuDE9B",
+        "texto_que_parece_par": "\\uD83D\\uDE9B",
+        "emoji_crudo_antes_de_comilla": "camion 🚛",
+        "acentos_crudos_antes_de_comilla": "Ñuñoa señal ü",
+        "cero_ancho_antes_de_comilla": "invisible ​"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [ [ 7, 8 ], [ 8, 8 ], [ 8, 9 ], [ 7, 8 ] ]
+        ]
+      }
+    }
+  ]
+}

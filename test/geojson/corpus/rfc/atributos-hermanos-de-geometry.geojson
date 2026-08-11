@@ -1,0 +1,45 @@
+{
+  "coleccion": "bodegas",
+  "docs": [
+    {
+      "_id": "BOD-01",
+      "nombre": "Bodega norte",
+      "activa": true,
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-70.90, -33.90]
+      }
+    },
+    {
+      "_id": "BOD-02",
+      "nombre": "Bodega sur",
+      "superficie_m2": 1240,
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [-70.93, -33.93],
+            [-70.91, -33.93],
+            [-70.91, -33.91],
+            [-70.93, -33.91],
+            [-70.93, -33.93]
+          ]
+        ]
+      }
+    },
+    {
+      "_id": "BOD-03",
+      "nombre": "Bodega oriente",
+      "properties": {
+        "nombre": "ESTE miembro si se llama properties y NO es el envoltorio"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [-70.94, -33.94],
+          [-70.95, -33.95]
+        ]
+      }
+    }
+  ]
+}

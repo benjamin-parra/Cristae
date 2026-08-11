@@ -1,0 +1,54 @@
+{
+  "fixture": "degenerados/contenedor-vacio-anidado.geojson",
+  "bytes": 655,
+  "veredicto": "lectura",
+  "oraculo": "ok",
+  "conteos": {
+    "f": 3,
+    "g": 3,
+    "p": 3,
+    "r": 2,
+    "v": 0
+  },
+  "tablas": {
+    "geometryAt": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "partAt": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "ringAt": [
+      0,
+      1,
+      1,
+      2
+    ],
+    "vertexAt": [
+      0,
+      0,
+      0
+    ],
+    "kinds": [
+      5,
+      6,
+      6
+    ],
+    "featureOf": [
+      0,
+      1,
+      2
+    ],
+    "closed": [
+      0,
+      0
+    ],
+    "xy": [],
+    "z": null
+  }
+}

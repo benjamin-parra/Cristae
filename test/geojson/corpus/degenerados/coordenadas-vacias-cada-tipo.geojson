@@ -1,0 +1,35 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": { "caso": "punto vacio" },
+      "geometry": { "type": "Point", "coordinates": [] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "caso": "multipunto vacio" },
+      "geometry": { "type": "MultiPoint", "coordinates": [] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "caso": "linea vacia" },
+      "geometry": { "type": "LineString", "coordinates": [] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "caso": "multilinea vacia" },
+      "geometry": { "type": "MultiLineString", "coordinates": [] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "caso": "poligono vacio" },
+      "geometry": { "type": "Polygon", "coordinates": [] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "caso": "multipoligono vacio" },
+      "geometry": { "type": "MultiPolygon", "coordinates": [] }
+    }
+  ]
+}

@@ -1,0 +1,45 @@
+{
+  "fixture": "rfc/geometria-dentro-de-miembro-ajeno.geojson",
+  "bytes": 610,
+  "veredicto": "lectura",
+  "oraculo": "ok",
+  "conteos": {
+    "f": 1,
+    "g": 1,
+    "p": 1,
+    "r": 1,
+    "v": 1
+  },
+  "tablas": {
+    "geometryAt": [
+      0,
+      1
+    ],
+    "partAt": [
+      0,
+      1
+    ],
+    "ringAt": [
+      0,
+      1
+    ],
+    "vertexAt": [
+      0,
+      1
+    ],
+    "kinds": [
+      1
+    ],
+    "featureOf": [
+      0
+    ],
+    "closed": [
+      0
+    ],
+    "xy": [
+      -71.31,
+      -34.31
+    ],
+    "z": null
+  }
+}

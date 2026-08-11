@@ -1,0 +1,8 @@
+{
+  "fixture": "adversarios/raiz-esrijson.geojson",
+  "bytes": 243,
+  "veredicto": "error",
+  "code": "formato",
+  "oraculo": "plantado",
+  "motivo": "oraculo: type undefined no es una de las seis geometrías: §17.3-1 prohíbe adivinarlo por la forma"
+}

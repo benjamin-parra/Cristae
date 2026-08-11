@@ -1,0 +1,8 @@
+{
+  "fixture": "entradas/secuencia-bbox-multiraiz.geojson",
+  "bytes": 633,
+  "veredicto": "abierto",
+  "porque": "§17.9 manda leer las varias raíces y dejar stats.roots > 1, pero JSON.parse sólo lee UN valor: el oráculo no puede producir la referencia de una secuencia RFC 8142. Las tablas de cada raíz quedan cubiertas por las fixtures de raíz única.",
+  "oraculo": "json-invalido",
+  "motivo": "Unexpected non-whitespace character after JSON at position 210 (line 2 column 1)"
+}

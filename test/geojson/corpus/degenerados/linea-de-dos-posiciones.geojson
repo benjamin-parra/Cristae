@@ -1,0 +1,13 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": { "caso": "la linea mas corta que admite el RFC" },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [[0, 0], [1, 1]]
+      }
+    }
+  ]
+}

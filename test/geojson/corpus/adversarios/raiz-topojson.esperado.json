@@ -1,0 +1,8 @@
+{
+  "fixture": "adversarios/raiz-topojson.geojson",
+  "bytes": 228,
+  "veredicto": "error",
+  "code": "formato",
+  "oraculo": "plantado",
+  "motivo": "oraculo: raíz irreconocible: type=\"Topology\", sin poseedores de `geometry` y sin declararse colección"
+}

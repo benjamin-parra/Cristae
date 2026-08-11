@@ -1,0 +1,13 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": { "caso": "multipunto con una sola posicion" },
+      "geometry": {
+        "type": "MultiPoint",
+        "coordinates": [[5, 5]]
+      }
+    }
+  ]
+}

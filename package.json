@@ -51,6 +51,10 @@
       "types": "./types/grammar.d.ts",
       "default": "./src/grammar/index.js"
     },
+    "./geojson": {
+      "types": "./types/geojson.d.ts",
+      "default": "./src/geojson/index.js"
+    },
     "./react": {
       "types": "./react/types/index.d.ts",
       "default": "./react/src/index.js"

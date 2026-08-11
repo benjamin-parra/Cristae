@@ -1,0 +1,8 @@
+{
+  "fixture": "adversarios/truncado-en-array.geojson",
+  "bytes": 254,
+  "veredicto": "error",
+  "code": "truncado",
+  "oraculo": "json-invalido",
+  "motivo": "Expected ',' or ']' after array element in JSON at position 254 (line 10 column 51)"
+}

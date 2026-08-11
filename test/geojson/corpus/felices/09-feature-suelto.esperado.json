@@ -1,0 +1,49 @@
+{
+  "fixture": "felices/09-feature-suelto.geojson",
+  "bytes": 183,
+  "veredicto": "lectura",
+  "oraculo": "ok",
+  "conteos": {
+    "f": 1,
+    "g": 1,
+    "p": 1,
+    "r": 1,
+    "v": 3
+  },
+  "tablas": {
+    "geometryAt": [
+      0,
+      1
+    ],
+    "partAt": [
+      0,
+      1
+    ],
+    "ringAt": [
+      0,
+      1
+    ],
+    "vertexAt": [
+      0,
+      3
+    ],
+    "kinds": [
+      3
+    ],
+    "featureOf": [
+      0
+    ],
+    "closed": [
+      0
+    ],
+    "xy": [
+      -70.9,
+      -33.6,
+      -70.8,
+      -33.5,
+      -70.7,
+      -33.4
+    ],
+    "z": null
+  }
+}
