@@ -9,13 +9,13 @@
 // recolectable. De ahí que ninguna capa borre un programa al destruirse: no es suyo, vive lo que vive el
 // contexto, y volver a entrar en edición sobre el mismo mapa ya no enlaza nada.
 
-const porContexto = new WeakMap()
+const byContext = new WeakMap()
 
-// `construir` corre UNA vez por (contexto, clave). La clave la compone el llamador con lo único que
-// vuelve distinto al fuente, y devuelve junto al programa lo que también es suyo: las ubicaciones de
-// uniforme y los uniformes que se fijan con el enlace.
-export const programaCompartido = (gl, clave, construir) => {
-  const programas = porContexto.get(gl) ?? porContexto.set(gl, new Map()).get(gl)
-  programas.has(clave) || programas.set(clave, construir())
-  return programas.get(clave)
+// `build` corre UNA vez por (contexto, clave). La clave la compone el llamador con lo único que vuelve
+// distinto al fuente, y devuelve junto al programa lo que también es suyo: las ubicaciones de uniforme
+// y los uniformes que se fijan con el enlace.
+export const sharedProgram = (gl, key, build) => {
+  const programs = byContext.get(gl) ?? byContext.set(gl, new Map()).get(gl)
+  programs.has(key) || programs.set(key, build())
+  return programs.get(key)
 }

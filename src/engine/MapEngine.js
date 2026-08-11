@@ -7,6 +7,7 @@ import { OBJ_BITS } from '../render/Picking.js'
 import { LineLayer } from '../render/LineLayer.js'
 import { LeafletLineLayer } from '../render/LeafletLineLayer.js'
 import { PolygonLayer } from '../render/PolygonLayer.js'
+import { PolygonGpuLayer } from '../render/PolygonGpuLayer.js'
 import { CircleLayer } from '../render/CircleLayer.js'
 import { HeatLayer } from '../render/HeatLayer.js'
 import { EditableGeometry } from '../render/EditableGeometry.js'
@@ -221,15 +222,19 @@ export class MapEngine {
   // Polígonos REACTIVOS a una Source (styleOf + fast-path por dirtyIds), sustrato Leaflet-native (0
   // contextos WebGL). Como línea/vector: no va a #glLayers (Leaflet reproyecta solo), picking síncrono.
   addPolygonLayer(cfg) {
-    const { id, data, accessors, pane, z, interactive = true, visible = true } = cfg
+    // `backend: 'gpu'` monta la capa por stencil en el MISMO lugar: mismo Source, mismos accessors,
+    // mismo contrato de picking y de foco. Queda opt-in hasta que el reemplazo esté probado en pantalla.
+    const { id, data, accessors, pane, z, source: dado, interactive = true, visible = true, backend = 'leaflet', ...style } = cfg
     const order    = this.#order++
     const paneName = pane ?? `cristae-polygon-${id}`
     const zIndex   = z ?? (BASE_Z + order * Z_STEP)
     this.#ensurePane(paneName, zIndex, false)          // display puro; picking propio por índice
 
-    const controls = cfg.source ? null : createSource(accessors)   // dueño motor (data) vs consumidor (cfg.source)
-    const source   = cfg.source ?? controls
-    const layer    = new PolygonLayer({ L: this.#L, map: this.#map, pane: paneName, source, interactive })
+    const controls = dado ? null : createSource(accessors)          // dueño motor (data) vs consumidor (cfg.source)
+    const source   = dado ?? controls
+    const layer    = backend === 'gpu'
+      ? new PolygonGpuLayer({ L: this.#L, map: this.#map, pane: paneName, source, interactive, ...style })
+      : new PolygonLayer({ L: this.#L, map: this.#map, pane: paneName, source, interactive })
 
     const record = { kind: 'polygon', source, layer, controls, paneName, zIndex, order, interactive, visible, enabled: true }
     this.#layers.set(id, record)
@@ -241,6 +246,33 @@ export class MapEngine {
     if (data && controls) controls.set(data)
     this.#flushPendingBinds()
     return { id, source, set: items => controls?.set(items), setVisible: v => this.setLayerVisibility(id, v) }
+  }
+
+  // Polígonos ESTÁTICOS en GPU: stencil sobre geometría tipada e inmutable (miles de anillos), sin
+  // Source. Va a #glLayers: el stencil vive en el framebuffer y se rehace en cada reencuadre.
+  addPolygonGpuLayer(cfg) {
+    // El resto del cfg son opciones de path de Leaflet (color/weight/opacity/fill*): viajan tal cual,
+    // que es lo que hace que la capa entre en lugar de `addPolygonLayer` sin traducir nada.
+    const { id, geometry, pane, z, interactive = false, visible = true, idOf = null, ...style } = cfg
+    const order    = this.#order++
+    const paneName = pane ?? `cristae-polygon-gpu-${id}`
+    const zIndex   = z ?? (BASE_Z + order * Z_STEP)
+    this.#ensurePane(paneName, zIndex, false)          // display puro; picking propio por índice
+
+    const layer  = new PolygonGpuLayer({ L: this.#L, map: this.#map, pane: paneName, geometry, interactive, idOf, ...style })
+    const record = { kind: 'polygon', layer, paneName, zIndex, order, interactive, visible, enabled: true }
+    this.#layers.set(id, record)
+
+    if (interactive)
+      this.#registerResolver(id, 'polygon', zIndex, order, e => record.layer.resolveClick(e), e => record.layer.resolveHover(e))
+    this.#applyVisibility(id, paneName, visible)
+
+    return {
+      id,
+      redraw     : () => record.layer.redraw(),
+      style      : options => record.layer.style(options),
+      setVisible : v => this.setLayerVisibility(id, v),
+    }
   }
 
   /* ── Capas de líneas (GL glify.Lines + hit-testing nearest-segment CPU) ── */
@@ -659,7 +691,12 @@ export class MapEngine {
     // (`cristae-<kind>-<id>`, único) se va con su capa; un pane COMPARTIDO (varias capas con el mismo
     // `cfg.pane`) sobrevive hasta que se desmonta la última. Sin esto los panes se acumulaban en un
     // mapa de vida larga (alta/baja de capas) — el cluster ya los borraba a mano en su `dispose`.
-    if (record.paneName && !this.#paneInUse(record.paneName)) this.#map.getPane(record.paneName)?.remove()
+    // Sacar el pane del DOM no alcanza: Leaflet lo retiene en `_panes` y `getPane` lo devolvería
+    // desconectado, así que el alta siguiente colgaría su contenido de un nodo fuera del documento.
+    if (record.paneName && !this.#paneInUse(record.paneName)) {
+      this.#map.getPane(record.paneName)?.remove()
+      delete this.#map._panes?.[record.paneName]
+    }
     declarabaFoco && this.#applyFocus()
     return true
   }
@@ -679,6 +716,7 @@ export class MapEngine {
     const host      = record.bindTo ? this.#layers.get(record.bindTo) : null
     const effective = visible && record.enabled && (!host || host.enabled)
     this.#applyVisibility(id, record.paneName, effective)
+    record.layer?.setVisible?.(effective)      // una capa que dibuja sola no se apaga ocultando el pane
     if (!effective) this.#bus.clearLayer(id)
     return true
   }
@@ -766,20 +804,42 @@ export class MapEngine {
   // vuelve a ser visible sin cambiar de tamaño (no dispara resize).
   invalidateCanvas() { this.#resetCanvases() }
 
-  // Encuadra por los bounds de VARIAS capas de datos a la vez (`ids`, o TODAS las que tengan Source si se
-  // omite) — la contraparte multi-capa de camera.fitToLayer (una sola). Une la geometría de cada Source
-  // según su tipo (positionOf | pathOf | ringsOf). One-shot; respeta insets/maxZoom.
+  // Encuadra por los bounds de VARIAS capas a la vez (`ids`, o TODAS si se omite) — la contraparte
+  // multi-capa de camera.fitToLayer (una sola). Une la geometría de cada Source según su tipo
+  // (positionOf | pathOf | ringsOf), y la caja propia de la capa que no tenga Source. One-shot;
+  // respeta insets/maxZoom.
   fitToLayers(ids = null, { insets, maxZoom } = {}) {
-    // Aplana cualquier coordenada (`{lat,lng}` | `[lat,lng]` | anidada de pathOf/ringsOf) a pares [lat,lng].
-    const pairs = v => Array.isArray(v)
-      ? (typeof v[0] === 'number' ? [v] : v.flatMap(pairs))
-      : [[v.lat, v.lng]]
-    const coordsOf = ({ accessors: a, getSnapshot }) => getSnapshot().flatMap(it =>
-      pairs(a.positionOf ? a.positionOf(it) : a.pathOf ? [...a.pathOf(it)] : a.ringsOf(it)))
-    const recs   = (ids ? [...ids].map(id => this.#layers.get(id)) : [...this.#layers.values()]).filter(r => r?.source)
-    const pts    = recs.flatMap(r => coordsOf(r.source)).filter(([lat, lng]) => Number.isFinite(lat) && Number.isFinite(lng))
-    const bounds = this.#L.latLngBounds(pts)
-    bounds.isValid() && this.camera.fitBounds(bounds, { insets })
+    const box  = new Float64Array([Infinity, Infinity, -Infinity, -Infinity])   // [minLat, minLng, maxLat, maxLng]
+    const grow = (lat, lng) => {
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return
+      if (lat < box[0]) box[0] = lat
+      if (lng < box[1]) box[1] = lng
+      if (lat > box[2]) box[2] = lat
+      if (lng > box[3]) box[3] = lng
+    }
+    const growTyped = v => {                     // tipado plano, intercalado [lat, lng, …]
+      for (let i = 0; i + 1 < v.length; i += 2) grow(v[i], v[i + 1])
+    }
+    // Una coordenada llega como `{lat,lng}`, `[lat,lng]`, un anidado de pathOf/ringsOf, un iterable o
+    // un tipado plano. Se recorre sin materializar pares.
+    const walk = v =>
+      ArrayBuffer.isView(v)        ? growTyped(v)
+      : Array.isArray(v)           ? (typeof v[0] === 'number' ? grow(v[0], v[1]) : v.forEach(walk))
+      : typeof v?.lat === 'number' ? grow(v.lat, v.lng)
+      : v?.[Symbol.iterator]       ? [...v].forEach(walk)
+      : undefined
+    const recs = ids ? [...ids].map(id => this.#layers.get(id)) : [...this.#layers.values()]
+    recs.forEach(r => {
+      const b = r?.layer?.bounds                 // capa sin Source: su geometría es fija y la informa ella
+      if (b) { grow(b.minLat, b.minLng); grow(b.maxLat, b.maxLng); return }
+      if (!r?.source) return
+
+      const { accessors: a, getSnapshot } = r.source
+      getSnapshot().forEach(it => walk(a.positionOf ? a.positionOf(it) : a.pathOf ? a.pathOf(it) : a.ringsOf(it)))
+    })
+    if (!Number.isFinite(box[0])) return this
+
+    this.camera.fitBounds(this.#L.latLngBounds([box[0], box[1]], [box[2], box[3]]), { insets })
     maxZoom != null && this.#map.getZoom() > maxZoom && this.#map.setZoom(maxZoom)
     return this
   }

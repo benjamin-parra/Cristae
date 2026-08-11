@@ -220,8 +220,13 @@ Dos entradas de dato **simétricas**:
 | `id` | string | atributo |
 | `interactive` | boolean (default `true`) | atributo |
 | `visible` | boolean (default `true`) | atributo |
+| `backend` | `'leaflet'` (default) \| `'gpu'` | atributo |
 | `data` | `Item[]` | **prop** |
 | `accessors` | `{ idOf, ringsOf, styleOf? }` | **prop** |
+
+`backend` elige el sustrato —un `L.polygon` por figura, o relleno por stencil y contorno en una
+textura— y se lee **al montar**. Los dos consumen el mismo Source y contestan el mismo picking; la
+comparación y los límites del sustrato GPU están en [`polygons.md`](polygons.md).
 
 ### `<cristae-label-layer>` — etiquetas canvas
 

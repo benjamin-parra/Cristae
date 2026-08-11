@@ -139,11 +139,11 @@ const ARISTAS = {
     uFirst[0] + 2 * e,
     e + 1 < uEdges[0] ? uFirst[0] + 2 * (e + 1) : uTail[0],
   ]),
-  uVivo  : ({ uPrev, uNext }) => [[uPrev[0], VIVO], [VIVO, uNext[0]]],
+  uLive  : ({ uPrev, uNext }) => [[uPrev[0], VIVO], [VIVO, uNext[0]]],
 }
 
 const aristasEmitidas = (log, rings) => dibujos(log).flatMap(d => {
-  const clase = 'uEdges' in d ? 'uEdges' : 'uVivo' in d ? 'uVivo' : null
+  const clase = 'uEdges' in d ? 'uEdges' : 'uLive' in d ? 'uLive' : null
   if (!clase) return []
   const anillo = rings.findIndex(r => r.arena.texture === d.bindTexture[0])
   return ARISTAS[clase](d).map(([a, b]) => ({ anillo, a, b }))
@@ -287,7 +287,7 @@ test('promover un vértice del medio parte SU rango en dos tramos y no cambia el
   const log = equivale(escena, vertice, enMundo(-33.44, -70.65))
   assert.deepEqual(tramosDe(dibujos(log).filter(d => 'uEdges' in d), suyo),
     [[suyo.first, k - 1], [suyo.first + 2 * (k + 1), suyo.verts - k - 1]])
-  assert.equal(dibujos(log).filter(d => 'uVivo' in d).length, 1, 'las dos aristas vivas van en UN draw')
+  assert.equal(dibujos(log).filter(d => 'uLive' in d).length, 1, 'las dos aristas vivas van en UN draw')
 })
 
 test('con el vértice en el ARRANQUE de un chunk, la arista que sale es la que cerraba el rango anterior', () => {
@@ -525,7 +525,7 @@ test('el relleno sirve un anillo ESTÁTICO: un rango contiguo, paso 1 y el cierr
   const gl     = espiar(makeGl())
   const puntos = cuadrado(6, 0.02)
   const anillo = estatico(gl, puntos)
-  const capa   = new EditFillLayer({ gl, rings: [anillo], paso: 1 })
+  const capa   = new EditFillLayer({ gl, rings: [anillo], step: 1 })
 
   gl.log.length = 0
   assert.equal(capa.draw({ zoom: 13, center: anillo.arena.anchor, size: SIZE, drag: null }), true)
@@ -541,7 +541,7 @@ test('dos anillos estáticos componen su paridad antes de UNA cobertura: el XOR 
   const gl    = espiar(makeGl())
   const fuera = estatico(gl, cuadrado(8, 0.02))
   const hueco = estatico(gl, HUECO)
-  const capa  = new EditFillLayer({ gl, rings: [fuera, hueco], paso: 1 })
+  const capa  = new EditFillLayer({ gl, rings: [fuera, hueco], step: 1 })
 
   gl.log.length = 0
   assert.equal(capa.draw({ zoom: 13, center: fuera.arena.anchor, size: SIZE, drag: null }), true)
@@ -563,10 +563,10 @@ test('dos anillos estáticos componen su paridad antes de UNA cobertura: el XOR 
 test('la derivación de la arista del shader es la que reimplementa el oráculo', async () => {
   const fuente = await readFile(new URL('../../src/render/EditFillLayer.js', import.meta.url), 'utf8')
   assert.ok(
-    fuente.includes('arista + 1 < uEdges ? uFirst + ${paso} * (arista + 1) : uTail'),
+    fuente.includes('edge + 1 < uEdges ? uFirst + ${step} * (edge + 1) : uTail'),
     'el vertex shader cambió su derivación: actualizá también ARISTAS.uEdges en este archivo',
   )
   // El oráculo lee las entradas de dos en dos porque monta sobre el arena entrelazado. Si el default
   // del paso cambia, los 17 tests siguen verdes midiendo un layout que ya no es el que se dibuja.
-  assert.ok(fuente.includes('paso = 2 }'), 'el paso por default dejó de ser el del arena: revisá ARISTAS.uEdges')
+  assert.ok(fuente.includes('step = 2 }'), 'el paso por default dejó de ser el del arena: revisá ARISTAS.uEdges')
 })

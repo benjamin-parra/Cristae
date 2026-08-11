@@ -117,7 +117,7 @@ test('el paso entra en la clave: el relleno con midpoints y el estático no comp
   new EditFillLayer({ gl, rings: [{ path, arena }] })
   assert.equal(cuenta.createProgram, 3, 'dos capas del mismo paso enlazan una vez')
 
-  new EditFillLayer({ gl, rings: [{ path, arena }], paso: 1 })
+  new EditFillLayer({ gl, rings: [{ path, arena }], step: 1 })
   assert.equal(cuenta.createProgram, 6, 'el paso está horneado en el vertex shader: otro paso es otro pase')
 })
 

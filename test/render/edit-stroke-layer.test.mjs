@@ -434,7 +434,7 @@ test('anillo estático: un span contiguo de n-1 segmentos y el cierre del anillo
   const gl    = conPrograma(makeGl(), log)
   const N     = 6
   const store = new RingStore({ gl, points: puntos(N), project })
-  const layer = new EditStrokeLayer({ gl, arena: store, path: store, project, paso: 1, width: ANCHO })
+  const layer = new EditStrokeLayer({ gl, arena: store, path: store, project, step: 1, width: ANCHO })
 
   layer.draw(vistaSobre(store, 8))
 

@@ -1,26 +1,19 @@
 // Espejo GPU del arena editable, indexado por REF 1:1 con el `ChunkedPath`: una textura RG32F de
-// posiciones —la que relleno y trazo leen por `texelFetch`— y un VBO interleaved de 7 floats por entrada
-// en el layout de glify —el que dibujan los handles y del que hereda el pase de picking—. UN solo punto
-// de escritura actualiza las dos, así que no pueden desincronizarse.
+// posiciones —la que leen relleno y trazo por `texelFetch`— y un VBO interleaved de 7 floats por entrada
+// en el layout de glify, del que salen los handles y el pase de picking.
 //
-// Las posiciones se guardan PROYECTADAS a world0 y RELATIVAS AL ANCLA, el centro del bbox congelado en
-// `reset`. De ahí salen las dos propiedades que sostienen la capa: float32 alcanza a z18 porque las
-// magnitudes quedan acotadas por la extensión del trazo y no por la del planeta, y el pan y el zoom no
-// reescriben un solo byte porque el desplazamiento absoluto vive en la matriz, que se rehace en float64
-// por frame.
-//
-// El batching se numera por el ORDINAL del chunk en el orden del TRAZO, nunca por su índice en el arena:
-// el arena DUPLICA al crecer y puede tener vivo el chunk 127 con 64 chunks en uso, mientras que el pase
-// de picking direcciona el chunk con 6 bits. Numerar por índice daría hits atribuidos a otro chunk sin
-// ningún error a la vista.
+// Las posiciones van PROYECTADAS a world0 y RELATIVAS AL ANCLA, el centro del bbox congelado en `reset`:
+// float32 alcanza a z18 y el desplazamiento absoluto vive en la matriz, así que el pan y el zoom no
+// reescriben un byte. El batching se numera por el ORDINAL del chunk en el orden del TRAZO, no por su
+// índice en el arena —que duplica al crecer—, porque el pase de picking lo direcciona con 6 bits.
 import { ROLE } from '../geometry/ChunkedPath.js'
 import { anchorMatrix } from './anchor-matrix.js'
 
 const FLOATS_PER_ENTRY = 7                       // [x, y, tile, angle, b, a, size]
 const BYTES_PER_ENTRY  = FLOATS_PER_ENTRY * 4
 
-// Tile y tamaño por ROL. El midpoint inactivo del último vértice de un trazo abierto (ROLE.free, y vive
-// DENTRO del run) se apaga con el tile transparente: una escritura, sin excepción en el batch.
+// Tile y tamaño por ROL. El midpoint inactivo (`ROLE.free`, y vive DENTRO del run) sale con el tile
+// transparente: una escritura, sin excepción en el batch.
 const TILES = [2, 0, 1]
 const SIZES = [10, 12, 10]
 
@@ -68,9 +61,7 @@ export class EditArena {
   #hull    = new Float64Array(4)
   #out     = new Float64Array(4)
 
-  // `project(x, y, out)` lleva el par que guarda el trazo a world0 px en float64 y escribe en `out`: la
-  // proyección es lo único que el espejo necesita saber de geografía. `textureWidth` es potencia de dos
-  // porque el índice→texel del shader es una máscara.
+  // `project(x, y, out)` lleva el par que guarda el trazo a world0 px en float64 y escribe en `out`.
   constructor({ gl, path, project, textureWidth = 2048, tiles = TILES, sizes = SIZES }) {
     if (textureWidth & (textureWidth - 1))
       throw new Error('[cristae] el ancho de la textura de posiciones tiene que ser potencia de dos: '
@@ -96,13 +87,21 @@ export class EditArena {
   relX(ref) { return this.#pos[ref * 2] }
   relY(ref) { return this.#pos[ref * 2 + 1] }
 
-  // Re-ingesta completa. ÚNICO punto donde el ancla se congela: recentrarla obligaría a reescribir el
-  // espejo entero, que es justo lo que el arrastre existe para no hacer. Una re-ingesta del trazo
-  // (`path.reset`) exige pasar por acá; `syncStructure` no alcanza.
+  // Re-ingesta completa, y ÚNICO punto donde el ancla se congela. El ancla es el centro del bbox
+  // proyectado, y el abanico del relleno la exige MISMA para todos los chunks y anillos del objeto.
   reset() {
+    const path = this.#path
+    const box  = this.#hull
+    const xy   = this.#xy
     this.#allocate()
     this.#rev.fill(-1)                           // nada del sync anterior sobrevive a una re-ingesta
-    this.#freezeAnchor()
+    clear(box, 0)
+    path.forEachVertex((x, y) => {
+      this.#project(x, y, xy)
+      union(box, 0, xy[0], xy[1])
+    })
+    this.#anchorX = path.length ? (box[0] + box[2]) / 2 : 0
+    this.#anchorY = path.length ? (box[1] + box[3]) / 2 : 0
     return this.#reload()
   }
 
@@ -118,14 +117,25 @@ export class EditArena {
   // refleja con `writeEntry(lastVertex)`.
   syncStructure() {
     if (this.#path.chunkCount !== this.#chunks) return this.grow()
-    this.#relist(k => this.#writeChunk(k))
+    const path = this.#path
+    // El run del chunk, y además el midpoint que CRUZA hacia él: ése lo posee el vértice anterior, que
+    // vive en el chunk previo del trazo —o en el último, si el anillo cierra—. Va sin texel: la textura
+    // sólo lleva vértices.
+    this.#relist(k => {
+      const first = path.chunkFirst(k)
+      this.writeRange(k, first, first + path.chunkUsed(k))
+      const prev = path.prevVertex(k * path.entriesPerChunk + first)
+      if (prev < 0 || path.chunkOf(prev) === k) return
+      this.#mirror(prev + 1)
+      this.#stretch(path.chunkOf(prev), prev + 1)
+      this.#uploadVerts(prev + 1, prev + 1)
+    })
     return this
   }
 
-  // Commit de un vértice movido: el arrastre no escribe a GPU, así que acá se llega UNA vez, al soltar.
-  // Toca lo mismo que `moveVertex` —el vértice, su midpoint y el del anterior—, y ese último es el que
-  // puede vivir en otro chunk y partir la escritura del VBO en dos. En la textura sólo entra el vértice:
-  // relleno y trazo leen los locales PARES, y el midpoint es afordancia que vive en el VBO.
+  // Commit de un vértice movido: toca el vértice, su midpoint y el del anterior, y ese último puede vivir
+  // en otro chunk y partir la escritura del VBO en dos. En la textura sólo entra el vértice: el midpoint
+  // es afordancia del VBO.
   writeEntry(ref) {
     const path = this.#path
     if (path.roleAt(ref) !== ROLE.vertex) return false
@@ -151,9 +161,8 @@ export class EditArena {
     return true
   }
 
-  // Camino de la edición estructural: el run se desplazó, así que el tramo se reescribe entero y el bbox
-  // del chunk vuelve a ser EXACTO —el único momento en que puede encoger—. El tramo se acota al chunk:
-  // un `hi` de más sería contenido ajeno.
+  // El run se desplazó: el tramo se reescribe entero y el bbox del chunk vuelve a ser EXACTO —el único
+  // momento en que puede encoger—. El tramo se acota al chunk: un `hi` de más sería contenido ajeno.
   writeRange(chunk, lo, hi) {
     const cap  = this.#path.entriesPerChunk
     const from = chunk * cap + Math.max(0, lo)
@@ -186,8 +195,7 @@ export class EditArena {
     return k < 0 ? -1 : k * this.#path.entriesPerChunk + local
   }
 
-  // `out` es un cuádruple reusado, válido hasta la próxima llamada: el culleo lo consulta por chunk y por
-  // frame, y un `subarray` por consulta sería una asignación por chunk. [0-alloc]
+  // `out` es un cuádruple reusado, válido hasta la próxima llamada. [0-alloc]
   boxOfChunk(chunk, out = this.#out) {
     const o = chunk * 4
     out[0] = this.#box[o]
@@ -209,16 +217,25 @@ export class EditArena {
     return this
   }
 
+  // Espejo del run vivo de cada chunk, y una sola subida entera.
   #reload() {
-    this.#relist(k => this.#fill(k))
-    this.#uploadAll()
+    const gl   = this.#gl
+    const path = this.#path
+    this.#relist(k => {
+      const from = k * path.entriesPerChunk + path.chunkFirst(k)
+      this.#mirrorRun(from, from + path.chunkUsed(k))
+      this.#exactBox(k)
+    })
+    gl.bindTexture(gl.TEXTURE_2D, this.#texture)
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RG32F, this.#width, this.#rows, 0, gl.RG, gl.FLOAT, this.#pos)
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.#vbo)
+    gl.bufferData(gl.ARRAY_BUFFER, this.#vert, gl.DYNAMIC_DRAW)
     return this
   }
 
   // Renumera los ordinales del trazo y entrega a `write` los chunks cuyo contenido se movió desde el
   // último sync. La revisión es el único testigo que sirve: la firma (first, used) vuelve INTACTA cuando
-  // se borra el arranque del run y el borrow sale del chunk anterior, y un chunk que va y vuelve de la
-  // free-list llega con la firma con la que se liberó.
+  // se borra el arranque del run y el borrow sale del chunk anterior.
   #relist(write) {
     const path = this.#path
     const gen  = ++this.#gen
@@ -233,27 +250,6 @@ export class EditArena {
       if (stale) write(k)
     }
     this.#ordinals = ordinal
-  }
-
-  // El run del chunk, y además el midpoint que CRUZA hacia él: ése lo posee el vértice anterior, que vive
-  // en el chunk previo del trazo —o en el último, si el anillo cierra— y cuya firma no se movió aunque su
-  // midpoint sí. Va sin texel: la textura sólo lleva vértices.
-  #writeChunk(k) {
-    const path  = this.#path
-    const first = path.chunkFirst(k)
-    this.writeRange(k, first, first + path.chunkUsed(k))
-    const prev = path.prevVertex(k * path.entriesPerChunk + first)
-    if (prev < 0 || path.chunkOf(prev) === k) return
-    this.#mirror(prev + 1)
-    this.#stretch(path.chunkOf(prev), prev + 1)
-    this.#uploadVerts(prev + 1, prev + 1)
-  }
-
-  // Espejo del run vivo de un chunk, sin subir: la subida de `reset`/`grow` es una sola, entera.
-  #fill(k) {
-    const from = k * this.#path.entriesPerChunk + this.#path.chunkFirst(k)
-    this.#mirrorRun(from, from + this.#path.chunkUsed(k))
-    this.#exactBox(k)
   }
 
   // [0-alloc]
@@ -284,8 +280,8 @@ export class EditArena {
     this.#vert[v + 6] = this.#sizes[role]
   }
 
-  // El bbox de chunk crece por unión y NUNCA encoge al mover: sobredimensionarlo sólo paga área de
-  // scissor, encogerlo dejaría al abanico fuera del rect que se auto-limpia, que es corrupción.
+  // El bbox de chunk crece por unión y NUNCA encoge al mover: encogerlo dejaría al abanico fuera del rect
+  // que se auto-limpia.
   #stretch(k, ref) {
     union(this.#box, k * 4, this.#pos[ref * 2], this.#pos[ref * 2 + 1])
   }
@@ -299,21 +295,8 @@ export class EditArena {
     for (let ref = from; ref < to; ref++) union(this.#box, o, this.#pos[ref * 2], this.#pos[ref * 2 + 1])
   }
 
-  // El ancla es el centro del bbox proyectado: origen de precisión de float32 y, a la vez, esquina 0 del
-  // abanico del relleno, que exige la MISMA para todos los chunks y todos los anillos del objeto.
-  #freezeAnchor() {
-    const box = this.#hull
-    const xy  = this.#xy
-    clear(box, 0)
-    this.#path.forEachVertex((x, y) => {
-      this.#project(x, y, xy)
-      union(box, 0, xy[0], xy[1])
-    })
-    this.#anchorX = this.#path.length ? (box[0] + box[2]) / 2 : 0
-    this.#anchorY = this.#path.length ? (box[1] + box[3]) / 2 : 0
-  }
-
   #allocate() {
+    const gl      = this.#gl
     const path    = this.#path
     const entries = path.chunkCount * path.entriesPerChunk
     this.#rows      = Math.max(1, Math.ceil(entries / this.#width))
@@ -325,29 +308,30 @@ export class EditArena {
     this.#ordinalOf = resize(Int32Array,   this.#ordinalOf, path.chunkCount)
     this.#chunkOf   = resize(Int32Array,   this.#chunkOf,   path.chunkCount)
     this.#chunks    = path.chunkCount
-    this.#texture ??= this.#createTexture()
-    this.#vbo     ??= this.#gl.createBuffer()
-  }
-
-  #uploadAll() {
-    const gl = this.#gl
-    gl.bindTexture(gl.TEXTURE_2D, this.#texture)
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RG32F, this.#width, this.#rows, 0, gl.RG, gl.FLOAT, this.#pos)
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.#vbo)
-    gl.bufferData(gl.ARRAY_BUFFER, this.#vert, gl.DYNAMIC_DRAW)
+    if (!this.#texture) {
+      // NEAREST y CLAMP porque no es una imagen: es un array de posiciones direccionado por
+      // `texelFetch`, y filtrar o repetir sería interpolar coordenadas.
+      this.#texture = gl.createTexture()
+      gl.bindTexture(gl.TEXTURE_2D, this.#texture)
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+    }
+    this.#vbo ??= gl.createBuffer()
   }
 
   // Filas ENTERAS cuando el tramo cruza la frontera de fila: la fuente es el espejo, así que rescribir los
   // texels vecinos con su valor actual es inocuo y deja la subida en UNA llamada, sin `UNPACK_ROW_LENGTH`.
   #uploadTexels(from, to) {
-    const gl    = this.#gl
-    const row   = from >> this.#shift
-    const last  = to >> this.#shift
-    const corta = row === last
-    const desde = corta ? from : row << this.#shift
+    const gl     = this.#gl
+    const row    = from >> this.#shift
+    const last   = to >> this.#shift
+    const oneRow = row === last
+    const start  = oneRow ? from : row << this.#shift
     gl.bindTexture(gl.TEXTURE_2D, this.#texture)
-    gl.texSubImage2D(gl.TEXTURE_2D, 0, desde - (row << this.#shift), row,
-      corta ? to - from + 1 : this.#width, last - row + 1, gl.RG, gl.FLOAT, this.#pos, desde * 2)
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, start - (row << this.#shift), row,
+      oneRow ? to - from + 1 : this.#width, last - row + 1, gl.RG, gl.FLOAT, this.#pos, start * 2)
   }
 
   #uploadVerts(from, to) {
@@ -355,18 +339,5 @@ export class EditArena {
     gl.bindBuffer(gl.ARRAY_BUFFER, this.#vbo)
     gl.bufferSubData(gl.ARRAY_BUFFER, from * BYTES_PER_ENTRY, this.#vert,
       from * FLOATS_PER_ENTRY, (to - from + 1) * FLOATS_PER_ENTRY)
-  }
-
-  // NEAREST y CLAMP porque no es una imagen: es un array de posiciones direccionado por `texelFetch`, y
-  // filtrar o repetir sería interpolar coordenadas.
-  #createTexture() {
-    const gl  = this.#gl
-    const tex = gl.createTexture()
-    gl.bindTexture(gl.TEXTURE_2D, tex)
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
-    return tex
   }
 }

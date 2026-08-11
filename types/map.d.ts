@@ -390,6 +390,16 @@ export interface PointHandle<T = unknown> {
 
 // ── Configs y handles de las demás capas ────────────────────────────────────
 export interface PolygonLayerConfig<T> {
+  /** Sustrato: `'leaflet'` (un path por figura) o `'gpu'` (stencil + textura). Se lee al montar. */
+  backend?     : 'leaflet' | 'gpu';
+  /** Opciones de path por default de la capa (las pisa `styleOf`). Sólo las usa el sustrato `gpu`. */
+  color?       : string;
+  weight?      : number;
+  opacity?     : number;
+  stroke?      : boolean;
+  fill?        : boolean;
+  fillColor?   : string;
+  fillOpacity? : number;
   id           : string;
   accessors    : PolygonAccessors<T>;
   data?        : T[];
@@ -640,6 +650,7 @@ export class MapEngine {
 
   addPointLayer<T>(config: PointLayerConfig<T>): PointHandle<T>;
   addPolygonLayer<T>(config: PolygonLayerConfig<T>): PolygonHandle<T>;
+  addPolygonGpuLayer(config: PolygonGpuLayerConfig): PolygonGpuHandle;
   addLineLayer<T>(config: LineLayerConfig<T>): LineHandle<T>;
   addHtmlLayer<T>(config: HtmlLayerConfig<T>): HtmlHandle<T>;
   addLabelLayer<T>(config: LabelLayerConfig<T>): LabelHandle;
@@ -693,7 +704,9 @@ export class MapEngine {
 
 export class CristaeMap extends HTMLElement {}
 export class CristaePointLayer extends HTMLElement {}
-export class CristaePolygonLayer extends HTMLElement {}
+export class CristaePolygonLayer extends HTMLElement {
+  backend: 'leaflet' | 'gpu';
+}
 export class CristaeLineLayer extends HTMLElement {}
 export class CristaeHtmlLayer extends HTMLElement {}
 export class CristaeLabelLayer extends HTMLElement {}
@@ -701,3 +714,51 @@ export class CristaeCluster extends HTMLElement {}
 export class CristaeOverlay extends HTMLElement {}
 export class CristaeToolbar extends HTMLElement {}
 export class CristaePopup extends HTMLElement {}
+
+// ── Polígonos ESTÁTICOS en GPU (addPolygonGpuLayer) — stencil sobre geometría tipada ──
+// Miles de anillos en una textura, sin Source: la geometría es inmutable y no se copia. La capa
+// reactiva por items es `addPolygonLayer`.
+export interface PolygonGpuGeometry {
+  /** [2v] `xy[2i]` = lng, `xy[2i+1]` = lat — orden RFC. */
+  xy         : Float64Array;
+  /** [r+1] anillo → primer vértice. */
+  vertexAt   : Uint32Array;
+  /** [p+1] parte → primer anillo. */
+  ringAt     : Uint32Array;
+  /** [r] 1 = el último vértice repite al primero; la ingesta lo descuenta. */
+  closed?    : Uint8Array;
+  /** Totales de las tablas; `rings` y `parts` los reemplazan cuando vienen. */
+  ringCount? : number;
+  partCount? : number;
+  /** Anillos a rellenar; sin él, todos. */
+  rings?     : Uint32Array;
+  /** Partes a indexar para hit-test; sin él, todas. */
+  parts?     : Uint32Array;
+}
+
+export interface PolygonGpuLayerConfig {
+  id           : string;
+  geometry     : PolygonGpuGeometry;
+  pane?        : string;
+  z?           : number;
+  /** Opciones de path de Leaflet, con sus mismos defaults. */
+  color?       : string;   // trazo — '#3388ff'
+  weight?      : number;   // ancho del trazo en px — 3
+  opacity?     : number;   // opacidad del trazo — 1
+  stroke?      : boolean;  // true
+  fill?        : boolean;  // true
+  fillColor?   : string;   // por defecto, `color`
+  fillOpacity? : number;   // 0.2
+  visible?     : boolean;
+  /** Arma el índice point-in-poly; sólo entonces la capa retiene `geometry`. */
+  interactive? : boolean;
+  /** Parte → id de dominio del hit. Sin él, el id es el índice de parte. */
+  idOf?        : (part: number) => unknown;
+}
+
+export interface PolygonGpuHandle {
+  readonly id: string;
+  redraw(): boolean;
+  style(options?: { color?: string; opacity?: number }): boolean;
+  setVisible(visible: boolean): boolean;
+}

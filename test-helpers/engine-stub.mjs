@@ -349,7 +349,7 @@ const makePoint = (x, y) => ({
 })
 
 export const makeMap = ({ zoom = 3 } = {}) => {
-  const panes = new Map()
+  const panesRegistro = {}
   const handlers = new Map()   // evento → Set(cb); Leaflet acepta 'a b' (varios en un on)
   const container = makeContainer()
   const mapPane = { style: {} }
@@ -369,8 +369,11 @@ export const makeMap = ({ zoom = 3 } = {}) => {
     removeLayer(layer) { map._added = map._added.filter(l => l !== layer); return map },
     _added: [],
     getContainer: () => container,
-    getPane: (n) => panes.get(n) ?? null,
-    createPane: (n) => { const p = { style: {}, appendChild() {}, remove() { panes.delete(n) } }; panes.set(n, p); return p },
+    // Fiel a Leaflet: `getPane` lee el registro `_panes`, y sacar el pane del DOM NO lo saca de ahí —
+    // quien lo desmonte tiene que borrar la entrada o el alta siguiente reusa un nodo desconectado.
+    _panes: panesRegistro,
+    getPane: (n) => panesRegistro[n] ?? null,
+    createPane: (n) => (panesRegistro[n] = { style: {}, connected: true, appendChild() {}, remove() { panesRegistro[n].connected = false } }),
     getPanes: () => ({ mapPane }),
     getZoom: () => map._zoom,
     // Helper del TEST: fija el zoom lógico (el que lee recluster). No dispara eventos por sí solo.
