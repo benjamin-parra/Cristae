@@ -2,10 +2,17 @@
 // de rectángulos. Reusable por quien indexe por extensión: la comparten el hit-test de polígonos
 // (anillos [lat,lng]), el de líneas (puntos {x,y} proyectados) y el scoring de snapshots de tiles.
 
-// bbox de un anillo simple [[lat,lng],…] o multi-anillo [[[lat,lng],…],…]. → { minLat, maxLat, minLng, maxLng }.
+// Lista plana de anillos de cualquiera de las tres formas de entrada: anillo simple `[[lat,lng],…]`,
+// polígono `[[[lat,lng],…],…]` (exterior + agujeros) y multipolígono.
+export const ringsOf = rings =>
+  !Array.isArray(rings[0]?.[0])   ? [rings]
+  : Array.isArray(rings[0][0][0]) ? rings.flat()
+  : rings
+
+// bbox de un anillo simple [[lat,lng],…], un polígono o un multipolígono. → { minLat, maxLat, minLng, maxLng }.
 export const bboxOfRings = rings => {
   let minLat = Infinity, maxLat = -Infinity, minLng = Infinity, maxLng = -Infinity
-  const list = Array.isArray(rings[0]?.[0]) ? rings : [rings]
+  const list = ringsOf(rings)
   for (let r = 0; r < list.length; r++) {
     const ring = list[r]
     for (let i = 0; i < ring.length; i++) {
@@ -30,6 +37,20 @@ export const bboxOfPoints = pts => {
     if (y > maxY) maxY = y
   }
   return { minX, maxX, minY, maxY }
+}
+
+// Caja del tramo de vértices [first, first+count) de un intercalado [lng, lat, …], acumulada sobre
+// `out` = [minLng, minLat, maxLng, maxLat] y devuelta. `out` entra sembrado en ±Infinity por el
+// llamador y se reusa entre tramos; un tramo vacío lo deja intacto.
+export const growBoxOfRange = (xy, first, count, out) => {
+  for (let i = first, end = first + count; i < end; i++) {
+    const lng = xy[i * 2], lat = xy[i * 2 + 1]
+    if (lng < out[0]) out[0] = lng
+    if (lat < out[1]) out[1] = lat
+    if (lng > out[2]) out[2] = lng
+    if (lat > out[3]) out[3] = lat
+  }
+  return out
 }
 
 // Rectángulo por lados (marco de los rects de viewport/tiles).
