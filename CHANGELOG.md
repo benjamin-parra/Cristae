@@ -5,6 +5,24 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
 [`docs/versionado.md`](docs/versionado.md) — en `0.x`, el **minor cuenta los cambios medios**
 (capacidad o eje de API nuevo) y el **patch los menores desde el último medio** (fix / perf / revert).
 
+## [0.31.0] - 2026-08-12
+
+### Agregado
+- **`MapEngine.setZoomAnimation(modo)` — la política de animación del zoom se cambia EN VIVO.** Antes
+  se fijaba al construir y no había forma soportada de tocarla después: el consumidor terminaba
+  escribiendo el latch de Leaflet a mano. El `zoom-animation` del elemento pasa a ser **reactivo** por
+  el mismo camino.
+
+### Cambiado
+- **El modo `'on'` anima en AMBOS sentidos.** Estaba declarado en los tipos desde que existe el eje,
+  pero la implementación lo hacía caer en la rama de `'in-only'`: pedirlo daba zoom-in animado y
+  zoom-out instantáneo, en silencio. Los tres modos son ahora distinguibles.
+- **La política dejó de apagar el latch `_zoomAnimated` del mapa y filtra cada zoom.** Es la diferencia
+  entre una política y un latch: Leaflet le COPIA ese flag a cada capa **al agregarla**, y sólo con él
+  en `true` la capa se suscribe a `zoomanim`. Apagándolo, las capas ya montadas quedaban sin cablear
+  para siempre — encender la animación después movía el resto y dejaba **los tiles saltando**.
+  *Migración*: ninguna. `'none'` sigue sin animar; lo que cambia es que ahora es reversible.
+
 ## [0.30.0] - 2026-08-12
 
 ### Agregado
