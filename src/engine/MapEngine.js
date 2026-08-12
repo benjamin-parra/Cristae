@@ -116,6 +116,7 @@ export class MapEngine {
   #defaultClusters    = null           // cluster icon-set por defecto (lazy)
   #defaultSubClusters = null           // icon-set de sub-clusters de la espiral (jerarquía, lazy)
   #order              = 0
+  #zoomAnimation      = 'none'         // politica de animacion del zoom: 'none' | 'in-only' | 'on'
   #focused            = null           // enfoque: Set(id) de capas a opacidad plena (resto atenuado), o null
   #dimOpacity         = 0.3            // opacidad del resto mientras hay enfoque activo
   #focusKinds         = null           // kinds de capa que el enfoque atenúa (null = todas)
@@ -125,13 +126,13 @@ export class MapEngine {
   camera
   ready
 
-  constructor({ leaflet, glify, container, mapOptions, insets, hoverThrottleMs = 0, map, zoomAnimation = 'none', zoomControl = true } = {}) {
+  constructor({ leaflet, glify, container, mapOptions, insets, hoverThrottleMs = 0, map, zoomAnimation, zoomControl = true } = {}) {
     this.#L       = leaflet
     this.#glify   = glify
     this.#ownsMap = !map
-    // zoomAnimation queda en el default de Leaflet (on): así el proxy de animación y los handlers
-    // `zoomanim` de tiles y glify se cablean en su onAdd. Apagarlos en el constructor los dejaría
-    // sin cablear y no se podrían reactivar. La palanca en caliente es `_zoomAnimated`.
+    // `zoomAnimation` de Leaflet queda en su default (on) a propósito: es lo que cablea el proxy de
+    // animación y los `zoomanim` de tiles y glify en su onAdd. La política del motor NO se expresa
+    // apagando ese latch — ver #installZoomGate.
     this.#map = map ?? leaflet.map(container, {
       preferCanvas:        true,
       fadeAnimation:       false,
@@ -141,7 +142,9 @@ export class MapEngine {
       ...mapOptions,
     })
 
-    if (this.#ownsMap) this.#applyZoomAnimation(zoomAnimation)
+    // Con mapa PRESTADO la política es del consumidor: sin modo explícito, no se interviene.
+    this.#zoomAnimation = zoomAnimation ?? (this.#ownsMap ? 'none' : 'on')
+    this.#installZoomGate()
 
     this.#registry    = new LayerRegistry(this.#map)
     this.#bus         = new EventBus(layerId => this.#syncDemand(layerId))
@@ -786,6 +789,13 @@ export class MapEngine {
     return this
   }
 
+  // Política de animación del zoom, en vivo: 'none' (sin transición), 'in-only' (sólo al acercar) u
+  // 'on' (ambos sentidos). Aplica desde el zoom siguiente; no reconstruye capas ni pierde su cableado.
+  setZoomAnimation(mode) {
+    this.#zoomAnimation = mode
+    return this
+  }
+
   getLeafletMap() { return this.#map }
   getUnsafeHandler() { return this }
 
@@ -862,15 +872,22 @@ export class MapEngine {
 
   /* ── Internos ── */
 
-  // 'none' (default): sin animación de zoom. 'in-only': zoom-in animado pero zoom-out instantáneo — un
-  // zoom-out animado encoge los tiles viejos mientras el fondo más amplio aparece de golpe → desfase perceptible.
-  // Nota: zoomAnimation:false en el constructor de Leaflet dejaría los handlers `zoomanim` sin
-  // cablean → se usa la palanca en caliente (_zoomAnimated) en vez del latch de construcción.
-  #applyZoomAnimation(mode) {
-    if (mode === 'none') { this.#map._zoomAnimated = false; return }
+  // Gate ÚNICO de la animación de zoom: se instala una vez y consulta el modo VIGENTE en CADA zoom,
+  // así la política se cambia en vivo (setZoomAnimation) sin reconstruir nada.
+  //
+  // El latch `_zoomAnimated` del mapa NO se toca. Leaflet se lo COPIA a cada capa al agregarla, y sólo
+  // con él en `true` la capa se suscribe a `zoomanim` y se marca `leaflet-zoom-animated`; apagarlo
+  // dejaría a las capas ya montadas sin cablear PARA SIEMPRE — encender la animación después no las
+  // revive, y los tiles saltan aunque el resto acompañe.
+  #installZoomGate() {
     const map = this.#map, tryAnimatedZoom = map._tryAnimatedZoom.bind(map)
-    map._tryAnimatedZoom = (center, zoom, options) =>
-      zoom >= map._zoom && tryAnimatedZoom(center, zoom, options)
+    map._tryAnimatedZoom = (center, zoom, options) => {
+      if (this.#zoomAnimation === 'none') return false
+      // 'in-only': al alejar, los tiles viejos se encogen mientras el fondo más amplio entra de golpe.
+      // Quien prefiera esa transición a la ausencia de transición usa 'on', que anima en ambos sentidos.
+      if (this.#zoomAnimation === 'in-only' && zoom < map._zoom) return false
+      return tryAnimatedZoom(center, zoom, options)
+    }
   }
 
   // Reposiciona/redibuja las capas de puntos en paneo y zoom (glify solo autoregistra moveend → _reset).

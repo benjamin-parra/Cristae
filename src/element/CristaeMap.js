@@ -256,8 +256,11 @@ export class CristaeMap extends LitElement {
   // (paneles/sidebars internos) cambian en runtime al abrir/cerrar un panel. Se re-aplican a la
   // cámara y se emite `viewportchange` — la región visible cambió aunque la cámara no se movió —
   // para que los overlays anclados (popup, botón central del cluster) se re-encuadren al instante.
+  // `zoom-animation` también es reactivo: la política se cambia en vivo sin remontar el mapa.
   updated(changed) {
-    if (!changed.has('viewportInsets') || !this.#engine) return
+    if (!this.#engine) return
+    if (changed.has('zoomAnimation')) this.#engine.setZoomAnimation(this.zoomAnimation ?? 'none')
+    if (!changed.has('viewportInsets')) return
     this.#engine.camera.insets = this.viewportInsets
     const m = this.#engine.getLeafletMap()
     this.#emit('viewportchange', { center: m.getCenter(), zoom: m.getZoom(), bounds: m.getBounds() })

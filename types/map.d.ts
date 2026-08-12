@@ -695,6 +695,8 @@ export class MapEngine {
   createIcon(config: { size?: number; draw?: (ctx: CanvasRenderingContext2D, size: number) => void }): HTMLCanvasElement;
   setTileProvider(tile: { url: string; [k: string]: unknown }): this;
 
+  /** Política de animación del zoom, en vivo. Aplica desde el zoom siguiente. */
+  setZoomAnimation(mode: "none" | "in-only" | "on"): this;
   getLeafletMap(): unknown;
   /** Escape genérico al handler subyacente (Leaflet map, hoy). Usar sólo si falta una capacidad. */
   getUnsafeHandler(): unknown;

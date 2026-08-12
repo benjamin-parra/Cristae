@@ -358,6 +358,10 @@ export const makeMap = ({ zoom = 3 } = {}) => {
 
   const map = {
     _zoom: zoom,
+    // Latch de animación: Leaflet se lo COPIA a cada capa al agregarla, por eso el motor no lo apaga.
+    _zoomAnimated: true,
+    // Fiel a Leaflet: la decisión es POR ZOOM. El motor lo envuelve con su gate de política.
+    _tryAnimatedZoom: () => !!map._zoomAnimated,
     on(types, cb) { each(types, t => (handlers.get(t) ?? handlers.set(t, new Set()).get(t)).add(cb)); return map },
     off(types, cb) { each(types, t => handlers.get(t)?.delete(cb)); return map },
     // Helper del TEST: dispara un evento del mapa (zoomstart/zoomend/…) hacia los handlers cableados.
@@ -488,6 +492,8 @@ export const makeLeaflet = () => {
   return {
     log,
     marker,
+    // Fábrica del mapa: deja construir un motor DUEÑO de su mapa (el caso del custom element).
+    map: () => makeMap(),
     DomUtil: {
       getPosition:  () => ({ x: 0, y: 0 }),
       // Lo que Leaflet le aplica a un elemento `leaflet-zoom-animated` en cada frame de zoom.
