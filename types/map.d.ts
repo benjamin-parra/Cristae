@@ -402,7 +402,10 @@ export interface PolygonLayerConfig<T> {
   fillOpacity? : number;
   id           : string;
   accessors    : PolygonAccessors<T>;
+  /** Ruta `data` (el motor posee la Source) — mutuamente excluyente con `source`. */
   data?        : T[];
+  /** Ruta `source` (el consumidor posee la Source; el motor sólo lee). Se lee al montar. */
+  source?      : CristaeSource<T>;
   pane?        : string;
   z?           : number;
   interactive? : boolean;

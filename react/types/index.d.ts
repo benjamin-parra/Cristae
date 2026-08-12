@@ -283,9 +283,12 @@ export declare function CristaeLineLayer<T = unknown>(
 
 export interface CristaePolygonLayerProps<T = unknown> extends CristaeDataLayerProps {
   data?        : T[];
+  source?      : CristaeReadSource<T>;
   accessors?   : PolygonAccessors<T>;
   interactive? : boolean;
   visible?     : boolean;
+  /** Sustrato: `'leaflet'` (un path por figura) o `'gpu'` (stencil + textura). Se lee al montar. */
+  backend?     : 'leaflet' | 'gpu';
 }
 export declare function CristaePolygonLayer<T = unknown>(
   props: CristaePolygonLayerProps<T> & RefAttributes<CristaePolygonLayerElement<T>>,

@@ -221,12 +221,19 @@ Dos entradas de dato **simétricas**:
 | `interactive` | boolean (default `true`) | atributo |
 | `visible` | boolean (default `true`) | atributo |
 | `backend` | `'leaflet'` (default) \| `'gpu'` | atributo |
-| `data` | `Item[]` | **prop** |
+| `data` | `Item[]` (ruta A) | **prop** |
+| `source` | `Source` (ruta B/C) | **prop** |
 | `accessors` | `{ idOf, ringsOf, styleOf? }` | **prop** |
 
-`backend` elige el sustrato —un `L.polygon` por figura, o relleno por stencil y contorno en una
-textura— y se lee **al montar**. Los dos consumen el mismo Source y contestan el mismo picking; la
-comparación y los límites del sustrato GPU están en [`polygons.md`](polygons.md).
+Las dos entradas de dato son las mismas que en la capa de puntos: `.data` (el elemento posee la
+Source) y `.source` (la posee el consumidor y la comparte entre vistas); por `source` los accessors
+viajan con ella. `backend` elige el sustrato —un `L.polygon` por figura, o relleno por stencil y
+contorno en una textura—.
+
+`backend` y `source` se leen **al montar**: reasignarlos no remonta la capa. Es la diferencia con la
+capa de puntos, donde `source` sí se reengancha en caliente. Los dos sustratos consumen el mismo
+Source y contestan el mismo picking; la comparación y los límites del sustrato GPU están en
+[`polygons.md`](polygons.md).
 
 ### `<cristae-label-layer>` — etiquetas canvas
 

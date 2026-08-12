@@ -12,7 +12,14 @@ engine.addPolygonLayer({ id: 'geocercas', data, accessors, backend: 'gpu' })
 <cristae-polygon-layer id="geocercas" interactive backend="gpu"></cristae-polygon-layer>
 ```
 
-`backend` se lee **al montar**: cambiarlo en caliente no remonta la capa.
+La Source puede ser del consumidor y compartirse con otra vista —una tabla, un segundo mapa—; el
+elemento la toma por propiedad, igual que la capa de puntos, y con ella viajan los accessors:
+
+```js
+document.querySelector('#geocercas').source = geocercas
+```
+
+`backend` y `source` se leen **al montar**: reasignarlos no remonta la capa.
 
 ---
 
