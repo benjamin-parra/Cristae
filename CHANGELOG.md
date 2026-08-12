@@ -5,6 +5,23 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
 [`docs/versionado.md`](docs/versionado.md) — en `0.x`, el **minor cuenta los cambios medios**
 (capacidad o eje de API nuevo) y el **patch los menores desde el último medio** (fix / perf / revert).
 
+## [0.30.0] - 2026-08-12
+
+### Agregado
+- **La capa de polígonos acepta una `Source` del consumidor.** `<cristae-polygon-layer>` gana la
+  propiedad `source`, la otra mitad del par que la capa de puntos ya tenía: con `data` la Source la
+  posee el elemento; con `source` la posee el consumidor, que puede compartirla entre vistas —una
+  tabla, un segundo mapa— y computar el filtro una sola vez. Los accessors viajan con ella, así que la
+  capa monta sin `accessors` propios. Se lee **al montar**, igual que `backend`: reasignarla no
+  remonta la capa —el reenganche en caliente de `attachSource` es de la capa de puntos—.
+
+### Corregido
+- **Los tipos del binding React no declaraban `backend`.** El passthrough ya lo aplicaba como atributo
+  y la capa montaba en GPU, pero `<CristaePolygonLayer backend="gpu">` no compilaba: el tipo era más
+  angosto que la implementación.
+- **`PolygonLayerConfig` no declaraba `source`**, que `addPolygonLayer` destructura y usa desde que
+  existe la ruta de Source compartida.
+
 ## [0.29.0] - 2026-08-11
 
 ### Agregado
