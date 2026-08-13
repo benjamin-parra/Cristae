@@ -5,6 +5,19 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
 [`docs/versionado.md`](docs/versionado.md) — en `0.x`, el **minor cuenta los cambios medios**
 (capacidad o eje de API nuevo) y el **patch los menores desde el último medio** (fix / perf / revert).
 
+## [0.31.1] - 2026-08-12
+
+### Corregido
+- 🔴 **Un multipolígono leído de un documento contestaba una vez por PIEZA.** La ruta de `Source` ya
+  respondía una vez por entidad; la de geometría tipada no tenía con qué: `areasOf` descartaba la
+  feature dueña de cada parte, así que la identidad se perdía y el consumidor tenía que reinventarla
+  desde un índice interno. Ahora `areasOf` devuelve `owner` —la feature de cada parte, indexada por id
+  de parte como el resto de las tablas del documento— y los dos caminos vuelven a contestar igual.
+  *Migración*: ninguna si no declarabas `idOf`; si lo declarabas para la ruta tipada, ahora recibe el
+  índice de la FEATURE en vez del de la parte — que es lo que hacía falta para identificar la entidad.
+- **Sin `idOf`, el id de un hit era la parte y no el sujeto.** El fallback ignoraba al dueño incluso
+  cuando estaba resuelto, así que el dedup por entidad no se aplicaba.
+
 ## [0.31.0] - 2026-08-12
 
 ### Agregado
