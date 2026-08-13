@@ -5,6 +5,31 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
 [`docs/versionado.md`](docs/versionado.md) — en `0.x`, el **minor cuenta los cambios medios**
 (capacidad o eje de API nuevo) y el **patch los menores desde el último medio** (fix / perf / revert).
 
+## [0.32.0] - 2026-08-12
+
+### Agregado
+- **Una sola puerta para los polígonos.** `addPolygonLayer` acepta `geometry` —las tablas del lector,
+  sin materializar un array—, que hasta ahora sólo entraba por un método aparte. Quedan dos ejes
+  ortogonales: el SUSTRATO (`backend`) y el DATO (`data`/`source` o `geometry`). `geometry` implica
+  `backend: 'gpu'`; pedirla sobre el sustrato de Leaflet falla ruidoso en vez de dejar un mapa en
+  blanco. `idOf`/`styleOf` salen de `accessors` en las dos rutas, así que se declaran en el mismo
+  lugar venga el dato por donde venga.
+- **`<cristae-polygon-layer>` hereda `geometry`**: la geometría tipada deja de ser sólo imperativa y
+  entra por markup. Era el último hueco declarativo del sustrato GPU.
+
+### Cambiado
+- 🔴 **El sustrato por default de la capa de polígonos pasa a ser `'gpu'`.** Antes era `'leaflet'`.
+  *Migración*: quien no declaraba `backend` ahora monta en GPU y **toma un contexto WebGL** de los ~16
+  del navegador — con varias capas de polígonos en la misma página conviene declarar
+  `backend: 'leaflet'`, que no toma ninguno. El sustrato GPU todavía no hace uniones de contorno, no
+  expande el descarte por viewport con el ancho del trazo y no tiene `z` por entidad.
+- El handle de la capa expone `redraw`/`style` **sobre el sustrato GPU**, y `source` es `null` por la
+  ruta `geometry` (la geometría tipada es inmutable).
+
+### Deprecado
+- **`MapEngine.addPolygonGpuLayer`** — delega en `addPolygonLayer({ geometry, backend: 'gpu' })`
+  conservando su pane y su default de `interactive`. Se retira en 1.0.
+
 ## [0.31.1] - 2026-08-12
 
 ### Corregido
