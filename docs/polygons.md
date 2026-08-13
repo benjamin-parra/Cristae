@@ -63,6 +63,18 @@ engine.addPolygonGpuLayer({ id: 'geocercas', geometry: areasOf(readGeoJson(bytes
 `rings` y `parts` van juntas o no van: con una sola, el relleno y el picking mirarían conjuntos
 distintos y la capa contestaría por figuras que no dibujó.
 
+La identidad viaja con la geometría: `areasOf` trae el `owner` de cada parte, así que **no hace falta
+escribir `idOf`** — un multipolígono contesta una vez, con el índice de su feature. `idOf` queda como
+override, y recibe el DUEÑO de la parte: la entidad por la ruta de `Source`, el índice de feature por
+la tipada. Para usar el `id` del propio documento es una línea:
+
+```js
+const doc = readGeoJson(bytes)
+engine.addPolygonGpuLayer({ id: 'geocercas', geometry: areasOf(doc), idOf: f => doc.idOf(f) })
+```
+
+Con tablas armadas a mano, sin `owner`, el sujeto sigue siendo la parte.
+
 ## Lo que el sustrato `gpu` todavía no hace
 
 - **El contorno no tiene uniones.** Cada segmento es un quad independiente, así que en un codo cerrado

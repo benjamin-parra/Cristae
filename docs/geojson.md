@@ -99,6 +99,13 @@ Sin ella, un documento mixto sube a la textura vértices que nadie rellena y su 
 sobre una `LineString` como si encerrara algo. Un documento de puros polígonos selecciona todo, y la
 selección se puede ignorar. Las dos tablas van juntas: la capa rechaza recibir una sola.
 
+Además devuelve **`owner`: la feature dueña de cada parte**, indexada por id de parte como `ringAt` y
+no por posición en la selección. Es la identidad del documento, y es lo que hace que un multipolígono
+—varias partes de una misma feature— conteste **una vez** al pickearlo, igual que la ruta de `Source`.
+Cuesta una palabra por parte: sobre 50.000 polígonos de 200 vértices son 0,2 MB contra 163 MB de
+estado retenido, un 0,12 %. La alternativa sin memoria —resolverlo por búsqueda binaria en cada
+consulta— ataría la capa de render al lector y volvería `O(n log n)` cada reestilado.
+
 ### Hit-test
 
 `someRing` corta temprano con la semántica nativa de `some`; con `bounds: true` la caja por geometría

@@ -157,14 +157,18 @@ export class PolygonGpuLayer {
   // filtro, y reevaluarlo por frame lo llamaría una vez por polígono en cada repintado.
   // Con Source, `styleOf` e `idOf` reciben la ENTIDAD, igual que en la capa de Leaflet.
   #subject(parteId) {
-    return this.#items && this.#owner ? this.#items[this.#owner[parteId]] : parteId
+    if (!this.#owner) return parteId
+    // Con Source el dueño es la ENTIDAD; con tablas del lector, el índice de la FEATURE. En los dos
+    // casos el sujeto es "de quién es esta parte", que es lo que hace que un multipolígono conteste
+    // una sola vez y lo que recibe `idOf`.
+    return this.#items ? this.#items[this.#owner[parteId]] : this.#owner[parteId]
   }
 
   restyle() {
     const base = this.#base
     this.#parts.forEach(parte => {
       const sujeto = this.#subject(parte.id)
-      const id     = this.#idOf ? this.#idOf(sujeto) : parte.id
+      const id     = this.#idOf ? this.#idOf(sujeto) : sujeto
       // El foco se pliega acá, no en el dibujo: es un multiplicador de opacidad por entidad y esta es
       // la única pasada que ya recorre las partes.
       const s = focusedStyle({ ...base, ...(this.#styleOf?.(sujeto) ?? null) }, this.#focus, id)
@@ -311,7 +315,8 @@ export class PolygonGpuLayer {
     // por entidad, como `idsFor` en el sustrato de Leaflet.
     const vistos = new Set()
     return partes.reduce((out, parte) => {
-      const id = this.#idOf ? this.#idOf(this.#subject(parte)) : parte
+      const sujeto = this.#subject(parte)
+      const id     = this.#idOf ? this.#idOf(sujeto) : sujeto
       vistos.has(id) || (vistos.add(id), out.push({ ref: parte, id, distancePx: 0 }))
       return out
     }, [])

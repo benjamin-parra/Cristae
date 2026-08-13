@@ -645,7 +645,7 @@ export const readGeoJson = (input, options = {}) => {
 // solo vértice— más los ids de anillo y de parte de los `Polygon` y `MultiPolygon`. Un documento de
 // puros polígonos selecciona todo.
 export const areasOf = geo => {
-  const { kinds, partAt, ringAt, geometryCount } = geo
+  const { kinds, partAt, ringAt, geometryCount, featureOf } = geo
   const isArea = g => kinds[g] === GeoJsonKind.Polygon || kinds[g] === GeoJsonKind.MultiPolygon
 
   let nParts = 0, nRings = 0
@@ -666,6 +666,14 @@ export const areasOf = geo => {
     }
   }
 
+  // Dueño de cada parte: la FEATURE que la contiene. Va indexado por id de parte, junto a las demás
+  // tablas del documento (`ringAt`, `vertexAt`) y no por posición en la selección — es lo que consume
+  // el hit-test, que trabaja con ids del lector. Sin esto, una entidad de varias piezas no tiene forma
+  // de contestar UNA vez: la identidad se pierde acá y el consumidor tiene que reinventarla.
+  const owner = new Uint32Array(geo.partCount)
+  for (let g = 0; g < geometryCount; g++)
+    for (let p = partAt[g]; p < partAt[g + 1]; p++) owner[p] = featureOf[g]
+
   return {
     xy        : geo.xy,
     vertexAt  : geo.vertexAt,
@@ -675,5 +683,6 @@ export const areasOf = geo => {
     partCount : geo.partCount,
     rings,
     parts,
+    owner,
   }
 }

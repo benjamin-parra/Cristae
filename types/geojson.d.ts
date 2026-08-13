@@ -134,6 +134,9 @@ export interface GeoJsonAreas {
   readonly rings     : Uint32Array;
   /** Partes a indexar para hit-test. */
   readonly parts     : Uint32Array;
+  /** Dueño de cada parte: la FEATURE que la contiene. Indexado por id de parte —como `ringAt`—, no por
+   *  posición en la selección. Es lo que deja que una entidad de varias piezas conteste UNA vez. */
+  readonly owner     : Uint32Array;
 }
 
 export declare function areasOf(geo: GeoJson): GeoJsonAreas

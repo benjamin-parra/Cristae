@@ -876,7 +876,8 @@ primer vértice y `ringAt` es parte → primer anillo.
 **`Point` y `MultiPoint` no aportan anillos.** No tienen interior: ni suben a la textura ni entran
 al índice de hit —un tramo de `LineString` tampoco, y además no cierra—. La selección la da
 `areasOf`, que devuelve las tablas del lector sin copiar más los ids de anillo (`rings`) y de parte
-(`parts`) de los `Polygon` y `MultiPolygon`.
+(`parts`) de los `Polygon` y `MultiPolygon`, y `owner` — la feature dueña de cada parte, indexada por
+id de parte como el resto de las tablas del documento.
 
 ### 17.7 Ejemplo
 

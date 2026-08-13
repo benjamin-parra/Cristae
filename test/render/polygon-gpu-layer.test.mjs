@@ -596,3 +596,49 @@ test('un multipolígono con piezas solapadas contesta UNA vez, como el sustrato 
   assert.equal(layer.drawnPartCount, 2, 'son dos partes')
   assert.deepEqual(golpes.map(h => h.id), ['zona-partida'], 'pero una sola entidad')
 })
+
+/* ── 8. Identidad por FEATURE en la ruta de geometría tipada ── */
+
+// Dos piezas SUPERPUESTAS de un mismo MultiPolygon. Antes, sin dueño, cada pieza era un id distinto y
+// la entidad contestaba DOS veces sobre el mismo píxel — contra la promesa de "una vez por entidad"
+// que la ruta de Source ya cumplía. `owner` de `areasOf` es lo que las vuelve a atar.
+const MULTI = new TextEncoder().encode(JSON.stringify({
+  type: 'FeatureCollection',
+  features: [
+    { type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [square(1, 1, 0.1)] } },
+    { type: 'Feature', properties: {}, geometry: {
+      type: 'MultiPolygon', coordinates: [[square(0, 0, 0.1)], [square(0.05, 0, 0.1)]] } },
+  ],
+}))
+
+const EN_EL_SOLAPE = { lat: 0, lng: 0.02 }          // dentro de las DOS piezas del multipolígono
+
+test('un multipolígono contesta UNA vez, aunque el punto caiga en dos de sus piezas', () => {
+  const { layer } = mount(areasOf(readGeoJson(MULTI)), { interactive: true })
+  const golpes = hits(layer, EN_EL_SOLAPE)
+  assert.equal(golpes.length, 1, 'una entidad, un hit')
+  assert.equal(golpes[0].id, 1, 'y el id es el de la FEATURE, no el de la pieza')
+})
+
+test('`idOf` recibe el índice de la feature — la identidad natural del documento', () => {
+  const vistos = []
+  const { layer } = mount(areasOf(readGeoJson(MULTI)), {
+    interactive: true,
+    idOf: f => { vistos.push(f); return `zona-${f}` },
+  })
+  assert.deepEqual(hits(layer, EN_EL_SOLAPE).map(h => h.id), ['zona-1'])
+  // El polígono suelto es la feature 0 y las dos piezas del multi son la 1: tres partes, dos dueños.
+  assert.deepEqual([...new Set(vistos)].sort(), [0, 1])
+})
+
+// Sin `owner` —tablas armadas a mano, sin pasar por `areasOf`— el sujeto sigue siendo la parte. Es lo
+// que mantiene andando a quien construye la geometría por su cuenta.
+test('sin `owner`, el sujeto sigue siendo la parte', () => {
+  const vistos = []
+  const { layer } = mount(tables([square(0, 0, 0.1)]), {
+    interactive: true,
+    idOf: p => { vistos.push(p); return `parte-${p}` },
+  })
+  assert.deepEqual(hits(layer, { lat: 0, lng: 0 }).map(h => h.id), ['parte-0'])
+  assert.deepEqual([...new Set(vistos)], [0], 'el alta ya lo consultó en su restyle')
+})

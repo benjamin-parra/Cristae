@@ -57,3 +57,25 @@ test('un documento sin áreas no selecciona nada', () => {
   assert.equal(rings.length, 0)
   assert.equal(parts.length, 0)
 })
+
+// El dueño de cada parte es la FEATURE que la contiene. Sin él, una entidad de varias piezas —un
+// multipolígono— no tiene identidad: cada pieza es un número suelto y el consumidor tiene que
+// reconstruir a mano de quién era. Es lo que recibe `idOf` en la ruta de geometría tipada.
+test('`owner` ata cada parte a su feature: las dos piezas del multipolígono son la MISMA entidad', () => {
+  const geo = leer(MIXTO)
+  const { parts, owner } = areasDe(geo)
+  // En MIXTO el Polygon es la feature 1 y el MultiPolygon la 3.
+  const dueños = Array.from(parts, p => owner[p])
+  assert.deepEqual(dueños, [1, 3, 3], 'una parte del Polygon y DOS del MultiPolygon, con el mismo dueño')
+  assert.equal(new Set(dueños).size, 2, 'dos entidades de área, no tres partes sueltas')
+})
+
+test('`owner` va indexado por id de parte, como las demás tablas del documento', () => {
+  const geo = leer(MIXTO)
+  const { owner } = areasDe(geo)
+  assert.equal(owner.length, geo.partCount, 'cubre TODAS las partes, no sólo la selección de áreas')
+  // El hit-test consulta con ids del lector, no con posiciones de la selección: el invariante tiene
+  // que valer para cualquier parte del documento.
+  for (let p = 0; p < geo.partCount; p++)
+    assert.equal(owner[p], geo.featureOf[geo.geometryOf(p)], `parte ${p}`)
+})
