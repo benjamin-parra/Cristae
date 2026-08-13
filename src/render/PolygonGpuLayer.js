@@ -1,5 +1,5 @@
 import { EditFillLayer } from './EditFillLayer.js'
-import { PolygonStrokePass } from './PolygonStrokePass.js'
+import { FEATHER, PolygonStrokePass } from './PolygonStrokePass.js'
 import { EditSurface } from './EditSurface.js'
 import { RingStore } from './RingStore.js'
 import { projX0, projY0 } from './project.js'
@@ -77,6 +77,7 @@ export class PolygonGpuLayer {
   #parts   = null                     // una entrada por POLÍGONO: sus anillos y su estilo resuelto
   #partBox = null                     // caja de cada parte en world0, para el descarte
   #onScreenParts = []                 // las que tocan el viewport; se reusa entre repintados
+  #halfWidth     = 0                  // medio trazo MÁXIMO en px: el descarte se expande con él
   #styleOf = null
   #base    = null                     // el estilo de la capa, cuando no hay `styleOf`
   #source  = null
@@ -166,6 +167,9 @@ export class PolygonGpuLayer {
 
   restyle() {
     const base = this.#base
+    // El trazo se expande en píxeles de PANTALLA, así que una figura con la caja justo afuera todavía
+    // pinta borde adentro. El descarte necesita el medio ancho máximo para no comérselo.
+    let halfWidth = 0
     this.#parts.forEach(parte => {
       const sujeto = this.#subject(parte.id)
       const id     = this.#idOf ? this.#idOf(sujeto) : sujeto
@@ -174,7 +178,9 @@ export class PolygonGpuLayer {
       const s = focusedStyle({ ...base, ...(this.#styleOf?.(sujeto) ?? null) }, this.#focus, id)
       parte.fill   = { color: s.fillColor ?? s.color, opacity: s.fillOpacity }
       parte.stroke = { color: s.color, width: s.weight, opacity: s.opacity }
+      halfWidth    = Math.max(halfWidth, s.weight / 2)
     })
+    this.#halfWidth = halfWidth
     return this.redraw()
   }
 
@@ -286,8 +292,10 @@ export class PolygonGpuLayer {
   // varios draws. La lista se reusa entre repintados.
   #onScreen({ zoom, center, size }) {
     const scale = 2 ** zoom
-    const hx    = size.x / (2 * scale)
-    const hy    = size.y / (2 * scale)
+    // El trazo vive en píxeles y la caja en mundo: a este zoom, un píxel son 1/scale unidades.
+    const m     = this.#stroke ? (this.#halfWidth + FEATHER) / scale : 0
+    const hx    = size.x / (2 * scale) + m
+    const hy    = size.y / (2 * scale) + m
     const minX  = center.x - hx, maxX = center.x + hx
     const minY  = center.y - hy, maxY = center.y + hy
     const cajas = this.#partBox

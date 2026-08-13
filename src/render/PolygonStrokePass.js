@@ -1,6 +1,13 @@
-// Contorno de polígonos ESTÁTICOS: un quad por segmento, expandido en el vertex shader desde
+// Contorno de polígonos ESTÁTICOS: un quad por segmento, armado en el vertex shader desde
 // `gl_VertexID` + `texelFetch` sobre la misma textura de posiciones que usa el relleno. Sin atributos
 // y sin buffer propio, así que panear y hacer zoom no reescriben un byte.
+//
+// La UNIÓN se resuelve por MITER, y el porqué importa: expandir cada segmento sólo a los lados deja
+// sin cubrir la cuña exterior del codo —la muesca—. Taparla agrandando los quads hasta que se pisen
+// cambia un defecto por otro: donde se pisan, con `opacity < 1`, el alfa se mezcla dos veces y el
+// vértice queda más oscuro. El solape no se puede componer, así que la salida es no tenerlo: cada
+// extremo se desplaza sobre la BISECTRIZ de sus dos segmentos, y los dos quads que comparten el
+// vértice caen sobre las MISMAS dos esquinas. Sin hueco y sin solape, con un dibujo por segmento.
 //
 // Un anillo del store es UN rango contiguo con el cierre implícito —el vértice repetido se descartó al
 // ingerir—, así que el segmento que cierra sale del módulo y no necesita el tramo suelto por uniform
@@ -10,7 +17,7 @@ import { toRGBA } from './color.js'
 import { sharedProgram } from './gl-programs.js'
 
 // Medio píxel de borde a cada lado: el quad se expande lo mismo para que la rampa entre entera.
-const FEATHER = 0.5
+export const FEATHER = 0.5
 
 const UNIFORMS = ['matrix', 'positions', 'texGeom', 'pixel', 'halfWidth', 'color', 'first', 'count']
 
@@ -35,20 +42,44 @@ vec2 positionAt(int entry) {
   return texelFetch(positions, ivec2(entry & texGeom.x, entry >> texGeom.y), 0).rg;
 }
 
+vec2 pixelAt(int entry) {
+  return (matrix * vec4(positionAt(entry), 0.0, 1.0)).xy / pixel;
+}
+
+vec2 dirOf(vec2 v) {
+  float len = length(v);
+  return len > 0.0 ? v / len : vec2(1.0, 0.0);
+}
+
+// Desplazamiento del extremo sobre la bisectriz de los dos segmentos que lo comparten. El tope evita
+// que un codo muy cerrado dispare el vértice al infinito; como los dos segmentos aplican el MISMO
+// tope, siguen cayendo sobre la misma esquina y el codo se corta plano en vez de abrirse.
+vec2 miter(vec2 d0, vec2 d1) {
+  vec2  n1  = vec2(-d1.y, d1.x);
+  vec2  sum = vec2(-d0.y, d0.x) + n1;
+  float len = length(sum);
+  if (len < 1e-4) return n1;            // giro de 180°: no hay bisectriz que valga
+  vec2 m = sum / len;
+  return m / max(dot(m, n1), 0.25);
+}
+
 void main() {
-  int   edge   = gl_VertexID / 6;
-  int   next   = edge + 1 == count ? 0 : edge + 1;
-  vec2  quad   = QUAD[gl_VertexID % 6];
-  vec2  a      = positionAt(first + edge);
-  vec2  b      = positionAt(first + next);
-  vec2  pa     = (matrix * vec4(a, 0.0, 1.0)).xy / pixel;
-  vec2  pb     = (matrix * vec4(b, 0.0, 1.0)).xy / pixel;
-  vec2  axis   = pb - pa;
-  float len    = length(axis);
-  vec2  normal = len > 0.0 ? vec2(-axis.y, axis.x) / len : vec2(0.0);
-  float side   = quad.y * (halfWidth + FEATHER);
-  dist         = side;
-  gl_Position  = vec4((mix(pa, pb, quad.x) + normal * side) * pixel, 0.0, 1.0);
+  int  edge = gl_VertexID / 6;
+  int  next = edge + 1 == count ? 0 : edge + 1;
+  int  prev = edge == 0 ? count - 1 : edge - 1;
+  int  post = next + 1 == count ? 0 : next + 1;
+  vec2 quad = QUAD[gl_VertexID % 6];
+
+  // El anillo es cíclico, así que cada extremo SIEMPRE tiene vecino: no hay caso de punta suelta.
+  vec2 pa = pixelAt(first + edge);
+  vec2 pb = pixelAt(first + next);
+  vec2 d1 = dirOf(pb - pa);
+
+  float side = quad.y * (halfWidth + FEATHER);
+  vec2  off  = mix(miter(dirOf(pa - pixelAt(first + prev)), d1),
+                   miter(d1, dirOf(pixelAt(first + post) - pb)), quad.x);
+  dist        = side;
+  gl_Position = vec4((mix(pa, pb, quad.x) + off * side) * pixel, 0.0, 1.0);
 }`
 
 // El relleno por stencil da bordes duros: el AA lo aporta el contorno, como una rampa de un píxel

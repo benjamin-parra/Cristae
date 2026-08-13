@@ -84,9 +84,10 @@ Con tablas armadas a mano, sin `owner`, el sujeto sigue siendo la parte.
 
 ## Lo que el sustrato `gpu` todavía no hace
 
-- **El contorno no tiene uniones.** Cada segmento es un quad independiente, así que en un codo cerrado
-  queda una muesca, y con `opacity < 1` el solape de los dos quads se pinta dos veces: en cada vértice
-  aparece un punto más oscuro. Se nota sobre todo con figuras atenuadas.
-- **El descarte por viewport ignora el ancho del trazo**, que se expande en píxeles de pantalla: un
-  polígono justo afuera del encuadre puede perder unos píxeles de borde hasta que entra.
 - **No hay `z` por entidad**: el orden de dibujo es el de la geometría.
+
+El contorno une por **miter**: cada extremo se desplaza sobre la bisectriz de sus dos segmentos, así que
+los dos quads que comparten un vértice caen sobre las mismas dos esquinas —sin hueco y sin solape—. Eso
+importa con `opacity < 1`: un trazo que se pisa a sí mismo mezcla el alfa dos veces y deja el vértice
+más oscuro. En un codo muy cerrado el desplazamiento se topea, y como los dos segmentos aplican el
+mismo tope siguen compartiendo esquina: el codo se corta plano en vez de abrirse.

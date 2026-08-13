@@ -676,3 +676,24 @@ test('`addPolygonGpuLayer` delega y conserva su pane y su `interactive` históri
   assert.equal(engine.getLayer('areas').interactive, false, 'y su default de picking apagado')
   assert.equal(typeof handle.style, 'function')
 })
+
+/* ── 10. El descarte por viewport cuenta el ancho del trazo ── */
+
+// El trazo se expande en píxeles de PANTALLA: una figura con la caja apenas afuera todavía pinta
+// borde adentro. Descartarla por la caja pelada le come ese borde hasta que la figura entra entera.
+// Vista del harness: 800×600 a zoom 3 centrado en (0,0) → x ∈ [78, 178] en unidades de mundo, y una
+// unidad de mundo son 360/256 grados de longitud.
+const BORDE_IZQUIERDO = 360 * (179 / 256 - 0.5)          // una unidad de mundo pasado el viewport
+const APENAS_AFUERA   = () => tables([square(BORDE_IZQUIERDO + 0.1, 0, 0.1)])
+
+test('una figura apenas afuera se descarta si su trazo tampoco llega', () => {
+  const { layer } = mount(APENAS_AFUERA(), { weight: 1 })    // margen: (0.5 + 0.5) / 8 = 0.125 < 1
+  layer.redraw()
+  assert.equal(layer.drawnPartCount, 0)
+})
+
+test('y NO se descarta cuando el trazo sí entra: el margen sale del ancho', () => {
+  const { layer } = mount(APENAS_AFUERA(), { weight: 200 })   // margen: (100 + 0.5) / 8 = 12.56 > 1
+  layer.redraw()
+  assert.equal(layer.drawnPartCount, 1, 'antes se le comía el borde hasta que la figura entraba entera')
+})
