@@ -18,6 +18,7 @@ import type {
   PointAccessors,
   LineAccessors,
   PolygonAccessors,
+  PolygonGpuGeometry,
   HtmlAccessors,
   IconSet,
   Insets,
@@ -284,10 +285,14 @@ export declare function CristaeLineLayer<T = unknown>(
 export interface CristaePolygonLayerProps<T = unknown> extends CristaeDataLayerProps {
   data?        : T[];
   source?      : CristaeReadSource<T>;
+  /** Las tablas del lector (`areasOf`), sin materializar un array. Implica el sustrato `gpu` y trae su
+   *  propia identidad: sin `accessors`, cada figura responde por su feature. */
+  geometry?    : PolygonGpuGeometry;
   accessors?   : PolygonAccessors<T>;
   interactive? : boolean;
   visible?     : boolean;
-  /** Sustrato: `'leaflet'` (un path por figura) o `'gpu'` (stencil + textura). Se lee al montar. */
+  /** Sustrato, leído al montar. `'gpu'` (default) toma UN contexto WebGL de los ~16 del navegador;
+   *  `'leaflet'` monta un path por figura y no toma ninguno. */
   backend?     : 'leaflet' | 'gpu';
 }
 export declare function CristaePolygonLayer<T = unknown>(

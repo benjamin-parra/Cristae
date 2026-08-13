@@ -390,7 +390,9 @@ export interface PointHandle<T = unknown> {
 
 // ── Configs y handles de las demás capas ────────────────────────────────────
 export interface PolygonLayerConfig<T> {
-  /** Sustrato: `'leaflet'` (un path por figura) o `'gpu'` (stencil + textura). Se lee al montar. */
+  /** Sustrato, leído al montar. `'gpu'` (default) rellena por stencil en una textura y toma UN contexto
+   *  WebGL de los ~16 del navegador; `'leaflet'` monta un path por figura y no toma ninguno — conviene
+   *  con pocas figuras o con varias capas de polígonos en la misma página. */
   backend?     : 'leaflet' | 'gpu';
   /** Opciones de path por default de la capa (las pisa `styleOf`). Sólo las usa el sustrato `gpu`. */
   color?       : string;
@@ -401,11 +403,20 @@ export interface PolygonLayerConfig<T> {
   fillColor?   : string;
   fillOpacity? : number;
   id           : string;
-  accessors    : PolygonAccessors<T>;
+  /** Obligatorios salvo por la ruta `geometry`, donde no hay entidades que describir. */
+  accessors?   : PolygonAccessors<T>;
   /** Ruta `data` (el motor posee la Source) — mutuamente excluyente con `source`. */
   data?        : T[];
   /** Ruta `source` (el consumidor posee la Source; el motor sólo lee). Se lee al montar. */
   source?      : CristaeSource<T>;
+  /** Ruta `geometry`: las tablas del lector (`areasOf`), sin materializar un array. Implica
+   *  `backend: 'gpu'` —un `L.polygon` no las sabe leer— y no admite mutación: no hay Source. */
+  geometry?    : PolygonGpuGeometry;
+  /** Id de la entidad. Sale de `accessors.idOf` cuando lo hay; por la ruta `geometry` recibe el índice
+   *  de la FEATURE, y omitirlo ya identifica por feature (la geometría trae su `owner`). */
+  idOf?        : (subject: T | number) => string | number;
+  /** Estilo por entidad. Mismo criterio que `idOf` para el sujeto que recibe. */
+  styleOf?     : (subject: T | number) => Record<string, unknown>;
   pane?        : string;
   z?           : number;
   interactive? : boolean;
@@ -413,9 +424,13 @@ export interface PolygonLayerConfig<T> {
 }
 export interface PolygonHandle<T = unknown> {
   readonly id      : string;
-  readonly source? : CristaeReadSource<T>;
+  /** `null` por la ruta `geometry`: la geometría tipada es inmutable y no hay Source que exponer. */
+  readonly source? : CristaeReadSource<T> | null;
   set(items: T[]): void;
   setVisible(visible: boolean): void;
+  /** Sólo sobre el sustrato `'gpu'`: el de Leaflet reproyecta solo y reevalúa `styleOf` con la Source. */
+  redraw?(): void;
+  style?(options: Record<string, unknown>): void;
 }
 
 // ── Círculos en METROS (addCircleLayer) — Leaflet-native, escala con el zoom ──
@@ -653,6 +668,7 @@ export class MapEngine {
 
   addPointLayer<T>(config: PointLayerConfig<T>): PointHandle<T>;
   addPolygonLayer<T>(config: PolygonLayerConfig<T>): PolygonHandle<T>;
+  /** @deprecated Una sola puerta: `addPolygonLayer({ geometry, backend: 'gpu' })`. Se retira en 1.0. */
   addPolygonGpuLayer(config: PolygonGpuLayerConfig): PolygonGpuHandle;
   addLineLayer<T>(config: LineLayerConfig<T>): LineHandle<T>;
   addHtmlLayer<T>(config: HtmlLayerConfig<T>): HtmlHandle<T>;

@@ -642,3 +642,37 @@ test('sin `owner`, el sujeto sigue siendo la parte', () => {
   assert.deepEqual(hits(layer, { lat: 0, lng: 0 }).map(h => h.id), ['parte-0'])
   assert.deepEqual([...new Set(vistos)], [0], 'el alta ya lo consultó en su restyle')
 })
+
+/* ── 9. Una sola puerta: `addPolygonLayer` con geometría tipada ── */
+
+const conMotor = () => {
+  const map = makeMap()
+  const engine = new MapEngine({ leaflet: makeL(), glify: makeGlify(), map })
+  currentGl = editGl(newSpy())
+  return { engine, map }
+}
+
+test('`addPolygonLayer({ geometry })` monta el sustrato GPU sin declararlo', () => {
+  const { engine, map } = conMotor()
+  const handle = engine.addPolygonLayer({ id: 'areas', geometry: ONE_RING() })
+
+  assert.equal(typeof handle.redraw, 'function', 'el handle trae lo propio del sustrato GPU')
+  assert.equal(handle.source, null, 'la geometría tipada es inmutable: no hay Source que exponer')
+  assert.ok(map.getPane('cristae-polygon-areas'), 'y el pane es el de la puerta única')
+  assert.equal(engine.getLayer('areas').interactive, true, 'con el default de la puerta única')
+})
+
+// Un `L.polygon` no sabe leer tablas: degradar en silencio dejaría un mapa en blanco sin diagnóstico.
+test('pedir geometría tipada sobre el sustrato de Leaflet falla ruidoso', () => {
+  const { engine } = conMotor()
+  assert.throws(() => engine.addPolygonLayer({ id: 'x', geometry: ONE_RING(), backend: 'leaflet' }), /geometry/)
+})
+
+test('`addPolygonGpuLayer` delega y conserva su pane y su `interactive` histórico', () => {
+  const { engine, map } = conMotor()
+  const handle = engine.addPolygonGpuLayer({ id: 'areas', geometry: ONE_RING() })
+
+  assert.ok(map.getPane('cristae-polygon-gpu-areas'), 'el pane de siempre, no el de la puerta nueva')
+  assert.equal(engine.getLayer('areas').interactive, false, 'y su default de picking apagado')
+  assert.equal(typeof handle.style, 'function')
+})

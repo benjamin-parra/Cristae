@@ -25,7 +25,7 @@ document.querySelector('#geocercas').source = geocercas
 
 ## Cuál elegir
 
-| | `leaflet` (default) | `gpu` |
+| | `leaflet` | `gpu` (default) |
 |---|---|---|
 | sustrato | un `L.polygon` por figura | stencil + textura, un contexto WebGL |
 | escala cómoda | decenas o cientos de figuras | miles |
@@ -33,8 +33,11 @@ document.querySelector('#geocercas').source = geocercas
 | costo por repintado | O(figuras) nodos DOM | una paridad por anillo + una cobertura por polígono, **sólo de lo que toca el viewport** |
 | contexto WebGL | ninguno | **uno**, del techo de ~16 del navegador |
 
-El `gpu` gana cuando el DOM es el cuello. Con pocas figuras el sustrato de Leaflet no tiene rival:
-no toma un contexto, reproyecta solo y trae los eventos nativos del path.
+El `gpu` es el default porque el perfil habitual de esta capa es el volumen. Pero el costo que hay que
+tener en la cabeza no es el de dibujo sino el de **contexto**: cada capa GPU abre el suyo, y el
+navegador da unos ~16 en total; pasado el techo empieza a evictar los viejos. Con pocas figuras —o con
+varias capas de polígonos en la misma página— `leaflet` no tiene rival: no toma contexto, reproyecta
+solo y trae los eventos nativos del path.
 
 ## Estilo
 
@@ -54,11 +57,15 @@ contesta **una vez** por entidad.
 
 ## Geometría tipada, sin Source
 
-`addPolygonGpuLayer` monta la capa sobre las tablas CSR del [lector](geojson.md) sin pasar por arrays:
+La misma puerta acepta las tablas CSR del [lector](geojson.md) sin pasar por arrays. `geometry` implica
+el sustrato `gpu` —un `L.polygon` no las sabe leer, y pedir esa combinación falla ruidoso—:
 
 ```js
-engine.addPolygonGpuLayer({ id: 'geocercas', geometry: areasOf(readGeoJson(bytes)), interactive: true })
+engine.addPolygonLayer({ id: 'geocercas', geometry: areasOf(readGeoJson(bytes)) })
 ```
+
+El elemento la hereda, así que también entra por markup: `polygonLayer.geometry = areasOf(doc)`.
+`addPolygonGpuLayer` sigue existiendo como delegador **deprecado** y se retira en 1.0.
 
 `rings` y `parts` van juntas o no van: con una sola, el relleno y el picking mirarían conjuntos
 distintos y la capa contestaría por figuras que no dibujó.

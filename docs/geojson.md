@@ -87,12 +87,12 @@ del render, y quien consume esto sin dibujar —un hit-test, un cálculo de áre
 
 Una capa de relleno no dibuja puntos ni líneas: un `Point` no tiene interior y un `LineString` no
 cierra. `areasOf(geo)` devuelve **las tablas tal cual —sin copiar un vértice— más los ids de anillo y
-de parte de los `Polygon` y `MultiPolygon`**, que es lo que consume `addPolygonGpuLayer`:
+de parte de los `Polygon` y `MultiPolygon`**, que es lo que consume la capa de polígonos por su ruta `geometry`:
 
 ```js
 import { readGeoJson, areasOf } from 'cristae/geojson'
 
-engine.addPolygonGpuLayer({ id: 'geocercas', geometry: areasOf(readGeoJson(bytes)) })
+engine.addPolygonLayer({ id: 'geocercas', geometry: areasOf(readGeoJson(bytes)) })
 ```
 
 Sin ella, un documento mixto sube a la textura vértices que nadie rellena y su índice de hit contesta

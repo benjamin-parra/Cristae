@@ -10,6 +10,9 @@ import { MapEngine } from '../../src/engine/MapEngine.js'
 import { createSource } from '../../src/data/Source.js'
 
 const accessors = { idOf: g => g.id, ringsOf: () => [[[0, 0], [0, 1], [1, 1]]] }
+// El contrato de propiedad de la Source no depende del sustrato, pero este harness no abre contextos
+// WebGL: se declara el de Leaflet, que es el que sabe montar.
+const LEAFLET = { backend: 'leaflet' }
 const newEngine = () => new MapEngine({ leaflet: makeLeaflet(), glify: makeGlify(), map: makeMap() })
 const ids = source => source.getSnapshot().map(g => g.id)
 
@@ -18,7 +21,7 @@ test('con `source`, el motor expone la del consumidor y el handle no la muta', (
   const source = createSource(accessors)
   source.set([{ id: 'z1' }, { id: 'z2' }])
 
-  const handle = engine.addPolygonLayer({ id: 'zonas', accessors, source })
+  const handle = engine.addPolygonLayer({ id: 'zonas', ...LEAFLET, accessors, source })
   assert.equal(handle.source, source, 'el handle expone la MISMA Source, no una copia')
 
   handle.set([{ id: 'z3' }])
@@ -28,7 +31,7 @@ test('con `source`, el motor expone la del consumidor y el handle no la muta', (
 
 test('sin `source`, el motor posee la suya y `set` la alimenta', () => {
   const engine = newEngine()
-  const handle = engine.addPolygonLayer({ id: 'zonas', accessors, data: [{ id: 'z1' }] })
+  const handle = engine.addPolygonLayer({ id: 'zonas', ...LEAFLET, accessors, data: [{ id: 'z1' }] })
   assert.deepEqual(ids(handle.source), ['z1'], 'el `data` del alta siembra la Source poseída')
 
   handle.set([{ id: 'z1' }, { id: 'z2' }])

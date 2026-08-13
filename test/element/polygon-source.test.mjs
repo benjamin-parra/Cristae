@@ -31,3 +31,14 @@ test('sin declararlos, el alta los recibe ausentes y el motor aplica sus default
   assert.equal(cfg.source, undefined, 'sin source → el motor crea la suya con los accessors')
   assert.equal(cfg.backend, undefined, "backend ausente → el motor hace backend = 'leaflet'")
 })
+
+// Tercera entrada de dato: las tablas del lector. Es la que cierra el hueco declarativo — antes la
+// geometría tipada sólo entraba por el handle imperativo.
+test('`geometry` sola alcanza para montar y llega al alta', () => {
+  const geometry = { rings: new Uint32Array([0]), parts: new Uint32Array([0]) }
+  assert.equal(capa({ geometry }).mountReady(), true, 'sin Source ni accessors')
+
+  const cfg = capa({ id: 'geocercas', geometry }).mountLayer(eco)
+  assert.equal(cfg.geometry, geometry, 'las MISMAS tablas, no una copia')
+  assert.equal(cfg.source, undefined, 'y sin Source: la geometría tipada es inmutable')
+})

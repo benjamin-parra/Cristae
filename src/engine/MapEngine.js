@@ -222,21 +222,36 @@ export class MapEngine {
 
   /* ── Capas de polígonos (display Leaflet + hit-testing por índice geométrico) ── */
 
-  // Polígonos REACTIVOS a una Source (styleOf + fast-path por dirtyIds), sustrato Leaflet-native (0
-  // contextos WebGL). Como línea/vector: no va a #glLayers (Leaflet reproyecta solo), picking síncrono.
+  // Polígonos, una sola puerta. Dos ejes independientes:
+  //
+  //   · el SUSTRATO — `backend`: 'gpu' (default; stencil en una textura, UN contexto WebGL de los ~16
+  //     del navegador) o 'leaflet' (un path por figura, sin contexto). Mismo contrato de picking y de
+  //     foco. Ninguno va a #glLayers: el de Leaflet reproyecta solo y el de GPU con sus propios
+  //     moveend/zoomend/resize. Con decenas de figuras y varias capas en la página, 'leaflet' evita
+  //     gastar contextos; el default favorece el volumen, que es el perfil habitual.
+  //   · el DATO — `data`/`source` (entidades con accessors) o `geometry` (las tablas del lector, sin
+  //     materializar un array). La geometría tipada es inmutable: no hay Source que mutar.
+  //
+  // `idOf`/`styleOf` salen de `accessors` cuando lo hay, así que la ruta tipada los declara en el
+  // MISMO lugar que la reactiva.
   addPolygonLayer(cfg) {
-    // `backend: 'gpu'` monta la capa por stencil en el MISMO lugar: mismo Source, mismos accessors,
-    // mismo contrato de picking y de foco. Queda opt-in hasta que el reemplazo esté probado en pantalla.
-    const { id, data, accessors, pane, z, source: dado, interactive = true, visible = true, backend = 'leaflet', ...style } = cfg
+    const { id, data, accessors, pane, z, source: dado, geometry,
+            idOf = accessors?.idOf, styleOf = accessors?.styleOf,
+            interactive = true, visible = true, backend = 'gpu', ...style } = cfg
+    // Un `L.polygon` no sabe leer tablas tipadas. Pedirlo es un error del llamador, no algo que
+    // degradar en silencio a un mapa en blanco.
+    if (geometry && backend !== 'gpu')
+      throw new Error('[cristae] `geometry` sólo la dibuja el sustrato `gpu`')
     const order    = this.#order++
     const paneName = pane ?? `cristae-polygon-${id}`
     const zIndex   = z ?? (BASE_Z + order * Z_STEP)
     this.#ensurePane(paneName, zIndex, false)          // display puro; picking propio por índice
 
-    const controls = dado ? null : createSource(accessors)          // dueño motor (data) vs consumidor (cfg.source)
-    const source   = dado ?? controls
+    // Sin `geometry`: dueño motor (data) vs consumidor (cfg.source). Con `geometry` no hay Source.
+    const controls = geometry || dado ? null : createSource(accessors)
+    const source   = geometry ? null : dado ?? controls
     const layer    = backend === 'gpu'
-      ? new PolygonGpuLayer({ L: this.#L, map: this.#map, pane: paneName, source, interactive, ...style })
+      ? new PolygonGpuLayer({ L: this.#L, map: this.#map, pane: paneName, source, geometry, idOf, styleOf, interactive, ...style })
       : new PolygonLayer({ L: this.#L, map: this.#map, pane: paneName, source, interactive })
 
     const record = { kind: 'polygon', source, layer, controls, paneName, zIndex, order, interactive, visible, enabled: true }
@@ -248,34 +263,19 @@ export class MapEngine {
 
     if (data && controls) controls.set(data)
     this.#flushPendingBinds()
-    return { id, source, set: items => controls?.set(items), setVisible: v => this.setLayerVisibility(id, v) }
+    const handle = { id, source, set: items => controls?.set(items), setVisible: v => this.setLayerVisibility(id, v) }
+    // Repintar y reestilar a mano sólo existen sobre GPU: el sustrato de Leaflet reproyecta solo y su
+    // estilo se reevalúa por `styleOf` cuando la Source cambia.
+    if (backend === 'gpu') Object.assign(handle, {
+      redraw: () => record.layer.redraw(),
+      style : options => record.layer.style(options),
+    })
+    return handle
   }
 
-  // Polígonos ESTÁTICOS en GPU: stencil sobre geometría tipada e inmutable (miles de anillos), sin
-  // Source. Va a #glLayers: el stencil vive en el framebuffer y se rehace en cada reencuadre.
-  addPolygonGpuLayer(cfg) {
-    // El resto del cfg son opciones de path de Leaflet (color/weight/opacity/fill*): viajan tal cual,
-    // que es lo que hace que la capa entre en lugar de `addPolygonLayer` sin traducir nada.
-    const { id, geometry, pane, z, interactive = false, visible = true, idOf = null, ...style } = cfg
-    const order    = this.#order++
-    const paneName = pane ?? `cristae-polygon-gpu-${id}`
-    const zIndex   = z ?? (BASE_Z + order * Z_STEP)
-    this.#ensurePane(paneName, zIndex, false)          // display puro; picking propio por índice
-
-    const layer  = new PolygonGpuLayer({ L: this.#L, map: this.#map, pane: paneName, geometry, interactive, idOf, ...style })
-    const record = { kind: 'polygon', layer, paneName, zIndex, order, interactive, visible, enabled: true }
-    this.#layers.set(id, record)
-
-    if (interactive)
-      this.#registerResolver(id, 'polygon', zIndex, order, e => record.layer.resolveClick(e), e => record.layer.resolveHover(e))
-    this.#applyVisibility(id, paneName, visible)
-
-    return {
-      id,
-      redraw     : () => record.layer.redraw(),
-      style      : options => record.layer.style(options),
-      setVisible : v => this.setLayerVisibility(id, v),
-    }
+  /** @deprecated Una sola puerta: `addPolygonLayer({ geometry, backend: 'gpu' })`. Se retira en 1.0. */
+  addPolygonGpuLayer({ id, pane, interactive = false, ...cfg }) {
+    return this.addPolygonLayer({ ...cfg, id, interactive, backend: 'gpu', pane: pane ?? `cristae-polygon-gpu-${id}` })
   }
 
   /* ── Capas de líneas (GL glify.Lines + hit-testing nearest-segment CPU) ── */

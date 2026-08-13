@@ -98,6 +98,7 @@ test('una capa nativa atenúa por FEATURE: su pane queda pleno y no necesita pas
   const engine = await conDosCapas()
   engine.addPolygonLayer({
     id: 'zonas',
+    backend: 'leaflet',                        // el sustrato del que habla el test: atenúa por feature
     accessors: { idOf: it => it.id, ringsOf: () => [[[0, 0], [0, 1], [1, 1]]] },
     data: [{ id: 'z1' }, { id: 'z2' }],
   })

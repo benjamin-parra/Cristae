@@ -220,15 +220,20 @@ Dos entradas de dato **simétricas**:
 | `id` | string | atributo |
 | `interactive` | boolean (default `true`) | atributo |
 | `visible` | boolean (default `true`) | atributo |
-| `backend` | `'leaflet'` (default) \| `'gpu'` | atributo |
+| `backend` | `'gpu'` (default) \| `'leaflet'` | atributo |
 | `data` | `Item[]` (ruta A) | **prop** |
 | `source` | `Source` (ruta B/C) | **prop** |
+| `geometry` | tablas del lector (`areasOf`) | **prop** — implica `backend="gpu"` |
 | `accessors` | `{ idOf, ringsOf, styleOf? }` | **prop** |
 
-Las dos entradas de dato son las mismas que en la capa de puntos: `.data` (el elemento posee la
+Tres entradas de dato. Las dos primeras son las de la capa de puntos: `.data` (el elemento posee la
 Source) y `.source` (la posee el consumidor y la comparte entre vistas); por `source` los accessors
-viajan con ella. `backend` elige el sustrato —un `L.polygon` por figura, o relleno por stencil y
-contorno en una textura—.
+viajan con ella. La tercera es `.geometry` — las tablas del lector (`areasOf`), sin materializar un
+array —, que trae su propia identidad: sin `accessors`, cada figura responde por su feature.
+
+`backend` elige el sustrato: `gpu` (default) rellena por stencil en una textura y toma **un contexto
+WebGL** de los ~16 del navegador; `leaflet` monta un path por figura y no toma ninguno, que es lo que
+conviene con pocas figuras o con varias capas de polígonos en la misma página.
 
 `backend` y `source` se leen **al montar**: reasignarlos no remonta la capa. Es la diferencia con la
 capa de puntos, donde `source` sí se reengancha en caliente. Los dos sustratos consumen el mismo
