@@ -5,6 +5,22 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
 [`docs/versionado.md`](docs/versionado.md) — en `0.x`, el **minor cuenta los cambios medios**
 (capacidad o eje de API nuevo) y el **patch los menores desde el último medio** (fix / perf / revert).
 
+## [0.32.1] - 2026-08-12
+
+### Corregido
+- **El contorno une por miter: se van la muesca del codo Y el vértice oscuro con alfa.** Eran el mismo
+  problema visto de los dos lados. Expandir cada segmento sólo a los lados deja sin cubrir la cuña
+  exterior del codo; taparla agrandando los quads hasta que se pisen cambia el hueco por un solape, y
+  un solape con `opacity < 1` mezcla el alfa dos veces. Ahora cada extremo se desplaza sobre la
+  BISECTRIZ de sus dos segmentos, así que los dos quads que comparten un vértice caen sobre las mismas
+  dos esquinas: ni hueco ni solape. En un codo muy cerrado el desplazamiento se topea, y como los dos
+  segmentos aplican el mismo tope siguen compartiendo esquina —el codo se corta plano en vez de
+  abrirse—. Mismo conteo de vértices y sigue sin atributos ni buffer propio: son dos `texelFetch` más
+  por vértice, los vecinos.
+- **El descarte por viewport cuenta el ancho del trazo.** Se expandía en píxeles de pantalla y el
+  descarte comparaba la caja pelada, así que una figura apenas afuera perdía su borde hasta entrar
+  entera. El margen sale del medio ancho máximo, convertido a unidades de mundo con el zoom vigente.
+
 ## [0.32.0] - 2026-08-12
 
 ### Agregado
