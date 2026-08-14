@@ -97,7 +97,9 @@ import { CristaeMap, CristaePointLayer, CristaeCluster, CristaePopup } from '@cr
 - **`CristaeToolbar`** — dock flotante de acciones (`items` + `orientation`), colocado por `slot`.
 - **`CristaeTable`** — el otro entry de la lib (`import 'cristae/table'` registra el elemento; no lo
   arrastra `cristae/map`). No es una capa: es standalone y consume el **mismo** contrato Source, así que
-  una fuente alimenta mapa y tabla a la vez (`template`/`binder`, `search`, `onRowClick`).
+  una fuente alimenta mapa y tabla a la vez (`template`/`binder`, `search`, `where`, `onRowClick`). Su
+  `ref` es `CristaeTableElement`: `controls` es el engine `PagedTable` (`setPage`, `refresh`,
+  `itemAtRow`, `pageOf`), no un handle de capa.
 
 Los tipos de props reusan los shapes de `cristae/map` (`PointAccessors<T>`, `IconSet`, `Insets`, …),
 así el genérico `T` se infiere del `data`/`accessors` y un accessor mal formado se marca en compilación.
@@ -121,12 +123,14 @@ overlay (+ `empty`, y `bubble`/`center` dentro de un cluster), así que un typo 
   `click`/`hover` **por capa**.
 - ✅ **Props tipadas por componente** (`types/index.d.ts`), reusando `cristae/map`: hits como unión
   discriminada, tipos de los elementos para el `ref` (`CristaeMapElement`, `…LayerElement`,
-  `CristaeClusterElement`, `CristaePopupElement`), sesión del cluster, painter de labels y `slot`.
+  `CristaeClusterElement`, `CristaePopupElement`, `CristaeTableElement`), sesión del cluster, painter de
+  labels y `slot`.
 - ✅ **Tests de render** (`test/render.test.mjs`, react-dom + jsdom): (a) el dato por propiedad y los
   escalares por atributo; (b) cambiar `data` re-asigna la propiedad **sin** re-renderizar los hijos
   React; (c) `onX` se cablea con `addEventListener` y se limpia al desmontar; (d) los canales del bus
   van por `engine.on` (filtrados por capa) y se dan de baja al desmontar; (e) el `ref` publica el
-  elemento sin romper la aplicación de props.
+  elemento sin romper la aplicación de props; (g) en `<cristae-table>`, `template` (string) y `where`
+  entran por propiedad y los escalares por atributo.
 
 ```bash
 npm test          # node --test — núcleo (fake element) + render (react-dom + jsdom)

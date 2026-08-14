@@ -4,16 +4,18 @@
 //   (b) 🔴 cambiar `data` re-asigna la propiedad SIN reconciliar los hijos React (no hay hot-path por React);
 //   (c) un handler `onX` se cablea con addEventListener(cristae:*) y se limpia al desmontar;
 //   (d) los handlers del BUS del motor se suscriben por engine.on (filtrados por capa), NO por el DOM;
-//   (e) el `ref` publica el elemento vivo sin romper la aplicación de props.
+//   (e) el `ref` publica el elemento vivo sin romper la aplicación de props;
+//   (g) una prop string cuya propiedad declara `attribute: false` entra por PROPIEDAD, no por atributo.
 // No registramos los custom elements de la lib: un `<cristae-map>` sin definir es un elemento genérico,
-// suficiente para observar lo que el binding le aplica (atributos / propiedades / listeners).
+// suficiente para observar lo que el binding le aplica (atributos / propiedades / listeners). El único
+// definido es el fake de (g): sólo lleva `elementProperties`, la entrada que clasifica la prop.
 
 import './setup-jsdom.mjs'   // primero: puebla los globals DOM antes de que react-dom se evalúe
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createElement as e, act, createRef, memo } from 'react'
 import { createRoot } from 'react-dom/client'
-import { CristaeMap, CristaePointLayer } from '../src/index.js'
+import { CristaeMap, CristaePointLayer, CristaeTable } from '../src/index.js'
 
 const accessors = { idOf: (d) => d.id, positionOf: (d) => ({ lat: d.lat, lng: d.lng }) }
 
@@ -163,4 +165,33 @@ test('(e) el `ref` publica el elemento vivo y las props se siguen aplicando', ()
 
   unmount()
   assert.equal(ref.current, null, 'React lo anula al desmontar')
+})
+
+test('(g) <cristae-table>: `template` y `where` por propiedad, los escalares por atributo, onRowClick por el DOM', () => {
+  class FakeTable extends HTMLElement {
+    static elementProperties = new Map([['template', { attribute: false }], ['where', { attribute: false }]])
+  }
+  window.customElements.define('cristae-table', FakeTable)
+
+  const template = '<tr><td data-ref="pat"></td></tr>'
+  const where = m => m.activo
+  const clicks = []
+
+  const { container, unmount } = mount(
+    e(CristaeTable, { template, where, rowHeight: 36, countLabel: 'móviles', onRowClick: ev => clicks.push(ev.detail) }),
+  )
+  const tabla = container.querySelector('cristae-table')
+
+  assert.equal(tabla.template, template, 'template (string) se asignó como PROPIEDAD')
+  assert.equal(tabla.getAttribute('template'), null, 'template NO es atributo')
+  assert.equal(tabla.where, where, 'where se asignó como PROPIEDAD (misma ref)')
+  assert.equal(tabla.getAttribute('row-height'), '36', 'rowHeight → atributo row-height')
+  assert.equal(tabla.getAttribute('count-label'), 'móviles', 'countLabel → atributo count-label')
+
+  tabla.dispatchEvent(new CustomEvent('cristae:rowclick', { detail: { item: { id: 1 }, row: 3 } }))
+  assert.deepEqual(clicks, [{ item: { id: 1 }, row: 3 }], 'onRowClick escucha cristae:rowclick')
+
+  unmount()
+  tabla.dispatchEvent(new CustomEvent('cristae:rowclick', { detail: { item: { id: 2 }, row: 4 } }))
+  assert.equal(clicks.length, 1, 'tras desmontar, el handler ya no recibe eventos')
 })

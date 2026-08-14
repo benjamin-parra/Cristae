@@ -355,9 +355,10 @@ lectura** del `Source` (§2): `getSnapshot()` + `subscribe(cb)`; ignora `accesso
 | `.data` (prop) | `Item[]` | sí | `setData` (array plano, sin reactividad) |
 | `.template` / `.binder` (prop) | string / función | sí | molde + poblado de la fila |
 | `.comparator` / `.searchBy` / `.searchFilter` (prop) | funciones | sí | orden del slice / campo y predicado de búsqueda |
+| `.where` (prop) | `(item) → boolean` | sí | membresía de ESTA tabla, antes del text-search (N tablas sobre una Source, cada una su subconjunto; `addFilter` es el filtro compartido) |
 | `row-height` / `page-size` / `max-buttons` (attr) | number | sí | layout / paginación |
 | `search` / `count-label` / `scroll-height` (attr) | string | sí | búsqueda controlada / pie / alto |
-| **acceso** | `controls` → `PagedTable` (`setPage/setSearch/setPageSize/refresh/itemAtRow`) | acción | — |
+| **acceso** | `controls` → `PagedTable` (`setPage/setSearch/setPageSize/setWhere/refresh/itemAtRow`) | acción | — |
 | **evento** | `cristae:rowclick` → `{ item, row }` | — | delegación vía slice visible |
 
 - **Una source, N vistas:** el filtro/estado vive en el `Source` (computado una vez). La misma

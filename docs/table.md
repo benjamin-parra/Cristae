@@ -70,6 +70,7 @@ del consumidor → su CSS las alcanza; el shadow las encapsularía).
 | `comparator` | `(a, b) => number` (orden del slice) | **prop** |
 | `searchBy` | `(item) => any` (campo a buscar) | **prop** |
 | `searchFilter` | `(query, item, value) => boolean` (predicado custom; default `includes`) | **prop** |
+| `where` | `(item) => boolean` (membresía de ESTA tabla, antes del text-search) | **prop** |
 | `row-height` | number (px, default 28) | atributo |
 | `page-size` | number (default 50) | atributo |
 | `max-buttons` | number (default 7) | atributo |
@@ -115,6 +116,8 @@ const fleet = createSource(ACCESSORS); fleet.set(MOVILES)
 document.querySelector('cristae-point-layer#fleet').source = fleet
 document.querySelector('cristae-table#grid').source = fleet
 fleet.addFilter(makeFilter('activos', m => m.activo))   // UNA vez → mapa y tabla se refrescan
+
+document.querySelector('cristae-table#sin-viaje').where = m => !m.viaje   // sólo ESA tabla
 ```
 
 ---
@@ -124,7 +127,7 @@ fleet.addFilter(makeFilter('activos', m => m.activo))   // UNA vez → mapa y ta
 Para usar la mecánica sin el web component (otra piel, vanilla, SSR-hidratado). Importa solo de
 `data/` (de hecho, duck-typea el `Source`: nada en runtime).
 
-Construcción: `new PagedTable({ container, scrollElement, template, binder, rowHeight?, pageSize?, comparator?, searchBy?, searchFilter?, onSlice?, onPage? })`.
+Construcción: `new PagedTable({ container, scrollElement, template, binder, rowHeight?, pageSize?, comparator?, searchBy?, searchFilter?, where?, onSlice?, onPage? })`.
 
 | Método | Propósito | Firma | Complejidad |
 |---|---|---|---|
@@ -133,6 +136,7 @@ Construcción: `new PagedTable({ container, scrollElement, template, binder, row
 | `setPage(i)` | Va a la página `i`. | `(number) → this` | pipeline |
 | `setPageSize(n)` | Cambia el tamaño de página (hard). | `(number) → this` | pipeline |
 | `setSearch(text)` | Filtra por `searchBy` (hard). | `(string) → this` | pipeline |
+| `setWhere(fn)` | Subconjunto de ESTA tabla; reemplaza al anterior, `null` lo desactiva (hard). | `((Item) → boolean)\|null → this` | pipeline |
 | `getPageInfo()` | `{ page, pageSize, total, pages, offset }`. | `() → object` | O(1) |
 | `itemAtRow(rowIndex)` | Ítem de una fila (índice 1-based del DOM, vía slice visible). | `(number) → Item\|null` | O(1) |
 | `refresh()` | Reprocesa con el dataset actual. | `() → this` | pipeline |
@@ -168,6 +172,8 @@ table.attach(source)               // o table.setData(items)
 
 - **Una fuente, varias vistas:** el filtro/estado vive en el `Source` (computado una vez); la tabla
   solo lee. No se filtra dos veces aunque haya dos vistas.
+- **Subconjunto por tabla:** `where` recorta lo que muestra ESA tabla sin tocar la `Source`, así que N
+  tablas comparten una fuente con vistas distintas. `addFilter` sigue siendo el filtro de todas.
 - **Scroll virtual:** el DOM tiene O(v) filas, no O(n).
 - **Borde de página O(n):** quickselect, no orden total; se ordena solo el slice de la página.
 - **`[0-alloc]` en estable:** reuse de `workingSet`, repoblado del pool (sin `createElement`).

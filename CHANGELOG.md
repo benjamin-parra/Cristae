@@ -5,6 +5,18 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
 [`docs/versionado.md`](docs/versionado.md) — en `0.x`, el **minor cuenta los cambios medios**
 (capacidad o eje de API nuevo) y el **patch los menores desde el último medio** (fix / perf / revert).
 
+## [Sin publicar]
+
+### Agregado
+- **`<cristae-table>` declara `where`.** El subconjunto por tabla vivía sólo en el engine
+  (`PagedTable.setWhere`), así que desde el markup —o desde el binding React— había que pedirle
+  `controls` al elemento y llamarlo a mano. Ahora es una propiedad más: N tablas sobre una misma
+  `Source`, cada una con su vista, sin tocar el filtro compartido (`addFilter`) que ven todos los
+  consumidores.
+- **El `ref` de `<CristaeTable>` viene tipado.** `CristaeTableElement<T>` publica `controls` como
+  `PagedTable<T>` — el único camino a `setPage` / `refresh` / `itemAtRow` / `pageOf`. Las capas ya
+  tenían su `…LayerElement`; la tabla quedaba en `HTMLElement` y su handle, sin tipo.
+
 ## [0.32.1] - 2026-08-12
 
 ### Corregido

@@ -385,6 +385,7 @@ API, optimizaciones y ejemplos en [`table.md`](./table.md).
 | `source` / `data` | `Source` / `Item[]` (simétricas; `source` gana) | **prop** |
 | `template` / `binder` | `string` HTML / `(refs, item, rowNumber) => void` | **prop** |
 | `comparator` / `searchBy` / `searchFilter` | funciones | **prop** |
+| `where` | `(item) => boolean` — membresía de ESTA tabla, antes del text-search | **prop** |
 | `row-height` / `page-size` / `max-buttons` | number | atributo |
 | `search` / `count-label` / `scroll-height` | string | atributo / prop |
 

@@ -19,6 +19,7 @@ import {
   type CristaeMapElement,
   type CristaePointLayerElement,
   type CristaePopupElement,
+  type CristaeTableElement,
   type CristaeViewportChangeDetail,
 } from '@cristae/react'
 import { createSource, defineSource, defineIconSet, drawLabel, type CristaeSource } from 'cristae/map'
@@ -120,21 +121,28 @@ const paint: CristaeLabelPaint = (ctx, point, label, hovered, style) => {
 const paintDefault: CristaeLabelPaint = drawLabel
 
 // La MISMA Source alimenta el mapa y la tabla (el otro entry de la lib).
-export const ConTabla = () => (
-  <>
-    <CristaeMap>
-      <CristaePointLayer<Movil> id="fleet" source={readOnly} accessors={acc} iconSet={iconSet} />
-    </CristaeMap>
-    <CristaeTable<Movil>
-      source={readOnly}
-      template='<tr><td data-ref="pat"></td></tr>'
-      binder={(refs, m) => { refs.pat.textContent = m.patente }}
-      pageSize={100}
-      searchBy={(m) => m.patente}
-      onRowClick={(e) => { void e.detail.item.patente; void e.detail.row }}
-    />
-  </>
-)
+export const ConTabla = () => {
+  const tabla = useRef<CristaeTableElement<Movil>>(null)
+
+  return (
+    <>
+      <CristaeMap>
+        <CristaePointLayer<Movil> id="fleet" source={readOnly} accessors={acc} iconSet={iconSet} />
+      </CristaeMap>
+      <CristaeTable<Movil>
+        ref={tabla}
+        source={readOnly}
+        template='<tr><td data-ref="pat"></td></tr>'
+        binder={(refs, m) => { refs.pat.textContent = m.patente }}
+        pageSize={100}
+        searchBy={(m) => m.patente}
+        where={m => m.estado === 'mov'}
+        onRowClick={(e) => { void e.detail.item.patente; void e.detail.row }}
+      />
+      <button onClick={() => tabla.current?.controls?.setPage(0)}>primera</button>
+    </>
+  )
+}
 
 // El `ref` es el escape imperativo: cámara/motor del mapa, handle de la capa, sesión del cluster y
 // los métodos del popup.

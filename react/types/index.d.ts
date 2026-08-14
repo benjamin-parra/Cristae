@@ -47,6 +47,7 @@ import type {
   CristaeReadSource,
   CristaeFilter,
 } from '../../types/map'
+import type { PagedTable } from '../../types/table'
 
 /** Re-export de conveniencia: los tipos de Source con los que se anotan las props de dato. Una Source
  *  de `defineSource` es `CristaeReadSource`; sólo `createSource` devuelve la `CristaeSource` mutable. */
@@ -477,7 +478,10 @@ export declare const CristaeToolbar: ForwardRefExoticComponent<CristaeToolbarPro
 // ── <CristaeTable> ───────────────────────────────────────────────────────────
 // El OTRO entry de la lib (`import 'cristae/table'` registra el elemento — no lo arrastra `cristae/map`).
 // No es una capa ni va dentro del `<CristaeMap>`: es standalone y consume el MISMO contrato Source, así
-// que una fuente alimenta mapa y tabla a la vez.
+// que una fuente alimenta mapa y tabla a la vez. Su `ref` expone el engine `PagedTable`, no un handle
+// de capa: es el único camino a `setPage` / `refresh` / `itemAtRow` / `pageOf`.
+
+export interface CristaeTableElement<T = unknown> extends HTMLElement { readonly controls: PagedTable<T> | null }
 
 // Sin `children` ni `slot`: el elemento renderiza en LIGHT DOM (su render root ES el elemento), así que
 // un hijo de React lo pisaría el render de Lit; y al ser standalone no hay zona de overlay donde ubicarlo.
@@ -493,6 +497,8 @@ export interface CristaeTableProps<T = unknown> extends Omit<CristaeBaseProps, '
   searchBy?     : (item: T) => unknown;
   /** Predicado de match custom (default: `includes` case-insensitive). */
   searchFilter? : (query: string, item: T, value: unknown) => boolean;
+  /** Membresía por-tabla: filtra qué ítems entran a ESTA vista sin tocar la Source compartida. */
+  where?        : (item: T) => boolean;
   rowHeight?    : number;
   pageSize?     : number;
   maxButtons?   : number;
@@ -503,5 +509,5 @@ export interface CristaeTableProps<T = unknown> extends Omit<CristaeBaseProps, '
   onRowClick?   : CristaeEventHandler<{ item: T; row: number }>;
 }
 export declare function CristaeTable<T = unknown>(
-  props: CristaeTableProps<T> & RefAttributes<HTMLElement>,
+  props: CristaeTableProps<T> & RefAttributes<CristaeTableElement<T>>,
 ): ReactElement | null;

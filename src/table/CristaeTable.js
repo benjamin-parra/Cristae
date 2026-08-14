@@ -18,6 +18,7 @@ import { paginationModel } from './pagination.js'
 // Proyección de fila:
 //   .template : string HTML de una fila con atributos `data-ref`.
 //   .binder   : (refs, item, rowNumber) => void.
+//   .where    : (item) => boolean — membresía de ESTA vista, antes del text-search.
 //
 // La paginación se dibuja declarativamente desde `paginationModel` (función pura); el engine solo
 // reporta `pageInfo`. Click en una fila → evento `cristae:rowclick` con `detail: { item, row }`.
@@ -31,6 +32,7 @@ export class CristaeTable extends LitElement {
     comparator:   { attribute: false },
     searchBy:     { attribute: false },
     searchFilter: { attribute: false },
+    where:        { attribute: false },
     rowHeight:    { type: Number, attribute: 'row-height' },
     pageSize:     { type: Number, attribute: 'page-size' },
     maxButtons:   { type: Number, attribute: 'max-buttons' },
@@ -56,6 +58,7 @@ export class CristaeTable extends LitElement {
     this.comparator   = null
     this.searchBy     = null
     this.searchFilter = null
+    this.where        = null
     this.rowHeight    = 28
     this.pageSize     = 50
     this.maxButtons   = 7
@@ -112,6 +115,7 @@ export class CristaeTable extends LitElement {
 
     if (changed.has('source') && this.source) e.attach(this.source)
     else if (changed.has('data') && this.data) e.setData(this.data)
+    if (changed.has('where')) e.setWhere(this.where)
     if (changed.has('search')) e.setSearch(this.search)
     if (changed.has('pageSize')) e.setPageSize(this.pageSize)
   }
@@ -141,6 +145,7 @@ export class CristaeTable extends LitElement {
       comparator:   this.comparator,
       searchBy:     this.searchBy,
       searchFilter: this.searchFilter,
+      where:        this.where,
       onPage:       info => this._pageInfo = info,
     })
 
