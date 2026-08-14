@@ -5,7 +5,7 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
 [`docs/versionado.md`](docs/versionado.md) — en `0.x`, el **minor cuenta los cambios medios**
 (capacidad o eje de API nuevo) y el **patch los menores desde el último medio** (fix / perf / revert).
 
-## [Sin publicar]
+## [0.33.0] - 2026-08-14
 
 ### Agregado
 - **`<cristae-table>` declara `where`.** El subconjunto por tabla vivía sólo en el engine
@@ -13,9 +13,14 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   `controls` al elemento y llamarlo a mano. Ahora es una propiedad más: N tablas sobre una misma
   `Source`, cada una con su vista, sin tocar el filtro compartido (`addFilter`) que ven todos los
   consumidores.
+
+### Cambiado
 - **El `ref` de `<CristaeTable>` viene tipado.** `CristaeTableElement<T>` publica `controls` como
   `PagedTable<T>` — el único camino a `setPage` / `refresh` / `itemAtRow` / `pageOf`. Las capas ya
   tenían su `…LayerElement`; la tabla quedaba en `HTMLElement` y su handle, sin tipo.
+  *Migración*: estrecha el TIPO del `ref`, sin efecto en runtime. Quien lo anotara a mano como
+  `useRef<HTMLElement>(null)` pasa a `useRef<CristaeTableElement<T>>(null)`; sin anotación explícita
+  se infiere del componente y no hay nada que tocar.
 
 ## [0.32.1] - 2026-08-12
 
