@@ -1,5 +1,5 @@
 import { EditFillLayer } from './EditFillLayer.js'
-import { FEATHER, PolygonStrokePass } from './PolygonStrokePass.js'
+import { FEATHER, StrokePass } from './StrokePass.js'
 import { EditSurface } from './EditSurface.js'
 import { RingStore } from './RingStore.js'
 import { projX0, projY0 } from './project.js'
@@ -116,7 +116,7 @@ export class PolygonGpuLayer {
       const items = source ? source.getSnapshot() : null
       this.#ingest(geometry ?? tablesFromRings(items, source.accessors.ringsOf), items)
       this.#fill   = fill ? new EditFillLayer({ gl: this.#gl, rings: [], step: 1, color: fillColor, opacity: fillOpacity }) : null
-      this.#stroke = stroke ? new PolygonStrokePass({ gl: this.#gl, color, width: weight, opacity }) : null
+      this.#stroke = stroke ? new StrokePass({ gl: this.#gl, color, width: weight, opacity }) : null
       // El canvas se ancla en coordenadas de CAPA, así que el pane lo traslada durante el arrastre y
       // los píxeles siguen alineados: sólo una vista ya asentada necesita repintar.
       this.#onView = () => this.redraw()

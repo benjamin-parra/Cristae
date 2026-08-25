@@ -12,7 +12,7 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { SURFACE_ATTRS } from '../../src/render/EditSurface.js'
 import { EditFillLayer } from '../../src/render/EditFillLayer.js'
-import { PolygonStrokePass } from '../../src/render/PolygonStrokePass.js'
+import { StrokePass } from '../../src/render/StrokePass.js'
 import { RingStore } from '../../src/render/RingStore.js'
 
 const W0   = 256 / 360
@@ -113,7 +113,7 @@ test('el relleno translúcido llega a pantalla con el alfa que pidió el estilo'
 
 test('el trazo translúcido, con el mismo criterio', () => {
   const escena = montar()
-  const pase   = new PolygonStrokePass({ gl: escena.gl, color: '#ef4444', width: 3, opacity: 0.35 })
+  const pase   = new StrokePass({ gl: escena.gl, color: '#ef4444', width: 3, opacity: 0.35 })
 
   escena.gl.log.length = 0
   assert.equal(pase.draw(escena.rings, escena.vista), true)
@@ -121,6 +121,20 @@ test('el trazo translúcido, con el mismo criterio', () => {
   const { pedido, visto } = enPantalla(escena.gl.log, 'color')
   assert.ok(cerca(visto, sobre(pedido, FONDO)),
     `un trazo al 35% se ve como [${visto}] y el estilo pedía [${sobre(pedido, FONDO)}]`)
+})
+
+// Mismo contrato que el relleno: el estilo llega por partes —el color de una selección, el ancho de un
+// resaltado— y lo que no vino queda como estaba. Con el default en 1, restilar sólo el color devolvía
+// el trazo a opaco sin que nadie lo pidiera.
+test('restilar sin opacidad conserva la que había', () => {
+  const escena = montar()
+  const pase   = new StrokePass({ gl: escena.gl, color: '#ef4444', width: 3, opacity: 0.35 })
+
+  pase.style({ color: '#2563eb' })
+  escena.gl.log.length = 0
+  pase.draw(escena.rings, escena.vista)
+
+  assert.equal(enPantalla(escena.gl.log, 'color').pedido[3], 0.35)
 })
 
 test('con el alfa opaco los factores no discriminan: es el translúcido el que prueba algo', () => {
@@ -148,7 +162,7 @@ test('la combinación que aplica el alfa dos veces NO pasa el oráculo', () => {
 // Los cuatro pases dibujan sobre la MISMA superficie, así que la convención de mezcla es una sola. Los
 // tests de arriba corren dos; este ata los otros dos a la misma llamada en vez de duplicar el montaje.
 test('todos los pases de la superficie declaran la misma mezcla', async () => {
-  const pases = ['EditFillLayer', 'PolygonStrokePass', 'EditStrokeLayer', 'EditHandleLayer']
+  const pases = ['EditFillLayer', 'StrokePass', 'EditStrokeLayer', 'EditHandleLayer']
   const leer  = pase => readFile(new URL(`../../src/render/${pase}.js`, import.meta.url), 'utf8')
 
   for (const [i, fuente] of (await Promise.all(pases.map(leer))).entries()) {

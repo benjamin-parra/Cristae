@@ -5,6 +5,7 @@ import { Camera } from './Camera.js'
 import { PointLayer } from '../render/PointLayer.js'
 import { OBJ_BITS } from '../render/Picking.js'
 import { LineLayer } from '../render/LineLayer.js'
+import { LineGpuLayer } from '../render/LineGpuLayer.js'
 import { LeafletLineLayer } from '../render/LeafletLineLayer.js'
 import { PolygonLayer } from '../render/PolygonLayer.js'
 import { PolygonGpuLayer } from '../render/PolygonGpuLayer.js'
@@ -281,6 +282,9 @@ export class MapEngine {
 
   addLineLayer(cfg) {
     const { id, data, accessors, interactive = false, pane, z, visible = true, vector = false } = cfg
+    // Sustrato del trazo. `vector: true` sigue significando Leaflet; `backend` lo hace explícito y suma
+    // `gpu`, que da el grosor por quads (ver docs/lines.md).
+    const backend = cfg.backend ?? (vector ? 'leaflet' : 'glify')
     const order    = this.#order++
     const paneName = pane ?? `cristae-line-${id}`
     const zIndex   = z ?? (BASE_Z + order * Z_STEP)
@@ -291,9 +295,15 @@ export class MapEngine {
     const source   = cfg.source ?? controls
     // Backend: GL (glify, #trackGl para reproyectar en move/zoom) o Leaflet (DASH, reproyecta solo →
     // NO va a #glLayers). Mismo contrato de hit (kind 'line', nearest-segment) en ambos.
-    const layer = vector
-      ? new LeafletLineLayer({ L: this.#L, map: this.#map, pane: paneName, source, interactive })
-      : this.#trackGl(new LineLayer({ glify: this.#glify, map: this.#map, pane: paneName, source, interactive }))
+    if (backend === 'gpu' && interactive)
+      throw new Error('[cristae] el sustrato `gpu` de líneas no resuelve picking: usá `glify` si la capa es interactiva')
+    const sustratos = {
+      leaflet: () => new LeafletLineLayer({ L: this.#L, map: this.#map, pane: paneName, source, interactive }),
+      gpu:     () => new LineGpuLayer({ L: this.#L, map: this.#map, pane: paneName, source }),
+      glify:   () => this.#trackGl(new LineLayer({ glify: this.#glify, map: this.#map, pane: paneName, source, interactive })),
+    }
+    if (!sustratos[backend]) throw new Error(`[cristae] backend de líneas desconocido '${backend}' (glify | gpu | leaflet)`)
+    const layer = sustratos[backend]()
 
     const record = { kind: 'line', source, layer, controls, paneName, zIndex, order, interactive, visible, enabled: true }
     this.#layers.set(id, record)

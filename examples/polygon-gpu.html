@@ -39,13 +39,21 @@
   <div class="card">
     <h2>Geometría</h2>
     <p class="exp">Las patológicas son las que rompen una triangulación: auto-intersección, agujeros,
-      winding invertido, isla dentro de laguna. Las degeneradas se descartan por anillo.</p>
+      winding invertido, isla dentro de laguna. Las degeneradas se descartan por anillo.
+      Con más de una figura el conteo de vértices pasa a 24 por figura —el tamaño de una geocerca—:
+      el eje de escala es la CANTIDAD de polígonos, no el tamaño de cada uno.</p>
     <div class="row">
       <label>forma <select id="forma"></select></label>
       <label>vértices <select id="n">
         <option value="400">400</option>
         <option value="5000">5.000</option>
         <option value="50000">50.000</option>
+      </select></label>
+      <label>figuras <select id="figuras">
+        <option value="1">1</option>
+        <option value="100">100</option>
+        <option value="1000">1.000</option>
+        <option value="5000">5.000</option>
       </select></label>
     </div>
   </div>
@@ -54,10 +62,11 @@
     <h2>Qué se dibuja</h2>
     <div class="row">
       <label>modo <select id="modo">
-        <option value="ambos">ambos (comparar)</option>
-        <option value="gpu">sólo GPU (stencil)</option>
-        <option value="leaflet">sólo Leaflet (SVG)</option>
+        <option value="ambos">stencil + Leaflet (comparar)</option>
+        <option value="stencil">sólo stencil</option>
+        <option value="leaflet">Leaflet (SVG)</option>
       </select></label>
+      <label><input type="checkbox" id="contorno" checked> contorno</label>
     </div>
     <div class="row" style="font-size:11px;color:#94a3b8">
       <span><span class="swatch" style="background:#22d3ee"></span> GPU</span>
@@ -72,9 +81,13 @@
       cabalga el transform del pane. <b>Arrastrá el mapa y mirá el contador: no tiene que moverse.</b></p>
     <div class="meta">
       <span>redibujos</span><b id="nRedibujos">0</b>
-      <span>vértices</span><b id="nVertices">—</b>
+      <span>figuras</span><b id="nFiguras">—</b>
+      <span>vértices totales</span><b id="nVertices">—</b>
       <span>anillos</span><b id="nAnillos">—</b>
-      <span>stores (uno por anillo)</span><b id="nStores">—</b>
+      <span>draws por redibujo</span><b id="nDraws">—</b>
+      <span>construir (una vez)</span><b id="msSubir">—</b>
+      <span>ms · relleno</span><b id="msRelleno">—</b>
+      <span>ms · contorno</span><b id="msTrazo">—</b>
       <span>ms del redibujo GPU</span><b id="msDraw">—</b>
       <span>en pantalla</span><b id="enPantalla">—</b>
       <span>stencil otorgado</span><b id="stencil">—</b>

@@ -48,9 +48,9 @@ const gl         = superficie.attach()
 
 /* ── Estado ──────────────────────────────────────────────────────────────────────────────────────── */
 
-const estado = { forma: 'agujero', n: 400, modo: 'ambos' }
+const estado = { forma: 'agujero', n: 400, modo: 'ambos', figuras: 1, contorno: true }
 
-let anillos = []
+let figuras = []                             // { rings, color } — una por copia de la forma
 let capaGpu = null
 let trazos  = []
 let stores  = []
@@ -80,28 +80,50 @@ const soltar = () => {
   trazos  = stores = []
 }
 
-const instalar = () => {
-  soltar()
-  const crudos = (DEGENERADAS[estado.forma] ?? crear({ forma: estado.forma, n: estado.n })).filter(finito)
-  anillos = crudos.map(aLatLng)
+// N copias de la forma en una grilla, cada una con su color: el caso que decide si el conteo de draws
+// escala con la cantidad de figuras.
+const VERTICES_ESCALA = 24                   // el tamaño de una geocerca real; el eje de escala es la CANTIDAD
 
-  stores  = anillos.map(points => new RingStore({ gl, points, project }))
-  capaGpu = new EditFillLayer({ gl, rings: stores.map(arena => ({ arena })), paso: 1, color: GPU, opacity: ALPHA })
-  trazos  = stores.map(arena => new EditStrokeLayer({ gl, arena, path: arena, project, paso: 1, width: 2, color: GPU }))
-
-  svg = L.polygon(anillos, { color: LEAFLET, weight: 1, fillColor: LEAFLET, fillOpacity: ALPHA, interactive: false })
-
-  $('nVertices').textContent = cuentaVertices(crudos).toLocaleString('es')
-  $('nAnillos').textContent  = String(anillos.length)
-  $('nStores').textContent   = String(stores.length)
-  aplicarModo()
+// `toRGBA` acepta hex o [r,g,b,a]: un `hsl()` cae al color por defecto, opaco.
+const PALETA = ['#22d3ee', '#a3e635', '#f472b6', '#fbbf24', '#818cf8', '#34d399', '#fb7185', '#e879f9']
+const HUE = i => PALETA[i % PALETA.length]
+const replicar = (base, n) => {
+  const lado = Math.ceil(Math.sqrt(n))
+  const paso = GRADOS * 2.4
+  return Array.from({ length: n }, (_, i) => {
+    const dLat = (Math.floor(i / lado) - lado / 2) * paso
+    const dLng = (i % lado - lado / 2) * paso
+    return { rings: base.map(r => r.map(([lat, lng]) => [lat + dLat, lng + dLng])), color: HUE(i) }
+  })
 }
 
-const aplicarModo = () => {
-  const { modo } = estado
+const conStencil = modo => modo === 'stencil' || modo === 'ambos'
+const conSvg     = modo => modo === 'leaflet' || modo === 'ambos'
+
+// Cada modo construye SÓLO su backend: construirlos todos hace que la carga y la memoria sean la suma
+// de los tres, y el número deja de ser el del que se está mirando.
+const instalar = () => {
+  soltar()
+  const modo   = estado.modo
+  const n      = estado.figuras > 1 ? VERTICES_ESCALA : estado.n
+  const crudos = (DEGENERADAS[estado.forma] ?? crear({ forma: estado.forma, n })).filter(finito)
+  figuras = replicar(crudos.map(aLatLng), estado.figuras)
+  const anillos = figuras.flatMap(f => f.rings)
+
+  const t0 = performance.now()
+  if (conStencil(modo)) {
+    stores  = anillos.map(points => new RingStore({ gl, points, project }))
+    capaGpu = new EditFillLayer({ gl, rings: stores.map(arena => ({ arena })), step: 1, color: GPU, opacity: ALPHA })
+    trazos  = stores.map(arena => new EditStrokeLayer({ gl, arena, path: arena, project, step: 1, width: 2, color: GPU }))
+  }
+  conSvg(modo) && (svg = L.polygon(figuras.map(f => f.rings),
+    { color: LEAFLET, weight: 1, fillColor: LEAFLET, fillOpacity: ALPHA, interactive: false }).addTo(map))
+
+  $('msSubir').textContent   = ms(performance.now() - t0)
+  $('nVertices').textContent = (cuentaVertices(crudos) * estado.figuras).toLocaleString('es')
+  $('nFiguras').textContent  = estado.figuras.toLocaleString('es')
+  $('nAnillos').textContent  = String(anillos.length)
   superficie.canvas.style.display = modo === 'leaflet' ? 'none' : ''
-  const quiereSvg = modo !== 'gpu'
-  quiereSvg ? svg.addTo(map) : map.removeLayer(svg)
   pintar()
 }
 
@@ -110,16 +132,22 @@ const aplicarModo = () => {
 let redibujos = 0
 
 const pintar = () => {
-  if (!capaGpu || estado.modo === 'leaflet') return
+  if (!capaGpu) return
   superficie.resetCanvasReference()
   gl.clearColor(0, 0, 0, 0)
   gl.clear(gl.COLOR_BUFFER_BIT | gl.STENCIL_BUFFER_BIT)
-  const t0 = performance.now()
-  const vista  = encuadre()
+  const vista   = encuadre()
+  const t0     = performance.now()
   const dibujo = capaGpu.draw(vista)
-  trazos.forEach(t => t.draw(vista))
+  gl.finish()
+  const t1 = performance.now()
+  estado.contorno && trazos.forEach(t => t.draw(vista))
   gl.finish()                                // sin esto se mide el encolado, no el dibujo
-  $('msDraw').textContent     = ms(performance.now() - t0)
+  const t2 = performance.now()
+  $('msRelleno').textContent  = ms(t1 - t0)
+  $('msTrazo').textContent    = ms(t2 - t1)
+  $('msDraw').textContent     = ms(t2 - t0)
+  $('nDraws').textContent     = String(stores.length + 1 + (estado.contorno ? trazos.length * 2 : 0))
   $('enPantalla').textContent = dibujo ? 'sí' : 'no (fuera del viewport)'
   $('nRedibujos').textContent = String(++redibujos)
 }
@@ -132,13 +160,12 @@ const opciones = [...Object.keys(FORMAS), ...Object.keys(DEGENERADAS)]
 $('forma').append(...opciones.map(f => new Option(f, f)))
 $('forma').value = estado.forma
 
-$('forma').onchange = e => { estado.forma = e.target.value; instalar() }
-$('n').onchange     = e => { estado.n = +e.target.value; instalar() }
+$('forma').onchange   = e => { estado.forma = e.target.value; instalar() }
+$('n').onchange       = e => { estado.n = +e.target.value; instalar() }
+$('figuras').onchange = e => { estado.figuras = +e.target.value; instalar() }
 
-$('modo').onchange = e => {
-  estado.modo = e.target.value
-  aplicarModo()
-}
+$('modo').onchange     = e => { estado.modo = e.target.value; instalar() }
+$('contorno').onchange = e => { estado.contorno = e.target.checked; pintar() }
 
 $('gpuName').textContent = (() => {
   const info = gl.getExtension('WEBGL_debug_renderer_info')

@@ -1,4 +1,4 @@
-// Contorno de polígonos ESTÁTICOS: un quad por segmento, armado en el vertex shader desde
+// Contorno de anillos y polilíneas ESTÁTICOS: un quad por segmento, armado en el vertex shader desde
 // `gl_VertexID` + `texelFetch` sobre la misma textura de posiciones que usa el relleno. Sin atributos
 // y sin buffer propio, así que panear y hacer zoom no reescriben un byte.
 //
@@ -12,6 +12,9 @@
 // Un anillo del store es UN rango contiguo con el cierre implícito —el vértice repetido se descartó al
 // ingerir—, así que el segmento que cierra sale del módulo y no necesita el tramo suelto por uniform
 // del trazo editable, que existe porque allá un anillo vive partido en chunks.
+//
+// `closed` distingue anillo de polilínea: un path abierto tiene un segmento menos y dos extremos sin
+// vecino, donde no hay bisectriz y el quad se corta plano.
 
 import { toRGBA } from './color.js'
 import { blendOver } from './EditSurface.js'
@@ -20,7 +23,7 @@ import { sharedProgram } from './gl-programs.js'
 // Medio píxel de borde a cada lado: el quad se expande lo mismo para que la rampa entre entera.
 export const FEATHER = 0.5
 
-const UNIFORMS = ['matrix', 'positions', 'texGeom', 'pixel', 'halfWidth', 'color', 'first', 'count']
+const UNIFORMS = ['matrix', 'positions', 'texGeom', 'pixel', 'halfWidth', 'color', 'first', 'count', 'closed']
 
 const VERTEX = `#version 300 es
 precision highp float;
@@ -31,7 +34,8 @@ uniform ivec2     texGeom;    // (máscara, corrimiento): índice de vértice �
 uniform vec2      pixel;      // unidades de clip por píxel CSS
 uniform float     halfWidth;
 uniform int       first;      // primer vértice del anillo
-uniform int       count;      // vértices del anillo; el último segmento cierra contra el primero
+uniform int       count;      // vértices del rango
+uniform int       closed;     // 1 = el último segmento cierra contra el primero; 0 = polilínea abierta
 
 out float dist;               // distancia firmada al eje, en píxeles
 
@@ -71,16 +75,21 @@ void main() {
   int  post = next + 1 == count ? 0 : next + 1;
   vec2 quad = QUAD[gl_VertexID % 6];
 
-  // El anillo es cíclico, así que cada extremo SIEMPRE tiene vecino: no hay caso de punta suelta.
   vec2 pa = pixelAt(first + edge);
   vec2 pb = pixelAt(first + next);
   vec2 d1 = dirOf(pb - pa);
+  vec2 n1 = vec2(-d1.y, d1.x);
+
+  // Cerrado: cada extremo tiene vecino y manda la bisectriz. Abierto: las dos puntas se cortan planas
+  // sobre la normal del propio segmento.
+  bool conPrev = closed == 1 || edge > 0;
+  bool conPost = closed == 1 || next + 1 < count;
 
   float side = quad.y * (halfWidth + FEATHER);
-  vec2  off  = mix(miter(dirOf(pa - pixelAt(first + prev)), d1),
-                   miter(d1, dirOf(pixelAt(first + post) - pb)), quad.x);
+  vec2  offA = conPrev ? miter(dirOf(pa - pixelAt(first + prev)), d1) : n1;
+  vec2  offB = conPost ? miter(d1, dirOf(pixelAt(first + post) - pb)) : n1;
   dist        = side;
-  gl_Position = vec4((mix(pa, pb, quad.x) + off * side) * pixel, 0.0, 1.0);
+  gl_Position = vec4((mix(pa, pb, quad.x) + mix(offA, offB, quad.x) * side) * pixel, 0.0, 1.0);
 }`
 
 // El relleno por stencil da bordes duros: el AA lo aporta el contorno, como una rampa de un píxel
@@ -100,7 +109,7 @@ void main() {
   fragColor = vec4(color.rgb, color.a * (1.0 - smoothstep(halfWidth - FEATHER, halfWidth + FEATHER, abs(dist))));
 }`
 
-const strokeProgram = gl => sharedProgram(gl, 'polygon-stroke', () => {
+const strokeProgram = gl => sharedProgram(gl, 'stroke', () => {
   const program = gl.createProgram()
   ;[[gl.VERTEX_SHADER, VERTEX], [gl.FRAGMENT_SHADER, FRAGMENT]].forEach(([type, source]) => {
     const shader = gl.createShader(type)
@@ -115,26 +124,29 @@ const strokeProgram = gl => sharedProgram(gl, 'polygon-stroke', () => {
   return { program, uniform: Object.fromEntries(UNIFORMS.map(n => [n, gl.getUniformLocation(program, n)])) }
 })
 
-export class PolygonStrokePass {
+export class StrokePass {
 
-  #gl; #program; #uniform; #vao
-  #width = 3
-  #hex   = null
-  #rgba  = null
+  #gl; #program; #uniform; #vao; #closed
+  #width   = 3
+  #opacity = 1
+  #hex     = null
+  #rgba    = null
 
-  constructor({ gl, color = '#3388ff', width = 3, opacity = 1 }) {
+  constructor({ gl, color = '#3388ff', width = 3, opacity = 1, closed = true }) {
     const { program, uniform } = strokeProgram(gl)
     this.#gl      = gl
     this.#program = program
     this.#uniform = uniform
     this.#vao     = gl.createVertexArray()
+    this.#closed  = closed
     this.style({ color, width, opacity })
   }
 
-  style({ color = this.#hex, width = this.#width, opacity = 1 } = {}) {
-    this.#hex   = color
-    this.#width = width
-    this.#rgba  = toRGBA(color, opacity)
+  style({ color = this.#hex, width = this.#width, opacity = this.#opacity } = {}) {
+    this.#hex     = color
+    this.#width   = width
+    this.#opacity = opacity
+    this.#rgba    = toRGBA(color, opacity)
     return this
   }
 
@@ -149,6 +161,7 @@ export class PolygonStrokePass {
     gl.uniform1f(u.halfWidth, this.#width / 2)
     gl.uniform4fv(u.color, this.#rgba)
     gl.uniform1i(u.positions, 0)
+    gl.uniform1i(u.closed, this.#closed ? 1 : 0)
     gl.uniform2i(u.texGeom, primera.textureWidth - 1, Math.log2(primera.textureWidth))
     gl.activeTexture(gl.TEXTURE0)
     gl.bindTexture(gl.TEXTURE_2D, primera.texture)
@@ -164,7 +177,7 @@ export class PolygonStrokePass {
       gl.uniformMatrix4fv(u.matrix, false, arena.matrixFor(view.zoom, view.center, view.size))
       gl.uniform1i(u.first, first)
       gl.uniform1i(u.count, count)
-      gl.drawArrays(gl.TRIANGLES, 0, count * 6)
+      gl.drawArrays(gl.TRIANGLES, 0, (this.#closed ? count : count - 1) * 6)
     }
     gl.bindVertexArray(null)
     return true
