@@ -5,6 +5,35 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
 [`docs/versionado.md`](docs/versionado.md) — en `0.x`, el **minor cuenta los cambios medios**
 (capacidad o eje de API nuevo) y el **patch los menores desde el último medio** (fix / perf / revert).
 
+## [0.33.2] - 2026-08-25
+
+> Sale como **patch**: tres correcciones, ninguna agrega un nombre a la superficie pública ni cambia
+> una firma ([`docs/versionado.md`](docs/versionado.md)).
+
+### Corregido
+- **El relleno translúcido llegaba a pantalla casi invisible.** La superficie de la geometría en GPU
+  negociaba su canvas con `premultipliedAlpha: false` y los cuatro pases que dibujan sobre ella
+  mezclaban con `blendFunc(SRC_ALPHA, ONE_MINUS_SRC_ALPHA)`, que aplica ese factor **también al canal
+  alfa**: un relleno al 10 % terminaba en el canvas con alfa 0.01 y el compositor de la página lo
+  volvía a atenuar, así que del color pedido llegaba el 1 %. El contorno, opaco, no lo acusaba — de
+  ahí que el síntoma fuera "el polígono tiene borde pero no relleno", y que el relleno por default
+  (0.42) disimulara el problema en los ejemplos. La superficie pasa a premultiplicada y expone
+  `blendOver`, que compone el alfa con `ONE`; los cuatro pases la comparten porque comparten el canvas.
+  *Migración*: ninguna. Un estilo opaco se ve igual que antes; los translúcidos pasan a verse con la
+  opacidad que declararon.
+- **El hover dejaba de emitir después del primer zoom, paneo o salida del mapa.** `Picking.abort()`
+  marcaba el vuelo como viejo aunque no hubiera ninguno en curso, y la sesión de hover lo llama en
+  cada cierre. La marca quedaba pegada y descartaba el pick SIGUIENTE: `collect()` devolvía `null`,
+  el tick de la sesión nunca daba por recogida la capa y el evento `hover` no volvía a salir. Ahora
+  la marca es del vuelo que hay.
+- **El PBO de picking dejaba una copia de lectura sin liberar por cada muestra del puntero.** Al
+  fencear un PBO recién escrito, el command buffer del navegador le aloja una copia en memoria
+  compartida para acelerar la lectura, y esa copia sólo se libera al RE-ESPECIFICAR el buffer:
+  `getBufferSubData` se sirve de otra asignación y no la consume. El pase pagaba una copia por pick
+  que nadie iba a usar, y el navegador lo reportaba en cada muestra hasta agotar su tope de mensajes
+  —y con él, el resto del diagnóstico de la consola—. `#issue` re-especifica el almacenamiento antes
+  de cada escritura.
+
 ## [0.33.1] - 2026-08-18
 
 > Sale como **minor**: el trabajo del foco por ítem no agrega un solo nombre a la superficie pública
