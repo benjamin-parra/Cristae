@@ -10,6 +10,10 @@ import { CristaePolygonLayer } from './element/CristaePolygonLayer.js'
 import { CristaeLineLayer } from './element/CristaeLineLayer.js'
 import { CristaeHtmlLayer } from './element/CristaeHtmlLayer.js'
 import { CristaeLabelLayer } from './element/CristaeLabelLayer.js'
+import { CristaeEditablePolygon } from './element/CristaeEditablePolygon.js'
+import { CristaeEditablePolyline } from './element/CristaeEditablePolyline.js'
+import { CristaeEditablePoint } from './element/CristaeEditablePoint.js'
+import { CristaeEditableRectangle } from './element/CristaeEditableRectangle.js'
 import { CristaeCluster } from './element/CristaeCluster.js'
 import { CristaeOverlay } from './element/CristaeOverlay.js'
 import { CristaeToolbar } from './element/CristaeToolbar.js'
@@ -23,6 +27,10 @@ grammar.register('cristae-polygon-layer', CristaePolygonLayer.cristaeSignature)
 grammar.register('cristae-line-layer', CristaeLineLayer.cristaeSignature)
 grammar.register('cristae-html-layer', CristaeHtmlLayer.cristaeSignature)
 grammar.register('cristae-label-layer', CristaeLabelLayer.cristaeSignature)
+grammar.register('cristae-editable-polygon', CristaeEditablePolygon.cristaeSignature)
+grammar.register('cristae-editable-polyline', CristaeEditablePolyline.cristaeSignature)
+grammar.register('cristae-editable-point', CristaeEditablePoint.cristaeSignature)
+grammar.register('cristae-editable-rectangle', CristaeEditableRectangle.cristaeSignature)
 grammar.register('cristae-cluster', CristaeCluster.cristaeSignature, { apply: CristaeCluster.cristaeApply })
 grammar.register('cristae-overlay', CristaeOverlay.cristaeSignature, { apply: CristaeOverlay.cristaeApply })
 
@@ -34,6 +42,10 @@ define('cristae-polygon-layer', CristaePolygonLayer)
 define('cristae-line-layer', CristaeLineLayer)
 define('cristae-html-layer', CristaeHtmlLayer)
 define('cristae-label-layer', CristaeLabelLayer)
+define('cristae-editable-polygon', CristaeEditablePolygon)
+define('cristae-editable-polyline', CristaeEditablePolyline)
+define('cristae-editable-point', CristaeEditablePoint)
+define('cristae-editable-rectangle', CristaeEditableRectangle)
 define('cristae-cluster', CristaeCluster)
 define('cristae-overlay', CristaeOverlay)
 define('cristae-toolbar', CristaeToolbar)
@@ -50,3 +62,4 @@ export { drawLabel } from './render/LabelLayer.js'
 export { toParts, sampleAlong } from './geometry/polyline.js'
 export { tilePresets } from './tiles/presets.js'
 export { CristaeMap, CristaePointLayer, CristaePolygonLayer, CristaeLineLayer, CristaeHtmlLayer, CristaeLabelLayer, CristaeCluster, CristaeOverlay, CristaeToolbar, CristaePopup }
+export { CristaeEditablePolygon, CristaeEditablePolyline, CristaeEditablePoint, CristaeEditableRectangle }

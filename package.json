@@ -26,7 +26,7 @@
   "scripts": {
     "lint": "eslint src react/src build.mjs",
     "build": "node build.mjs",
-    "test": "node --test \"test/**/*.test.mjs\"",
+    "test": "node --test \"test/**/*.test.mjs\" \"react/test/**/*.test.mjs\"",
     "bench": "vite --config bench/vite.config.js",
     "example": "vite examples"
   },

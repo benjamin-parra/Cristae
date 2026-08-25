@@ -76,7 +76,7 @@ const montar = ({ kind = 'polygon', value = null, mode = 'edit', dpr = 1, style,
   const changes   = [], commits = []
   const ed = new EditableGeometry({
     L: conDomUtil(makeLeaflet()), map, pane: 'edit', kind, value, mode, style,
-    onChange: g => changes.push(g), onCommit: g => commits.push(g),
+    onChange: leer => changes.push(leer()), onCommit: leer => commits.push(leer()),
   })
   return { ed, kind, map, container, dragging, spy, changes, commits, punto: [0, 0] }
 }
@@ -251,6 +251,15 @@ test('modo draw: click de mapa agrega puntos y el handler expuesto captura un pu
   esc.ed.handleMapClick({ lat: 5, lng: 6 })
   assert.deepEqual(esc.changes.at(-1), [[1, 2], [3, 4], [5, 6]], 'handleMapClick agrega igual que el click nativo')
 
+  esc.ed.destroy()
+})
+
+test('modo draw: cada click ASIENTA (onCommit), no sólo emite live', () => {
+  const esc = montar({ kind: 'polyline', value: [], mode: 'draw' })
+  esc.map.fire('click', { latlng: { lat: 1, lng: 2 } })
+  esc.map.fire('click', { latlng: { lat: 3, lng: 4 } })
+  assert.equal(esc.commits.length, 2, 'un host que sólo escucha onCommit tiene que ver los puntos')
+  assert.deepEqual(esc.commits.at(-1), [[1, 2], [3, 4]])
   esc.ed.destroy()
 })
 

@@ -19,7 +19,13 @@ export function useCristaeElement(props, eventNameOf) {
   // que `ref.current` siga vivo cuando React lo anula. `eventNameOf` es estable (const de módulo).
   useLayoutEffect(() => {
     const el = ref.current
-    return () => { if (el) detachElementListeners(el, applied.current, eventNameOf) }
+    return () => {
+      if (el) detachElementListeners(el, applied.current, eventNameOf)
+      // Olvidar lo aplicado es parte del teardown: si no, un remontaje sobre el MISMO elemento —el
+      // doble montaje de React en desarrollo— encuentra el diff diciendo que los listeners ya están
+      // puestos y no los repone, dejando el elemento mudo para siempre.
+      applied.current = {}
+    }
   }, [])
   return ref
 }

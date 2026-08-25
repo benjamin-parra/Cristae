@@ -310,8 +310,10 @@ export class EditableGeometry {
     }
   }
 
-  #emit()   { this.#onChange?.(this.#serialize()) }
-  #commit() { this.#onCommit?.(this.#serialize()) }
+  #leer = () => this.#serialize()          // lector estable: la emisión no serializa hasta que se pide
+
+  #emit()   { this.#onChange?.(this.#leer) }
+  #commit() { this.#onCommit?.(this.#leer) }
 
   // Edición DISCRETA (agregar / borrar / insertar / cerrar / colocar): emite, asienta y suelta la
   // promoción —los refs corrieron, y el vecindario se vuelve a resolver con el próximo hover—. El drag

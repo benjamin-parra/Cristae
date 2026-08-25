@@ -46,7 +46,7 @@ const montar = ({ kind = 'polygon', value = null, mode = 'edit', panePrevio = fa
   const ed = new EditableGeometry({
     L: { ...L, DomUtil: { ...L.DomUtil, setPosition: (el, pt) => puestos.push([el, pt.x, pt.y]) } },
     map, pane: 'edit', kind, value, mode,
-    onChange: g => changes.push(g), onCommit: g => commits.push(g),
+    onChange: leer => changes.push(leer()), onCommit: leer => commits.push(leer()),
   })
   return { ed, map, container, dragging, spy, changes, commits, puestos, pixel: 0 }
 }

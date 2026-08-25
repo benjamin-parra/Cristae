@@ -32,6 +32,12 @@ import type {
   Label,
   LabelStyle,
   LabelPaint,
+  EditableStyle,
+  EditableHandle,
+  EditablePolygonValue,
+  EditablePolylineValue,
+  EditablePointValue,
+  EditableRectangleValue,
   HitBase,
   PointHit,
   PolygonHit,
@@ -330,6 +336,42 @@ export interface CristaeLabelLayerProps<T = unknown> extends CristaeLeafLayerPro
 export declare function CristaeLabelLayer<T = unknown>(
   props: CristaeLabelLayerProps<T> & RefAttributes<CristaeLabelLayerElement>,
 ): ReactElement | null;
+
+// ── Edición de geometría (docs/editing.md) ──────────────────────────────────
+
+export type CristaeEditableStyle = EditableStyle
+
+/** Detalle de `cristae:change` / `cristae:commit`. */
+export interface CristaeEditDetail<V> { value: V }
+
+/** `controls` = el handle del editor (`getValue`, `handleMapClick`). */
+export interface CristaeEditableElement extends HTMLElement { readonly controls: EditableHandle | null }
+
+interface CristaeEditableProps<V> extends CristaeLeafLayerProps {
+  mode?          : 'edit' | 'draw';
+  /** Geometría controlada. El valor recién emitido, devuelto tal cual, NO reingresa. */
+  value?         : V;
+  /** Parcial: lo que no venga queda como estaba. */
+  geometryStyle? : CristaeEditableStyle;
+  /** Live — cada frame del arrastre incluido. */
+  onChange?      : CristaeEventHandler<CristaeEditDetail<V>>;
+  /** Asentado — uno por gesto. */
+  onCommit?      : CristaeEventHandler<CristaeEditDetail<V>>;
+}
+
+export type CristaeEditablePolygonProps   = CristaeEditableProps<EditablePolygonValue>
+export type CristaeEditablePolylineProps  = CristaeEditableProps<EditablePolylineValue>
+export type CristaeEditablePointProps     = CristaeEditableProps<EditablePointValue>
+export type CristaeEditableRectangleProps = CristaeEditableProps<EditableRectangleValue>
+
+export declare const CristaeEditablePolygon:
+  ForwardRefExoticComponent<CristaeEditablePolygonProps & RefAttributes<CristaeEditableElement>>;
+export declare const CristaeEditablePolyline:
+  ForwardRefExoticComponent<CristaeEditablePolylineProps & RefAttributes<CristaeEditableElement>>;
+export declare const CristaeEditablePoint:
+  ForwardRefExoticComponent<CristaeEditablePointProps & RefAttributes<CristaeEditableElement>>;
+export declare const CristaeEditableRectangle:
+  ForwardRefExoticComponent<CristaeEditableRectangleProps & RefAttributes<CristaeEditableElement>>;
 
 // ── Modificadores de composición (envuelven capas de puntos) ─────────────────
 

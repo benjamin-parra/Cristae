@@ -13,7 +13,7 @@
 import './setup-jsdom.mjs'   // primero: puebla los globals DOM antes de que react-dom se evalúe
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { createElement as e, act, createRef, memo } from 'react'
+import { createElement as e, act, createRef, memo, StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { CristaeMap, CristaePointLayer, CristaeTable } from '../src/index.js'
 
@@ -95,6 +95,20 @@ test('(c) onViewportChange → addEventListener(cristae:viewportchange), y se li
   unmount()   // el teardown debe soltar el listener
   mapEl.dispatchEvent(new CustomEvent('cristae:viewportchange', { detail: { zoom: 10 } }))
   assert.equal(details.length, 1, 'tras desmontar, el handler ya no recibe eventos (se limpió el listener)')
+})
+
+test('(c2) bajo StrictMode el listener SOBREVIVE al doble montaje', () => {
+  // React monta, desmonta y vuelve a montar en desarrollo. El teardown desengancha los listeners; si
+  // además no olvidara lo aplicado, el diff del re-montaje los daría por puestos y no los repondría —
+  // el elemento quedaría mudo justo en desarrollo, que es donde se prueba.
+  const details = []
+  const onViewportChange = (ev) => details.push(ev?.detail)
+
+  const { container } = mount(e(StrictMode, null, e(CristaeMap, { onViewportChange })))
+  const mapEl = container.querySelector('cristae-map')
+
+  mapEl.dispatchEvent(new CustomEvent('cristae:viewportchange', { detail: { zoom: 9 } }))
+  assert.equal(details.length, 1, 'tras el doble montaje el handler tiene que seguir recibiendo')
 })
 
 test('(d) los canales del BUS van por engine.on (filtrados por capa) y se dan de baja al desmontar', () => {
