@@ -5,43 +5,14 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
 [`docs/versionado.md`](docs/versionado.md) — en `0.x`, el **minor cuenta los cambios medios**
 (capacidad o eje de API nuevo) y el **patch los menores desde el último medio** (fix / perf / revert).
 
-## [0.33.2] - 2026-08-25
+## [0.34.0] - 2026-08-25
 
-> Sale como **patch**: tres correcciones, ninguna agrega un nombre a la superficie pública ni cambia
-> una firma ([`docs/versionado.md`](docs/versionado.md)).
-
-### Corregido
-- **El relleno translúcido llegaba a pantalla casi invisible.** La superficie de la geometría en GPU
-  negociaba su canvas con `premultipliedAlpha: false` y los cuatro pases que dibujan sobre ella
-  mezclaban con `blendFunc(SRC_ALPHA, ONE_MINUS_SRC_ALPHA)`, que aplica ese factor **también al canal
-  alfa**: un relleno al 10 % terminaba en el canvas con alfa 0.01 y el compositor de la página lo
-  volvía a atenuar, así que del color pedido llegaba el 1 %. El contorno, opaco, no lo acusaba — de
-  ahí que el síntoma fuera "el polígono tiene borde pero no relleno", y que el relleno por default
-  (0.42) disimulara el problema en los ejemplos. La superficie pasa a premultiplicada y expone
-  `blendOver`, que compone el alfa con `ONE`; los cuatro pases la comparten porque comparten el canvas.
-  *Migración*: ninguna. Un estilo opaco se ve igual que antes; los translúcidos pasan a verse con la
-  opacidad que declararon.
-- **El hover dejaba de emitir después del primer zoom, paneo o salida del mapa.** `Picking.abort()`
-  marcaba el vuelo como viejo aunque no hubiera ninguno en curso, y la sesión de hover lo llama en
-  cada cierre. La marca quedaba pegada y descartaba el pick SIGUIENTE: `collect()` devolvía `null`,
-  el tick de la sesión nunca daba por recogida la capa y el evento `hover` no volvía a salir. Ahora
-  la marca es del vuelo que hay.
-- **El PBO de picking dejaba una copia de lectura sin liberar por cada muestra del puntero.** Al
-  fencear un PBO recién escrito, el command buffer del navegador le aloja una copia en memoria
-  compartida para acelerar la lectura, y esa copia sólo se libera al RE-ESPECIFICAR el buffer:
-  `getBufferSubData` se sirve de otra asignación y no la consume. El pase pagaba una copia por pick
-  que nadie iba a usar, y el navegador lo reportaba en cada muestra hasta agotar su tope de mensajes
-  —y con él, el resto del diagnóstico de la consola—. `#issue` re-especifica el almacenamiento antes
-  de cada escritura.
-
-## [0.33.1] - 2026-08-18
-
-> Sale como **minor**: el trabajo del foco por ítem no agrega un solo nombre a la superficie pública
-> —`focus-ids`, `setLayerFocus`, `focus()` y `indexOf`/`pageOf` existen desde antes y ninguna firma
-> cambia; lo que cambia es el MECANISMO que las cumple, y `applyFocus` es contrato interno entre el
-> motor y sus capas—, pero la edición de geometría sí suma superficie declarativa (los cuatro
-> `<cristae-editable-*>`, sus componentes React y `EditableStyle`): capacidad nueva, no fix/perf
-> ([`docs/versionado.md`](docs/versionado.md)).
+> Sale como **minor**: suma superficie declarativa —los cuatro `<cristae-editable-*>` con sus
+> componentes React, y el eje `backend` de las líneas— ([`docs/versionado.md`](docs/versionado.md)).
+>
+> Las dos entradas de abajo estaban anunciadas en `[0.33.1]` pero su código nunca viajó con ellas: el
+> release salió con la entrada escrita sobre todo el árbol de trabajo y sólo la mitad commiteada. Se
+> mudan acá, que es donde de verdad se publican.
 
 ### Agregado
 - **Las líneas tienen grosor de verdad: sustrato `gpu`.** El backend GL de siempre no dibuja líneas
@@ -58,7 +29,8 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   siendo de `glify`, que queda de default) y toma uno de los ~16 contextos.
   *Migración*: ninguna. `vector: true` sigue siendo el alias de `leaflet` y el default no cambia; `gpu`
   se pide. Pedir `interactive` sobre `gpu` falla ruidoso en vez de dejar una capa muda.
-  `PolygonStrokePass` pasa a llamarse `StrokePass` (interno; ningún entry lo exportaba).
+  `PolygonStrokePass` pasa a llamarse `StrokePass` (interno; ningún entry lo exportaba), y su restilado
+  parcial conserva la opacidad en vez de devolverla a 1, como ya hacía el del relleno.
 - **La edición de geometría entra por markup y por el binding.** `addEditableLayer` existe desde
   0.22.1, pero sólo como método del motor: no había elemento que la declarara ni componente que la
   envolviera, así que en una página compuesta por `<cristae-*>` había que tomar el motor por el `ref`
@@ -93,6 +65,60 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   *Migración*: `onChange: v => f(v)` pasa a `onChange: leer => f(leer())`; en el DOM, `e.detail.value`
   no cambia de forma. Leer el valor es además lo que fija el eco del input controlado: un host que
   nunca lo lee tampoco puede devolverlo.
+
+### Corregido
+- 🔴 **Los handlers `on*` del binding quedaban mudos tras el doble montaje de React.** `useCristaeElement`
+  aplica las props diffeando contra lo ya aplicado, y su teardown desengancha los listeners — pero no
+  olvidaba el registro. En desarrollo React monta, desmonta y vuelve a montar: el cleanup los sacaba y
+  el diff del re-montaje, viendo las MISMAS referencias, los daba por puestos y no los reponía. El
+  elemento quedaba sin escuchar nada, para siempre y justo donde se prueba. Alcanzaba a los handlers
+  que viajan por **CustomEvent** (`onViewportChange`, `onMapClick`, `onChange`/`onCommit` de la
+  edición); los del BUS se salvaban de casualidad, porque su efecto se recablea en `cristae:ready`.
+  Ahora el teardown olvida lo aplicado, así el apply siguiente repone todo.
+  *Sobrevivió porque `npm test` globaba sólo `test/**`*: los tests del binding existían y no corrían.
+  El script ahora incluye `react/test/**`, y la regresión queda congelada montando bajo `StrictMode`.
+
+## [0.33.2] - 2026-08-25
+
+> Sale como **patch**: tres correcciones, ninguna agrega un nombre a la superficie pública ni cambia
+> una firma ([`docs/versionado.md`](docs/versionado.md)).
+
+### Corregido
+- **El relleno translúcido llegaba a pantalla casi invisible.** La superficie de la geometría en GPU
+  negociaba su canvas con `premultipliedAlpha: false` y los cuatro pases que dibujan sobre ella
+  mezclaban con `blendFunc(SRC_ALPHA, ONE_MINUS_SRC_ALPHA)`, que aplica ese factor **también al canal
+  alfa**: un relleno al 10 % terminaba en el canvas con alfa 0.01 y el compositor de la página lo
+  volvía a atenuar, así que del color pedido llegaba el 1 %. El contorno, opaco, no lo acusaba — de
+  ahí que el síntoma fuera "el polígono tiene borde pero no relleno", y que el relleno por default
+  (0.42) disimulara el problema en los ejemplos. La superficie pasa a premultiplicada y expone
+  `blendOver`, que compone el alfa con `ONE`; los cuatro pases la comparten porque comparten el canvas.
+  *Migración*: ninguna. Un estilo opaco se ve igual que antes; los translúcidos pasan a verse con la
+  opacidad que declararon.
+- **El hover dejaba de emitir después del primer zoom, paneo o salida del mapa.** `Picking.abort()`
+  marcaba el vuelo como viejo aunque no hubiera ninguno en curso, y la sesión de hover lo llama en
+  cada cierre. La marca quedaba pegada y descartaba el pick SIGUIENTE: `collect()` devolvía `null`,
+  el tick de la sesión nunca daba por recogida la capa y el evento `hover` no volvía a salir. Ahora
+  la marca es del vuelo que hay.
+- **El PBO de picking dejaba una copia de lectura sin liberar por cada muestra del puntero.** Al
+  fencear un PBO recién escrito, el command buffer del navegador le aloja una copia en memoria
+  compartida para acelerar la lectura, y esa copia sólo se libera al RE-ESPECIFICAR el buffer:
+  `getBufferSubData` se sirve de otra asignación y no la consume. El pase pagaba una copia por pick
+  que nadie iba a usar, y el navegador lo reportaba en cada muestra hasta agotar su tope de mensajes
+  —y con él, el resto del diagnóstico de la consola—. `#issue` re-especifica el almacenamiento antes
+  de cada escritura.
+
+## [0.33.1] - 2026-08-18
+
+> Salió como **minor** por la superficie declarativa de la edición de geometría, pero ese código no
+> entró en el release: la entrada se escribió sobre todo el árbol de trabajo y sólo se commiteó la
+> mitad. Lo publicado acá es el trabajo del foco por ítem, que no agrega un solo nombre a la
+> superficie pública —`focus-ids`, `setLayerFocus`, `focus()` y `indexOf`/`pageOf` existen desde antes
+> y ninguna firma cambia; lo que cambia es el MECANISMO que las cumple, y `applyFocus` es contrato
+> interno entre el motor y sus capas—, así que por [`docs/versionado.md`](docs/versionado.md) le
+> habría correspondido un patch. Las dos entradas de "Agregado" se mudaron a `[0.34.0]`, que es donde
+> se publican de verdad.
+
+### Cambiado
 - **El foco por ítem llega al BUFFER, y se cae el pase de sprites.** El eje existe desde 0.23.0, pero
   la capa de puntos no tenía dónde poner el atenuado —el `vec4` de color está lleno—, así que el motor
   apagaba su pane ENTERO (con los enfocados dentro) y compensaba montando un canvas 2D aparte que los
@@ -151,16 +177,6 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   mismo orden total que sirve la página, con una sola llamada al comparador por fila, igual que antes.
   Con eso se retira la salvedad que la doc publicaba (*"con empates la posición es la del bloque"*):
   ya no hay tal caso.
-- 🔴 **Los handlers `on*` del binding quedaban mudos tras el doble montaje de React.** `useCristaeElement`
-  aplica las props diffeando contra lo ya aplicado, y su teardown desengancha los listeners — pero no
-  olvidaba el registro. En desarrollo React monta, desmonta y vuelve a montar: el cleanup los sacaba y
-  el diff del re-montaje, viendo las MISMAS referencias, los daba por puestos y no los reponía. El
-  elemento quedaba sin escuchar nada, para siempre y justo donde se prueba. Alcanzaba a los handlers
-  que viajan por **CustomEvent** (`onViewportChange`, `onMapClick`, `onChange`/`onCommit` de la
-  edición); los del BUS se salvaban de casualidad, porque su efecto se recablea en `cristae:ready`.
-  Ahora el teardown olvida lo aplicado, así el apply siguiente repone todo.
-  *Sobrevivió porque `npm test` globaba sólo `test/**`*: los tests del binding existían y no corrían.
-  El script ahora incluye `react/test/**`, y la regresión queda congelada montando bajo `StrictMode`.
 - **Los tipos de la edición describían menos de lo que la capa hace.** `EditableConfig` no declaraba
   `style` —que el motor lee en el alta— y `EditableHandle` no declaraba `setStyle`, los dos
   implementados desde siempre: estilar un editor desde TypeScript no compilaba. Además el encabezado
