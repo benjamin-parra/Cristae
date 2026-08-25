@@ -162,9 +162,10 @@ export class Picking {
     return this.#deliver(metadata)
   }
 
-  // Invalida el RESULTADO, no la lectura: el vuelo sigue vivo hasta que `collect` consuma su PBO.
+  // Invalida el RESULTADO, no la lectura: el vuelo sigue vivo hasta que `collect` consuma su PBO. La
+  // marca es del vuelo EN CURSO; sin ninguno no hay nada que invalidar y el pedido que venga es nuevo.
   abort() {
-    this.#flight.stale  = true
+    this.#flight.stale  = this.#flight.active
     this.#queued.active = false
   }
 

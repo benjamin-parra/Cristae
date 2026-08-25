@@ -243,6 +243,28 @@ test('el PBO nunca se reescribe con una lectura pendiente', () => {
     'cada escritura del PBO se cobra antes de la siguiente')
 })
 
+// `abort` invalida el vuelo que HAY, no el que venga: la sesión de hover lo llama al cerrarse —salir
+// del mapa, zoom, paneo—, y ahí lo habitual es que no quede ninguno en curso.
+test('abortar sin vuelo en curso no invalida el pick siguiente', () => {
+  const { picking } = attached(makeFb())
+  picking.abort()
+  picking.request(10, 10, batch(), 'nueva')
+
+  assert.equal(picking.collect()?.metadata, 'nueva')
+})
+
+// El ciclo real: se pickea, se cobra, se cierra la sesión al salir y se vuelve a entrar. Si el cierre
+// deja marcado lo que venga, el pase queda mudo y el hover no emite NUNCA.
+test('salir y volver a entrar deja el pase contestando', () => {
+  const { picking } = attached(makeFb())
+  picking.request(10, 10, batch(), 'a')
+  picking.collect()
+  picking.abort()
+  picking.request(20, 20, batch(), 'b')
+
+  assert.equal(picking.collect()?.metadata, 'b')
+})
+
 // El gesto (arrastre/zoom): el hover se invalida al empezar y el tick DIFIERE mientras dura, así que no
 // hay `collect` en toda la ventana. Los pedidos de adentro no pueden escribir el PBO hasta cobrarlo.
 test('un gesto entero no deja escrituras sin cobrar', () => {
