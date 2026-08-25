@@ -1,0 +1,3 @@
+# El paquete se publica desde CI (Linux) con LF: un working tree en CRLF no coincide byte a byte con el
+# tarball, y una copia local sobre node_modules rompe el hash del store de pnpm.
+* text=auto eol=lf
