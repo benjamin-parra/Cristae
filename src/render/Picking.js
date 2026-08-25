@@ -108,9 +108,6 @@ export class Picking {
     this.#createTarget()
     this.#compile(visualProgram)
     this.#pbo = gl.createBuffer()
-    gl.bindBuffer(gl.PIXEL_PACK_BUFFER, this.#pbo)
-    gl.bufferData(gl.PIXEL_PACK_BUFFER, this.#buf.byteLength, gl.STREAM_READ)
-    gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null)
     return this.#program
   }
 
@@ -192,6 +189,10 @@ export class Picking {
     const gl = this.#gl
     this.#begin(cx, cy, batch)
     gl.bindBuffer(gl.PIXEL_PACK_BUFFER, this.#pbo)
+    // El almacenamiento se re-especifica ANTES de cada escritura: al fencear un PBO escrito, el
+    // command buffer le aloja una copia en memoria compartida para acelerar la lectura, y esa copia
+    // sólo se libera re-especificando el buffer —`getBufferSubData` se sirve de otra y no la consume—.
+    gl.bufferData(gl.PIXEL_PACK_BUFFER, this.#buf.byteLength, gl.STREAM_READ)
     gl.readPixels(0, 0, PATCH, PATCH, gl.RGBA, gl.UNSIGNED_BYTE, 0)
     gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null)
     const f = this.#flight

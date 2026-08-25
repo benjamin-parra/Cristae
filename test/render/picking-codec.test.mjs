@@ -57,6 +57,7 @@ const makeGl = fb => {
       if (dst instanceof Uint8Array) dst.set(fb.buf)
     },
     getBufferSubData : (_t, _o, dst) => { calls.push('getBufferSubData'); dst.set(fb.buf) },
+    bufferData       : () => calls.push('bufferData'),
     clientWaitSync   : () => state.status,
     uniform3fv       : (_loc, v) => { state.tag = [v[0], v[1], v[2]].map(x => Math.round(x * 255)); state.tags.push(state.tag) },
     drawArrays       : (_mode, first, count) => calls.push(`draw:${first}:${count}`),
@@ -201,7 +202,8 @@ test('request encola en vez de descartar y dispara al liberarse el vuelo', () =>
   const primero = picking.collect()
   assert.equal(primero.metadata, 'vieja')
   // La copia del PBO va ANTES del readPixels del encolado: si no, lo pisaría.
-  assert.deepEqual(calls.filter(c => !c.startsWith('draw')), ['readPixels', 'getBufferSubData', 'readPixels'])
+  assert.deepEqual(calls.filter(c => c === 'readPixels' || c === 'getBufferSubData'),
+    ['readPixels', 'getBufferSubData', 'readPixels'])
   assert.equal(picking.pending, true)                          // el encolado quedó en vuelo
 
   assert.equal(picking.collect().metadata, 'ultima')           // pisó a 'nueva': sólo importa la última
@@ -241,6 +243,23 @@ test('el PBO nunca se reescribe con una lectura pendiente', () => {
   const io = calls.filter(c => c === 'readPixels' || c === 'getBufferSubData')
   assert.deepEqual(io, ['readPixels', 'getBufferSubData', 'readPixels', 'getBufferSubData'],
     'cada escritura del PBO se cobra antes de la siguiente')
+})
+
+// Al fencear un PBO recién escrito, el command buffer le aloja una copia en memoria compartida para
+// acelerar la lectura. Esa copia se libera al RE-ESPECIFICAR el buffer; `getBufferSubData` se sirve de
+// otra asignación y no la consume, así que sin la re-especificación el fence siguiente la encuentra
+// tomada y el pase paga una copia por pick que nadie va a usar.
+test('cada escritura del PBO re-especifica su almacenamiento', () => {
+  const { picking, calls } = attached(makeFb())
+  picking.request(10, 10, batch(), 'a')
+  picking.collect()
+  picking.request(20, 20, batch(), 'b')
+  picking.collect()
+
+  assert.deepEqual(calls.filter(c => c !== 'clientWaitSync' && !c.startsWith('draw')), [
+    'bufferData', 'readPixels', 'getBufferSubData',
+    'bufferData', 'readPixels', 'getBufferSubData',
+  ])
 })
 
 // `abort` invalida el vuelo que HAY, no el que venga: la sesión de hover lo llama al cerrarse —salir
