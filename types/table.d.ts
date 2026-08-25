@@ -90,9 +90,8 @@ export class PagedTable<T = unknown> {
   /**
    * Posición 0-based de `item` en la vista filtrada + ordenada vigente, o -1 si no está en el
    * dataset o no pasa el filtro. Inverso de `itemAtRow`: no toca el render. `item` debe ser una
-   * referencia del dataset vigente (la que entregan `getSnapshot()`/`itemAtRow`). Determinista
-   * mientras `comparator` sea un orden total (con empates, la posición dentro del bloque empatado
-   * queda indefinida, igual que el particionado por quickselect del render).
+   * referencia del dataset vigente (la que entregan `getSnapshot()`/`itemAtRow`). La posición es la
+   * del MISMO orden total que sirve la página: el `comparator` desempatado por índice del dataset.
    */
   indexOf(item: T): number;
   /** Página 0-based en la que cae `item` bajo el filtro + orden vigentes, o -1 si no está / no pasa el filtro. */

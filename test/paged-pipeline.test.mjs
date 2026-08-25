@@ -29,6 +29,8 @@ const mkDataset = (n, semilla = 7) => {
 
 // Orden TOTAL (desempate por id): sin empates el slice de cada página es único.
 const POR_VALOR = (a, b) => a.valor - b.valor || a.id - b.id
+// Orden con EMPATES masivos (5 bloques): el desempate lo pone el motor, no el comparador.
+const POR_GRUPO = (a, b) => a.id % 5 - b.id % 5
 const NOMBRE_DE = it => it.nombre
 
 // ── Montaje: la fila expone id y rowNumber en el DOM para poder auditar el render ──
@@ -206,7 +208,7 @@ test('con desempate el mismo dataset empatado sí cubre el universo exacto', asy
 // de `#mergeAndFilter`. Este test las mantiene sincronizadas: si una deriva, la página que reporta
 // `pageOf` deja de ser la página donde `itemAtRow` devuelve la fila.
 test('pageOf/indexOf coinciden con la página y la fila donde itemAtRow devuelve el ítem', async () => {
-  for (const comparator of [null, POR_VALOR])
+  for (const comparator of [null, POR_VALOR, POR_GRUPO])
     for (const where of [null, it => it.id % 4 !== 0])
       for (const search of ['', 'b']) {
         const data = mkDataset(53, 31)
@@ -240,16 +242,25 @@ test('pageOf/indexOf coinciden con la página y la fila donde itemAtRow devuelve
       }
 })
 
-// El rango de indexOf es "cuántas filas visibles ordenan ESTRICTAMENTE antes": con empates todo el
-// bloque comparte rango (dentro del bloque la posición no está definida). Acá se fija SÓLO indexOf —
-// con empates, qué página termina mostrando la fila es otra historia (ver T1).
-test('con empates indexOf devuelve el rango del bloque empatado', async () => {
-  const data = Array.from({ length: 20 }, (_, i) => ({ id: i, grupo: i % 4 }))
-  const { table } = mount({ pageSize: 5, comparator: (a, b) => a.grupo - b.grupo })
-  table.setData(data)
+// Con empates la posición sigue siendo la del orden TOTAL que sirve la página (comparador desempatado
+// por índice del dataset), así que se cruza contra el render real página por página: nada de fórmula
+// cerrada, que es justo lo que dejaba pasar el rango del bloque empatado.
+test('con empates indexOf/pageOf apuntan a la fila y la página donde el render muestra el ítem', async () => {
+  const pageSize = 10
+  const { table, slices } = mount({ pageSize, comparator: (a, b) => a.grupo - b.grupo })
+  table.setData(EMPATADO)
   await flushRaf()
 
-  data.forEach(it => is(table.indexOf(it), it.grupo * 5, `id ${it.id}: rango = filas de los grupos previos`))
+  for (let p = 0; p < 8; ++p) {
+    table.setPage(p)
+    await flushRaf()
+    slices.at(-1).rows.forEach((fila, i) => {
+      const rowNumber = p * pageSize + i + 1
+      is(table.indexOf(fila), rowNumber - 1, `indexOf == rango global (p=${p} i=${i})`)
+      is(table.pageOf(fila), p, `pageOf == página que la muestra (p=${p} i=${i})`)
+      is(table.itemAtRow(table.indexOf(fila) + 1), fila, `itemAtRow(indexOf+1) == la fila (p=${p} i=${i})`)
+    })
+  }
 })
 
 // Dos payloads públicos y DISTINTOS: getPageInfo() lleva pageSize, la meta de onSlice no.

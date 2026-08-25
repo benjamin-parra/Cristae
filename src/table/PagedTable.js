@@ -201,11 +201,9 @@ export class PagedTable {
   // dataset o no pasa el filtro. Inverso de `itemAtRow`: NO toca el render ni el `workingSet` —
   // recorre el dataset una vez contando cuántas filas visibles ordenan antes de `item`. `item` debe
   // ser una referencia del dataset vigente (la que entregan `getSnapshot()`/`itemAtRow`). Con orden
-  // (`comparator`) el rango es el nº de filas visibles que ordenan estrictamente antes; sin orden es
-  // el nº de filas visibles previas en el dataset. Determinista mientras `comparator` sea un orden
-  // total; con empates devuelve el rango del BLOQUE empatado (la posición dentro del bloque no la
-  // define), mientras que el render sí desempata por índice del dataset: para un ítem empatado,
-  // `pageOf` da la página del inicio del bloque, que puede no ser la que termina mostrándolo.
+  // (`comparator`) la posición es la del MISMO orden total que sirve la página: el comparador
+  // desempatado por el índice del dataset (ver `#sortAndSlicePage`); sin orden es el nº de filas
+  // visibles previas en el dataset.
   indexOf(item) {
     const query = this.#consulta.query.toLowerCase()
     if (!this.#matches(item, query)) return -1
@@ -215,11 +213,14 @@ export class PagedTable {
     let rank = 0
 
     if (cmp) {
+      // Barrido ascendente: `!found` ⇔ `other` tiene índice de dataset menor que `item`.
       let found = false
       for (let i = 0; i < data.length; ++i) {
         const other = data[i]
         if (other === item) { found = true; continue }
-        if (this.#matches(other, query) && cmp(other, item) < 0) rank++
+        if (!this.#matches(other, query)) continue
+        const orden = cmp(other, item)
+        if (orden < 0 || (orden === 0 && !found)) rank++
       }
       return found ? rank : -1
     }

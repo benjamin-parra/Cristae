@@ -139,6 +139,8 @@ Construcción: `new PagedTable({ container, scrollElement, template, binder, row
 | `setWhere(fn)` | Subconjunto de ESTA tabla; reemplaza al anterior, `null` lo desactiva (hard). | `((Item) → boolean)\|null → this` | pipeline |
 | `getPageInfo()` | `{ page, pageSize, total, pages, offset }`. | `() → object` | O(1) |
 | `itemAtRow(rowIndex)` | Ítem de una fila (índice 1-based del DOM, vía slice visible). | `(number) → Item\|null` | O(1) |
+| `indexOf(item)` | Posición 0-based del ítem en la vista vigente; `-1` si no está o no pasa el filtro. | `(Item) → number` | O(n) |
+| `pageOf(item)` | Página 0-based que muestra al ítem; `-1` si no está o no pasa el filtro. | `(Item) → number` | O(n) |
 | `refresh()` | Reprocesa con el dataset actual. | `() → this` | pipeline |
 | `destroy()` | Desuscribe, corta observers y rAF, vacía el DOM. | `() → void` | O(1) |
 
