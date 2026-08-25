@@ -1,5 +1,6 @@
 import { prepareIndex, nearest, toParts } from '../geometry/polyline.js'
-import { toRGBA, toColorObj, DEFAULT_COLOR } from './color.js'
+import { toRGBA, DEFAULT_COLOR } from './color.js'
+import { focusFactor } from './focus.js'
 import { projX0, projY0 } from './project.js'
 import { loseGlContext, cancelPendingRedraw } from './gl-teardown.js'
 
@@ -21,6 +22,8 @@ import { loseGlContext, cancelPendingRedraw } from './gl-teardown.js'
 //
 // Picking: CPU nearest-segment (geometry/polyline.js) — glify.Lines no tiene picking GPU y su
 // color per-vértice ES el color visible (no quedan bits para un id). kind 'line', distancePx real.
+//
+// Eje focus: el alfa vive POR VÉRTICE en ese mismo layout, así que la atenuación es por FEATURE.
 
 const DEFAULT_WEIGHT = 3
 const HIT_TOL_PX = 8
@@ -42,7 +45,7 @@ export class LineLayer {
   #layer        = null
   #styleArr     = []               // por FEATURE: { weight, color:{r,g,b,a} } — glify pide color con featureIndex
   #weightByPart = []               // por PARTE: glify pide weight con el índice de parte (ver #create)
-  #features     = []               // por feature (orden del buffer): { item, runs: [{ vertOffset, vertCount, from }], partStart }
+  #features     = []               // por feature (orden del buffer): { item, id, focus (factor plegado en su alfa), runs: [{ vertOffset, vertCount, from }], partStart }
   #featureById  = new Map()        // id → índice de feature (traduce los dirtyIds al slot del buffer)
   #snapLen      = -1               // tamaño del snapshot del último rebuild (detecta alta/baja → fast-path vs rebuild)
   #index        = { sorted: [] }   // índice espacial nearest-segment (picking)
@@ -52,6 +55,7 @@ export class LineLayer {
   #verts = null; #buf = null
   #gradient = false
   #unsub = null
+  #focus = { ids: null, dim: 0.3 }   // eje focus: ids enfocados (null = sin foco) + opacidad del resto
 
   constructor({ glify, map, pane, source, interactive = false }) {
     this.#glify = glify
@@ -80,6 +84,33 @@ export class LineLayer {
     this.#layer?.remove()
     loseGlContext(this.#layer)        // libera el contexto WebGL (glify.remove no lo hace → leak acumulativo)
     this.#layer = null
+  }
+
+  // Sólo se re-escribe el ALFA de los features cuyo factor cambió. El foco es estado de la capa: el
+  // rebuild lo repone (ver #rgba).
+  applyFocus(ids, dim = this.#focus.dim) {
+    this.#focus = { ids, dim }
+    if (!this.#layer) return true
+    const a = this.#accessors
+    const v = this.#verts
+    let tocados = 0
+    this.#features.forEach((feat, f) => {
+      const k = focusFactor(this.#focus, feat.id)
+      if (k === feat.focus) return
+      feat.focus = k
+      const st   = a.styleOf?.(feat.item)
+      const flat = this.#gradient ? null : this.#rgba(feat.id, st?.color ?? DEFAULT_COLOR, st?.opacity ?? 1)
+      // [0-alloc] en color plano: un único alfa para todos los vértices del feature.
+      const alfa = flat ? () => flat[3] : p => this.#rgba(feat.id, a.colorRamp(a.scalarOf(feat.item, p)))[3]
+      flat && (this.#styleArr[f].color.a = flat[3])          // mantener coherente el color per-feature
+      feat.runs.forEach(({ vertOffset, vertCount, from }) => {
+        for (let i = 0; i < vertCount; i++) v[(vertOffset + i) * BYTES + 5] = alfa(from + pathIndexOf(i))
+      })
+      this.#upload(feat)
+      tocados++
+    })
+    tocados && this.#layer.layer.redraw()
+    return true
   }
 
   /* ── Picking CPU (nearest-segment); el registro envuelve las partes con layerId/kind/z/order ── */
@@ -143,6 +174,23 @@ export class LineLayer {
     this.#layer.layer.redraw()
   }
 
+  // Punto ÚNICO donde se calcula el alfa que va al buffer: lo comparten rebuild, gradiente e incremental.
+  #rgba(id, color, alpha = 1) {
+    const c = toRGBA(color, alpha)                                   // toRGBA devuelve array fresco: mutable
+    c[3] *= focusFactor(this.#focus, id)
+    return c
+  }
+
+  // [0-alloc]: forma de 5 args de bufferSubData, sin subarray.
+  #upload(feat) {
+    const first = feat.runs[0], last = feat.runs[feat.runs.length - 1]
+    const start = first.vertOffset * BYTES
+    const len   = (last.vertOffset + last.vertCount) * BYTES - start
+    const gl    = this.#layer.gl
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.#buf)
+    gl.bufferSubData(gl.ARRAY_BUFFER, start * 4, this.#verts, start, len)
+  }
+
   // Reescribe SÓLO los vértices de un feature sucio en el espejo #verts y sube su rango CONTIGUO por
   // bufferSubData (las partes de un feature son contiguas en el buffer). Reescribe geometría (x,y
   // proyectados, mismo marco world0 que glify: project(latLng,0) − mapCenterPixels) y color (gradiente
@@ -158,7 +206,7 @@ export class LineLayer {
     style.weight = st?.weight ?? DEFAULT_WEIGHT
     // Color plano: una sola vez por feature (misma ref en todos sus vértices). En gradiente el color
     // per-feature es placeholder → se resuelve por vértice más abajo.
-    const flat = this.#gradient ? null : toRGBA(st?.color ?? DEFAULT_COLOR, st?.opacity ?? 1)
+    const flat = this.#gradient ? null : this.#rgba(feat.id, st?.color ?? DEFAULT_COLOR, st?.opacity ?? 1)
     if (flat) { const c = style.color;[c.r, c.g, c.b, c.a] = flat }   // mantener coherente el color per-feature
     const wr = brushRadius(style.weight)
     const cx = this.#layer.mapCenterPixels.x
@@ -177,17 +225,11 @@ export class LineLayer {
         const y = Math.fround(projY0(pt[0]) - cy)
         if (v[o] !== x || v[o + 1] !== y) geomChanged = true
         v[o] = x; v[o + 1] = y
-        const c = flat ?? toRGBA(a.colorRamp(a.scalarOf(item, from + pIdx)))
+        const c = flat ?? this.#rgba(feat.id, a.colorRamp(a.scalarOf(item, from + pIdx)))
         v[o + 2] = c[0]; v[o + 3] = c[1]; v[o + 4] = c[2]; v[o + 5] = c[3]
       }
     })
-
-    const first = feat.runs[0], last = feat.runs[feat.runs.length - 1]
-    const start = first.vertOffset * BYTES
-    const len   = (last.vertOffset + last.vertCount) * BYTES - start
-    const gl    = this.#layer.gl
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.#buf)
-    gl.bufferSubData(gl.ARRAY_BUFFER, start * 4, v, start, len)      // [0-alloc]: forma de 5 args, sin subarray
+    this.#upload(feat)
 
     feat.item = item
     // Sólo crece: una tolerancia de hit generosa nunca pierde un click; el rebuild la recalcula exacta.
@@ -207,10 +249,11 @@ export class LineLayer {
       })
       .filter(({ parts }) => parts.length)
 
-    this.#styleArr = built.map(({ st }) => ({
-      weight: st?.weight ?? DEFAULT_WEIGHT,
-      color: toColorObj(st?.color ?? DEFAULT_COLOR, st?.opacity ?? 1),
-    }))
+    // glify escribe este color per-feature en TODOS los vértices del feature.
+    this.#styleArr = built.map(({ st, id }) => {
+      const c = this.#rgba(id, st?.color ?? DEFAULT_COLOR, st?.opacity ?? 1)
+      return { weight: st?.weight ?? DEFAULT_WEIGHT, color: { r: c[0], g: c[1], b: c[2], a: c[3] } }
+    })
     // glify pide el weight por PARTE (drawOnCanvas recorre `vertices`), y lo quiere como radio de
     // brocha, no como px. El `#maxWeight` de la tolerancia de hit se queda en px.
     this.#weightByPart = built.flatMap(({ parts }, f) => parts.map(() => brushRadius(this.#styleArr[f].weight)))
@@ -225,8 +268,9 @@ export class LineLayer {
       return run
     })
     let partStart = 0
-    this.#features = built.map(({ item, parts }) => {
-      const feat = { item, runs: runsOf(parts), partStart }   // partStart: 1ª parte del feature en #weightByPart
+    this.#features = built.map(({ item, id, parts }) => {
+      // partStart: 1ª parte del feature en #weightByPart. `focus`: el factor plegado en su alfa.
+      const feat = { item, id, focus: focusFactor(this.#focus, id), runs: runsOf(parts), partStart }
       partStart += parts.length
       return feat
     })
@@ -282,9 +326,9 @@ export class LineLayer {
   #applyGradient() {
     const a = this.#accessors
     const v = this.#verts
-    this.#features.forEach(({ item, runs }) => runs.forEach(({ vertOffset, vertCount, from }) => {
+    this.#features.forEach(({ item, id, runs }) => runs.forEach(({ vertOffset, vertCount, from }) => {
       for (let k = 0; k < vertCount; k++) {
-        const c = toRGBA(a.colorRamp(a.scalarOf(item, from + pathIndexOf(k))))
+        const c = this.#rgba(id, a.colorRamp(a.scalarOf(item, from + pathIndexOf(k))))
         const o = (vertOffset + k) * BYTES + 2
         v[o] = c[0]; v[o + 1] = c[1]; v[o + 2] = c[2]; v[o + 3] = c[3]
       }

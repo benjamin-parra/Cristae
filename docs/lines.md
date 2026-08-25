@@ -68,6 +68,28 @@ layer.data = rutas                              // el elemento posee la Source i
 entradas de dato, como en `<cristae-point-layer>`. `interactive`/`visible` son atributos; `accessors`/
 `data`/`source` son props (funciones/objetos).
 
+### Sustrato — `backend`
+
+Tres formas de poner los mismos vértices en pantalla. Se lee al montar.
+
+| `backend` | Grosor | Picking | Gradiente | `dash` | Contextos WebGL |
+|---|---|---|---|---|---|
+| `glify` *(default)* | brocha: `(4w+1)²` pasadas por feature y por frame | ✅ nearest-segment | ✅ por vértice | ❌ | comparte el de glify |
+| `gpu` | **un quad por segmento**, una pasada, con uniones por miter | ❌ | ❌ | ❌ | toma UNO de los ~16 |
+| `leaflet` (`vector: true`) | path SVG | ✅ | ❌ | ✅ | ninguno |
+
+`gpu` es el mismo `StrokePass` que dibuja el contorno de los polígonos, con `closed: false`: los
+vértices viven en una textura y el vertex shader arma el quad desde `gl_VertexID`, así que panear y
+hacer zoom no reescriben un byte y el conteo de draws **no depende del grosor ni del largo** del
+recorrido. Es el sustrato de la geometría histórica —una ruta, un track— que se pide una vez y se mira:
+sin picking ni gradiente, que siguen siendo de `glify`.
+
+```js
+engine.addLineLayer({ id: 'ruta', backend: 'gpu', accessors, data })
+```
+
+Pedir `interactive: true` sobre `gpu` **falla ruidoso** en vez de dejar una capa que no contesta.
+
 ### Multi-parte — una línea con huecos sigue siendo UNA entidad
 
 Una línea puede tener partes disjuntas (un track GPS con baches de señal, un tramo por tierra y otro
@@ -164,6 +186,7 @@ distinto sustrato:
 | Volumen / tiempo real | ✓ (buffer GPU) | pocas líneas |
 | Reproyección | el motor (path incremental) | Leaflet nativo |
 | Contexto WebGL | +1 | **0** (no abre contexto) |
+| Foco por ítem (`focus-ids`) | ✓ exacto — el factor se pliega en el **alfa por vértice** | ✓ exacto (opacidad del path) |
 
 Regla: **dash / pocas líneas → `vector`; gradiente / volumen → GL**.
 
@@ -210,12 +233,13 @@ decide cuántas, con qué ícono y cuándo recalcularlas (p. ej. al cambiar el z
 
 ## Deuda conocida (NO en este incremento)
 
-- **Grosor (backend GL)**: glify no dibuja líneas gruesas — barre una línea de 1px con una **brocha**
-  de radio `w` en pasos de 0.5, así que rinde `2w+1` px de ancho y **`(4w+1)²` draw-calls por feature**.
-  `styleOf.weight` es px de pantalla en AMBOS backends: la capa convierte px → radio (`(px−1)/2`) antes
-  de pasárselo a glify. Aun convertido, el costo de *draw* sigue siendo cuadrático en el grosor (8 px →
-  225 pasadas por feature y por frame): no escala a muchas líneas gruesas. El grosor real por triángulos
-  queda para un draw propio futuro. (El backend Leaflet no tiene este problema, pero no rinde volumen.)
+- **Grosor (backend `glify`)**: glify no dibuja líneas gruesas — barre una línea de 1px con una
+  **brocha** de radio `w` en pasos de 0.5, así que rinde `2w+1` px de ancho y **`(4w+1)²` draw-calls por
+  feature**. `styleOf.weight` es px de pantalla en TODOS los sustratos: la capa convierte px → radio
+  (`(px−1)/2`) antes de pasárselo a glify. Aun convertido, el costo de *draw* sigue siendo cuadrático en
+  el grosor (8 px → 225 pasadas por feature y por frame): no escala. **El grosor real por triángulos ya
+  no es futuro: es el sustrato `gpu`** (abajo). `glify` sigue siendo el default porque es el único que
+  resuelve picking y gradiente por vértice.
 - **`dash` en el backend GL**: `gl.LINES` no lo soporta → usar `vector: true` para líneas punteadas.
 - **Track vivo (`extend`)**: crecer una línea por la punta hoy pasa por rebuild coalescido; el append
   incremental [0-alloc] al tail es una etapa posterior.

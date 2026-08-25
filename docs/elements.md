@@ -189,6 +189,67 @@ marker `600` · tooltip `650` · popup `700`.
 Los modificadores (`<cristae-cluster>`, `<cristae-overlay>`) no los aceptan: sus capas las crea la
 gramática. Imperativo equivalente: `engine.setLayerZ(id, z)`.
 
+### Enfoque — `focus-ids`
+
+Destacar un subconjunto atenuando el resto. También lo hereda toda capa hoja de la base (no aparece en
+la tabla de ninguna). Se llama así y no `focus` porque una propiedad `focus` pisaría
+`HTMLElement.prototype.focus()`.
+
+| Miembro | Tipo | Atributo / prop |
+|---|---|---|
+| `focus-ids` | token-list (`"a b c"`) \| array de ids | atributo (o prop `focusIds`) — los ids **enfocados**. Reactivo |
+
+**La polaridad: se nombra lo que queda BRILLANTE**, y se atenúa todo lo demás. Tres estados, no dos:
+
+| `focus-ids` | Significado |
+|---|---|
+| ausente | la capa **no participa** del eje |
+| presente con ids | esos ítems plenos; el resto atenuado |
+| presente y vacío (`focus-ids=""`, `[]`) | participa **sin ninguno** → todo atenuado |
+
+**Es cross-layer.** Mientras **alguna** capa declare el eje, se atenúan **todas** (el basemap no, que no
+es capa) y cada una repone los suyos. Así se enfoca un punto y las geocercas, etiquetas y badges del
+resto lo acompañan sin que el consumidor coordine capa por capa. Las capas LIGADAS a un host
+(`<cristae-label-layer bind-to>`, `<cristae-overlay>`) siguen la suerte de foco de su host: un badge no
+queda brillante sobre un marcador atenuado.
+
+**El eje por capa EXIME.** `engine.focus(idsDeCapa, { opacity, kinds })` es el otro eje —atenúa capas
+enteras, no ítems—, y la capa que nombra queda plena **y fuera** del eje por ítem. Es lo que necesita el
+spider de un cluster: no declara ítems y no puede atenuarse a sí mismo. Los dos ejes los resuelve un
+solo punto, así que no hay orden de llamadas que produzca un estado intermedio raro. La atenuación del
+eje por ítem es fija; el `opacity` es del eje por capa.
+
+**La membresía del dibujo manda sobre el foco.** El foco no dibuja: modula lo que la capa ya dibuja. Un
+id enfocado que no está en el dibujo —filtrado, clusterizado, sin posición finita, fuera del `where`, en
+una capa con `enabled="false"`— **no aparece** por estar enfocado. Enfocar ids de otra capa, o ids que
+no existen, no pinta nada de más.
+
+**Atenuado no es apagado.** Es presentación: lo atenuado sigue interactivo (hover, click, popup) y sigue
+contando para los modificadores. Para sacar algo del dibujo está `visible`; para sacarlo de la
+composición, `enabled`.
+
+```html
+<!-- el marcador y su etiqueta plenos; el resto del mapa atenuado -->
+<cristae-point-layer id="fleet" focus-ids="movil-7"></cristae-point-layer>
+```
+```js
+fleet.focusIds = ['movil-7', 'movil-9']   // reactivo: reasignar recompone el eje entero
+fleet.focusIds = []                       // participa sin ninguno → todo atenuado
+fleet.removeAttribute('focus-ids')        // la capa se retira del eje
+```
+
+Cada capa lo resuelve **en su propio dibujo**, no en la opacidad de su pane: los puntos en el signo del
+`size` del vértice ([`render.md`](render.md)), las líneas GL en el alfa por vértice
+([`lines.md`](lines.md)), las etiquetas en el `globalAlpha` del texto, los polígonos/círculos/HTML en el
+estilo de su feature ([`polygons.md`](polygons.md)). La única que atenúa su pane entero es la capa de
+calor, que no tiene identidad por ítem. Por eso el eje es barato incluso sobre miles de puntos en vivo:
+entrar o salir del foco cuesta un float por ítem que **cambió de estado**, y no hay pase extra que
+mantener sincronizado con el dibujo.
+
+Imperativo equivalente: `engine.setLayerFocus(id, ids)` — o `controls.setFocus(ids)` en el handle de la
+capa —, con `undefined` para retirarla del eje. Para el eje por capa: `engine.focus(ids, { opacity,
+kinds })` · `engine.unfocus(ids)` · `engine.unfocusAll()`.
+
 ### `<cristae-point-layer>` — puntos WebGL
 
 | Miembro | Tipo | Atributo / prop |
@@ -254,6 +315,22 @@ host, resuelto por nombre, orden-independiente).
 | `accessors` | `{ idOf, positionOf }` | **prop** |
 | `textOf` | `(item) => string` | **prop** |
 | `paint` / `style` | función / objeto | **prop** |
+
+### `<cristae-editable-polygon|polyline|point|rectangle>` — edición de geometría
+
+No son capas de dato: sin `source` ni accessors, su dato es UNA geometría y el contrato es el de un
+**input controlado** — `value` entra, los cambios salen por `cristae:change` (live) y `cristae:commit`
+(asentado). Uno por FORMA y no uno con `kind`, porque la forma se lee en el alta (es un tipo, no
+configuración) y es lo que fija la forma de `value`. Guía completa en [`editing.md`](./editing.md).
+
+| Miembro | Tipo | Atributo / prop |
+|---|---|---|
+| `id` | string | atributo |
+| `mode` | `edit` \| `draw` (default `edit`) | atributo |
+| `value` | la geometría, según el elemento | **prop** |
+| `geometryStyle` | `{ color, weight, fillColor, fillOpacity }`, parcial | **prop** |
+
+Se llama `geometryStyle` y no `style` porque una propiedad `style` pisaría `HTMLElement.style`.
 
 ### `<cristae-cluster>` — clustering declarativo
 
@@ -421,6 +498,7 @@ Regla: si existe una prop declarativa para lo que se busca, conviene usarla; `co
 | point | `{ id, source, layer, set, patch, move, remove, addFilter, removeFilter, preloadIcons, refresh, setVisible }` |
 | polygon | `{ id, set, setVisible }` |
 | label | `{ id, setLabels, setHovered, setVisible }` |
+| editable | `{ id, setValue, setMode, setStyle, getValue, handleMapClick, destroy }` |
 | cluster | `{ id }` (id del host; quitar el `<cristae-cluster>` arrastra el cluster) |
 
 ### Ejemplo (banco de pruebas)

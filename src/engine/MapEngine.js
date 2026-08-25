@@ -29,7 +29,7 @@ const Z_STEP = 10
 // Techo de la identidad de OBJETO del pase de picking: el eje `obj` del píxel menos el 0, que significa
 // «nada» y no se asigna nunca. Sale de los bits que declara el codec — nunca de un número repetido acá.
 const PICK_OBJ_MAX = (1 << OBJ_BITS) - 1
-const SIN_FOCO = new Set()      // capa sin ids propios en el eje focus: se atenúa entera
+const ITEM_DIM = 0.3            // opacidad del atenuado en el eje de foco por ÍTEM
 // Offset de la capa de LABELS sobre su host. El fold de cluster (burbujas + spider) se cuelga por ENCIMA
 // de esta banda para que las etiquetas de otros marcadores NO tapen los vehículos que el cluster superpone
 // al expandirse (el spider es el contenido enfocado → va arriba de los labels). Ver addLabelLayer + fold.
@@ -118,10 +118,9 @@ export class MapEngine {
   #order              = 0
   #zoomAnimation      = 'none'         // politica de animacion del zoom: 'none' | 'in-only' | 'on'
   #focused            = null           // enfoque: Set(id) de capas a opacidad plena (resto atenuado), o null
-  #dimOpacity         = 0.3            // opacidad del resto mientras hay enfoque activo
-  #focusKinds         = null           // kinds de capa que el enfoque atenúa (null = todas)
+  #dimOpacity         = 0.3            // opacidad del resto mientras hay enfoque POR CAPA
+  #focusKinds         = null           // kinds de capa que el enfoque por capa atenúa (null = todas)
   #itemFocus          = new Map()      // enfoque por ÍTEM: layerId → Set(id) declarado (vacío = todo atenuado)
-  #focusOverlays      = new Map()      // layerId → pase brillante que repone los ítems enfocados
 
   camera
   ready
@@ -683,8 +682,6 @@ export class MapEngine {
     record.group?.remove()
     record.controls?.destroy()
     record.cluster?.dispose()             // libera burbujas + sibling y su listener de zoom
-    this.#focusOverlays.get(id)?.destroy()
-    this.#focusOverlays.delete(id)
     const declarabaFoco = this.#itemFocus.delete(id)
     this.#registry.removeByLayerId(id)
     this.#removePickLayer(id)
@@ -1033,8 +1030,8 @@ export class MapEngine {
   /* ── Enfoque / atenuado de capas (primitivo general) ── */
   // `focus(ids)` deja esas capas a opacidad plena y ATENÚA el resto (opacidad `opacity`); sirve para
   // destacar un subconjunto (p. ej. el spider al expandir un cluster). `unfocus(ids)` las saca del
-  // conjunto brillante (se re-atenúan); `unfocusAll()` restaura todo. Sólo toca `pane.style.opacity`:
-  // barato, NO re-renderiza glify ni toca datos ni el picking → las capas atenuadas siguen interactivas.
+  // conjunto brillante (se re-atenúan); `unfocusAll()` restaura todo. La capa nombrada queda EXENTA
+  // también del eje de foco por ítem.
   // Idempotente (recomputa desde cero). Cubre por id de capa; los panes sin capa (líneas del spider) no
   // se tocan → quedan a opacidad plena junto al foco. `kinds` acota QUÉ capas se atenúan (por kind:
   // 'point'/'label'/'polygon'…); null = todas. Ej: atenuar sólo marcadores dejando las geocercas de
@@ -1057,7 +1054,8 @@ export class MapEngine {
 
   unfocusAll() {
     if (!this.#focused) return
-    this.#focused = null
+    this.#focused    = null
+    this.#focusKinds = null      // el alcance muere con el foco que lo declaró
     this.#applyFocus()
   }
 
@@ -1075,62 +1073,38 @@ export class MapEngine {
     return this
   }
 
-  /* ── Enfoque por ÍTEM: mientras alguna capa lo declare, todas se atenúan (el basemap no es capa) y
-       cada una repone los suyos brillantes. `ids` iterable | falsy (ninguno) | undefined (se retira). ── */
+  /* ── Enfoque por ÍTEM. `ids` iterable | falsy (ninguno) | undefined (se retira). ── */
   setLayerFocus(layerId, ids) {
-    const host = this.#layers.get(layerId)
-    if (!host) return this
-    if (ids === undefined) {
-      this.#itemFocus.delete(layerId)
-      this.#focusOverlays.get(layerId)?.destroy()
-      this.#focusOverlays.delete(layerId)
-      this.#applyFocus()
-      return this
-    }
-    const set     = new Set(ids || [])
-    const iconSet = host.iconSet
-    const a       = host.source?.accessors
-    this.#itemFocus.set(layerId, set)
-    // Las capas GL no pueden atenuar por ítem (el vec4 de color está lleno): se atenúa su pane entero y
-    // un pase encima re-dibuja el sprite del enfocado con el mismo tile/tamaño/rumbo.
-    if (iconSet && a && !this.#focusOverlays.has(layerId)) {
-      const pase = this.addHighlightOverlay({
-        id: `focus-${layerId}`, layerId, z: BASE_Z + LABEL_Z_OFFSET + 100,
-        drawHighlight: (ctx, _size, _key, item) => {
-          const idx  = iconSet.resolve(a.variantOf ? a.variantOf(item) : 'default')
-          const tile = iconSet.atlas.tileAt(idx)
-          if (!tile) return
-          const lado = (a.sizeOf ? a.sizeOf(item) : iconSet.defaultSize) * iconSet.tileScale(idx)
-          iconSet.rotates && a.headingOf && ctx.rotate(a.headingOf(item) * Math.PI / 180)
-          ctx.drawImage(tile, -lado / 2, -lado / 2, lado, lado)
-        },
-      })
-      pase && this.#focusOverlays.set(layerId, pase)
-    }
-    this.#focusOverlays.get(layerId)?.setHighlighted(new Map([...set].map(id => [id, 'focus'])))
+    if (!this.#layers.has(layerId)) return this
+    if (ids === undefined) this.#itemFocus.delete(layerId)
+    else this.#itemFocus.set(layerId, new Set(ids || []))
     this.#applyFocus()
     return this
   }
 
-  // Resolutor único de opacidad de los dos ejes de enfoque. En el foco por ítem cada capa intenta
-  // atenuar POR FEATURE (`applyFocus` devuelve true si supo); la que no puede —las GL, sin identidad
-  // por feature— atenúa su pane entero y su pase de sprites repone los enfocados.
+  // Composición de los dos ejes de foco: el eje por CAPA EXIME (la capa que `focus()` nombra queda plena
+  // y fuera del eje por ítem); brillantes son los ítems declarados más los que el cluster reveló; la capa
+  // que no sabe atenuar por feature —o no tiene nada que salvar— atenúa su pane entero.
   #applyFocus() {
-    const porItem = this.#itemFocus.size > 0
+    const porItem    = this.#itemFocus.size > 0
+    const brillantes = key => {
+      const propios   = this.#itemFocus.get(key)
+      const revelados = this.#layers.get(key)?.revealed
+      return revelados?.size ? new Set([...(propios ?? []), ...revelados]) : propios
+    }
     for (const [id, rec] of this.#layers) {
       if (!rec.paneName) continue
-      if (this.#focusKinds && !this.#focusKinds.includes(rec.kind)) continue   // fuera de alcance → intacta (brillante)
       // Las capas LIGADAS a un host (labels/overlays con bindTo) siguen su suerte de foco: un
       // badge no queda brillante sobre un marcador atenuado ni atenuado sobre uno enfocado.
-      const key = rec.bindTo ?? id
-      if (!porItem) {
-        rec.layer?.applyFocus?.(null)
-        this.#applyOpacity(rec.paneName, !this.#focused || this.#focused.has(key) ? 1 : this.#dimOpacity)
-        continue
-      }
-      const propios = this.#itemFocus.get(key) ?? SIN_FOCO
-      const exacto  = rec.layer?.applyFocus?.(propios, this.#dimOpacity)
-      this.#applyOpacity(rec.paneName, exacto ? 1 : this.#dimOpacity)
+      const key     = rec.bindTo ?? id
+      const porCapa = !!this.#focused && (!this.#focusKinds || this.#focusKinds.includes(rec.kind))
+      const exenta  = porCapa && this.#focused.has(key)
+      const atenua  = !exenta && (porCapa || porItem)
+      const dim     = porCapa ? this.#dimOpacity : ITEM_DIM
+      const brillan = atenua ? brillantes(key) : null
+      const exacto  = brillan?.size && rec.layer?.applyFocus?.(brillan, dim)
+      if (!exacto) rec.layer?.applyFocus?.(null)
+      this.#applyOpacity(rec.paneName, exacto || !atenua ? 1 : dim)
     }
   }
 

@@ -59,6 +59,12 @@ export class PointLayer {
   // refresh() sigue operativo (es el catch-up explícito al re-habilitar).
   #enabled = true
 
+  // Eje focus: el alfa por ítem viaja en el SIGNO del `size` del vértice; `ids` null = sin foco.
+  #focus      = { ids: null, dim: 0.3 }
+  #dimUp      = 0    // espejo de `uDim` (GL arranca los uniforms en 0)
+  #focusSlots = []   // slots que cambiaron en el último applyFocus (reusado, sólo crece)
+  #depthBit   = 0    // DEPTH_BUFFER_BIT con el orden por banda activo; 0 = orden de slot
+
   #unsub = null
 
   // `accessors` override (default = los de la Source): permite que una capa LEA los
@@ -177,25 +183,31 @@ export class PointLayer {
   // Reproyección por-frame a una vista (zoom, center) ARBITRARIA — el corazón del zoom ANIMADO. Los
   // vértices viven en espacio de zoom-0, así que reproyectar es sólo recomputar la matriz (scale=2^zoom
   // + translate al NW de la vista destino) y re-emitir el draw: O(1), **tamaño de sprite fijo** (no
-  // "gigante") y **sin corte** (redibuja al viewport cada frame). Replica glify.drawOnCanvas pero con la
-  // vista INYECTADA en vez de la del mapa vivo (que durante la animación sigue en el zoom de partida).
+  // "gigante") y **sin corte** (redibuja al viewport cada frame). La vista va INYECTADA en vez de la del
+  // mapa vivo (que durante la animación sigue en el zoom de partida).
   // El motor la llama por frame desde el ViewAnimator, interpolando (zoom, center) con el easing del tile.
   renderAtView(zoom, center) {
-    const l = this.#layer
-    if (!l?.gl || !l.matrix) return
+    if (!this.#layer?.matrix) return
     const map  = this.#map
     const size = map.getSize()
     const nw   = map.unproject(map.project(center, zoom).subtract(size.divideBy(2)), zoom)
-    const off  = map.project(nw, 0)                     // NW en píxeles de zoom-0 (== glify `e.offset`)
-    const gl   = l.gl
+    this.#draw(zoom, map.project(nw, 0))                // NW en píxeles de zoom-0 (== glify `e.offset`)
+  }
+
+  #draw(zoom, off) {
+    const l = this.#layer
+    if (!l?.gl || !l.matrix) return
+    const gl = l.gl
     l.mapMatrix
       .setSize(l.canvas.width, l.canvas.height)
       .scaleTo(2 ** zoom)
       .translateTo(-off.x + l.mapCenterPixels.x, -off.y + l.mapCenterPixels.y)
     gl.viewport(0, 0, l.canvas.width, l.canvas.height)
     gl.uniformMatrix4fv(l.matrix, false, l.mapMatrix.array)
-    gl.clear(gl.COLOR_BUFFER_BIT)
+    gl.clear(gl.COLOR_BUFFER_BIT | this.#depthBit)
+    this.#depthBit && gl.enable(gl.DEPTH_TEST)
     gl.drawArrays(gl.POINTS, 0, l.allLatLngLookup.length)
+    this.#depthBit && gl.disable(gl.DEPTH_TEST)
   }
 
   // Apaga la animación de zoom PROPIA de glify: su `_animateZoom` hace `setTransform` (escala el raster
@@ -228,6 +240,60 @@ export class PointLayer {
     this.#layer?.remove()
     loseGlContext(this.#layer)        // libera el contexto WebGL (glify.remove no lo hace → leak acumulativo)
     this.#layer = null
+  }
+
+  /* ── Eje focus ── */
+
+  // Cuesta UN float por ítem que CAMBIÓ de estado; mover sólo `dim` no toca el buffer: es un uniform.
+  applyFocus(ids, dim = this.#focus.dim) {
+    const antes = this.#focus.ids
+    this.#focus = { ids, dim }
+    if (!this.#layer) return true
+    const v     = this.#verts
+    const slots = this.#focusSlots
+    let n = 0, lo = 0, hi = 0
+    const flip = s => {
+      const i = s * 7 + 6
+      this.#meta[s].size = v[i] = -v[i]
+      lo = n && lo < s ? lo : s
+      hi = n && hi > s ? hi : s
+      slots[n++] = s
+    }
+    const flipId = id => { const s = this.#slot.get(id); s === undefined || flip(s) }
+    if (antes && ids) {
+      antes.forEach(id => ids.has(id) || flipId(id))
+      ids.forEach(id => antes.has(id) || flipId(id))
+    } else if (antes || ids) {
+      const foco = ids ?? antes
+      this.#slot.forEach((s, id) => foco.has(id) || flip(s))
+    }
+    const gl = this.#layer.gl
+    if (n) {
+      const rango = hi - lo + 1
+      const base  = lo * 7
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.#buf)
+      // Un float suelto cuesta una llamada; el rango entero cuesta UNA: se sube el rango si la mayoría cambió.
+      if (2 * n > rango) gl.bufferSubData(gl.ARRAY_BUFFER, base * 4, v, base, rango * 7)
+      else for (let k = 0; k < n; k++) {
+        const i = slots[k] * 7 + 6
+        gl.bufferSubData(gl.ARRAY_BUFFER, i * 4, v, i, 1)
+      }
+    }
+    const subeDim = ids && dim !== this.#dimUp
+    subeDim && this.#pushDim(dim)
+    if (n || subeDim) this.#layer.layer.redraw()
+    return true
+  }
+
+  // `uDim` es estado del PROGRAMA; glify dibuja con el que quede activo.
+  #pushDim(dim) {
+    const gl   = this.#layer.gl
+    const prog = this.#layer.program
+    const prev = gl.getParameter(gl.CURRENT_PROGRAM)
+    gl.useProgram(prog)
+    gl.uniform1f(gl.getUniformLocation(prog, 'uDim'), dim)
+    gl.useProgram(prev)
+    this.#dimUp = dim
   }
 
   /* ── Reacción al Source (ya coalescida a rAF por el Emitter) ── */
@@ -276,12 +342,15 @@ export class PointLayer {
   }
 
   // Tamaño en pantalla del sprite: `sizeOf` (o el default del iconSet) × la escala de footprint de
-  // la variante (1 salvo que el descriptor pida `scale`). Punto único para los dos paths (rebuild e
-  // incremental) → la escala no puede olvidarse en uno.
-  #sizeFor(item, tileIdx) {
-    const a = this.#accessors
+  // la variante (1 salvo que el descriptor pida `scale`), SIGNADO por el eje focus (negativo =
+  // atenuado). Punto único para los dos paths (rebuild e incremental) → ni la escala ni el atenuado
+  // pueden olvidarse en uno, y un rebuild por causa ajena (set / filtro / cluster / regrow) los repone.
+  #sizeFor(item, tileIdx, id) {
+    const a    = this.#accessors
     const base = a.sizeOf ? a.sizeOf(item) : this.#iconSet.defaultSize
-    return base * this.#iconSet.tileScale(tileIdx)
+    const px   = base * this.#iconSet.tileScale(tileIdx)
+    const ids  = this.#focus.ids
+    return !ids || ids.has(id) ? px : -px
   }
 
   /* ── Política de membresía del buffer (punto único: rebuild e incremental la comparten) ── */
@@ -321,7 +390,7 @@ export class PointLayer {
 
       const tileIdx = this.#iconSet.resolve(a.variantOf ? a.variantOf(item) : DEFAULT_VARIANT)
       const an = (this.#iconSet.rotates && a.headingOf) ? angleNorm(a.headingOf(item)) : 0
-      const sz = this.#sizeFor(item, tileIdx)
+      const sz = this.#sizeFor(item, tileIdx, id)
 
       const p = this.#positions[idx]
       if (p) { p[0] = lat; p[1] = lng } else this.#positions[idx] = [lat, lng]
@@ -367,9 +436,17 @@ export class PointLayer {
       throw new Error('[cristae] glify layout != 7; abortar path incremental')
     this.#binding = new GpuAtlasBinding(gl)
     this.#binding.register(this.#layer.program)
+    this.#focus.ids && this.#pushDim(this.#focus.dim)
+    const overlay = this.#layer.layer
+    overlay.drawing?.(e => this.#draw(this.#map.getZoom(), e.offset))
+    // El orden por banda exige limpiar profundidad: sin `drawing` propio o sin depth, el orden es el de slot.
+    if (overlay.drawing && gl.getContextAttributes?.().depth) {
+      gl.depthFunc(gl.LEQUAL)     // banda igual → gana el último: la precedencia de slot queda intacta
+      this.#depthBit = gl.DEPTH_BUFFER_BIT
+    }
     if (this.#interactive) {
       this.#picking = new Picking()
-      const pickProgram = this.#picking.attach(gl, this.#layer.program, this.#binding.texture)
+      const pickProgram = this.#picking.attach(gl, this.#layer.program, this.#binding.texture, !!this.#depthBit)
       this.#binding.register(pickProgram)
       this.#pickMode    = gl.POINTS
       this.#pickTexture = this.#binding.texture
@@ -425,7 +502,7 @@ export class PointLayer {
     const { lat, lng } = a.positionOf(item)   // copia inmediata: los accessors de abajo pueden reusar el objeto
     const tileIdx = this.#iconSet.resolve(a.variantOf ? a.variantOf(item) : DEFAULT_VARIANT)
     const an = (this.#iconSet.rotates && a.headingOf) ? angleNorm(a.headingOf(item)) : 0
-    const sz = this.#sizeFor(item, tileIdx)
+    const sz = this.#sizeFor(item, tileIdx, this.#idBySlot[s])
     const p = this.#positions[s]
     p[0] = lat
     p[1] = lng

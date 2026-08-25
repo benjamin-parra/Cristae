@@ -39,6 +39,7 @@ new LabelLayer({ map, pane: { name, zIndex }, paint = drawLabel, boundsPad = 0.0
 | `setHovered(ids)` | `(Iterable<id>) → void` | marca ids resaltados (se dibujan **encima** del resto). Misma referencia que la anterior → no-op |
 | `style` | setter | objeto de tema (`{ surface, text, accent }`) leído por `drawLabel`; redibuja |
 | `setVisibility(visible)` | `(bool) → void` | muestra/oculta el pane |
+| `applyFocus(ids, dim?)` | `(Set<id>\|null, number) → true` | atenúa por `globalAlpha` las etiquetas que quedan fuera de `ids` (`null` = sin foco). Lo llama el motor por el eje `focus-ids` ([`elements.md`](elements.md)); devuelve `true` porque el pane queda pleno |
 | `clear()` | `() → void` | vacía labels + hover (no-op si ya estaba vacío) |
 | `destroy()` | `() → void` | quita el overlay del mapa |
 

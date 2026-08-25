@@ -303,6 +303,14 @@ new MapEngine({ leaflet: L, container: HTMLElement, /* defaults neutros */ }) �
 
 ## 8. Elementos de capa hijos
 
+Ejes **comunes a toda capa hoja** (viven en la base, ninguna subclase los declara): `pane`/`z` (apilado, MODELO §6) y `focus-ids` (enfoque por ítem). Consumo detallado en [`docs/elements.md`](./docs/elements.md).
+
+- **`focus-ids` — polaridad y tres estados.** Se declara lo que queda **brillante**; se atenúa todo lo demás. AUSENTE = la capa no participa del eje; presente con ids = esos ítems plenos; presente y **vacío** (`""`/`[]`) = participa sin ninguno → todo atenuado. El converter distingue los tres (colapsar ausente con vacío borra un estado, no un caso de borde). Imperativo equivalente: `engine.setLayerFocus(id, ids)`, con `undefined` para retirar la capa del eje.
+- **Cross-layer, resuelto en un punto único.** Mientras **alguna** capa lo declare se atenúan todas las capas (el basemap no es capa) y cada una repone los suyos; las ligadas por `bind-to` siguen la suerte de foco de su host. El eje por CAPA (`engine.focus(ids, {opacity, kinds})`) **EXIME**: la capa que nombra queda plena **y fuera** del eje por ítem — contrato del spider de un cluster, que no declara ítems y no puede atenuarse a sí mismo. `kinds` acota **qué se atenúa**, no qué se recompone (el resolutor recorre todas las capas siempre). La atenuación del eje por ítem es propia y fija; `opacity` es el parámetro del eje por capa.
+- **La membresía del dibujo manda sobre el foco.** El foco MODULA lo que la capa ya dibuja: un id enfocado que no está en el dibujo (filtrado, clusterizado, `positionOf` no finito, fuera del `where`, capa `enabled=false`) **no aparece**; ids inexistentes o de otra capa no pintan nada.
+- **Atenuar es presentación, no gating.** Lo atenuado sigue **interactivo** (§10) y sigue contando para los modificadores que lo consumen. Sacar del dibujo es `visible`; sacar de la composición es `enabled`.
+- **La opacidad de una capa no es estado declarativo:** es acción (`engine.setLayerOpacity(id, alpha)`). El atenuado declarativo es este eje.
+
 ### 8.1 `<cristae-point-layer>`
 
 | Entrada | Tipo | Reactiva | Efecto |
@@ -311,7 +319,8 @@ new MapEngine({ leaflet: L, container: HTMLElement, /* defaults neutros */ }) �
 | `.accessors` (prop) | objeto de accessors | sí | reemplazo → re-deriva + rebuild |
 | `.iconSet` (prop) / `icon-set` (attr nombre) | IconSet / string | sí | reseed + rebuild (§5) |
 | `.filters` (prop) | `[{id, predicate, deps?, rebuild?}]` | sí | reconciliación **por `deps`** (mismo `id` + `deps` distinto = replace; `deps` igual = no-op; sin `deps` = identidad de `predicate`) + rebuild. Ver MODELO §5.3 |
-| `visible`/`opacity`/`interactive` | bool/num/bool (attrs) | sí | aplica en el próximo frame |
+| `visible`/`interactive` | bool/bool (attrs) | sí | aplica en el próximo frame |
+| `focus-ids` (attr) | token-list \| array \| vacío | sí | eje de enfoque por ítem (§8 intro) |
 | `auto-fit` (attr) | `"once"` | — | encuadra la capa al primer snapshot no vacío (una vez), vía `camera.fitToLayer`; se desuscribe tras encuadrar |
 | `pane` / `z` | string/number (attrs) | — | apilado |
 | **métodos** | `set/patch/move/remove`, `addFilter/removeFilter`, `preloadIcons(variants)`, `refresh()` | acción | §3, §5 |
@@ -325,7 +334,7 @@ new MapEngine({ leaflet: L, container: HTMLElement, /* defaults neutros */ }) �
 |---|---|---|
 | `.data`, `.accessors` (`idOf, ringsOf, styleOf?, hoverStyleOf?`) | — | hit-testing por `geometry/` (point-in-poly + índice espacial), O(log n) por query |
 | `hoverStyleOf?` | `(item) → style` | restyle **transitorio** de path en hover (barato, sin rebuild) |
-| `visible/opacity/interactive` | — | |
+| `visible/interactive` | — | |
 
 ### 8.3 `<cristae-label-layer>` y `<cristae-cluster>`
 
@@ -543,6 +552,7 @@ La **ley** (MODELO §5.4) formalizada como contrato que un implementador debe cu
 | `window.L.glify` global / orden de `<script>` | L inyectado en constructor (§6) |
 | doble-montaje StrictMode | guard `#mounted` + reuse de `L.map` (§7.3) |
 | shader recompila al crecer iconos | dims son uniforms, no literales GLSL (§4.2) |
+| ítem enfocado que se dibuja donde la capa no tiene nada (clusterizado / filtrado / sin posición) | el foco viaja **en el vértice** del ítem dibujado, no en una lista de ids aparte: un id sin slot no existe (§8 intro) |
 
 ### 15.2 Que SÍ requieren manejo explícito
 

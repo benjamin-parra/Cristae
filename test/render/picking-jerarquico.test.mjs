@@ -42,11 +42,11 @@ const PASE = {
   matrix : new Float32Array(16),
 }
 
-const montar = () => {
+const montar = (useDepth = false) => {
   const spy     = makePickSpy()
   const gl      = makeGl(null, spy)
   const picking = new Picking()
-  picking.attach(gl, {}, {})
+  picking.attach(gl, {}, {}, useDepth)
   return { picking, gl, spy, frame: spy.frame }
 }
 
@@ -149,22 +149,24 @@ test('con un pick en vuelo el pedido nuevo se ENCOLA y dispara la ÚLTIMA muestr
 
 /* ── 5. Tamaño del destino ── */
 
-test('el destino mide un parche y no la pantalla: 144 bytes y sin profundidad', () => {
-  const { picking, gl, spy } = montar()
+// `spy.storage` guarda SÓLO el último storage pedido —acá el de profundidad—, así que lo que se afirma es
+// la forma del ÚLTIMO adjunto; que los dos se pidan lo cuenta `renderbuffers`.
+test('el destino mide un parche y no la pantalla, y con banda lleva profundidad', () => {
+  const { picking, gl, spy } = montar(true)
   assert.deepEqual([spy.storage.width, spy.storage.height], [PATCH, PATCH])
   assert.notDeepEqual([spy.storage.width, spy.storage.height], [ANCHO, ALTO])
-  assert.equal(spy.storage.width * spy.storage.height * 4, 144)
-  assert.equal(spy.renderbuffers, 1, 'color y nada más: el pase nunca habilita DEPTH_TEST')
-  assert.deepEqual(spy.attachments, [gl.COLOR_ATTACHMENT0])
+  assert.equal(spy.storage.width * spy.storage.height * 4, 144, 'el parche son 36 texeles: 144 bytes en el color')
+  assert.equal(spy.renderbuffers, 2, 'color y profundidad')
+  assert.deepEqual(spy.attachments, [gl.COLOR_ATTACHMENT0, gl.DEPTH_ATTACHMENT])
 
   picking.pickSync(400, 300, PASE, null)
   assert.deepEqual(spy.readbacks, [{ x: 0, y: 0, width: PATCH, height: PATCH }], 'y la lectura pide los mismos 144 bytes')
 })
 
 test('syncSize no reasigna el destino: no depende del drawing buffer', () => {
-  const { picking, spy } = montar()
+  const { picking, spy } = montar(true)
   for (let i = 0; i < 100; i++) picking.syncSize()
-  assert.deepEqual([spy.renderbuffers, spy.framebuffers], [1, 1])
+  assert.deepEqual([spy.renderbuffers, spy.framebuffers], [2, 1])
 })
 
 /* ── 6. Las DOS unidades: el cursor llega en px CSS y el parche se recorta en px del buffer ── */

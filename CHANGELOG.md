@@ -5,6 +5,141 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
 [`docs/versionado.md`](docs/versionado.md) — en `0.x`, el **minor cuenta los cambios medios**
 (capacidad o eje de API nuevo) y el **patch los menores desde el último medio** (fix / perf / revert).
 
+## [0.33.1] - 2026-08-18
+
+> Sale como **minor**: el trabajo del foco por ítem no agrega un solo nombre a la superficie pública
+> —`focus-ids`, `setLayerFocus`, `focus()` y `indexOf`/`pageOf` existen desde antes y ninguna firma
+> cambia; lo que cambia es el MECANISMO que las cumple, y `applyFocus` es contrato interno entre el
+> motor y sus capas—, pero la edición de geometría sí suma superficie declarativa (los cuatro
+> `<cristae-editable-*>`, sus componentes React y `EditableStyle`): capacidad nueva, no fix/perf
+> ([`docs/versionado.md`](docs/versionado.md)).
+
+### Agregado
+- **Las líneas tienen grosor de verdad: sustrato `gpu`.** El backend GL de siempre no dibuja líneas
+  gruesas: barre una de 1 px con una brocha, y eso cuesta `(4w+1)²` draw-calls **por feature y por
+  frame** — un trazo de 3 px son 25 pasadas, y el canvas se repinta en cada frame de pan. Con un
+  recorrido de 10.000 puntos eso es medio millón de vértices por frame para dibujar una raya, y el
+  arrastre se cae sin que aparezca un solo hot spot de JS: el costo es de dibujo. La deuda estaba
+  anotada en `docs/lines.md` ("el grosor real por triángulos queda para un draw propio futuro") y el
+  draw propio ya existía al lado, en el trazo de la geometría editable.
+  Ahora `addLineLayer` declara `backend: 'glify' | 'gpu' | 'leaflet'`. `gpu` reusa el mismo `StrokePass`
+  del contorno de polígonos con `closed: false`: un quad por segmento armado en el vertex shader desde
+  una textura de posiciones, uniones por miter, **una pasada** — el conteo de draws no depende del
+  grosor ni del largo del recorrido. A cambio no resuelve picking ni gradiente por vértice (eso sigue
+  siendo de `glify`, que queda de default) y toma uno de los ~16 contextos.
+  *Migración*: ninguna. `vector: true` sigue siendo el alias de `leaflet` y el default no cambia; `gpu`
+  se pide. Pedir `interactive` sobre `gpu` falla ruidoso en vez de dejar una capa muda.
+  `PolygonStrokePass` pasa a llamarse `StrokePass` (interno; ningún entry lo exportaba).
+- **La edición de geometría entra por markup y por el binding.** `addEditableLayer` existe desde
+  0.22.1, pero sólo como método del motor: no había elemento que la declarara ni componente que la
+  envolviera, así que en una página compuesta por `<cristae-*>` había que tomar el motor por el `ref`
+  del mapa y montarla aparte. La capacidad estaba y quedaba fuera del camino por el que se declara
+  todo lo demás — sin doc que la nombrara, era invisible. Ahora son cuatro elementos,
+  `<cristae-editable-polygon|polyline|point|rectangle>` (`mode` / `value` / `geometryStyle`, salidas
+  por `cristae:change` y `cristae:commit`), con sus cuatro componentes en `@cristae/react` y
+  [`docs/editing.md`](docs/editing.md).
+  **Uno por forma y no uno con `kind`**, porque el editor la lee en el ALTA: una prop que no puede
+  cambiar no es configuración, es un tipo — y separarlos es lo que deja tipar `value` y
+  `detail.value` exacto en vez de dejarlos genéricos. Es además el patrón que la lib ya usa para
+  geometría (`<cristae-point-layer>` / `<cristae-line-layer>` / `<cristae-polygon-layer>`). Del lado
+  del motor sigue habiendo un alta única con `kind`: lo que se reparte en cuatro es la superficie
+  declarativa, donde el tipo tiene que ser estático.
+  Los elementos resuelven el ECO del input controlado: un host que devuelve como `value` lo recién
+  emitido no lo reingresa. Reingerirlo soltaría el gesto en curso —el vértice tomado es POSICIONAL y
+  sobre el valor nuevo direcciona otro—, así que arrastrar un vértice con `value`/`onChange` cableados
+  funciona sin debouncear ni sacar el estado del ciclo del host. La prop de estilo se llama
+  `geometryStyle` y no `style`: una propiedad `style` pisaría `HTMLElement.style`, la colisión que
+  `<cristae-label-layer>` todavía arrastra.
+
+### Cambiado
+- 🔴 **El valor de la edición se PIDE, no se empuja.** `onChange` corre por CADA frame de arrastre, y
+  empujaba el valor ya serializado: `toPairs()` asigna un par por vértice, así que un gesto sobre un
+  trazo de 7.000 vértices tiraba ~2,1 millones de arrays por cada cinco segundos de arrastre —y los
+  tiraba igual sin un solo listener, porque el elemento declarativo cablea el canal siempre—. La
+  presión de GC se comía el frame. Ahora `onChange`/`onCommit` reciben un **lector** (`leer()`
+  devuelve el valor) y el `detail.value` del evento es un **getter** que serializa a lo sumo una vez:
+  una emisión que nadie lee no asigna nada. Es la misma regla que ya honraba el eje del mapa —el arena
+  no se toca durante el gesto, y las capas GL sólo re-escriben por `dirtyIds`— extendida al eje del
+  gesto, que era donde faltaba.
+  *Migración*: `onChange: v => f(v)` pasa a `onChange: leer => f(leer())`; en el DOM, `e.detail.value`
+  no cambia de forma. Leer el valor es además lo que fija el eco del input controlado: un host que
+  nunca lo lee tampoco puede devolverlo.
+- **El foco por ítem llega al BUFFER, y se cae el pase de sprites.** El eje existe desde 0.23.0, pero
+  la capa de puntos no tenía dónde poner el atenuado —el `vec4` de color está lleno—, así que el motor
+  apagaba su pane ENTERO (con los enfocados dentro) y compensaba montando un canvas 2D aparte que los
+  re-dibujaba encima, con su pane propio, su suscripción a `moveend`/`zoomend`/`resize` y un
+  reproyectado por frame durante el zoom animado. Lo cobraba dos veces: el sprite enfocado terminaba
+  dibujado dos veces (doble trazo en el borde) y, como el pase se alimentaba de una LISTA DE IDS en vez
+  del dibujo, enfocar un ítem clusterizado, filtrado o sin posición finita pintaba un **fantasma** donde
+  la capa no tenía nada. Ahora el alfa por ítem viaja en el **signo del `size`** del vértice —el único
+  bit libre del layout; la magnitud sigue siendo el tamaño— y el fragment lo aplica con un uniform
+  (`uDim`): un solo draw, sin canvas ni pane extra. El atenuado sobrevive a cualquier rebuild ajeno
+  (`set`/filtro/cluster/regrow) porque el signo lo repone el mismo punto que calcula el tamaño, y entrar
+  o salir del foco cuesta **un float por ítem que cambió de estado** (la atenuación misma es el uniform:
+  cambiarla no escribe ni un byte). El mismo bit elige **banda de profundidad**, así que un pleno no
+  queda velado por un atenuado que se dibuje después, y el pase de picking le deja al atenuado su
+  silueta entera: **lo atenuado sigue siendo pickeable**.
+  *Migración*: ninguna en la API. Desaparece el pane `cristae-highlight-focus-<capa>` (quien lo mirara
+  por nombre ya no lo encuentra) y el contexto de la capa de puntos queda con `DEPTH_TEST` encendido
+  cuando el navegador le concede profundidad. `addHighlightOverlay` sigue pública e intacta: es el
+  realce de selección/seguimiento del consumidor, no el eje de foco.
+- **Las tres capas que faltaban resuelven el foco por ítem.** `applyFocus` estaba en cinco (polígono
+  Leaflet y GPU, círculo, línea Leaflet, HTML); la de puntos, la de líneas GL y la de etiquetas
+  heredaban la opacidad de su pane, que es justamente lo que no sirve —atenúa TODO lo de esa capa,
+  enfocados incluidos— y lo que obligaba al motor a compensar con un pase encima. En **líneas GL** el
+  factor se pliega en el alfa POR VÉRTICE del layout de color, por un punto único que atraviesan los
+  cuatro caminos que escriben color (rebuild, gradiente y las dos ramas del incremental), así que
+  ninguno puede perder el atenuado; sólo se re-sube el canal alfa de las líneas que cambiaron. En
+  **etiquetas** viaja en el `globalAlpha` de cada texto, resuelto en el pintado, sin asignar por
+  etiqueta. Con eso ninguna capa de datos apaga su pane por falta de mecanismo: la única que lo sigue
+  haciendo es la de calor, que no tiene identidad por ítem (su dibujo es un campo continuo).
+- **Un solo resolutor para los dos ejes de enfoque, y el eje por CAPA EXIME.** `focus(ids)` (por capa)
+  y `setLayerFocus(id, ids)` (por ítem) pueden estar activos a la vez, y antes se pisaban: la capa que
+  `focus()` nombraba se atenuaba igual, porque el eje por ítem la alcanzaba. Ahora la capa nombrada
+  queda plena y **fuera** del eje por ítem — es el contrato del spider de un cluster, que no declara
+  ítems y no puede atenuarse a sí mismo. Sobre el resto, cada capa recibe SUS brillantes e intenta
+  resolver exacto; la que no sabe hacerlo, o la que no tiene nada que salvar, atenúa el pane entero, que
+  da el mismo resultado y es gratis. Que la composición ya no dependa de un único declarante es lo que
+  hace real el foco cruzado entre capas.
+
+### Corregido
+- **Una capa fuera del alcance de `kinds` no volvía nunca.** El resolutor la salteaba, así que una capa
+  atenuada por un foco anterior quedaba atenuada para siempre en cuanto el `focus()` siguiente traía un
+  `kinds` que no la incluía. `kinds` acota **qué se atenúa**, no qué se recompone: el resolutor
+  recorre todas las capas siempre y `kinds` sólo decide el efecto.
+- **`unfocusAll()` no limpiaba el alcance.** El `kinds` del foco que se retiraba sobrevivía al foco
+  mismo, y el `focus()` siguiente —el que no declara `kinds` porque quiere atenuar todo— heredaba en
+  silencio el alcance del anterior. El alcance ahora muere con su foco.
+- **El atenuado del eje por ítem heredaba el `opacity` del eje por capa.** Los dos ejes compartían el
+  mismo campo, así que un `focus(ids, { opacity })` cualquiera cambiaba, sin que nadie lo pidiera,
+  cuánto atenúa el foco por ítem — y la herencia sobrevivía al `unfocusAll()`. El eje por ítem tiene su
+  propia atenuación fija (0.3) y `opacity` quedó siendo lo que declara: el parámetro del eje por capa.
+- **`indexOf` / `pageOf` ubicaban mal un ítem EMPATADO.** El comparador del consumidor puede empatar
+  (ordenar por grupo, por estado), y el render desempata esos empates por índice del dataset — es lo
+  que hace determinista la página. El ranking, en cambio, contaba sólo los estrictamente menores, así
+  que todo el bloque empatado recibía el MISMO rango: `indexOf` devolvía una fila donde el ítem no está
+  y `pageOf`, con el bloque a caballo de dos páginas, la página equivocada. Ahora el rango sale del
+  mismo orden total que sirve la página, con una sola llamada al comparador por fila, igual que antes.
+  Con eso se retira la salvedad que la doc publicaba (*"con empates la posición es la del bloque"*):
+  ya no hay tal caso.
+- 🔴 **Los handlers `on*` del binding quedaban mudos tras el doble montaje de React.** `useCristaeElement`
+  aplica las props diffeando contra lo ya aplicado, y su teardown desengancha los listeners — pero no
+  olvidaba el registro. En desarrollo React monta, desmonta y vuelve a montar: el cleanup los sacaba y
+  el diff del re-montaje, viendo las MISMAS referencias, los daba por puestos y no los reponía. El
+  elemento quedaba sin escuchar nada, para siempre y justo donde se prueba. Alcanzaba a los handlers
+  que viajan por **CustomEvent** (`onViewportChange`, `onMapClick`, `onChange`/`onCommit` de la
+  edición); los del BUS se salvaban de casualidad, porque su efecto se recablea en `cristae:ready`.
+  Ahora el teardown olvida lo aplicado, así el apply siguiente repone todo.
+  *Sobrevivió porque `npm test` globaba sólo `test/**`*: los tests del binding existían y no corrían.
+  El script ahora incluye `react/test/**`, y la regresión queda congelada montando bajo `StrictMode`.
+- **Los tipos de la edición describían menos de lo que la capa hace.** `EditableConfig` no declaraba
+  `style` —que el motor lee en el alta— y `EditableHandle` no declaraba `setStyle`, los dos
+  implementados desde siempre: estilar un editor desde TypeScript no compilaba. Además el encabezado
+  del bloque decía «Leaflet-native», que dejó de ser cierto cuando el arena editable pasó a la GPU;
+  importa porque la geometría editable dibuja en una superficie **WebGL2 propia** y por lo tanto
+  **toma un contexto** de los ~16 del navegador — justo el dato con el que se decide si conviene
+  montarla al lado de otras capas GL.
+
 ## [0.33.0] - 2026-08-14
 
 ### Agregado

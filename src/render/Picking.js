@@ -14,8 +14,8 @@ import { POINT_VERTEX, POINT_PICKING_FRAGMENT } from './shaders.js'
 // significa «toqué el objeto, pero no una entrada» y el objeto 0 significa «nada».
 //
 // El pase recibe un BATCH de draws —un clear, N draws, un readPixels— porque el chunk es uniform y
-// exige un draw por chunk. Sin DEPTH_TEST gana el píxel el ÚLTIMO draw emitido: el orden del batch
-// ES el orden de precedencia.
+// exige un draw por chunk. Sin orden por banda gana el píxel el ÚLTIMO draw emitido: el orden del batch
+// ES el orden de precedencia. Con banda, gana la más cercana y el batch desempata dentro de cada una.
 //
 // @typedef {{ bind: () => void, texture: WebGLTexture|null, mode: GLenum, first: number,
 //             count: number, obj: number, chunk: number }} PickDraw
@@ -76,7 +76,7 @@ export class Picking {
 
   #gl            = null
   #program       = null
-  #target        = null   // destino de picking — { framebuffer, color }, de PATCH×PATCH y sin depth
+  #target        = null   // destino de picking — { framebuffer, color, depth }, de PATCH×PATCH
   #pbo           = null
   #buf           = new Uint8Array(PATCH * PATCH * 4)
   #hits          = new PickHits()
@@ -85,7 +85,9 @@ export class Picking {
   #uMatrix       = null
   #uPickTag      = null
   #blend         = false
-  #flight        = { active: false, fence: null, metadata: null }
+  #depth         = false
+  #useDepth      = false
+  #flight        = { active: false, fence: null, metadata: null, stale: false }
   #queued        = { active: false, cx: 0, cy: 0, batch: null, metadata: null }
   #result        = { hits: null, metadata: null }   // reusado por pick, como los hits que envuelve
   #visualProgram = null   // programa visual de glify → se restaura tras el pick (glify dibuja con él, sin re-useProgram)
@@ -98,10 +100,11 @@ export class Picking {
   get busy() { return this.#flight.active || this.#queued.active }
 
   // Devuelve el programa de picking para que el binding del atlas le setee sus dims-uniforms.
-  attach(gl, visualProgram, atlasTexture) {
+  attach(gl, visualProgram, atlasTexture, useDepth = false) {
     this.#gl            = gl
     this.#atlasTexture  = atlasTexture
     this.#visualProgram = visualProgram
+    this.#useDepth      = useDepth
     this.#createTarget()
     this.#compile(visualProgram)
     this.#pbo = gl.createBuffer()
@@ -138,13 +141,13 @@ export class Picking {
     gl.deleteSync(f.fence)
     f.active = false
     f.fence  = null
-    // Vaciar el mailbox también acá: un fence perdido lo dejaría trabado para siempre.
-    if (status === gl.WAIT_FAILED) { this.#flush(); return null }
-    // La copia va ANTES del flush: el pedido encolado hace readPixels sobre EL MISMO PBO.
+    // La copia va SIEMPRE y ANTES del flush: el encolado hace readPixels sobre EL MISMO PBO.
     gl.bindBuffer(gl.PIXEL_PACK_BUFFER, this.#pbo)
     gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, this.#buf, 0, this.#buf.length)
     gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null)
-    const result = this.#deliver(f.metadata)
+    const vigente = !f.stale && status !== gl.WAIT_FAILED
+    f.stale = false
+    const result = vigente ? this.#deliver(f.metadata) : null
     this.#flush()
     return result
   }
@@ -159,10 +162,9 @@ export class Picking {
     return this.#deliver(metadata)
   }
 
-  // Invalidación completa: cancela el vuelo y vacía el mailbox.
+  // Invalida el RESULTADO, no la lectura: el vuelo sigue vivo hasta que `collect` consuma su PBO.
   abort() {
-    const f = this.#flight
-    if (f.active) { this.#gl.deleteSync(f.fence); f.active = false; f.fence = null }
+    this.#flight.stale  = true
     this.#queued.active = false
   }
 
@@ -172,11 +174,14 @@ export class Picking {
   detach() {
     const gl = this.#gl
     if (!gl) return
-    this.abort()
+    const f = this.#flight
+    if (f.active) { gl.deleteSync(f.fence); f.active = false; f.fence = null }
+    this.#queued.active = false
     const t = this.#target
     if (t) {
       gl.deleteFramebuffer(t.framebuffer)
       gl.deleteRenderbuffer(t.color)
+      t.depth && gl.deleteRenderbuffer(t.depth)
     }
     gl.deleteBuffer(this.#pbo)
     this.#gl = null
@@ -234,11 +239,13 @@ export class Picking {
     const ox = Math.round(cx * k) - HALF
     const oy = h - Math.round(cy * k) - HALF
     this.#blend = gl.getParameter(gl.BLEND)
+    this.#useDepth && (this.#depth = gl.getParameter(gl.DEPTH_TEST))
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.#target.framebuffer)
     gl.viewport(-ox, -oy, w, h)
     gl.disable(gl.BLEND)                    // los 4 canales se escriben literales: el word 0 es exacto
+    this.#useDepth && gl.enable(gl.DEPTH_TEST)
     gl.clearColor(0, 0, 0, 0)
-    gl.clear(gl.COLOR_BUFFER_BIT)
+    gl.clear(gl.COLOR_BUFFER_BIT | (this.#useDepth ? gl.DEPTH_BUFFER_BIT : 0))
     gl.useProgram(this.#program)
     gl.activeTexture(gl.TEXTURE0)
     if (this.#uMatrix) gl.uniformMatrix4fv(this.#uMatrix, false, batch.matrix)
@@ -260,6 +267,7 @@ export class Picking {
     const gl = this.#gl
     gl.bindFramebuffer(gl.FRAMEBUFFER, null)
     this.#blend ? gl.enable(gl.BLEND) : gl.disable(gl.BLEND)
+    this.#useDepth && (this.#depth ? gl.enable(gl.DEPTH_TEST) : gl.disable(gl.DEPTH_TEST))
     gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight)
     gl.useProgram(this.#visualProgram)      // restaurar el programa visual de glify (dibuja sin re-useProgram)
     gl.activeTexture(gl.TEXTURE0)
@@ -284,10 +292,9 @@ export class Picking {
     return hits
   }
 
-  // Renderbuffer y no textura: un renderbuffer no se puede bindear a una unidad de textura, así que
+  // Renderbuffers y no texturas: un renderbuffer no se puede bindear a una unidad de textura, así que
   // desaparece el riesgo de dejarlo colgado en TEXTURE0 y que el próximo draw de glify (p. ej. el
-  // redraw del zoom) salga en blanco. Sin depth: el pase nunca habilita DEPTH_TEST y sólo dibuja
-  // POINTS — nadie escribe ni lee profundidad.
+  // redraw del zoom) salga en blanco.
   #createTarget() {
     const gl = this.#gl
     const prevRbo = gl.getParameter(gl.RENDERBUFFER_BINDING)
@@ -295,12 +302,19 @@ export class Picking {
     const color = gl.createRenderbuffer()
     gl.bindRenderbuffer(gl.RENDERBUFFER, color)
     gl.renderbufferStorage(gl.RENDERBUFFER, gl.RGBA8, PATCH, PATCH)
+    let depth = null
+    if (this.#useDepth) {
+      depth = gl.createRenderbuffer()
+      gl.bindRenderbuffer(gl.RENDERBUFFER, depth)
+      gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT16, PATCH, PATCH)
+    }
     const framebuffer = gl.createFramebuffer()
     gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer)
     gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.RENDERBUFFER, color)
+    depth && gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, depth)
     gl.bindFramebuffer(gl.FRAMEBUFFER, prevFbo)
     gl.bindRenderbuffer(gl.RENDERBUFFER, prevRbo)
-    this.#target = { framebuffer, color }
+    this.#target = { framebuffer, color, depth }
   }
 
   #compile(visualProgram) {

@@ -34,8 +34,9 @@ No es un fork ni un monkey-patch de glify. Se apoya en una invariante verificada
   recalcula). Por tanto el vértice de un punto es **función pura de su latLng** → se puede reescribir
   un vértice puntual sin tocar el resto.
 - El layout del vértice es `[x, y, r, g, b, a, size]` (`bytes === 7`). `x,y` = posición proyectada;
-  `r` = canal de tile (del Atlas); `g` = ángulo normalizado; `b,a` = id de picking (slot+1, 16-bit);
-  `size` = tamaño.
+  `r` = canal de tile (del Atlas); `g` = ángulo normalizado; `b,a` = índice local de picking
+  (`local + 1`, 12 bits; el objeto y el chunk son uniform del draw); `size` = tamaño **signado** — la
+  magnitud es el tamaño en px y el signo es el eje focus (ver *Foco por ítem*).
 - **Mover** = reescribir `[x,y]` (2 floats). **Recolorear/patch** = reescribir los 7 floats del slot.
 - `gl.bufferSubData(target, dstByteOffset, srcData, srcOffset, length)` (forma de 5 args de WebGL2)
   escribe un subrango **sin crear un `subarray`** → genuinamente **[0-alloc]**.
@@ -71,6 +72,7 @@ Se suscribe al `source` y reacciona en cada flush.
 |---|---|---|
 | `count` | getter | nº de puntos dibujados |
 | `redraw()` | acción | fuerza un `redraw` de la capa glify |
+| `applyFocus(ids, dim?)` | `(Set<id>\|null, number) → true` | eje focus por ítem: plenos los de `ids`, el resto a `dim` (`null` = sin foco). Ver *Foco por ítem* |
 | `idForSlot(slot)` | `(number) → id` | traduce un hit de picking (slot) a id de dato |
 | `requestHoverHit(cx, cy, meta)` | acción | encola un pick GPU no bloqueante (si `interactive`) |
 | `collectHoverHit()` | `() → {slots, metadata}\|null` | recoge el resultado del pick encolado |
@@ -100,13 +102,46 @@ set. Omite posiciones no finitas (§15.2) y ids duplicados (se queda con el prim
 Tres fuentes GLSL, **genéricas por uniforms** (no literales horneados) → se compilan una vez y
 **nunca recompilan**, ni en regrow:
 
-- `POINT_VERTEX` — `gl_Position = matrix * vertex`.
+- `POINT_VERTEX` — `gl_Position = matrix * vertex`, y parte el `size` en magnitud y bit:
+  `gl_PointSize = abs(pointSize)`, `vAlpha = mix(uDim, 1.0, pleno)` y `gl_Position.z` en la banda que
+  le toca (`pleno = step(0.0, pointSize)`).
 - `POINT_FRAGMENT` — decodifica `tileIdx = floor(vColor.r · uMaxIndex + 0.5)`, ubica la celda con
-  `uCols/uRows`, rota la UV por `vColor.g · 2π`, muestrea `uAtlas`, descarta `alpha < 0.01`.
-- `POINT_PICKING_FRAGMENT` — idéntico salvo la línea de salida: emite `vec4(vColor.b, vColor.a, 0, 1)`
-  (el id codificado), para leerse por GPU picking.
+  `uCols/uRows`, rota la UV por `vColor.g · 2π`, muestrea `uAtlas`, descarta `alpha < 0.01` y multiplica
+  el alfa por `vAlpha`.
+- `POINT_PICKING_FRAGMENT` — el MISMO cuerpo (una sola fuente, `discard` incluido) salvo la línea de
+  salida: emite el id jerárquico sumándole el tag del draw (`uPickTag`). **No declara `vAlpha`** — el
+  pick no depende del alfa de presentación — y el `abs` del vértice le deja al atenuado su silueta
+  entera, así que sigue siendo pickeable.
 
 Los uniforms `uCols/uRows/uTileSize/uMaxIndex` los setea el `GpuAtlasBinding` una vez por generación.
+
+---
+
+## Foco por ítem — el signo del `size`
+
+El eje `focus-ids` / `setLayerFocus` (semántica de consumo en [`elements.md`](elements.md)) no tiene
+canal propio: el `vec4` de color está lleno con tile, ángulo e id de picking. Se apoya en el **bit del
+signo del `size`**, que nadie usaba porque un tamaño es siempre positivo: negativo = atenuado. Del signo
+salen las dos cosas que el atenuado necesita, sin ampliar el vértice ni partir el draw:
+
+| | Cómo | Efecto |
+|---|---|---|
+| **Alfa** | `vAlpha = mix(uDim, 1.0, pleno)` en el vértice; el fragment visual multiplica su salida por él | el atenuado pierde alfa en la proporción de `uDim`, que es un uniform: moverlo no escribe buffer |
+| **Orden** | `gl_Position.z = (0.5 - pleno) * w` + `DEPTH_TEST`/`LEQUAL` | el pleno va a la banda de adelante: no queda velado por un atenuado que se dibuje después. Dentro de una banda (z igual) gana el último → la precedencia por slot queda intacta |
+
+Consecuencias, que son el punto del diseño:
+
+- **`#sizeFor` es el punto único** que devuelve el tamaño ya signado, así que cualquier rebuild ajeno
+  (`set`/filtro/cluster/regrow) y cualquier patch incremental **reponen el atenuado solos**.
+- `applyFocus` reescribe **sólo lo que cambió de estado**: `Set → Set'` por diferencia simétrica contra
+  `#slot` (O(K+K′), sin recorrer el buffer); un cambio de sólo `dim` no toca ni un byte.
+- La silueta ES la huella de z: el texel que el fragment descarta no escribe profundidad, así que el
+  atenuado no tapa nada con su caja.
+- Un id enfocado **sin slot** (clusterizado, filtrado, posición no finita) simplemente no existe en el
+  buffer: no hay dónde pintar un fantasma.
+
+Degradación: si el contexto no concede profundidad, el mismo camino dibuja sin `DEPTH_BUFFER_BIT` y el
+orden vuelve al de slot — un flag, no un segundo camino.
 
 ---
 
@@ -114,18 +149,22 @@ Los uniforms `uCols/uRows/uTileSize/uMaxIndex` los setea el `GpuAtlasBinding` un
 
 `src/render/Picking.js` resuelve "¿qué punto está bajo el cursor?" **en GPU**, sin geometría en CPU:
 
-- Un micro-FBO + `scissor` dibuja **1 píxel** con el programa de picking (que emite el id por color).
+- Un micro-FBO + `scissor` dibuja un **parche de 6×6 texeles** alrededor del cursor con el programa de
+  picking (que emite el id por color). Su destino lleva **profundidad** y hereda el `DEPTH_TEST` de la
+  capa: el pick devuelve **lo que se ve**, incluso si un atenuado se dibuja encima de un pleno.
 - Lectura **no bloqueante** vía PBO + `fenceSync`/`clientWaitSync(0,0)`: `request()` encola,
   `collect()` recoge cuando el GPU terminó (sin frenar el hilo). `pickSync()` para el caso de un tiro.
-- El id se decodifica de los canales `b,a` (16-bit, `slot+1`); se ignoran píxeles con `alpha == 0`.
+- El id es **jerárquico** y entra en los 32 bits del píxel: objeto (14 bits) y chunk (6) por draw,
+  índice local (12) por vértice con la convención `local + 1`. Los impactos se devuelven ordenados del
+  texel más cercano al cursor hacia afuera (`PickHits`), que es la desambiguación entre vecinos.
 - Comparte el **mismo buffer** que el render (no re-sube vértices) y el **mismo Atlas** vía un binding
   propio → el pick siempre ve la posición fresca escrita por el path incremental.
 
 | Método | Notas |
 |---|---|
-| `request(cx, cy, count, matrix, meta)` | encola un pick; `true` si se encoló |
-| `collect()` | `{slots:Set, metadata}` o `null` si aún no está |
-| `pickSync(cx, cy, count, matrix, meta)` | pick inmediato |
+| `request(cx, cy, batch, metadata)` | encola un pick (mailbox de un slot: un pedido nuevo pisa al pendiente); `true` si se encoló |
+| `collect()` | `{ hits: PickHits, metadata }` o `null` si aún no está |
+| `pickSync(cx, cy, batch, metadata)` | pick inmediato |
 | `syncSize()` / `abort()` / `detach()` | lifecycle |
 
 ---

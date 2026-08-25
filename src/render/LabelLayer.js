@@ -1,5 +1,6 @@
 import L from 'leaflet'
 import { withAlpha } from './color.js'
+import { focusFactor } from './focus.js'
 
 // LabelLayer — etiquetas de texto sobre un canvas overlay.
 // Genérico: una sola capa, sin variantes de dominio.
@@ -106,6 +107,7 @@ export class LabelLayer {
   #labels        = []
   #hovered       = new Set()
   #hoveredSource = null
+  #focus         = { ids: null, dim: 0.3 }   // ids null = sin foco
   #paint
   #boundsPad
   #style
@@ -168,19 +170,31 @@ export class LabelLayer {
     this.#overlay.remove()
   }
 
+  // Atenúa por ETIQUETA (globalAlpha del pintado), no con la opacidad del pane.
+  applyFocus(ids, dim = this.#focus.dim) {
+    this.#focus = { ids, dim }
+    this.#overlay.requestRedraw()
+    return true
+  }
+
   #render(ctx, leaflet) {
     prepareContext(ctx)
-    const bounds = leaflet.getBounds().pad(this.#boundsPad)
+    const bounds   = leaflet.getBounds().pad(this.#boundsPad)
     const elevated = []
+    const paint    = (point, label, hovered) => {
+      ctx.globalAlpha = focusFactor(this.#focus, label.id)
+      this.#paint(ctx, point, label, hovered, this.#style)
+    }
 
     this.#labels.forEach(label => {
       if (!bounds.contains([label.lat, label.lng])) return
       const point = leaflet.latLngToContainerPoint([label.lat, label.lng])
       if (this.#hovered.has(label.id)) elevated.push({ point, label })
-      else this.#paint(ctx, point, label, false, this.#style)
+      else paint(point, label, false)
     })
     // Los hovered van al final → quedan por encima del resto.
-    elevated.forEach(({ point, label }) => this.#paint(ctx, point, label, true, this.#style))
+    elevated.forEach(({ point, label }) => paint(point, label, true))
+    ctx.globalAlpha = 1
   }
 }
 

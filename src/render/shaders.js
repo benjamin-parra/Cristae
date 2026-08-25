@@ -4,21 +4,27 @@
 //
 // Layout de vértice de glify (bytes=7): [x, y, r, g, b, a, size].
 //   r = canal de tile (atlas.tileChannel)   g = ángulo normalizado (heading/360)
-//   b,a = índice local de picking (12 bits, entrada+1)   size = px en pantalla
+//   b,a = índice local de picking (12 bits, entrada+1)   size = px en pantalla, SIGNADO
 // El objeto y el chunk del picking NO viajan por vértice: son uniform por draw (§Picking).
 // Siempre se rota: con g=0 la rotación es identidad → un solo programa, sin variantes.
+// El SIGNO de `size` codifica el foco: la magnitud es el tamaño, el negativo marca el atenuado.
 
 export const POINT_VERTEX = `
 precision mediump float;
 uniform mat4 matrix;
+uniform float uDim;
 attribute vec4 vertex;
 attribute vec4 color;
 attribute float pointSize;
 varying vec4 vColor;
+varying float vAlpha;
 void main() {
-  gl_PointSize = pointSize;
-  gl_Position = matrix * vertex;
-  vColor = color;
+  float pleno   = step(0.0, pointSize);
+  gl_PointSize  = abs(pointSize);
+  gl_Position   = matrix * vertex;
+  gl_Position.z = (0.5 - pleno) * gl_Position.w;
+  vColor        = color;
+  vAlpha        = mix(uDim, 1.0, pleno);
 }
 `
 
@@ -56,13 +62,17 @@ void main() {
 `
 
 // Visual: pinta el tile (alpha ligeramente atenuado).
-export const POINT_FRAGMENT = fragment('gl_FragColor = vec4(tex.rgb, tex.a * 0.95);')
+export const POINT_FRAGMENT = fragment(
+  'gl_FragColor = vec4(tex.rgb, tex.a * 0.95 * vAlpha);',
+  'varying float vAlpha;',
+)
 
 // Picking: emite el id jerárquico (objeto | chunk | índice local) en vez del color del tile. El
 // índice local es del VÉRTICE (vColor.b alto, vColor.a bajo) y el resto es el tag del DRAW, así que
 // el buffer de vértices sigue compartido con el visual: un bufferSubData actualiza los dos a la vez.
 // La suma del canal rojo es exacta: ambos sumandos son múltiplos de 1/255 y el packer garantiza que
 // no desbordan el byte (12 bits de local + 4 bits bajos de chunk).
+// No declara `vAlpha`: un varying que el fragment no declara es legal y se ignora.
 export const POINT_PICKING_FRAGMENT = fragment(
   'gl_FragColor = vec4(vColor.b + uPickTag.x, vColor.a, uPickTag.y, uPickTag.z);',
   'uniform vec3 uPickTag;',

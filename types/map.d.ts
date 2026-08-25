@@ -490,19 +490,31 @@ export interface HeatHandle<T = unknown> {
   setColorRamp(ramp: (t: number) => string | [number, number, number, number]): void;
 }
 
-// ── Edición de geometría (addEditableLayer) — INPUT CONTROLADO (Leaflet-native) ──
+// ── Edición de geometría (addEditableLayer) — INPUT CONTROLADO. Ver docs/editing.md ──
 export type EditableKind = "polygon" | "rectangle" | "polyline" | "point"
+export type EditablePolygonValue   = LatLngLike[] | LatLngLike[][]
+export type EditablePolylineValue  = LatLngLike[]
+export type EditablePointValue     = LatLngLike | null
+export type EditableRectangleValue = [LatLngLike, LatLngLike] | null
+/** Parcial: lo que no venga queda como estaba. */
+export interface EditableStyle {
+  color?       : string;
+  weight?      : number;
+  fillColor?   : string;
+  fillOpacity? : number;
+}
 export interface EditableConfig {
   id        : string;
   kind?     : EditableKind;
+  style?    : EditableStyle;
   /** Geometría actual (controlada): rings (polygon), `[lat,lng][]` (polyline), `[lat,lng]` (point),
    *  `[[s,w],[n,e]]` (rectangle). */
   value?    : unknown;
   mode?     : "edit" | "draw";
-  /** Cambio LIVE — cada frame de drag incluido (misma forma que `value`). Para el preview del display. */
-  onChange? : (value: unknown) => void;
-  /** Cambio ASENTADO — una vez por gesto (dragend / edición discreta). Para persistir sin el spam del drag. */
-  onCommit? : (value: unknown) => void;
+  /** Cambio LIVE — cada frame de drag incluido. `leer()` devuelve el valor, con la forma de `value`. */
+  onChange? : (leer: () => unknown) => void;
+  /** Cambio ASENTADO — una vez por gesto (dragend / edición discreta). */
+  onCommit? : (leer: () => unknown) => void;
   pane?     : string;
   z?        : number;
 }
@@ -510,6 +522,7 @@ export interface EditableHandle {
   readonly id: string;
   setValue(value: unknown): void;
   setMode(mode: "edit" | "draw"): void;
+  setStyle(style: EditableStyle): void;
   getValue(): unknown;
   /** Sub-pieza: captura de punto en modo draw (latlng de un click en espacio vacío). */
   handleMapClick(latlng: LatLngLike): void;
@@ -525,7 +538,12 @@ export interface LineLayerConfig<T> {
   pane?        : string;
   z?           : number;
   visible?     : boolean;
-  /** Backend Leaflet-nativo (dash real) en vez de GL. */
+  /** Sustrato del trazo, leído al montar. `glify` (default) da picking y gradiente por vértice, pero el
+   *  grosor sale de una brocha que barre `(4w+1)²` veces por feature y por frame. `gpu` dibuja un quad
+   *  por segmento —grosor real, una pasada, sin picking ni gradiente— y toma UN contexto WebGL.
+   *  `leaflet` es el único con dash real. Ver docs/lines.md. */
+  backend?     : 'glify' | 'gpu' | 'leaflet';
+  /** Alias de `backend: 'leaflet'` (dash real). */
   vector?      : boolean;
 }
 
@@ -592,7 +610,8 @@ export interface HighlightOverlayConfig {
 }
 export interface HighlightOverlayHandle {
   readonly id: string;
-  /** Ids resaltados → clave opaca. `null`/Map vacío = ninguno. Deriva de selectedIds/focus. */
+  /** Ids resaltados → clave opaca. `null`/Map vacío = ninguno. Deriva de la selección/seguimiento del
+   *  consumidor (el eje `focus` del motor no pasa por acá: lo resuelve cada capa en su dibujo). */
   setHighlighted(highlighted: Map<string | number, string> | null): void;
   redraw(): void;
   resize(): void;
@@ -690,14 +709,17 @@ export class MapEngine {
   setLayerEnabled(id: string, enabled: boolean): boolean;
   setLayerOpacity(id: string, alpha: number): void;
 
-  /** Deja `ids` de CAPA a opacidad plena y atenúa el resto (`kinds` acota qué capas se atenúan). */
+  /** Deja `ids` de CAPA a opacidad plena y atenúa el resto (`kinds` acota qué capas se atenúan). La capa
+   *  nombrada queda además EXENTA del enfoque por ítem (ver `setLayerFocus`). */
   focus(ids: Iterable<string>, options?: { opacity?: number; kinds?: string[] }): void;
   unfocus(ids: Iterable<string>): void;
   unfocusAll(): void;
 
-  /** Enfoque por ÍTEM: mientras alguna capa lo declare, todas las capas se atenúan (el basemap NO) y
-   *  los ítems enfocados se reponen brillantes encima. `ids` falsy = todo atenuado; `undefined` =
-   *  la capa se retira del eje. Varias capas pueden declararlo a la vez (cross-layer). */
+  /** Enfoque por ÍTEM: mientras alguna capa lo declare, `ids` queda a opacidad plena y se atenúa todo
+   *  lo demás —el resto de esa capa y las otras capas también; el basemap NO—. Atenuado es
+   *  presentación: sigue interactivo. Un id que la capa no dibuja (filtrado, clusterizado, sin posición
+   *  finita) no aparece por estar enfocado. `ids` falsy = todo atenuado; `undefined` = la capa se
+   *  retira del eje. Varias capas pueden declararlo a la vez (cross-layer). */
   setLayerFocus(layerId: string, ids?: Iterable<string | number> | null | false): this;
 
   /** Reapila una capa montada (z-index de su pane). `z` nulo vuelve al derivado en el alta. */
