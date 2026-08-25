@@ -10,6 +10,7 @@
 // Sin uniones: cada vértice lleva encima su handle (≥ 10 px), que tapa la cuña del codo.
 import { ROLE } from '../geometry/ChunkedPath.js'
 import { toRGBA } from './color.js'
+import { blendOver } from './EditSurface.js'
 import { sharedProgram } from './gl-programs.js'
 
 // Medio píxel de borde a cada lado: el quad se expande lo mismo para que la rampa entre entera.
@@ -190,8 +191,7 @@ export class EditStrokeLayer {
     gl.activeTexture(gl.TEXTURE0)
     gl.bindTexture(gl.TEXTURE_2D, arena.texture)
     // El trazo no se recorta contra el stencil del relleno ni depende del giro del quad.
-    gl.enable(gl.BLEND)
-    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+    blendOver(gl)
     gl.disable(gl.STENCIL_TEST)
     gl.disable(gl.CULL_FACE)
     gl.bindVertexArray(this.#vao)

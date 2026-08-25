@@ -13,6 +13,7 @@
 // telescopa, así que quitarlas y sumarlas por separado da el mismo relleno, exacto.
 
 import { toRGBA } from './color.js'
+import { blendOver } from './EditSurface.js'
 import { sharedProgram } from './gl-programs.js'
 
 const BIT = 0x01                       // el relleno vive en el bit 0 del stencil
@@ -210,8 +211,7 @@ export class EditFillLayer {
     const rgba  = this.#rgba
     gl.useProgram(cover.program)
     gl.colorMask(true, true, true, true)
-    gl.enable(gl.BLEND)
-    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+    blendOver(gl)
     gl.stencilFunc(gl.NOTEQUAL, 0, BIT)
     gl.stencilOp(gl.KEEP, gl.KEEP, gl.ZERO)
     gl.uniform4f(cover.uColor, rgba[0], rgba[1], rgba[2], rgba[3])

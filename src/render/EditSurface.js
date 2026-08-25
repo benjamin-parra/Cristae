@@ -7,12 +7,19 @@ import { loseGlContext } from './gl-teardown.js'
 // PEREZOSO y jamás recreado: el techo de contextos vivos del navegador (~16) se agota de forma
 // ACUMULATIVA y nadie devuelve uno salvo `loseContext`.
 
-const ATTRS = {
+export const SURFACE_ATTRS = {
   stencil               : true,     // el pase de paridad del abanico escribe acá; sin esto no hay relleno
   depth                 : false,
   alpha                 : true,
-  premultipliedAlpha    : false,
+  premultipliedAlpha    : true,
   preserveDrawingBuffer : false,
+}
+
+// Mezcla `over` de la superficie: sobre un canvas PREMULTIPLICADO el canal alfa compone con ONE, no
+// con SRC_ALPHA. Los pases la comparten porque comparten el canvas.
+export const blendOver = gl => {
+  gl.enable(gl.BLEND)
+  gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
 }
 
 const ORIGIN = [0, 0]                                   // esquina del contenedor; reusada porque `move` llega por frame
@@ -44,7 +51,7 @@ export class EditSurface {
     this.#L        = L
     this.#map      = map
     this.#paneName = pane
-    this.#attrs    = { ...ATTRS, antialias }
+    this.#attrs    = { ...SURFACE_ATTRS, antialias }
     map.on('zoomanim', this.#onZoomAnim)
     map.on('zoomend', this.#onZoomEnd)
   }

@@ -10,6 +10,7 @@
 import { GpuAtlasBinding } from '../atlas/GpuAtlasBinding.js'
 import { defineIconSet } from '../atlas/IconSet.js'
 import { ROLE } from '../geometry/ChunkedPath.js'
+import { blendOver } from './EditSurface.js'
 import { CHUNK_BITS } from './Picking.js'
 import { POINT_FRAGMENT, POINT_VERTEX } from './shaders.js'
 
@@ -190,8 +191,7 @@ export class EditHandleLayer {
     this.#binding.sync(this.#iconSet.atlas)
     gl.useProgram(this.#program)
     gl.uniformMatrix4fv(this.#uMatrix, false, this.#matrix())
-    gl.enable(gl.BLEND)
-    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+    blendOver(gl)
     gl.bindVertexArray(this.#vao)
     this.#arena.eachRange(this.#drawRange)
     gl.bindVertexArray(null)
