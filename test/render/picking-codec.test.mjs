@@ -58,6 +58,7 @@ const makeGl = fb => {
     },
     getBufferSubData : (_t, _o, dst) => { calls.push('getBufferSubData'); dst.set(fb.buf) },
     bufferData       : () => calls.push('bufferData'),
+    getParameter     : () => { calls.push('getParameter'); return null },
     clientWaitSync   : () => state.status,
     uniform3fv       : (_loc, v) => { state.tag = [v[0], v[1], v[2]].map(x => Math.round(x * 255)); state.tags.push(state.tag) },
     drawArrays       : (_mode, first, count) => calls.push(`draw:${first}:${count}`),
@@ -230,9 +231,10 @@ test('collect no consume el vuelo mientras el fence no está listo', () => {
   assert.equal(picking.pending, true)
 })
 
-// La secuencia es la del hover real: pedir, invalidar al salir de la feature, volver a pedir. Dos
-// `readPixels` seguidos sobre el PBO significan que la primera escritura quedó sin leer.
-test('el PBO nunca se reescribe con una lectura pendiente', () => {
+// La secuencia es la del hover real: pedir, invalidar al salir de la feature, volver a pedir. La copia
+// bloquea contra el proceso GPU, y la del pick invalidado no la mira nadie: cobrarla es un frame
+// perdido por gesto y por capa. La re-especificación de la escritura siguiente la descarta.
+test('el pick invalidado no paga la copia', () => {
   const { picking, calls } = attached(makeFb())
   picking.request(10, 10, batch(), 'a')
   picking.abort()
@@ -241,8 +243,8 @@ test('el PBO nunca se reescribe con una lectura pendiente', () => {
   picking.collect()
 
   const io = calls.filter(c => c === 'readPixels' || c === 'getBufferSubData')
-  assert.deepEqual(io, ['readPixels', 'getBufferSubData', 'readPixels', 'getBufferSubData'],
-    'cada escritura del PBO se cobra antes de la siguiente')
+  assert.deepEqual(io, ['readPixels', 'readPixels', 'getBufferSubData'],
+    'sólo se cobra la lectura que alguien va a mirar')
 })
 
 // Al fencear un PBO recién escrito, el command buffer le aloja una copia en memoria compartida para
@@ -251,6 +253,7 @@ test('el PBO nunca se reescribe con una lectura pendiente', () => {
 // tomada y el pase paga una copia por pick que nadie va a usar.
 test('cada escritura del PBO re-especifica su almacenamiento', () => {
   const { picking, calls } = attached(makeFb())
+  calls.length = 0
   picking.request(10, 10, batch(), 'a')
   picking.collect()
   picking.request(20, 20, batch(), 'b')
@@ -260,6 +263,16 @@ test('cada escritura del PBO re-especifica su almacenamiento', () => {
     'bufferData', 'readPixels', 'getBufferSubData',
     'bufferData', 'readPixels', 'getBufferSubData',
   ])
+})
+
+// `getParameter` es una consulta SÍNCRONA contra el proceso GPU y el pase corre por muestra del puntero.
+test('el pase no consulta el estado del driver por pick', () => {
+  const { picking, calls } = attached(makeFb())
+  calls.length = 0
+  picking.request(10, 10, batch(), 'a')
+  picking.collect()
+
+  assert.ok(!calls.includes('getParameter'))
 })
 
 // `abort` invalida el vuelo que HAY, no el que venga: la sesión de hover lo llama al cerrarse —salir
@@ -285,8 +298,9 @@ test('salir y volver a entrar deja el pase contestando', () => {
 })
 
 // El gesto (arrastre/zoom): el hover se invalida al empezar y el tick DIFIERE mientras dura, así que no
-// hay `collect` en toda la ventana. Los pedidos de adentro no pueden escribir el PBO hasta cobrarlo.
-test('un gesto entero no deja escrituras sin cobrar', () => {
+// hay `collect` en toda la ventana. El mailbox deja UNA escritura viva por vez, y la del pick que el
+// gesto invalidó no se cobra: cobrarla es el frame que se perdía al empezar a arrastrar, por capa.
+test('un gesto entero deja una escritura viva y no cobra la que invalidó', () => {
   const { picking, calls } = attached(makeFb())
   picking.request(10, 10, batch(), 'hover')
   picking.abort()
@@ -296,20 +310,19 @@ test('un gesto entero no deja escrituras sin cobrar', () => {
   picking.collect()
 
   const io = calls.filter(c => c === 'readPixels' || c === 'getBufferSubData')
-  assert.deepEqual(io, ['readPixels', 'getBufferSubData', 'readPixels', 'getBufferSubData'],
-    'una sola escritura viva por vez, y cada una cobrada antes de la siguiente')
+  assert.deepEqual(io, ['readPixels', 'readPixels', 'getBufferSubData'],
+    'una sola escritura viva por vez, y sólo se cobra la que alguien mira')
 })
 
-test('abort descarta el resultado y el encolado, pero deja que el vuelo se consuma', () => {
-  const { picking, state } = attached(makeFb())
+test('abort descarta el resultado y el encolado, y cierra el vuelo sin cobrarlo', () => {
+  const { picking, calls } = attached(makeFb())
   picking.request(10, 10, batch(), 'a')
   picking.request(20, 20, batch(), 'b')
   picking.abort()
-  assert.equal(picking.pending, true, 'el vuelo sigue: su PBO todavía no se leyó')
+  assert.equal(picking.pending, true, 'el vuelo sigue abierto hasta que `collect` lo cierre')
   assert.equal(picking.busy, true, 'y por eso `busy` lo refleja; lo encolado sí se descartó')
 
-  const antes = state.readbacks?.length ?? 0
   assert.equal(picking.collect(), null, 'lo leído no se entrega: quedó viejo')
-  assert.equal(picking.pending, false, 'y el vuelo se cerró, con el PBO ya consumido')
-  assert.ok((state.readbacks?.length ?? 0) >= antes, 'la copia ocurrió igual')
+  assert.equal(picking.pending, false, 'y el vuelo se cerró')
+  assert.ok(!calls.includes('getBufferSubData'), 'sin pagar la copia que nadie iba a mirar')
 })

@@ -84,8 +84,6 @@ export class Picking {
   #attrLocs      = []
   #uMatrix       = null
   #uPickTag      = null
-  #blend         = false
-  #depth         = false
   #useDepth      = false
   #flight        = { active: false, fence: null, metadata: null, stale: false }
   #queued        = { active: false, cx: 0, cy: 0, batch: null, metadata: null }
@@ -138,13 +136,15 @@ export class Picking {
     gl.deleteSync(f.fence)
     f.active = false
     f.fence  = null
-    // La copia va SIEMPRE y ANTES del flush: el encolado hace readPixels sobre EL MISMO PBO.
+    const vigente = !f.stale && status !== gl.WAIT_FAILED
+    f.stale = false
+    // La copia cruza al proceso GPU y bloquea; `#issue` re-especifica el almacenamiento, así que la
+    // que nadie va a mirar se descarta con él en vez de cobrarse.
+    if (!vigente) { this.#flush(); return null }
     gl.bindBuffer(gl.PIXEL_PACK_BUFFER, this.#pbo)
     gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, this.#buf, 0, this.#buf.length)
     gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null)
-    const vigente = !f.stale && status !== gl.WAIT_FAILED
-    f.stale = false
-    const result = vigente ? this.#deliver(f.metadata) : null
+    const result = this.#deliver(f.metadata)
     this.#flush()
     return result
   }
@@ -240,8 +240,6 @@ export class Picking {
     const k = this.#scaleFor(w)
     const ox = Math.round(cx * k) - HALF
     const oy = h - Math.round(cy * k) - HALF
-    this.#blend = gl.getParameter(gl.BLEND)
-    this.#useDepth && (this.#depth = gl.getParameter(gl.DEPTH_TEST))
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.#target.framebuffer)
     gl.viewport(-ox, -oy, w, h)
     gl.disable(gl.BLEND)                    // los 4 canales se escriben literales: el word 0 es exacto
@@ -268,8 +266,8 @@ export class Picking {
   #restore() {
     const gl = this.#gl
     gl.bindFramebuffer(gl.FRAMEBUFFER, null)
-    this.#blend ? gl.enable(gl.BLEND) : gl.disable(gl.BLEND)
-    this.#useDepth && (this.#depth ? gl.enable(gl.DEPTH_TEST) : gl.disable(gl.DEPTH_TEST))
+    gl.enable(gl.BLEND)                     // constante y no `getParameter`: la consulta es síncrona
+    this.#useDepth && gl.disable(gl.DEPTH_TEST)
     gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight)
     gl.useProgram(this.#visualProgram)      // restaurar el programa visual de glify (dibuja sin re-useProgram)
     gl.activeTexture(gl.TEXTURE0)
