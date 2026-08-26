@@ -5,6 +5,29 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
 [`docs/versionado.md`](docs/versionado.md) — en `0.x`, el **minor cuenta los cambios medios**
 (capacidad o eje de API nuevo) y el **patch los menores desde el último medio** (fix / perf / revert).
 
+## [0.34.1] - 2026-08-25
+
+> Sale como **patch**: el pase de picking deja de pedir dos cosas que no usa; ninguna firma cambia
+> ([`docs/versionado.md`](docs/versionado.md)).
+
+### Cambiado
+- **El pick invalidado no paga su copia.** La sesión de hover llama a `abort()` cada vez que se cierra
+  —arrastre, zoom, salir del mapa—, y el resultado de ese vuelo se descarta por construcción. Cobrarlo
+  igual costaba un `getBufferSubData` por capa, que CRUZA al proceso GPU y bloquea hasta volver. Ahora
+  se descarta sin leerlo, y lo habilita la re-especificación del almacenamiento que ya hace cada
+  escritura desde 0.33.2: se lleva puesta la lectura pendiente, así que el invariante viejo de «cobrar
+  siempre antes de reescribir» dejó de ser necesario.
+- **El pase no consulta el estado del driver por pick.** `#begin` guardaba `BLEND` y `DEPTH_TEST` con
+  `getParameter` —una consulta SÍNCRONA contra el proceso GPU— para reponerlos al salir. Los dos los
+  gobierna la capa: `PointLayer` enciende la profundidad sólo alrededor de su draw y la apaga en la
+  línea siguiente, y los sprites mezclan siempre. Ahora se reponen como constantes. Con cinco capas
+  interactivas eran diez consultas síncronas por muestra del puntero.
+
+> Los dos entran porque son trabajo que no sirve, **no porque arreglen un síntoma**: el caudal real de
+> picking es bajo —medido, 2–28/s en una pantalla con cinco capas interactivas— y los perfiles que
+> sugerían lo contrario se tomaron con DevTools abierto, que infla la medición casi un orden de
+> magnitud. Queda anotado para que nadie le atribuya después una mejora que no se midió.
+
 ## [0.34.0] - 2026-08-25
 
 > Sale como **minor**: suma superficie declarativa —los cuatro `<cristae-editable-*>` con sus
