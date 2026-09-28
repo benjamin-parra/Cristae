@@ -347,22 +347,29 @@ export interface CristaeEditDetail<V> { value: V }
 /** `controls` = el handle del editor (`getValue`, `handleMapClick`). */
 export interface CristaeEditableElement extends HTMLElement { readonly controls: EditableHandle | null }
 
-interface CristaeEditableProps<V> extends CristaeLeafLayerProps {
+// `value` entra con los puntos en cualquiera de sus formas; lo emitido sale con la misma forma, en pares.
+type EmittedPoint = [number, number]
+
+interface CristaeEditableProps<Value, Emitted> extends CristaeLeafLayerProps {
   mode?          : 'edit' | 'draw';
   /** Geometría controlada. El valor recién emitido, devuelto tal cual, NO reingresa. */
-  value?         : V;
+  value?         : Value;
   /** Parcial: lo que no venga queda como estaba. */
   geometryStyle? : CristaeEditableStyle;
   /** Live — cada frame del arrastre incluido. */
-  onChange?      : CristaeEventHandler<CristaeEditDetail<V>>;
+  onChange?      : CristaeEventHandler<CristaeEditDetail<Emitted>>;
   /** Asentado — uno por gesto. */
-  onCommit?      : CristaeEventHandler<CristaeEditDetail<V>>;
+  onCommit?      : CristaeEventHandler<CristaeEditDetail<Emitted>>;
 }
 
-export type CristaeEditablePolygonProps   = CristaeEditableProps<EditablePolygonValue>
-export type CristaeEditablePolylineProps  = CristaeEditableProps<EditablePolylineValue>
-export type CristaeEditablePointProps     = CristaeEditableProps<EditablePointValue>
-export type CristaeEditableRectangleProps = CristaeEditableProps<EditableRectangleValue>
+export type CristaeEditablePolygonProps =
+  CristaeEditableProps<EditablePolygonValue, EditablePolygonValue<EmittedPoint>>
+export type CristaeEditablePolylineProps =
+  CristaeEditableProps<EditablePolylineValue, EditablePolylineValue<EmittedPoint>>
+export type CristaeEditablePointProps =
+  CristaeEditableProps<EditablePointValue, EditablePointValue<EmittedPoint>>
+export type CristaeEditableRectangleProps =
+  CristaeEditableProps<EditableRectangleValue, EditableRectangleValue<EmittedPoint>>
 
 export declare const CristaeEditablePolygon:
   ForwardRefExoticComponent<CristaeEditablePolygonProps & RefAttributes<CristaeEditableElement>>;

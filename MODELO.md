@@ -94,7 +94,7 @@ shared/external/Cristae/          # raiz del paquete (se sirve por GitHub: git i
    ├─ cluster/                   # Cluster.js (supercluster worldwide)
    ├─ events/                    # EventBus.js + events.js (máscaras de canal)
    ├─ interaction/               # LayerRegistry.js + HitResolver.js
-   ├─ geometry/                  # polygon.js (point-in-poly + índice espacial)
+   ├─ geometry/                  # entry cristae/geometry (metros) + índices de picking
    ├─ tiles/                     # provider + ZoomSnapshotStore + presets
    ├─ data/                      # ── NÚCLEO compartido (no depende de nada) ──
    │  ├─ Store.js  Emitter.js    # store reactivo + emisor coalescido
@@ -137,7 +137,7 @@ directorio pasa a ser el `main` de su paquete tal cual. El mismo `createSource` 
 puntos y una `<cristae-table>` → **un dataset filtrado, computado una vez, varias vistas** (mata el
 "filtrar dos veces" de tener N vistas con filtro propio).
 
-**Realizado (Opción A, in-repo).** Tres entry points + alias Vite, sin colisión con el `@cristae`
+**Realizado (Opción A, in-repo).** Los entry points + alias Vite, sin colisión con el `@cristae`
 legacy (Rollup matchea `^@cristae(/|$)`, no captura `@cristae`):
 
 | Specifier | Entry | Arrastra | Registra |
@@ -146,6 +146,7 @@ legacy (Rollup matchea `^@cristae(/|$)`, no captura `@cristae`):
 | `cristae/table` | `src/table/index.js` | `lit` (+ re-export del núcleo) | `<cristae-table>` |
 | `cristae/map` | `index.js` | `leaflet`/`glify`/`lit` (+ re-export del núcleo) | `<cristae-*>` de mapa |
 | `cristae/geojson` | `src/geojson/index.js` | nada (sin DOM/Lit/Leaflet) | — |
+| `cristae/geometry` | `src/geometry/index.js` | nada (sin DOM/Lit/Leaflet); `ellipsoid`/`WGS84`, la librería geodésica | — |
 
 La garantía "una tabla no baja Leaflet" la da el **grafo de imports disjunto** (`table/` no importa
 `engine/`/`render/`), no el `sideEffects`. `map` y `table` re-exportan la superficie del núcleo por

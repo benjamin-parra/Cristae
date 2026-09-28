@@ -22,7 +22,7 @@ import {
   type CristaeTableElement,
   type CristaeViewportChangeDetail,
 } from '@cristae/react'
-import { createSource, defineSource, defineIconSet, drawLabel, type CristaeSource } from 'cristae/map'
+import { createSource, defineSource, defineIconSet, distance, drawLabel, sphere, toParts, type CristaeSource, type LineAccessors } from 'cristae/map'
 
 interface Movil {
   id: number
@@ -179,6 +179,17 @@ export const ViaRef = () => {
   )
 }
 
+// ── Geometría: un path de arrays numéricos, como llega de un JSON, entra sin castear ─────────
+const recorrido: number[][] = [[-33.45, -70.66], [-33.05, -71.62]]
+export const medidas: number[] = [
+  distance(recorrido),
+  distance(sphere(6378137), recorrido),
+  distance([recorrido, recorrido]),
+  distance([-33.45, -70.66], [-33.05, -71.62]),
+]
+export const partes = toParts([recorrido])
+export const porTramo: LineAccessors<{ id: number; puntos: number[][] }> = { idOf: t => t.id, pathOf: t => t.puntos }
+
 // ── El mal uso NO compila ────────────────────────────────────────────────────
 
 // accessors con la forma equivocada (idOf ausente) → error.
@@ -192,6 +203,10 @@ export const BadScalar = () => <CristaeMap initialZoom="cinco" />
 // zoomAnimation fuera del union.
 // @ts-expect-error "fast" no es un valor válido de zoomAnimation
 export const BadUnion = () => <CristaeMap zoomAnimation="fast" />
+
+// un número suelto no es un punto ni un path.
+// @ts-expect-error distance no mide un número
+export const BadDistance = distance(3)
 
 // slot fuera de las zonas del overlay (un typo quedaría mudo en runtime).
 // @ts-expect-error "arriba" no es una zona del overlay 3×3

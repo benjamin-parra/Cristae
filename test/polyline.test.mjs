@@ -1,5 +1,6 @@
 // Prueba pura de geometry/polyline.js + render/project.js (sin DOM/WebGL/glify).
 // Corre con: node test/polyline.test.mjs
+import { isDeepStrictEqual } from 'node:util'
 import { projX0, projY0 } from '../src/render/project.js'
 import { prepareIndex, nearest, sampleAlong, toParts } from '../src/geometry/polyline.js'
 
@@ -12,6 +13,7 @@ const idxOf = (items) => prepareIndex(items.map(({ id, path, parts }) => ({
 let pass = 0, fail = 0
 const ok = (cond, msg) => { if (cond) { pass++ } else { fail++; console.error('  ✗ FAIL:', msg) } }
 const approx = (a, b, eps = 1e-6) => Math.abs(a - b) <= eps
+const igual  = (entrada, esperado, msg) => ok(isDeepStrictEqual(toParts(entrada), esperado), msg)
 
 // ── project.js: mundo 256×256 a zoom 0, centro (128,128) ──
 ok(approx(projX0(0), 128), 'projX0(0)=128')
@@ -126,8 +128,8 @@ const idx2 = idxOf([
   ok(cabezaSucia.length === 1 && cabezaSucia[0].from === 1, 'par sucio en cabeza: se corta, no se pierde la línea')
   ok(toParts([[], [0, 1], [0, 2]]).length === 1, 'par vacío en cabeza: idem')
 
-  // vértices con forma ajena: no revientan, degradan a vacío
-  ok(toParts([{ lat: 0, lng: 0 }, { lat: 0, lng: 1 }]).length === 0, 'vértices objeto: [] sin throw')
+  // vértices con forma ajena: no revientan, cortan
+  ok(toParts([{ lat: () => 0, lng: () => 0 }, { lat: () => 0, lng: () => 1 }]).length === 0, 'vértices con métodos: [] sin throw')
 
   // 🔴 el spread es lo único que sostiene el contrato `Iterable` (mutante (l) sobrevivía)
   ok(toParts(new Set([[0, 0], [0, 1], [0, 2]]))[0].path.length === 3, 'entrada Set (iterable no-array)')
@@ -163,6 +165,123 @@ const idx2 = idxOf([
   const leidos = toParts([[[0, 0], [0, 1]], [[0, 8], [0, 9]]])
     .flatMap(({ path, from }) => Array.from({ length: 2 * (path.length - 1) }, (_, k) => from + pathIndexOf(k)))
   ok(leidos.join(',') === '0,1,2,3', 'anidado: el escalar paralelo se lee concatenado, sin desalineo')
+}
+
+// ── toParts: la salida COMPLETA, congelada en los casos de corte ──
+// Los asertos de arriba miran conteos y `from`; éstos fijan además los pares, para que cualquier
+// reescritura del recorrido tenga que devolver exactamente lo mismo.
+{
+  igual([[null, -70.6], [-33.4, -70.6], [-33.5, -70.7]],
+    [{ from: 1, path: [[-33.4, -70.6], [-33.5, -70.7]] }], 'salida: par sucio en cabeza')
+  igual([[NaN, NaN], [0, 1], [0, 2]], [{ from: 1, path: [[0, 1], [0, 2]] }], 'salida: corte en el vértice 0')
+  igual([undefined, [0, 1], [0, 2]], [{ from: 1, path: [[0, 1], [0, 2]] }], 'salida: undefined en el vértice 0')
+  igual([null, [[0, 1], [0, 2]]], [{ from: 0, path: [[0, 1], [0, 2]] }], 'salida: parte nula en el anidado')
+  igual([[NaN, 0], [0, 1], [NaN, 0], [NaN, 0], [0, 5], [0, 6], [0, 7], [NaN, 0], [0, 9], [0, 10]],
+    [{ from: 4, path: [[0, 5], [0, 6], [0, 7]] }, { from: 8, path: [[0, 9], [0, 10]] }],
+    'salida: cortes en cabeza, consecutivos e intermedios')
+  igual([[[0, 0], [0, 1], [NaN, NaN], [0, 3], [0, 4]], null, [[0, 8]], [[0, 9], [0, 10]]],
+    [{ from: 0, path: [[0, 0], [0, 1]] }, { from: 3, path: [[0, 3], [0, 4]] }, { from: 6, path: [[0, 9], [0, 10]] }],
+    'salida: anidado con hueco interno, parte nula y parte degenerada')
+  igual([Float64Array.of(0, 0), Float64Array.of(0, 1)], [{ from: 0, path: [[0, 0], [0, 1]] }],
+    'salida: vértices tipados salen como pares planos')
+
+  // Un elemento sin nada que lo decida —vacío, nulo, o una parte con un vértice nulo en la cabeza— no
+  // define el encoding: decide el primero que trae algo.
+  igual([[], [[0, 1], [0, 2]]], [{ from: 0, path: [[0, 1], [0, 2]] }],
+    'salida: anidado que arranca con una parte vacía')
+  igual([[null], [[0, 1], [0, 2]]], [{ from: 1, path: [[0, 1], [0, 2]] }],
+    'salida: anidado que arranca con [null]')
+  igual([[null, [0, 1], [0, 2]]], [{ from: 1, path: [[0, 1], [0, 2]] }],
+    'salida: anidado cuya parte arranca con un vértice nulo')
+  igual([[], [0, 1], [0, 2]], [{ from: 1, path: [[0, 1], [0, 2]] }],
+    'salida: plano con un par vacío en cabeza')
+  igual([[undefined, undefined], [0, 1], [0, 2]], [{ from: 1, path: [[0, 1], [0, 2]] }],
+    'salida: plano con un par sin componentes en cabeza')
+  // Un vértice decide por su lat y su lng, como se lee el punto: una cola —una altura, un objeto— no
+  // cuenta. Si nada decide, el path es anidado cuando trae un array: una parte vacía no aporta nada.
+  const cola = { t: 1 }
+  igual([[null, null, cola], [0, 1, cola], [0, 2, cola]], [{ from: 1, path: [[0, 1], [0, 2]] }],
+    'salida: plano cuyo vértice 0 no trae lat ni lng, y sí una cola objeto')
+  igual([[null, null, [0, 1], [0, 2]]], [{ from: 2, path: [[0, 1], [0, 2]] }],
+    'salida: anidado cuya única parte arranca con dos vértices nulos')
+  igual([{ lat: 0 }, 5, 'ab', [[0, 1], [0, 2]]], [{ from: 0, path: [[0, 1], [0, 2]] }],
+    'salida: lo que no es iterable no decide, no revienta ni ocupa índice en el anidado')
+  // Un string se recorre, pero no es un iterable del path: en la cabeza de un plano es un vértice
+  // sucio, que corta sin decidir el encoding.
+  igual(['N/A', [0, 1], [0, 2], [0, 3]], [{ from: 1, path: [[0, 1], [0, 2], [0, 3]] }],
+    'salida: un string en la cabeza de un plano corta, no vuelve anidado al path')
+
+  // Una parte puede ser cualquier iterable y un vértice, una vista tipada: el anidado sale igual que
+  // con arrays, sin consumir la parte al decidir el encoding ni correr el `from` de las siguientes.
+  const a = [[0, 0], [0, 1], [0, 2]], b = [[0, 5], [0, 6]]
+  const enPartes = [{ from: 0, path: a }, { from: 3, path: b }]
+  const gen = function* (xs) { yield* xs }
+  igual([a.values(), b.values()], enPartes, 'salida: partes iterador')
+  igual([gen(a), gen(b)], enPartes, 'salida: partes generador')
+  igual([new Set(a), new Set(b)], enPartes, 'salida: partes Set')
+  igual(gen([gen(a), gen(b)]), enPartes, 'salida: generador de generadores')
+  igual([a, b].map(part => part.map(p => Float64Array.from(p))), enPartes, 'salida: anidado con vértices tipados')
+
+  // Los pares salen COPIADOS y recortados a [lat, lng]: una tercera componente (altura) no viaja, y
+  // mutar la salida no toca la entrada.
+  const conAltura = [[0, 0, 500], [0, 1, 510]]
+  const [{ path }] = toParts(conAltura)
+  ok(isDeepStrictEqual(path, [[0, 0], [0, 1]]), 'salida: el par se recorta a [lat, lng]')
+  ok(path[0] !== conAltura[0], 'salida: el par es una copia, no el vértice de la entrada')
+}
+
+// ── toParts: las cuatro formas de punto, una sola salida ──
+// Un punto entra como par, vista tipada, `{ lat, lng }`, `{ lat, lon }` o `{ latitude, longitude }`,
+// y sale siempre como par. El discriminador plano/anidado mira puntos: un anidado de objetos se lee
+// como anidado aunque su primera parte llegue sucia en la cabeza.
+{
+  const pares = [[0, 0], [0, 1], [0, 2]]
+  const formas = {
+    'par'                     : pares,
+    'vista tipada'            : pares.map(p => Float64Array.from(p)),
+    '{ lat, lng }'            : pares.map(([lat, lng]) => ({ lat, lng })),
+    '{ lat, lon }'            : pares.map(([lat, lon]) => ({ lat, lon })),
+    '{ latitude, longitude }' : pares.map(([latitude, longitude]) => ({ latitude, longitude })),
+  }
+  for (const [nombre, path] of Object.entries(formas)) {
+    igual(path, [{ from: 0, path: pares }], `forma ${nombre}: plano`)
+    igual([path.slice(0, 2), path.slice(1)], [{ from: 0, path: pares.slice(0, 2) }, { from: 2, path: pares.slice(1) }],
+      `forma ${nombre}: anidado`)
+  }
+  igual([[0, 0], { lat: 0, lon: 1 }, { latitude: 0, longitude: 2 }], [{ from: 0, path: pares }], 'formas mezcladas')
+
+  const cabeza = { lat: NaN, lng: 0 }
+  igual([[cabeza, { lat: 0, lng: 1 }, { lat: 0, lng: 2 }], [{ lat: 0, lng: 5 }, { lat: 0, lng: 6 }]],
+    [{ from: 1, path: [[0, 1], [0, 2]] }, { from: 3, path: [[0, 5], [0, 6]] }],
+    'anidado de objetos con la cabeza sucia: sigue anidado')
+  igual([[null, { lat: 0, lng: 1 }, { lat: 0, lng: 2 }]], [{ from: 1, path: [[0, 1], [0, 2]] }],
+    'anidado de objetos con un nulo en la cabeza')
+
+  // Lo que no es un punto corta: un string que parece número, un método, una forma a medias o
+  // cruzada, un componente no finito, un primitivo suelto.
+  const noPuntos = [
+    { lat: '0', lng: '5' }, { lat: () => 0, lng: () => 5 }, { lat: 0 }, { lng: 5 }, { latitude: 0, lng: 5 },
+    { lat: 0, longitude: 5 }, { lat: NaN, lng: 5 }, { lat: 0, lon: Infinity }, 5, 'ab', true,
+  ]
+  noPuntos.forEach((malo, k) => igual([[0, 0], [0, 1], malo, [0, 3], [0, 4]],
+    [{ from: 0, path: [[0, 0], [0, 1]] }, { from: 3, path: [[0, 3], [0, 4]] }], `no es punto, corta: caso ${k}`))
+
+  // En un plano de objetos decide el primer punto: nada de lo que venga después —un string, un
+  // anidado perdido— lo vuelve anidado, y lo que no es punto corta.
+  const objetos = [0, 1, 2, 3, 4].map(lng => ({ lat: 0, lng }))
+  const cortado = [{ from: 0, path: [[0, 0], [0, 1]] }, { from: 3, path: [[0, 3], [0, 4]] }]
+  for (const malo of ['', 'ab', [[0, 9], [0, 9]], new Set([[0, 9]])])
+    igual([objetos[0], objetos[1], malo, objetos[3], objetos[4]], cortado, `plano de objetos con ${JSON.stringify(malo)}`)
+  const iterablePunto = (lat, lng) => ({ lat, lng, *[Symbol.iterator]() { yield lat; yield lng } })
+  igual([0, 1, 2].map(lng => iterablePunto(0, lng)), [{ from: 0, path: pares }],
+    'un punto objeto iterable es un vértice, no una parte')
+
+  // La latitud tiene que caer en [-90, 90]: una fila con lat y lng cruzadas fuera de ese rango corta.
+  igual([[37.77, -122.42], [37.78, -122.42], [-122.43, 37.79], [37.80, -122.43], [37.81, -122.44]],
+    [{ from: 0, path: [[37.77, -122.42], [37.78, -122.42]] }, { from: 3, path: [[37.80, -122.43], [37.81, -122.44]] }],
+    'una latitud fuera de rango corta')
+  igual([[90, 0], { lat: -90, lng: 0 }, { latitude: 90.0000001, longitude: 0 }], [{ from: 0, path: [[90, 0], [-90, 0]] }],
+    'los polos son puntos; un poco más allá, no')
 }
 
 // ── mapeo buffer↔dato multi-parte: el gradiente lee el índice de la ENTRADA (replica de #applyGradient) ──

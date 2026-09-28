@@ -56,9 +56,13 @@ export { defineIconSet, defineClusterIconSet, IconSet, prerenderFonts } from './
 export { shapePresetIconSet, RENDERERS as shapeRenderers } from './atlas/shape-presets.js'   // presets de forma agnósticos
 export { defineSource, createSource, makeFilter, makeListener } from './data/index.js'   // núcleo
 export { drawLabel } from './render/LabelLayer.js'
-// Geometría pura de polilínea: `toParts` normaliza un path a partes (la misma convención de corte
+// Geometría pura, la misma de `cristae/geometry`: `distance` mide en metros, con la esfera por defecto
+// o con el modelo que se le pase; `toParts` normaliza un path a partes (la misma convención de corte
 // que aplica la line-layer) y `sampleAlong` lo muestrea equiespaciado con rumbo, para DECORAR una
 // línea componiendo (flechas/ticks = point-layer con `headingOf`, no propiedad del trazo).
+// `ellipsoid` y `WGS84` no se re-exportan, y el mapa importa de los módulos y no del entry: así la
+// librería geodésica, que el mapa no usa, queda fuera de su grafo y de su bundle prearmado.
+export { distance, sphere } from './geometry/geodesic.js'
 export { toParts, sampleAlong } from './geometry/polyline.js'
 export { tilePresets } from './tiles/presets.js'
 export { CristaeMap, CristaePointLayer, CristaePolygonLayer, CristaeLineLayer, CristaeHtmlLayer, CristaeLabelLayer, CristaeCluster, CristaeOverlay, CristaeToolbar, CristaePopup }

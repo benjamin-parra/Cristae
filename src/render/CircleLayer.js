@@ -8,14 +8,13 @@
 // `styleOf` devuelve opciones de path de Leaflet (color, fillColor, weight, opacity, fillOpacity, …).
 // Estado (posición/radio/estilo) → mutar el item + set/patch la Source; NO hay API imperativa de restyle.
 //
-// Picking: CPU point-in-circle. El punto está DENTRO si su distancia geográfica al centro ≤ radio en
-// metros; se aproxima con proyección equirectangular local (dx = Δlng·cos(lat̄), dy = Δlat), suficiente
-// a las escalas de un radio de cobertura. kind 'circle', hit de ÁREA (distancePx 0, como polygon).
+// Picking: CPU point-in-circle, kind 'circle', hit de ÁREA (distancePx 0, como polygon). El punto
+// está DENTRO si su distancia al centro, medida con la esfera por defecto de `distance`, no pasa del
+// radio. `L.circle` pone el borde con R = 6 371 000 m, a 1,4 ppm de ese radio medio: en la práctica
+// el hit coincide con el borde dibujado.
 
+import { arcMeters } from '../geometry/geodesic.js'
 import { focusedStyle } from './focus.js'
-
-const R_TIERRA = 6378137          // radio terrestre WGS84 (m) — factor para pasar radianes a metros
-const RAD = Math.PI / 180
 
 export class CircleLayer {
 
@@ -64,20 +63,16 @@ export class CircleLayer {
   resolveClick(baseEvent) { return this.#hitsAt(baseEvent) }
   resolveHover(baseEvent) { return this.#hitsAt(baseEvent) }
 
+  // `L.circle` se dibuja una sola vez, en la copia del mundo de su centro, y el latlng del puntero no
+  // se envuelve. La haversine sí es periódica en longitud: sin el corte a media vuelta del centro, el
+  // círculo se picaría en las copias vecinas, donde no hay nada dibujado.
   #hitsAt(baseEvent) {
     if (!this.#interactive || !baseEvent?.latlng || !this.#byId.size) return []
     const { lat, lng } = baseEvent.latlng
     return [...this.#byId]
-      .filter(([, rec]) => this.#contiene(lat, lng, rec))
+      .filter(([, rec]) =>
+        Math.abs(lng - rec.lng) <= 180 && arcMeters(lat, lng, rec.lat, rec.lng) <= rec.radius)
       .map(([id]) => ({ ref: id, id, distancePx: 0 }))
-  }
-
-  // Distancia geográfica centro→punto por equirectangular local: los grados de longitud se acortan por
-  // cos(lat̄), los de latitud son constantes; ‖(dx, dy)‖·R = metros. Barato y exacto a escala de radio.
-  #contiene(lat, lng, { lat: clat, lng: clng, radius }) {
-    const dx = (lng - clng) * RAD * Math.cos(((lat + clat) / 2) * RAD)
-    const dy = (lat - clat) * RAD
-    return Math.hypot(dx, dy) * R_TIERRA <= radius
   }
 
   /* ── Reacción al Source (coalescida a rAF por el Emitter) ── */

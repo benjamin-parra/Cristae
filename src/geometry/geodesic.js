@@ -1,0 +1,93 @@
+// Distancias en METROS sobre un modelo de la Tierra. El defecto es la esfera de radio medio IUGG
+// (R1 = 6 371 008,8 m) con haversine, que contra el elipsoide WGS84 se desvía hasta 0,56 %; dónde, lo
+// dice docs/geometry.md. `sphere(radius)` existe para reproducir las cifras de un sistema que mide con
+// otro radio, y `ellipsoid` (ellipsoid.js) da la geodésica del elipsoide, a precisión geodésica.
+// Módulo puro: sin Leaflet, sin DOM, sin el elipsoide.
+import { coordOf, foldPart, foldRuns, isPoint, iterable } from './polyline.js'
+
+const D = Math.PI / 180
+
+// La marca de un modelo es a la vez su núcleo: `model[MODEL](lat1, lng1, lat2, lng2)` son los metros
+// entre dos puntos válidos, en grados. Va en el registro global de símbolos, y no es una clase, para
+// que una copia de la librería reconozca los modelos de otra cargada en la misma página: `instanceof`
+// no cruza copias. Por eso esa firma es un protocolo entre versiones, y no cambia.
+const MODEL   = Symbol.for('cristae.geometry.model')
+const isModel = value => typeof value?.[MODEL] === 'function'
+
+// Un modelo es inmutable y se valida al construirlo, no en medio de un track: un radio o un semieje
+// es un número finito mayor que 0.
+export const makeModel   = core => Object.freeze({ [MODEL]: core })
+export const checkLength = (length, name) => {
+  if (!(Number.isFinite(length) && length > 0))
+    throw new RangeError(`${name} tiene que ser un número finito mayor que 0: ${length}`)
+}
+
+// El núcleo de la esfera mide dos puntos en grados, sin validarlos, con la haversine: estable a
+// escala de centímetros, donde la ley de cosenos pierde los dígitos. El término se acota a [0, 1]
+// porque en pares casi antípodas el redondeo lo empuja sobre 1, y ahí `asin` da NaN. El antimeridiano
+// no necesita caso aparte: sin² tiene período π.
+export const sphere = (radius = 6371008.8) => {
+  checkLength(radius, '[sphere] radius')
+  return makeModel((lat1, lng1, lat2, lng2) => {
+    const sLat = Math.sin((lat2 - lat1) * D / 2)
+    const sLng = Math.sin((lng2 - lng1) * D / 2)
+    const h    = sLat * sLat + Math.cos(lat1 * D) * Math.cos(lat2 * D) * sLng * sLng
+    return radius * 2 * Math.asin(Math.sqrt(h < 0 ? 0 : h > 1 ? 1 : h))
+  })
+}
+
+const byDefault = sphere()
+
+// El núcleo de la esfera por defecto, para quien mide sin modelo: el picking de círculos.
+export const arcMeters = byDefault[MODEL]
+
+// Los metros de un tramo, sumados sobre `walk.meters` con el núcleo del modelo. El tramo ya llega
+// validado, y cada vértice se lee una sola vez, en su lugar.
+const measureRun = (walk, vertices, first, count) => {
+  const arc  = walk.arc
+  let meters = walk.meters
+  let lat    = coordOf(vertices[first], 0)
+  let lng    = coordOf(vertices[first], 1)
+  for (let i = first + 1; i < first + count; i++) {
+    const nextLat = coordOf(vertices[i], 0)
+    const nextLng = coordOf(vertices[i], 1)
+    meters += arc(lat, lng, nextLat, nextLng)
+    lat = nextLat
+    lng = nextLng
+  }
+  walk.meters   = meters
+  walk.measured = true
+  return walk
+}
+
+// Un vértice que no es punto es un dato malo, salvo un modelo o una función: eso es un error del
+// llamador —un modelo fuera del primer lugar, una fábrica sin llamar—, y medirlo como un corte, con el
+// modelo por defecto, lo escondería.
+const markCut = (walk, vertex) => {
+  if (isModel(vertex) || typeof vertex === 'function')
+    throw new TypeError('[distance] el modelo va primero, y construido: sphere(), no sphere')
+  walk.invalid = true
+  return walk
+}
+
+// El modelo, si viene, es el primer argumento, para que los puntos queden al final, variádicos. Se
+// reconoce por su marca, y null no la tiene: `distance(xs[0], xs[1])` sobre un array vacío son dos
+// puntos inválidos, no «el modelo por defecto y un punto». Un solo argumento es un path si es nulo, o
+// iterable y no es un punto; si no, es un punto, válido o no: un objeto inválido, o un string, da NaN
+// como un par inválido, y no el 0 de un path vacío. Con dos o más, cada uno es un punto. Un punto
+// inválido corta como en `toParts` y el hueco no suma. Si hubo datos y ninguno sirvió —algún inválido
+// y ningún tramo— la distancia es NaN, no un 0 que se sumaría después como si fuera un tramo real; un
+// modelo fuera de lugar, en cambio, lanza (`markCut`). Un array cuyo primer elemento es un objeto es
+// un path sin pasar por `isPoint`: leer un path como punto le enseña al lector un array de arrays, y
+// desde ahí V8 encajona cada double que lee de una vista tipada o de un objeto, en todos los
+// recorridos.
+export const distance = (...args) => {
+  const model = isModel(args[0]) ? args.shift() : byDefault
+  const start = { arc: model[MODEL], meters: 0, measured: false, invalid: false }
+  const path  = args.length === 1 &&
+    (typeof args[0]?.[0] === 'object' || args[0] == null || !isPoint(args[0]) && iterable(args[0]))
+  const walk  = path
+    ? foldRuns(args[0], measureRun, start, markCut)
+    : foldPart(args, 0, measureRun, start, markCut)
+  return walk.invalid && !walk.measured ? NaN : walk.meters
+}

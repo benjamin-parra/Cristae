@@ -43,7 +43,7 @@ vértice `v` de un feature mapea al punto de path `⌈v/2⌉` — así el gradie
 | Accessor | Tipo | Rol |
 |---|---|---|
 | `idOf` | `(item) => number` | id numérico (picking / restyle) |
-| `pathOf` | `(item) => Iterable<[lat, lng]>` *(o de partes)* | vértices del path, en orden — ver **multi-parte** abajo |
+| `pathOf` | `(item) => Iterable<punto>` *(o de partes)* | vértices del path, en orden, en cualquiera de las [formas de punto](./geometry.md#formas-de-punto) — ver **multi-parte** abajo |
 | `styleOf?` | `(item) => { color?, weight?, opacity? }` | estilo **plano** por línea. `color` = `"#RRGGBB"` o `[r,g,b,a]` (0..1); `weight` en px de pantalla |
 | `scalarOf?` | `(item, vertexIndex) => number` | escalar por vértice, **genérico** (el core no lo interpreta) |
 | `colorRamp?` | `(value) => [r,g,b,a]` | rampa `valor → color` (0..1). Con `scalarOf` presente, **gana** sobre `styleOf.color` |
@@ -98,11 +98,14 @@ por mar). Se expresa con **dos encodings del mismo `pathOf`**, y ambos colapsan 
 representación (`toParts`):
 
 ```js
-pathOf: r => r.puntos                 // plano: un vértice NO finito CORTA la línea
+pathOf: r => r.puntos                 // plano: un vértice que NO es punto CORTA la línea
 pathOf: r => r.tramos                 // anidado: [[[lat,lng],…],…] — partes explícitas
 ```
 
-> 🔴 **Un vértice no finito corta, no se descarta.** Si se descartara, los vértices vecinos quedarían
+El path y cada parte pueden ser cualquier iterable, y un vértice, cualquiera de las
+[formas de punto](./geometry.md#formas-de-punto).
+
+> 🔴 **Un vértice que no es punto corta, no se descarta.** Si se descartara, los vértices vecinos quedarían
 > unidos por una **recta que no existe** — el mapa dibujaría un tramo que el móvil nunca hizo. Cortar
 > es lo correcto; el hueco se ve como hueco. Las partes de < 2 vértices se descartan (no hay segmento).
 
@@ -113,13 +116,14 @@ que el hit reporta como `partIndex` + `segmentIndex`). En el backend GL sale com
 encoding plano los cortes ocupan índice, con el anidado los índices corren concatenados — así un array
 paralelo de escalares nunca se desincroniza.
 
-Para **decorar** una línea multi-parte hay que respetar sus huecos; `toParts` está exportado para no
+Para **decorar** una línea multi-parte hay que respetar sus huecos. `sampleAlong` ya los respeta y
+reparte sus muestras sobre el largo total; `toParts` está exportado para decorar por parte sin
 reimplementar la convención:
 
 ```js
 import { toParts, sampleAlong } from 'cristae/map'
 
-const flechas = toParts(ruta.puntos).flatMap(({ path }) => sampleAlong(path, 4))
+const flechas = toParts(ruta.puntos).flatMap(({ path }) => sampleAlong(path, 4))   // 4 por parte
 ```
 
 ### Gradiente por un escalar per-vértice

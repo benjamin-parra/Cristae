@@ -15,7 +15,8 @@ npm install github:benjamin-parra/Cristae   # o: git+https://github.com/benjamin
 ```
 
 `leaflet` y `lit` son **peerDependencies** (los provee el consumidor; Leaflet debe ser una sola
-instancia). `leaflet.glify` y `supercluster` viajan como dependencias normales.
+instancia). `leaflet.glify`, `supercluster` y `geographiclib-geodesic` viajan como dependencias
+normales; la última sólo la usa el elipsoide de `cristae/geometry` ([geometría](docs/geometry.md)).
 
 ## Uso mínimo
 
@@ -33,12 +34,13 @@ import { createSource, defineIconSet } from 'cristae/map'
 
 ## Entry points
 
-| Specifier        | Trae                                   | Registra            |
-|------------------|----------------------------------------|---------------------|
-| `cristae/map`    | mapa + núcleo (Leaflet/glify/lit)      | `<cristae-*>` mapa  |
-| `cristae/table`  | tabla virtual + núcleo (solo `lit`)    | `<cristae-table>`   |
-| `cristae/core`   | solo el núcleo de datos (sin DOM)      | —                   |
-| `cristae/geojson`| lector de GeoJSON a arrays tipados      | —                   |
+| Specifier          | Trae                                    | Registra           |
+|--------------------|-----------------------------------------|--------------------|
+| `cristae/map`      | mapa + núcleo (Leaflet/glify/lit)       | `<cristae-*>` mapa |
+| `cristae/table`    | tabla virtual + núcleo (solo `lit`)     | `<cristae-table>`  |
+| `cristae/core`     | solo el núcleo de datos (sin DOM)       | —                  |
+| `cristae/geojson`  | lector de GeoJSON a arrays tipados      | —                  |
+| `cristae/geometry` | distancias en metros + contrato de path | —                  |
 
 `table` y `map` nunca se importan entre sí: una tabla no baja Leaflet.
 

@@ -1,8 +1,13 @@
-// Geometría de polilíneas genérica, sin dominio: distancia punto→segmento + índice espacial
-// (bbox ordenado por maxX, descarte por upper-bound binario). La usa la line-layer para
-// hit-testing (nearest-segment). O(log n + k) por consulta.
+// Geometría de polilíneas genérica, sin dominio. Dos piezas:
+//   · el contrato de path, en grados: qué es un punto, los dos encodings y la regla de corte
+//     (`coordOf`, `isNested`, `foldRuns`, `toParts`). Lo comparten las capas de líneas, su encuadre y
+//     la medida en metros (geodesic.js); la edición comparte el lector de punto y la decisión de
+//     anidado. Los anillos de `ringsOf` y las posiciones de `positionOf` tienen su propio contrato.
+//   · el hit-testing nearest-segment de la line-layer —distancia punto→segmento + índice espacial
+//     (bbox ordenado por maxX, descarte por upper-bound binario), O(log n + k) por consulta— y el
+//     muestreo de `sampleAlong`.
 //
-// Todo se calcula en el marco EPSG:3857 a zoom 0 (world0 px) reusando projX0/projY0 — el MISMO
+// La segunda se calcula en el marco EPSG:3857 a zoom 0 (world0 px) reusando projX0/projY0 — el MISMO
 // espacio que proyecta glify (points.ts exige EPSG:3857). El caller convierte la tolerancia y la
 // distancia a píxeles de pantalla multiplicando por la escala del zoom (world0 · 2^zoom = screen).
 // Módulo puro: sin Leaflet, sin WebGL, testeable con coordenadas conocidas.
@@ -21,39 +26,106 @@ const distSqToSegment = (px, py, ax, ay, bx, by) => {
   return ex * ex + ey * ey
 }
 
-// Tramos de vértices finitos CONTIGUOS dentro de una parte; `base` = índice de su primer vértice en
-// la entrada. Un vértice no finito corta: el siguiente finito arranca un tramo nuevo.
-const runsOf = (part, base) => part.reduce((runs, p, k) => {
-  if (!Number.isFinite(p?.[0]) || !Number.isFinite(p?.[1])) return runs
-  const last = runs[runs.length - 1]
-  if (last && last.from + last.path.length === base + k) last.path.push([p[0], p[1]])
-  else runs.push({ from: base + k, path: [[p[0], p[1]]] })
-  return runs
-}, [])
+// Un punto, en grados, tiene cuatro formas: `[lat, lng]` —un array, donde lo que siga, una altura, se
+// ignora, o una vista tipada de dos o tres componentes—, `{ lat, lng }`, `{ lat, lon }` y
+// `{ latitude, longitude }`. Es un punto si sus dos componentes son números finitos y la latitud cae
+// en [-90, 90]: fuera de ahí no hay un lugar, y cada modelo de la Tierra la mediría distinto. No se
+// coacciona un string, y un objeto que expone `lat()` como método no es un punto. Una vista tipada más
+// larga es un track intercalado, que leído como punto mediría 0: no es un punto, y corta. El orden
+// `[lng, lat]` no entra: es un par igual en forma, y en latitudes medias no se distingue.
+//
+// `coordOf(p, 0)` es la latitud y `coordOf(p, 1)` la longitud de un valor no nulo, leídas en su
+// lugar, sin copiar el punto. El lector queda chico a propósito, con las formas objeto aparte: así
+// V8 lo inlina entero en los recorridos, y el double de un par no se encajona. Por lo mismo la forma
+// se reconoce por `typeof` y no comparando con undefined, y el null lo descarta `isPoint` antes de
+// leer: mezclar el double con undefined o con un NaN constante también obliga a encajonarlo, una
+// asignación por vértice en los recorridos de volumen.
+const indexable = v => Array.isArray(v) || ArrayBuffer.isView(v)
 
-/** Normaliza lo que devuelve `pathOf` a partes `[{ path: [[lat,lng],…], from }, …]` — `from` es la
- *  posición del primer vértice de la parte en la entrada (dentro de una parte los índices son
- *  contiguos), para indexar un escalar paralelo sin desincronizarse al cortar. Dos encodings:
- *   · plano `[[lat,lng], …]` — un vértice no finito CORTA (un track con baches sale partido, no
- *     puenteado por una recta que no existe); el corte igual ocupa índice.
- *   · anidado `[[[lat,lng], …], …]` — partes explícitas; los índices corren concatenados.
- *  Descarta partes de < 2 vértices: no hay segmento que dibujar ni contra el cual pickear. */
-export const toParts = input => {
-  const top = input ? [...input] : []
-  // Es anidado sólo si el primer elemento concluyente CONTIENE otro array. Cualquier otra forma
-  // —incluido un par sucio en la cabeza, que es como llega una fila GPS mala— es un path plano y se
-  // corta. Discriminar por "no es un número" haría desaparecer el path entero cuando el corte cae
-  // justo en el vértice 0; mirar sólo `top[0]` perdería un anidado que arranca con una parte nula.
-  const head = top.find(v => v != null)
-  const parts = Array.isArray(head?.[0])
-    ? top.map(part => (part ? [...part] : []))
-    : [top]
-  const { runs } = parts.reduce(
-    ({ runs, base }, part) => ({ runs: runs.concat(runsOf(part, base)), base: base + part.length }),
-    { runs: [], base: 0 },
-  )
-  return runs.filter(r => r.path.length >= 2)
+const objectCoord = (p, axis) =>
+  typeof p.lat === 'number' ? (axis ? (typeof p.lng === 'number' ? p.lng : p.lon) : p.lat)
+  : axis ? p.longitude : p.latitude
+
+export const coordOf = (p, axis) => (indexable(p) ? p[axis] : objectCoord(p, axis))
+export const isPoint = p =>
+  p != null && !(ArrayBuffer.isView(p) && p.length > 3) &&
+  Number.isFinite(coordOf(p, 0)) && Math.abs(coordOf(p, 0)) <= 90 && Number.isFinite(coordOf(p, 1))
+
+// Un iterable del path es un objeto: un string también se recorre, pero sus caracteres no son
+// vértices. Un array se lee en su lugar; otro iterable se materializa antes de leerlo, porque uno de
+// un solo uso no se deja leer dos veces. Lo que no es iterable no trae vértices.
+export const iterable = v => typeof v === 'object' && !!v?.[Symbol.iterator]
+const listOf          = v => (Array.isArray(v) ? v : iterable(v) ? [...v] : [])
+
+/** Los tramos de `part` leída como un path plano, con `base` = la posición de la parte en la
+ *  entrada. Un vértice que no es punto corta y, si hay `cut`, se le avisa con el vértice:
+ *  `acc = cut(acc, vertex)`. Quien mide lo necesita, porque un dato que no sirve no es lo mismo que
+ *  ningún dato. `i === part.length` cierra el último tramo como un corte más, sin aviso. */
+export const foldPart = (part, base, fn, acc, cut) => {
+  for (let i = 0, first = 0; i <= part.length; i++) {
+    if (i < part.length && isPoint(part[i])) continue
+    if (i - first >= 2) acc = fn(acc, part, first, i - first, base + first)
+    if (cut && i < part.length) acc = cut(acc, part[i])
+    first = i + 1
+  }
+  return acc
 }
+
+// El encoding de un path lo decide su primer elemento que trae algo. Un array o una vista tipada se
+// decide por su lat y su lng, como se lee el punto —lo que siga, una altura o un objeto, no cuenta—:
+// si el primero no nulo de los dos es un objeto —un punto en cualquiera de sus formas, aunque venga
+// sucio—, el elemento es una parte y el path es anidado; si es un primitivo —un número, aunque sea
+// NaN—, es un vértice y el path es plano, y se corta. Otro objeto decide por sí mismo: un punto es un
+// vértice, así que un plano de objetos se decide en su primer punto, y otro iterable es una parte,
+// que se decide sin abrirla. Saltar lo que no decide (null, un primitivo, `[]`, `[null]`, un objeto
+// que no es punto ni iterable) es lo que deja leer un plano cuyo vértice 0 llega sucio, que es como
+// llega una fila GPS mala, y un anidado cuya primera parte llega vacía o con un vértice nulo en la
+// cabeza. Si nada decide, con algún array el path es anidado: leído como parte, un array sin lat ni
+// lng puede traer puntos después y, vacío, no aporta ni corta; leído como vértice, cortaría.
+export const isNested = top => {
+  const lead = top.find(v => (indexable(v) ? (v[0] ?? v[1]) != null : isPoint(v) || iterable(v)))
+  return lead === undefined ? top.some(indexable)
+    : indexable(lead) ? typeof (lead[0] ?? lead[1]) === 'object' : !isPoint(lead)
+}
+
+/** Pliega sobre `acc`, sin copiarlos, los tramos de puntos CONTIGUOS de un path:
+ *  `acc = fn(acc, vertices, first, count, from)` por tramo, con el tramo en
+ *  `vertices[first … first+count)` y `from` = la posición de su primer vértice en la entrada, para
+ *  indexar un escalar paralelo sin desincronizarse al cortar. Es la única dueña de la regla de
+ *  corte. Dos encodings, que decide `isNested`:
+ *   · plano `[punto, …]` — un vértice que no es punto CORTA (un track con baches sale partido, no
+ *     puenteado por una recta que no existe); el corte igual ocupa índice.
+ *   · anidado `[[punto, …], …]` — partes explícitas, arrays o cualquier iterable; los índices
+ *     corren concatenados.
+ *  Omite los tramos de < 2 vértices: no hay segmento que dibujar, medir ni contra el cual pickear.
+ *  `cut` es el de `foldPart`. Es un pliegue, y no un recorrido con callback, para que el bucle por
+ *  vértice viva en funciones de módulo, estables entre llamadas: en una clausura nueva por llamada
+ *  arranca cada vez sin optimizar y encajona los doubles que lee. */
+export const foldRuns = (input, fn, acc, cut) => {
+  const top = listOf(input)
+  if (!isNested(top)) return foldPart(top, 0, fn, acc, cut)
+  let base = 0
+  top.forEach(v => {
+    const part = listOf(v)
+    acc = foldPart(part, base, fn, acc, cut)
+    base += part.length
+  })
+  return acc
+}
+
+// Un tramo de `foldRuns`, copiado como parte de pares. Vive en el módulo, estable entre llamadas, por
+// lo que dice `foldRuns`.
+const pushPart = (parts, vertices, first, count, from) => {
+  const path = []
+  for (let i = first; i < first + count; i++)
+    path.push([coordOf(vertices[i], 0), coordOf(vertices[i], 1)])
+  parts.push({ from, path })
+  return parts
+}
+
+/** Normaliza lo que devuelve `pathOf` a partes `[{ from, path: [[lat,lng],…] }, …]`: los tramos de
+ *  `foldRuns`, con cada punto copiado como par `[lat, lng]`, sea cual sea su forma. */
+export const toParts = input => foldRuns(input, pushPart, [])
 
 // items: [{ id, parts }] con las partes tal cual las devuelve `toParts` — una entrada POR PARTE: las
 // de un track disjunto traen bboxes ajustadas y se descartan por separado en el broad-phase. Guarda
@@ -81,7 +153,7 @@ const bearingOf = (a, b) => {
   return (deg + 360) % 360
 }
 
-// Muestrea `count` puntos EQUIESPACIADOS a lo largo del path (por longitud real, no por vértice),
+// Muestrea `count` puntos EQUIESPACIADOS a lo largo del path (por largo world0, no por vértice),
 // cada uno con el `heading` del segmento en que cae. Es la pieza para DECORAR una línea COMPONIENDO:
 // los puntos salen a un point-layer con `headingOf` (sprite rotado) — p. ej. flechas de dirección o
 // ticks. La capa de líneas NO dibuja flechas: una flecha es un punto con rumbo, no una propiedad del

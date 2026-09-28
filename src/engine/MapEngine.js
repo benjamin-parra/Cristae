@@ -19,6 +19,7 @@ import { createClusterFold } from '../cluster/ClusterFold.js'
 import { defineClusterIconSet } from '../atlas/IconSet.js'
 import { createSource } from '../data/index.js'
 import { createTileSnapshotRetention } from '../tiles/TileSnapshotRetention.js'
+import { coordOf, foldRuns, iterable } from '../geometry/polyline.js'
 
 // MapEngine — orquestador headless (SPECS §6). Framework-agnóstico, sin dominio. Crea el L.map,
 // deriva panes por orden de declaración (el consumidor no toca z-index),
@@ -83,6 +84,23 @@ const DEFAULT_CLUSTER_DRAW = (ctx, size, count, plus, dim = false) => {
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
   ctx.font = `${Math.round(size * (label.length > 4 ? 0.22 : 0.28))}px sans-serif`
   ctx.fillText(label, size / 2, size / 2)
+}
+
+// La caja del encuadre, `box` = [minLat, minLng, maxLat, maxLng], crece con cada punto finito.
+const growBox = (box, lat, lng) => {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return
+  if (lat < box[0]) box[0] = lat
+  if (lng < box[1]) box[1] = lng
+  if (lat > box[2]) box[2] = lat
+  if (lng > box[3]) box[3] = lng
+}
+
+// Un tramo de `foldRuns` sobre la caja. Vive en el módulo, estable entre llamadas, por lo que dice
+// `foldRuns`.
+const growRun = (box, vertices, first, count) => {
+  for (let i = first; i < first + count; i++)
+    growBox(box, coordOf(vertices[i], 0), coordOf(vertices[i], 1))
+  return box
 }
 
 // Registro estático de engines vivos: al destruirse uno, sus hermanos reciben resetCanvasReference()
@@ -826,33 +844,31 @@ export class MapEngine {
   // (positionOf | pathOf | ringsOf), y la caja propia de la capa que no tenga Source. One-shot;
   // respeta insets/maxZoom.
   fitToLayers(ids = null, { insets, maxZoom } = {}) {
-    const box  = new Float64Array([Infinity, Infinity, -Infinity, -Infinity])   // [minLat, minLng, maxLat, maxLng]
-    const grow = (lat, lng) => {
-      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return
-      if (lat < box[0]) box[0] = lat
-      if (lng < box[1]) box[1] = lng
-      if (lat > box[2]) box[2] = lat
-      if (lng > box[3]) box[3] = lng
-    }
+    const box       = new Float64Array([Infinity, Infinity, -Infinity, -Infinity])
     const growTyped = v => {                     // tipado plano, intercalado [lat, lng, …]
-      for (let i = 0; i + 1 < v.length; i += 2) grow(v[i], v[i + 1])
+      for (let i = 0; i + 1 < v.length; i += 2) growBox(box, v[i], v[i + 1])
     }
-    // Una coordenada llega como `{lat,lng}`, `[lat,lng]`, un anidado de pathOf/ringsOf, un iterable o
-    // un tipado plano. Se recorre sin materializar pares.
+    // Una coordenada de positionOf o ringsOf llega como `{lat,lng}`, `[lat,lng]`, un anidado, un
+    // iterable o un tipado plano. Se recorre sin materializar pares.
     const walk = v =>
       ArrayBuffer.isView(v)        ? growTyped(v)
-      : Array.isArray(v)           ? (typeof v[0] === 'number' ? grow(v[0], v[1]) : v.forEach(walk))
-      : typeof v?.lat === 'number' ? grow(v.lat, v.lng)
-      : v?.[Symbol.iterator]       ? [...v].forEach(walk)
+      : Array.isArray(v)           ? (typeof v[0] === 'number' ? growBox(box, v[0], v[1]) : v.forEach(walk))
+      : typeof v?.lat === 'number' ? growBox(box, v.lat, v.lng)
+      : iterable(v)                ? [...v].forEach(walk)
       : undefined
     const recs = ids ? [...ids].map(id => this.#layers.get(id)) : [...this.#layers.values()]
     recs.forEach(r => {
       const b = r?.layer?.bounds                 // capa sin Source: su geometría es fija y la informa ella
-      if (b) { grow(b.minLat, b.minLng); grow(b.maxLat, b.maxLng); return }
+      if (b) { growBox(box, b.minLat, b.minLng); growBox(box, b.maxLat, b.maxLng); return }
       if (!r?.source) return
 
       const { accessors: a, getSnapshot } = r.source
-      getSnapshot().forEach(it => walk(a.positionOf ? a.positionOf(it) : a.pathOf ? a.pathOf(it) : a.ringsOf(it)))
+      // pathOf se lee con el contrato de path de las líneas —sus formas de punto y su regla de corte—:
+      // el encuadre cubre los tramos que la capa dibuja. Ahí una vista tipada es un vértice, no un plano.
+      getSnapshot().forEach(it =>
+        a.positionOf ? walk(a.positionOf(it))
+        : a.pathOf   ? foldRuns(a.pathOf(it), growRun, box)
+        : walk(a.ringsOf(it)))
     })
     if (!Number.isFinite(box[0])) return this
 

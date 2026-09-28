@@ -2,16 +2,18 @@
 // `cristae/table`): el contrato Source que comparten el mapa, la tabla y cualquier
 // consumidor headless. Mantener sincronizado con src/data/ (Source.js, filters.js).
 
+// Con extensión, a diferencia de los demás entries: el núcleo también resuelve bajo `nodenext`.
+import type { LatLngPath } from "./geometry.js";
+
 /** Accessors que describen cómo leer cada ítem del consumidor. */
 export interface SourceAccessors<T> {
   idOf        : (item: T) => string | number;
   /** Geometría de PUNTO (point/label). Una de `positionOf` | `pathOf` es obligatoria. */
   positionOf? : (item: T) => { lat: number; lng: number };
-  /** Geometría de LÍNEA (line-layer): vértices `[lat,lng]` del path, plano —donde un vértice no
-   *  finito CORTA la línea— o anidado con las partes explícitas. Ver `toParts` en `./map`. */
-  pathOf?     : (item: T) =>
-    | Iterable<[number, number]>
-    | Iterable<Iterable<[number, number]>>;
+  /** Geometría de LÍNEA (line-layer): los puntos del path —las formas de `LatLngPoint`—, plano
+   *  —donde un vértice que no es punto CORTA la línea— o anidado con las partes explícitas. Ver
+   *  `toParts` en `./geometry`. */
+  pathOf?     : (item: T) => LatLngPath;
   variantOf?  : (item: T) => string;
   headingOf?  : (item: T) => number;
   sizeOf?     : (item: T) => number;

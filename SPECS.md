@@ -496,6 +496,7 @@ La **ley** (MODELO §5.4) formalizada como contrato que un implementador debe cu
 | `readGeoJson` (§17) | — | — | O(B) una pasada **[0-alloc]** en el bucle |
 | ascenso CSR del lector (§17) | O(log n) **[0-alloc]** | — | — |
 | `propertiesOf` (§17) | — | O(largo del rango) | — |
+| `distance` (§18) | — | — | O(vértices), una pasada; un path de arrays no se copia, otro iterable se materializa una vez |
 
 **Objetivo de estado estable** (miles de updates/seg): la ruta caliente —`move`/recolor → encode → `bufferSubData` → draw— es **O(1) por elemento y [0-alloc]**, *bajo precondición de set sin cambios* (id con slot vigente) — path incremental, MODELO §17.5. Es la única garantía de alloc incondicional. Si una implementación asigna por elemento en esta ruta, está mal. **El rebuild NO tiene esa garantía:** `set`/filtro/cluster pasa por el `setData` de glify, que es O(n) y aloca O(n) (glify stock no tiene update in-place). El coalescing acota la *tasa* a ≤1 rebuild/flush de rAF, **no** el costo: si el set cambia cada frame se paga O(n)/frame. Mantener barato el rebuild es responsabilidad del *uso* (que el set cambie poco), no del scheduler (MODELO §17 intro).
 
@@ -532,6 +533,7 @@ La **ley** (MODELO §5.4) formalizada como contrato que un implementador debe cu
 | eventos | `hover` solo emite al cambiar el set; `click` entrega hits ordenados; cursor automático |
 | lifecycle | StrictMode doble-mount ⇒ 1 motor; `destroy()` cancela rAF y quita listeners (sin leak) |
 | lector GeoJSON (§17) | corpus de conformidad contra un **oráculo diferencial** sobre `JSON.parse`, nunca contra la implementación; las cuatro formas de entrada dan salidas idénticas byte a byte; fuzzer de mutación sin lectura fuera de rango ni excepción cruda; ausencia de grafo (conteo de asignaciones, no milisegundos) |
+| geometría (§18) | referencias independientes (radios a mano, fórmulas distintas, valores publicados del elipsoide), nunca la misma haversine; las formas de llamada y de punto miden lo mismo; los bordes de §18.1; el tree-shaking del elipsoide, empaquetando |
 
 ---
 
@@ -957,3 +959,58 @@ ninguna lectura fuera de rango, ningún camino sin terminación, ninguna excepci
 3. **Todo error es `GeoJsonError` con `code` y offset.** Ninguna excepción cruda escapa del lector.
 4. **Toda escritura verifica capacidad para las N entradas que va a escribir**, no para una: hay
    cierres que escriben K entradas de una vez.
+
+---
+
+## 18. Geometría — `cristae/geometry`
+
+> Entry sin efectos, como `cristae/geojson`: funciones puras sobre puntos y paths en grados, no
+> piezas del mapa. Se contrata acá; la guía de uso y el costo medido están en
+> [`docs/geometry.md`](./docs/geometry.md). `toParts` y `sampleAlong` viajan en el entry con el
+> contrato de [`docs/lines.md`](./docs/lines.md).
+
+| API | Firma | Complejidad | Notas |
+|---|---|---|---|
+| `distance` | `(model?, pointA, pointB, ...points)` · `(model?, path) → number` | O(vértices), una pasada | Siempre metros. |
+| `sphere` | `(radius = 6371008.8) → EarthModel` | O(1) | El modelo por defecto de `distance`. |
+| `ellipsoid` | `(semiMajorAxis, flattening) → EarthModel` | O(1) | Geodésica por el inverso de Karney. |
+| `WGS84` | `EarthModel` | — | `ellipsoid(6378137, 1 / 298.257223563)`. |
+
+Un **punto** es `[lat, lng]` —un array, donde lo que siga se ignora, o una vista tipada de dos o tres
+componentes—, `{ lat, lng }`, `{ lat, lon }` o `{ latitude, longitude }`, con componentes numéricos
+finitos y la latitud en [-90, 90]. Es la regla de los paths de líneas y del `value` de los editores;
+las salidas son pares.
+
+### 18.1 Bordes
+
+**Eliminados por arquitectura** — no chequear:
+
+| Borde | Por qué no ocurre |
+|---|---|
+| un modelo de otra copia de la librería no se reconoce | la marca va en el registro global de símbolos, no es una clase |
+| un modelo inválido a mitad de un track | las fábricas validan al construir |
+| la librería geodésica en el bundle de quien no usa el elipsoide | `distance` no importa `ellipsoid.js`, y ningún módulo del entry figura en `sideEffects` |
+
+**Que SÍ requieren manejo:**
+
+| Borde | Manejo |
+|---|---|
+| `null` o `undefined` primero | no es un modelo: es un punto inválido. `distance(xs[0], xs[1])` sobre un array vacío da `NaN` |
+| un modelo fuera del primer lugar, o una fábrica sin llamar | `TypeError` |
+| un solo argumento después del modelo | un punto mide 0; nulo, o iterable que no es un punto, es un path; lo demás es un punto inválido |
+| un punto inválido | corta: se suman los tramos que quedan, sin puentear el hueco |
+| algún inválido y ningún tramo | `NaN`, no un 0 que se sumaría como tramo real |
+| sin puntos, un solo punto, partes vacías o de un vértice | 0 |
+| la latitud fuera de [-90, 90] | no es un punto: corta, con cualquier modelo |
+| `[lng, lat]` | no entra: es un par igual en forma, y en latitudes medias no se distingue |
+| una vista tipada de más de tres componentes | no es un punto: es un track intercalado, y leída como punto mediría 0. Corta, y sola es un path de números, que da `NaN` |
+| el encoding de un path | lo decide su primer elemento que trae algo, un array por su lat y su lng; si nada decide, es anidado cuando trae un array |
+| un par casi antípoda | la esfera acota el término de la haversine a [0, 1]; el elipsoide converge |
+| un radio o un semieje no finito o ≤ 0, un achatamiento fuera de [0, 1) | `RangeError` al construir |
+
+### 18.2 Test
+
+`sphere()` da exactamente lo mismo que el defecto; `sphere(r)` escala en la razón de los radios;
+WGS84 contra valores publicados (a·π/180, el cuadrante meridiano, Flinders Peak–Buninyong); la misma
+medida por puntos variádicos, por un path plano y por uno anidado, en las cuatro formas de punto; cada
+borde de §18.1; empaquetar sólo `distance` no trae la librería geodésica.

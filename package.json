@@ -55,6 +55,10 @@
       "types": "./types/geojson.d.ts",
       "default": "./src/geojson/index.js"
     },
+    "./geometry": {
+      "types": "./types/geometry.d.ts",
+      "default": "./src/geometry/index.js"
+    },
     "./react": {
       "types": "./react/types/index.d.ts",
       "default": "./react/src/index.js"
@@ -67,11 +71,13 @@
     "react": ">=18"
   },
   "dependencies": {
+    "geographiclib-geodesic": "^2.2.0",
     "leaflet.glify": "^3.3.1",
     "supercluster": "^8.0.1"
   },
   "devDependencies": {
     "@eslint/js": "^9.13.0",
+    "esbuild": "^0.27.0",
     "eslint": "^9.13.0",
     "globals": "^15.11.0",
     "jsdom": "^29.1.1",

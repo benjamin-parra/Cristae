@@ -7,6 +7,43 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
 
 ## [Sin publicar]
 
+### Agregado
+- **`cristae/geometry` — distancias en metros, con el modelo de la Tierra que se pida.**
+  `distance(pointA, pointB, …)` mide el recorrido por los puntos, y `distance(path)` un path plano o
+  anidado, con la regla de corte de `toParts`: un punto inválido corta y el hueco no suma; si hubo
+  inválidos y no quedó ningún tramo, da `NaN` y no un 0 que se sumaría como tramo real. Sin modelo
+  mide la esfera de radio medio IUGG (6 371 008,8 m), que se aparta del elipsoide WGS84 hasta 0,56 %;
+  `sphere(radius)` reproduce las cifras de un sistema que mide con otro radio, y
+  `ellipsoid(semiMajorAxis, flattening)` y `WGS84` dan la geodésica, a costa de 15 a 22 veces el
+  tiempo. El modelo va primero y se reconoce por una marca global, no por su clase, para que sirva
+  entre dos copias de la librería; `null` primero es un punto inválido, para que
+  `distance(xs[0], xs[1])` sobre un array vacío no mida «el modelo por defecto y un punto», y un
+  modelo en otro lugar lanza `TypeError`, para que no se mida en silencio con la esfera. La librería
+  geodésica, `geographiclib-geodesic`, entra sólo al bundle de quien importa el elipsoide. El entry
+  trae también `toParts` y `sampleAlong`, y no importa el motor, ni Leaflet, ni Lit. Ver
+  [`docs/geometry.md`](docs/geometry.md).
+  *Migración*: ninguna — `cristae/map` sigue exportando `toParts` y `sampleAlong`, y suma `distance`
+  y `sphere`.
+
+### Cambiado
+- **Los paths de líneas y el `value` de los editores aceptan las cuatro formas de punto.** Un punto
+  es `[lat, lng]` —array, o vista tipada de dos o tres componentes—, `{ lat, lng }`, `{ lat, lon }` o
+  `{ latitude, longitude }`, con componentes numéricos finitos y la latitud en [-90, 90]. Lo leen
+  igual `toParts`, las capas de líneas, `fitToLayers`, `sampleAlong`, `distance` y la entrada de los
+  editores, que antes tomaban sólo pares, o pares y `{ lat, lng }`; los tipos lo declaran como
+  `LatLngPoint`. Un anidado de objetos se lee como anidado. Las salidas no cambian: `toParts` y los
+  editores emiten pares. `[lng, lat]` no entra: es un par igual en forma y en latitudes medias no se
+  distingue. Los anillos de polígonos y `positionOf` conservan su contrato.
+  *Migración*: ninguna para pares con la latitud en rango. Un objeto que antes cortaba la línea por no
+  ser par ahora se dibuja, y un vértice con la latitud fuera de [-90, 90], que antes se dibujaba
+  contra el borde del mundo, ahora la corta; en un editor se descarta, y el próximo `onChange` sale
+  sin él. `fitToLayers` encuadra sólo los tramos que la capa de líneas dibuja: una línea de un
+  vértice, un vértice suelto tras un corte o un `pathOf` que devuelve un tipado plano intercalado ya
+  no entran a la caja. En TypeScript, `accessors.pathOf` devuelve `LatLngPath`, y quien lo lee como
+  pares tiene que estrechar el tipo; los `Editable*Value` tipan lo que entra y toman el tipo de punto
+  como parámetro, así que quien guarda lo emitido y lo lee lo tipa con
+  `Editable*Value<[number, number]>`, o con `<LatLngLike>` para la forma de antes.
+
 ### Corregido
 - **Soltar un handle del editor ya no deja un click en el mapa.** En `mode: 'edit'` el editor consume en
   captura el `pointerdown` que reconoce un handle, y eso suprime los eventos de compatibilidad del
@@ -36,6 +73,20 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   apoyaba sobre otro handle reiniciaba el gesto: el mapa quedaba sin arrastre para el resto de la sesión
   y el primer vértice, sin asentar. Además cualquiera de los dos movía y soltaba el vértice. Ahora el
   gesto es del puntero que lo tomó.
+- **El picking de círculos coincide con el borde que se dibuja.** `addCircleLayer` decidía el hit
+  con el radio ecuatorial, mientras `L.circle` pone el borde con 6 371 000 m: un punto hasta ~0,11 %
+  adentro del borde no se picaba. Ahora mide con la esfera por defecto de `distance` —a 1,4 ppm de
+  la de Leaflet—, en la copia del mundo donde el círculo está dibujado.
+- **Un path anidado ya no se pierde por la forma de su primera parte ni por partes que no son
+  arrays.** El sniff de `toParts` decidía por el primer componente del primer elemento no nulo, así
+  que una primera parte vacía, `[null]` o con un vértice nulo en la cabeza, unas partes `Set`,
+  generador o iterador, o unos vértices tipados volvían plano al path y lo cortaban entero: la línea
+  no se dibujaba y `sampleAlong` devolvía `[]`. Ahora decide el primer elemento que trae algo, y una
+  parte que no es array se reconoce sin abrirla: abrir una de un solo uso la consumiría. El `value`
+  multi-anillo del editor de polígonos sigue la misma regla: con un primer anillo vacío o sucio en la
+  cabeza se leía como un anillo simple, y se descartaba entero.
+- **`fitToLayers` ya no desborda la pila con un string entre las coordenadas.** Un string en lo que
+  devuelven `positionOf`, `pathOf` o `ringsOf` se abría como iterable, y cada carácter es otro string.
 
 ## [0.35.0] - 2026-10-01
 

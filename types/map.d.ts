@@ -1,9 +1,11 @@
 // Tipos del entry `cristae/map` (mapa WebGL: Leaflet + glify con shaders propios).
 // Importarlo REGISTRA los custom elements <cristae-*> (side effect). Mantener
-// sincronizado con src/index.js; el núcleo de datos vive en ./core.d.ts.
+// sincronizado con src/index.js; el núcleo de datos vive en ./core.d.ts y la geometría pura
+// que re-exporta, en ./geometry.d.ts.
 
 // El re-export de abajo NO liga los nombres en este archivo: lo que se usa acá se importa.
 import type { CristaeReadSource, CristaeSource, CristaeFilter, SourceAccessors } from "./core";
+import type { LatLngPath, LatLngPoint } from "./geometry";
 
 export type {
   SourceAccessors,
@@ -13,6 +15,8 @@ export type {
   CristaeListener,
 } from "./core";
 export { createSource, defineSource, makeFilter, makeListener } from "./core";
+export type { EarthModel, LatLngPoint, LatLngPath } from "./geometry";
+export { distance, sphere, toParts, sampleAlong } from "./geometry";
 
 // ── IconSets (src/atlas/IconSet.js) ─────────────────────────────────────────
 /** Tipo opaco del IconSet — se asigna a `layer.iconSet`; `sprite()` reusa el tile fuera del mapa. */
@@ -93,11 +97,11 @@ export interface PolygonAccessors<T> extends Pick<SourceAccessors<T>, "hashOf"> 
 // `dash` y el grosor real por triángulos NO están (deuda documentada — ver docs/lines.md).
 export interface LineAccessors<T> extends Pick<SourceAccessors<T>, "hashOf"> {
   idOf       : (l: T) => string | number;
-  /** Vértices del path en orden, `[lat, lng]`. Dos encodings (ver `toParts`): plano — un vértice no
-   *  finito **corta** la línea (un track GPS con baches sale partido, no puenteado) — o anidado
-   *  `[[[lat,lng],…],…]` con las partes explícitas. Una línea multi-parte sigue siendo UNA entidad:
-   *  un id, un estilo, un hit. */
-  pathOf     : (l: T) => Iterable<[number, number]> | Iterable<Iterable<[number, number]>>;
+  /** Vértices del path en orden, cada uno en cualquiera de las formas de `LatLngPoint`. Dos encodings
+   *  (ver `toParts`): plano — un vértice que no es punto **corta** la línea (un track GPS con baches
+   *  sale partido, no puenteado) — o anidado `[[punto,…],…]` con las partes explícitas. Una línea
+   *  multi-parte sigue siendo UNA entidad: un id, un estilo, un hit. */
+  pathOf     : (l: T) => LatLngPath;
   /** Estilo PLANO por línea. `color` = `"#RRGGBB"` o `[r,g,b,a]` (0..1); `weight` en px de pantalla.
    *  `dash` (patrón `stroke-dasharray` en px) y `cap` SÓLO los dibuja el backend Leaflet
    *  (`vector:true`); el backend GL los ignora. Un solo eje `dash` cubre todos los patrones
@@ -129,18 +133,6 @@ export interface LineHandle<T = unknown> {
   set(items: T[]): void;
   setVisible(visible: boolean): void;
 }
-
-/** Normaliza lo que devuelve `pathOf` a partes: corta el encoding plano en cada vértice no finito y
- *  aplana el anidado. `from` = índice del primer vértice de la parte en la entrada (dentro de una
- *  parte son contiguos). Descarta partes de < 2 vértices. Es la MISMA convención que aplica la
- *  line-layer — exportada para decorar multi-parte sin reimplementarla. Puro, sin DOM. */
-export function toParts(
-  input:
-    | Iterable<[number, number]>
-    | Iterable<Iterable<[number, number]>>
-    | null
-    | undefined,
-): Array<{ path: [number, number][]; from: number }>;
 
 // ── Hits de picking ─────────────────────────────────────────────────────────
 // El resolver de cada capa aporta su parte y el registro la completa con layerId/kind/zIndex/order
@@ -251,16 +243,6 @@ export interface BusChannels {
   'cluster:dismiss' : (detail: ClusterDismiss) => void;
   'cluster:marked'  : (snapshot: ClusterMarked) => void;
 }
-
-/** Muestrea `count` puntos equiespaciados por longitud a lo largo del path `[lat,lng][]`, con el
- *  rumbo (0=N, 90=E) del segmento en que caen. Para DECORAR una línea componiendo: los puntos van a
- *  un point-layer con `headingOf` (flechas de dirección / ticks). Multi-parte: componer con
- *  `toParts(p).flatMap(({ path }) => sampleAlong(path, n))` para no muestrear sobre los huecos.
- *  Puro, sin DOM. */
-export function sampleAlong(
-  path: [number, number][],
-  count: number,
-): Array<{ lat: number; lng: number; heading: number }>;
 
 // ── Marcadores HTML (addHtmlLayer / <cristae-html-layer>) ───────────────────
 // L.divIcon sobre Leaflet — GL-safe (NO abre otro contexto WebGL). Nicho: badges de dominio con HTML
@@ -490,10 +472,12 @@ export interface HeatHandle<T = unknown> {
 
 // ── Edición de geometría (addEditableLayer) — INPUT CONTROLADO. Ver docs/editing.md ──
 export type EditableKind = "polygon" | "rectangle" | "polyline" | "point"
-export type EditablePolygonValue   = LatLngLike[] | LatLngLike[][]
-export type EditablePolylineValue  = LatLngLike[]
-export type EditablePointValue     = LatLngLike | null
-export type EditableRectangleValue = [LatLngLike, LatLngLike] | null
+// La forma del `value` de cada editor, con el tipo de punto aparte: entra con los puntos en cualquiera
+// de sus formas (el defecto) y sale con pares, `Editable*Value<[number, number]>`.
+export type EditablePolygonValue<Point = LatLngPoint>   = Point[] | Point[][]
+export type EditablePolylineValue<Point = LatLngPoint>  = Point[]
+export type EditablePointValue<Point = LatLngPoint>     = Point | null
+export type EditableRectangleValue<Point = LatLngPoint> = [Point, Point] | null
 /** Parcial: lo que no venga queda como estaba. */
 export interface EditableStyle {
   color?       : string;
@@ -505,8 +489,8 @@ export interface EditableConfig {
   id        : string;
   kind?     : EditableKind;
   style?    : EditableStyle;
-  /** Geometría actual (controlada): rings (polygon), `[lat,lng][]` (polyline), `[lat,lng]` (point),
-   *  `[[s,w],[n,e]]` (rectangle). */
+  /** Geometría actual (controlada), con la forma del `Editable*Value` de su `kind`: los puntos entran
+   *  en cualquiera de sus formas, y `onChange` / `onCommit` los devuelven como pares. */
   value?    : unknown;
   mode?     : "edit" | "draw";
   /** Cambio LIVE — cada frame de drag incluido. `leer()` devuelve el valor, con la forma de `value`. */
@@ -523,7 +507,7 @@ export interface EditableHandle {
   setStyle(style: EditableStyle): void;
   getValue(): unknown;
   /** Sub-pieza: captura de punto en modo draw (latlng de un click en espacio vacío). */
-  handleMapClick(latlng: LatLngLike): void;
+  handleMapClick(latlng: LatLngPoint): void;
   destroy(): void;
 }
 
@@ -627,6 +611,8 @@ export interface Insets {
   bottom? : number;
   left?   : number;
 }
+/** Una posición de la cámara, con el contrato de Leaflet: par o `{ lat, lng }`. Los puntos de las
+ *  geometrías siguen otra regla, `LatLngPoint`. */
 export type LatLngLike = [number, number] | { lat: number; lng: number }
 
 /** Cámara: la ÚNICA vía de movimiento del viewport tras el montaje. Todo es ACCIÓN (imperativo). */

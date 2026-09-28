@@ -60,6 +60,48 @@ test('un latlng DENTRO del radio pica; uno FUERA no', () => {
   layer.destroy()
 })
 
+// `L.circle` pone el borde norte a `radio / Earth.R` radianes del centro, con Earth.R = 6 371 000 m. El
+// pick mide con la esfera por defecto de `distance`, a 1,4 ppm de ésa: un milésimo adentro del
+// borde pica y un milésimo afuera no. Con el radio ecuatorial, 0,11 % más largo, el de adentro no picaría.
+test('el pick coincide con el borde que dibuja L.circle', () => {
+  const L = makeLeaflet()
+  const map = makeMap()
+  const source = createSource(accessors)
+  const [lat, lng] = [-33.4489, -70.6693]
+  source.set([{ id: 1, lat, lng, radius: 1000 }])
+  const layer = new CircleLayer({ L, map, pane: 'p', source, interactive: true })
+  const latR  = 1000 / 6371000 * 180 / Math.PI
+  const picks = dLat => layer.resolveClick({ latlng: { lat: lat + dLat, lng } }).length
+
+  assert.equal(picks(latR * 0.999), 1, 'un milésimo adentro pica')
+  assert.equal(picks(-latR * 0.999), 1, 'también al sur')
+  assert.equal(picks(latR * 1.001), 0, 'un milésimo afuera no')
+
+  layer.destroy()
+})
+
+// El latlng del puntero llega sin envolver (lng 289 sobre la copia de al lado) y `L.circle` se dibuja
+// una sola vez, en la copia de su centro: la distancia es periódica, el dibujo no.
+test('sólo pica en la copia del mundo donde el círculo está dibujado', () => {
+  const L = makeLeaflet()
+  const map = makeMap()
+  const source = createSource(accessors)
+  source.set([
+    { id: 'A', lat: -33.45, lng: -70.66, radius: 5000 },
+    { id: 'B', lat: 0, lng: 179.99, radius: 10000 },     // Leaflet lo dibuja hasta pasado el 180
+  ])
+  const layer = new CircleLayer({ L, map, pane: 'p', source, interactive: true })
+  const picks = (lat, lng) => layer.resolveClick({ latlng: { lat, lng } }).map(h => h.id).join()
+
+  assert.equal(picks(-33.45, -70.66), 'A')
+  assert.equal(picks(-33.45, -70.66 + 360), '', 'la copia de la derecha no tiene círculo')
+  assert.equal(picks(-33.45, -70.66 - 360), '', 'la de la izquierda tampoco')
+  assert.equal(picks(0, 180.05), 'B', 'pasado el 180, en la misma copia, sí')
+  assert.equal(picks(0, -179.95), '', 'en el borde opuesto del mundo no')
+
+  layer.destroy()
+})
+
 test('patch que reestila (setStyle/setRadius) toca SÓLO ese círculo, sin recrear ni rebuildear', async () => {
   const { L, source } = await mount()
   const baseClear = L.log.clearLayers

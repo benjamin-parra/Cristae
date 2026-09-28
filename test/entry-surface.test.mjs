@@ -1,4 +1,4 @@
-// GOLDEN de la superficie pública: los tres entry points que NO arrastran DOM ni Leaflet
+// GOLDEN de la superficie pública: los entry points que NO arrastran DOM ni Leaflet
 // (`src/index.js` queda afuera a propósito) + el mapa `exports`/`sideEffects` del package.json,
 // que es lo primero que mueve el eje de desfragmentación.
 //
@@ -14,13 +14,15 @@ import { fileURLToPath } from 'node:url'
 const raiz = (rel) => fileURLToPath(new URL(`../${rel}`, import.meta.url))
 const pkg = JSON.parse(readFileSync(raiz('package.json'), 'utf8'))
 
-// ── Orden de carga: `core` y `grammar` PRIMERO y sin ningún stub. Si alguno tocara
-//    customElements al importarse (no deben: no figuran en `sideEffects`) reventaría acá.
+// ── Orden de carga: `core`, `grammar`, `geojson` y `geometry` PRIMERO y sin ningún stub. Si
+//    alguno tocara customElements o Leaflet al importarse (no deben: no figuran en `sideEffects`)
+//    reventaría acá.
 const core = await import('../src/data/index.js')
 const grammar = await import('../src/grammar/index.js')
 const geojson = await import('../src/geojson/index.js')
+const geometry = await import('../src/geometry/index.js')
 
-// Módulos que DEFINEN cada export re-exportado por los dos entries anteriores. El golden de
+// Módulos que DEFINEN cada export re-exportado por los entries de arriba. El golden de
 // nombres no distingue una función de otra (todas son `function`): la identidad contra el
 // módulo fuente es lo único que detecta un intercambio de exports o un stub homónimo.
 const gGrammar = await import('../src/grammar/grammar.js')
@@ -31,9 +33,12 @@ const gUtil = await import('../src/grammar/util.js')
 const dSource = await import('../src/data/Source.js')
 const dFilters = await import('../src/data/filters.js')
 const jLector = await import('../src/geojson/geojson.js')
+const gGeodesic = await import('../src/geometry/geodesic.js')
+const gEllipsoid = await import('../src/geometry/ellipsoid.js')
+const gPolyline = await import('../src/geometry/polyline.js')
 
 // `table/` SÍ registra el custom element al importarse: se stubea el registry para observar
-// la definición sin DOM. El stub va después de los dos imports de arriba, a propósito.
+// la definición sin DOM. El stub va después de los imports de arriba, a propósito.
 const registry = { gets: [], defines: [] }
 globalThis.customElements = {
   get: (tag) => { registry.gets.push(tag); return undefined },
@@ -143,7 +148,7 @@ test('el trío propio de cristae/table es la MISMA función que define su módul
 })
 
 test('ningún entry point tiene export default', () => {
-  for (const [nombre, mod] of [['core', core], ['grammar', grammar], ['table', table]])
+  for (const [nombre, mod] of Object.entries({ core, grammar, table, geojson, geometry }))
     assert.equal('default' in mod, false, `${nombre} trae default`)
 })
 
@@ -186,7 +191,7 @@ test('GeoJsonKind es inmutable y cubre los seis tipos del RFC', () => {
   })
 })
 
-// El lector es el ÚNICO entry sin efectos: no toca `customElements` ni al importarse ni al correr.
+// El lector no toca `customElements` ni al importarse ni al correr.
 // Se verifica contra el registry stubeado, que para este punto ya registró lo de `table`.
 test('el lector no registra ningún custom element', () => {
   const antes = registry.defines.length
@@ -195,15 +200,64 @@ test('el lector no registra ningún custom element', () => {
   assert.ok(!pkg.sideEffects.includes('./src/geojson/index.js'))
 })
 
+// ── geometry: la medida, los modelos y el contrato de path, sin la regla interna ──
+
+// Seis nombres. `foldRuns`, `foldPart`, `iterable`, `coordOf` e `isPoint` son la regla de corte y de
+// punto que comparten `toParts`, `distance` y `fitToLayers`, y los editores leen con los dos últimos;
+// `arcMeters`, `makeModel` y `checkLength`, el núcleo de la esfera y la fábrica de modelos que
+// comparten las medidas y el picking de círculos: si salen del entry, alguien los usa y ya no se
+// pueden mover.
+const GEOMETRY = {
+  WGS84       : 'object',
+  distance    : 'function',
+  ellipsoid   : 'function',
+  sampleAlong : 'function',
+  sphere      : 'function',
+  toParts     : 'function',
+}
+
+test('cristae/geometry expone la medida, los modelos y el contrato de path — nada de lo que comparten por dentro', () => {
+  assert.deepEqual(firma(geometry), GEOMETRY)
+  assert.ok(!pkg.sideEffects.includes('./src/geometry/index.js'))
+})
+
+test('cada export de cristae/geometry es el MISMO valor que define su módulo', () => {
+  const origen = {
+    distance: gGeodesic, sphere: gGeodesic,
+    ellipsoid: gEllipsoid, WGS84: gEllipsoid,
+    toParts: gPolyline, sampleAlong: gPolyline,
+  }
+  assert.deepEqual(Object.keys(origen).sort(), Object.keys(GEOMETRY).sort())
+  for (const [k, mod] of Object.entries(origen))
+    assert.equal(geometry[k], mod[k], `geometry.${k} no es el ${k} de su módulo fuente`)
+})
+
+// El mapa arrastra Leaflet y registra custom elements al importarse, así que su superficie de
+// geometría se lee del texto de src/index.js: re-exporta de los módulos y no del entry, sin `ellipsoid`
+// ni `WGS84` (el porqué, en src/index.js; tree-shaking.test.mjs lo verifica empaquetando).
+const MAPA_GEOMETRIA = {
+  './geometry/geodesic.js' : ['distance', 'sphere'],
+  './geometry/polyline.js' : ['sampleAlong', 'toParts'],
+}
+
+test('cristae/map re-exporta distance, sphere, toParts y sampleAlong, sin el elipsoide', () => {
+  const fuente = readFileSync(raiz('src/index.js'), 'utf8')
+  const reexporta = Object.fromEntries([...fuente.matchAll(/^export \{([^}]*)\} from '(\.\/geometry\/[^']+)'/gm)]
+    .map(([, nombres, desde]) => [desde, nombres.split(',').map(n => n.trim()).sort()]))
+  assert.deepEqual(reexporta, MAPA_GEOMETRIA)
+  assert.doesNotMatch(fuente.replace(/\/\/.*$/gm, ''), /ellipsoid|WGS84|geometry\/index\.js/, 'fuera de los comentarios')
+})
+
 // ── package.json: rutas de exports y sideEffects ──
 
-test('el mapa exports congela las 6 rutas públicas más ./package.json', () => {
+test('el mapa exports congela las 7 rutas públicas más ./package.json', () => {
   assert.deepEqual(pkg.exports, {
     './core': { types: './types/core.d.ts', default: './src/data/index.js' },
     './table': { types: './types/table.d.ts', default: './src/table/index.js' },
     './map': { types: './types/map.d.ts', default: './src/index.js' },
     './grammar': { types: './types/grammar.d.ts', default: './src/grammar/index.js' },
     './geojson': { types: './types/geojson.d.ts', default: './src/geojson/index.js' },
+    './geometry': { types: './types/geometry.d.ts', default: './src/geometry/index.js' },
     './react': { types: './react/types/index.d.ts', default: './react/src/index.js' },
     './package.json': './package.json',
   })
@@ -231,6 +285,7 @@ const DESTINOS = [
   './types/map.d.ts', './src/index.js',
   './types/grammar.d.ts', './src/grammar/index.js',
   './types/geojson.d.ts', './src/geojson/index.js',
+  './types/geometry.d.ts', './src/geometry/index.js',
   './react/types/index.d.ts', './react/src/index.js',
   './package.json',
 ]

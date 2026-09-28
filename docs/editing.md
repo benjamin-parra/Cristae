@@ -59,8 +59,9 @@ hay que guardar en el estado el valor tal como llegó, y clonar en el borde dond
 
 No hay un editor con prop `kind`: la forma se lee en el alta —cambiarla no mudaría el editor— así que
 es un tipo, no configuración. Además es lo que fija la forma de `value`, que así se tipa exacto. La
-entrada y la salida tienen la misma forma; las coordenadas entran como par o como `{ lat, lng }` y
-salen como pares.
+entrada y la salida tienen la misma forma; las coordenadas entran en cualquiera de las formas de punto
+de [geometría](./geometry.md) y salen como pares. En TypeScript, cada `Editable*Value` tipa lo que
+entra, y lo emitido es el mismo tipo con pares: `EditablePolygonValue<[number, number]>`.
 
 | Elemento | React | `value` | Gesto |
 |---|---|---|---|

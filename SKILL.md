@@ -16,7 +16,9 @@ y un **path incremental [0-alloc]**: mover/recolorear un punto es O(1) sin recon
 piel es un web component `<cristae-map>`: el **HTML describe el mapa**, y un bloque JS chico solo
 conecta lo que no serializa. Por dentro **es** un `L.Map`, así que el Leaflet de la página sigue sirviendo.
 
-> Specifiers: `cristae/map` (mapa) · `cristae/core` (datos) · `cristae/table` (tabla) · `cristae/geojson` (lector).
+> Specifiers: `cristae/map` (mapa) · `cristae/core` (datos) · `cristae/table` (tabla) ·
+> `cristae/geojson` (lector) · `cristae/geometry` (distancias en metros, sobre la esfera o el
+> elipsoide WGS84).
 > Detalle de cada elemento en [`docs/elements.md`](./docs/elements.md).
 
 ---

@@ -1,0 +1,81 @@
+// Tipos del entry `cristae/geometry` (funciones puras sobre puntos y paths en grados).
+// Sin efectos: no toca DOM, Leaflet, Lit ni el núcleo de datos. `cristae/map` re-exporta
+// `distance`, `sphere`, `toParts` y `sampleAlong` desde acá. Mantener sincronizado con
+// src/geometry/index.js.
+
+/** Un par `[lat, lng]` en grados: un array, donde lo que siga —una altura— se ignora, o una vista
+ *  tipada de dos o tres componentes, porque una más larga es un track intercalado. Es `number[]` y no
+ *  una tupla para que entren los arrays que llegan de un JSON, y puede ser `readonly`: nada de este
+ *  entry escribe su entrada. */
+export type LatLngPair = readonly number[] | Float64Array | Float32Array;
+
+/** Un punto en grados, en cualquiera de sus cuatro formas. Es un punto si sus dos componentes son
+ *  números finitos y la latitud cae en [-90, 90]: no se coacciona un string. El orden `[lng, lat]` no
+ *  entra. */
+export type LatLngPoint =
+  | LatLngPair
+  | { readonly lat: number; readonly lng: number }
+  | { readonly lat: number; readonly lon: number }
+  | { readonly latitude: number; readonly longitude: number };
+
+// Un punto o un hueco: null o undefined no son un punto ni un modelo, y cortan el recorrido.
+type PointOrHole = LatLngPoint | null | undefined;
+
+/** Un path: plano, donde un vértice que no es punto CORTA, o anidado con las partes explícitas, donde
+ *  una parte nula no aporta nada. Es lo que devuelve `pathOf` en las capas de líneas y lo que
+ *  normaliza `toParts`. */
+export type LatLngPath = Iterable<PointOrHole> | Iterable<Iterable<PointOrHole> | null | undefined>;
+
+/** Un modelo de la Tierra para `distance`, hecho con `sphere` o `ellipsoid`: inmutable y opaco. */
+export type EarthModel = { readonly __earthModel: unique symbol };
+
+// El argumento de path de `distance`: un punto solo es un recorrido de un punto.
+type PathArgument = LatLngPath | PointOrHole;
+
+/** Normaliza un path a partes: corta el encoding plano en cada vértice que no es punto y aplana el
+ *  anidado. `from` = índice del primer vértice de la parte en la entrada (dentro de una parte son
+ *  contiguos). Descarta partes de < 2 vértices. Los puntos salen como pares, sea cual sea su forma.
+ *  Es la MISMA convención que aplica la line-layer y la que mide `distance` — exportada para decorar
+ *  multi-parte sin reimplementarla. Puro, sin DOM. */
+export function toParts(
+  input: LatLngPath | null | undefined,
+): Array<{ path: [number, number][]; from: number }>;
+
+/** Muestrea `count` puntos equiespaciados a lo largo del path, con el rumbo (0=N, 90=E) del segmento
+ *  en que caen. El espaciado es por largo en PANTALLA (EPSG:3857), para decorar: no es equidistante
+ *  en metros. Acepta lo mismo que `toParts` y nunca muestrea sobre un hueco; componer con
+ *  `toParts(p).flatMap(({ path }) => sampleAlong(path, n))` reparte `n` por parte en vez de sobre el
+ *  total. Los puntos van a un point-layer con `headingOf` (flechas de dirección / ticks). Puro, sin
+ *  DOM. */
+export function sampleAlong(
+  path: LatLngPath | null | undefined,
+  count: number,
+): Array<{ lat: number; lng: number; heading: number }>;
+
+/** Largo en METROS del recorrido por los puntos, en orden: con dos, su distancia. Sin modelo mide la
+ *  esfera de radio medio (6 371 008,8 m). Un punto inválido corta y el hueco no suma; si hubo alguno
+ *  y no quedó ningún tramo, da `NaN`. Un modelo fuera del primer lugar lanza `TypeError`. Ver
+ *  docs/geometry.md. */
+export function distance(pointA: PointOrHole, pointB: PointOrHole, ...points: PointOrHole[]): number;
+/** Largo en METROS de un path, plano o anidado —lo que acepta `toParts`—: la suma de sus partes, sin
+ *  puentear los huecos. Un punto solo, o un path sin puntos, mide 0; lo que no es punto, ni iterable,
+ *  ni nulo es un punto inválido y da `NaN`. */
+export function distance(path: PathArgument): number;
+/** El recorrido por los puntos, medido con `model`. */
+export function distance(model: EarthModel, pointA: PointOrHole, pointB: PointOrHole, ...points: PointOrHole[]): number;
+/** El path, medido con `model`. */
+export function distance(model: EarthModel, path: PathArgument): number;
+
+/** Una esfera de radio `radius` en metros, con haversine. Sin argumento es el modelo por defecto de
+ *  `distance`; otro radio sirve para reproducir las cifras de un sistema que mide con él. Lanza
+ *  `RangeError` si el radio no es un número finito mayor que 0. */
+export function sphere(radius?: number): EarthModel;
+
+/** El elipsoide de revolución de semieje mayor `semiMajorAxis` (m) y achatamiento `flattening`: la
+ *  geodésica por el problema inverso de Karney. Lanza `RangeError` si el semieje no es un número
+ *  finito mayor que 0 o el achatamiento no está en [0, 1). Cuesta más que la esfera: ver
+ *  docs/geometry.md. */
+export function ellipsoid(semiMajorAxis: number, flattening: number): EarthModel;
+
+/** El elipsoide WGS84: `ellipsoid(6378137, 1 / 298.257223563)`. */
+export const WGS84: EarthModel;

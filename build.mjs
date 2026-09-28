@@ -1,8 +1,8 @@
 // Build de Cristae como librería distribuible para proyectos externos.
 //
 // Por qué un script y no un vite.config: UMD/IIFE en Vite solo soportan UN entry por build, mientras
-// ESM soporta multi-entry. Necesitamos los tres entries (core/table/map) en AMBOS formatos, así que
-// orquestamos varias corridas de la API de Vite: 1 build ESM (3 entries) + 3 builds UMD (1 c/u).
+// ESM soporta multi-entry. Necesitamos todos los entries de ENTRIES en AMBOS formatos, así que
+// orquestamos varias corridas de la API de Vite: 1 build ESM multi-entry + 1 build UMD por entry.
 //
 // Todo se bundlea hacia adentro (Leaflet, glify, lit) → self-contained, sin CDN. El resultado vive en
 // `dist/cristae/` junto a la app, servido por el mismo hosting estático. Además empaqueta la skill
@@ -22,15 +22,21 @@ const projectRoot = process.cwd()
 const outDir = resolve(projectRoot, 'dist/cristae')
 
 // Entry → archivo. `map` re-exporta el núcleo; `table` no arrastra Leaflet; `core` es solo datos;
-// `geojson` no importa a ninguno de los tres y sirve suelto en un worker.
+// `geojson` y `geometry` no importan a ninguno de los tres y sirven sueltos en un worker.
 const ENTRIES = {
-  core:    resolve(srcDir, 'src/data/index.js'),
-  table:   resolve(srcDir, 'src/table/index.js'),
-  map:     resolve(srcDir, 'src/index.js'),
-  geojson: resolve(srcDir, 'src/geojson/index.js'),
+  core:     resolve(srcDir, 'src/data/index.js'),
+  table:    resolve(srcDir, 'src/table/index.js'),
+  map:      resolve(srcDir, 'src/index.js'),
+  geojson:  resolve(srcDir, 'src/geojson/index.js'),
+  geometry: resolve(srcDir, 'src/geometry/index.js'),
 }
-const UMD_GLOBALS =
-  { core: 'CristaeCore', table: 'CristaeTable', map: 'CristaeMap', geojson: 'CristaeGeoJson' }
+const UMD_GLOBALS = {
+  core:     'CristaeCore',
+  table:    'CristaeTable',
+  map:      'CristaeMap',
+  geojson:  'CristaeGeoJson',
+  geometry: 'CristaeGeometry',
+}
 
 // Config común: sin cargar el vite.config de la app (nada de React/Tailwind/aliases), __DEBUG__ fijo en
 // producción, y NADA externalizado → todas las deps quedan dentro del bundle.
@@ -205,8 +211,9 @@ async function generateLlmsTxt() {
     ...docFiles.map(f => `- [${f.replace('.md', '')}](${base}/docs/${f})`),
     '',
     '## Builds (self-contained, sin CDN)',
-    '- ESM: `esm/map.js`, `esm/table.js`, `esm/core.js`, `esm/geojson.js`',
-    '- UMD: `umd/map.js` (global `CristaeMap`), `umd/table.js`, `umd/core.js`, `umd/geojson.js`',
+    '- ESM: `esm/map.js`, `esm/table.js`, `esm/core.js`, `esm/geojson.js`, `esm/geometry.js`',
+    '- UMD: `umd/map.js` (global `CristaeMap`), `umd/table.js`, `umd/core.js`, `umd/geojson.js`,',
+    '  `umd/geometry.js`',
     '- Importar el módulo (o cargar el UMD) registra los custom elements `<cristae-*>` por efecto.',
     '',
     '## Reglas e invariantes al usar (no violarlas)',

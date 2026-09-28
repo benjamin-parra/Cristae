@@ -347,6 +347,25 @@ test('ingest descarta coordenadas no-finitas (NaN / Infinity / undefined)', () =
   rect.ed.destroy()
 })
 
+// La coacción de la entrada es la regla de punto de la librería: entran sus cuatro formas y la vista
+// tipada, y sale siempre el par.
+test('ingest acepta las cuatro formas de punto y emite pares', () => {
+  const line = montar({
+    kind  : 'polyline',
+    value : [{ lat: 0, lng: 0 }, { lat: 1, lon: 1 }, { latitude: 2, longitude: 2 }, Float64Array.of(3, 3), { lat: () => 4, lng: () => 4 }],
+  })
+  assert.deepEqual(line.ed.getValue(), [[0, 0], [1, 1], [2, 2], [3, 3]], 'un objeto con métodos lat()/lng() no es un punto')
+  line.ed.destroy()
+
+  const pt = montar({ kind: 'point', value: { latitude: -33.4, longitude: -70.6 } })
+  assert.deepEqual(pt.ed.getValue(), [-33.4, -70.6])
+  pt.ed.destroy()
+
+  const rect = montar({ kind: 'rectangle', value: [{ lat: 0, lon: 0 }, { latitude: 10, longitude: 10 }] })
+  assert.deepEqual(rect.ed.getValue(), [[0, 0], [10, 10]])
+  rect.ed.destroy()
+})
+
 // El editor DIBUJA la geometría, así que el estilo es suyo: sin esto habría que atarle una capa de
 // display al mismo value y se verían las dos, superpuestas.
 test('el estilo llega al relleno y al contorno, y restilar no rehace la geometría', () => {
@@ -398,13 +417,31 @@ test('multi-anillo en forma objeto {lat,lng} NO se confunde con anillo simple', 
   const esc   = montar({ kind: 'polygon', value: [OUTER, INNER] })
 
   const v = esc.ed.getValue()
-  // Antes del fix, isMultiRing sólo miraba pares → esto se leía como anillo simple y `toPair` sobre cada
-  // anillo lo corrompía (tomaba r[0]/r[1]). Ahora sale como 2 anillos de 4 pares [lat,lng] cada uno.
+  // El anidado se decide por puntos, no por pares: sale como 2 anillos de 4 pares [lat,lng] cada uno.
   assert.equal(v.length, 2, 'se detecta como multi-anillo (2 anillos)')
   assert.deepEqual(v[0], [[0, 0], [0, 10], [10, 10], [10, 0]], 'anillo externo → pares')
   assert.deepEqual(v[1], [[2, 2], [2, 4], [4, 4], [4, 2]], 'anillo interno → pares')
 
   esc.ed.destroy()
+})
+
+// El multi-anillo lo decide la regla del path de las líneas: un primer anillo vacío o con un vértice nulo
+// en la cabeza no vuelve simple al valor —que se descartaría entero, porque un anillo no es un punto—, y
+// un anillo que no es array se lee, como una parte de una línea.
+test('multi-anillo cuyo primer anillo llega vacío, sucio en la cabeza o como iterable', () => {
+  const OUTER = [[0, 0], [0, 10], [10, 10], [10, 0]]
+  const INNER = [[2, 2], [2, 4], [4, 4], [4, 2]]
+  const casos = {
+    'vacío'                   : [[[], INNER], [[], INNER]],
+    'con un nulo en cabeza'   : [[[null, ...OUTER], INNER], [OUTER, INNER]],
+    'con dos nulos en cabeza' : [[[null, null, ...OUTER], INNER], [OUTER, INNER]],
+    'como Set'                : [[new Set(OUTER), INNER], [OUTER, INNER]],
+  }
+  for (const [nombre, [value, esperado]] of Object.entries(casos)) {
+    const esc = montar({ kind: 'polygon', value })
+    assert.deepEqual(esc.ed.getValue(), esperado, nombre)
+    esc.ed.destroy()
+  }
 })
 
 /* ── point-drag en modo edit ── */

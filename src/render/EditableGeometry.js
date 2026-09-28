@@ -16,14 +16,16 @@
 // e insertar o borrar toca UN chunk, no el trazo entero. `point` y `rectangle` guardan su estado en pares
 // sueltos y DERIVAN el suyo (un vértice, las cuatro esquinas): así el gesto es uno solo para los cuatro.
 //
-// Sistema de coordenadas: pares [lat, lng] (se aceptan también {lat, lng} en la entrada; la salida SIEMPRE
-// es [lat, lng]). Formas por `kind`:
+// Sistema de coordenadas: pares [lat, lng] (la entrada acepta además las otras formas de punto de
+// `geometry/polyline.js`; la salida SIEMPRE es [lat, lng]). Una capa atada al mismo `value` lo lee con su
+// propio contrato: la de líneas, en las mismas formas; la de polígonos, en pares. Formas por `kind`:
 //   · polygon   → rings: anillo simple [[lat,lng],…] o multi-anillo [[[lat,lng],…],…] (sin cerrar: el
 //                 primer punto NO se repite al final). La salida conserva la forma de la entrada.
 //   · polyline  → path: [[lat,lng],…]
 //   · point     → [lat,lng]  (o null mientras no se dibujó)
 //   · rectangle → bounds: [[sur,oeste],[norte,este]]  (o null mientras no se dibujó)
 import { ChunkedPath, ROLE } from '../geometry/ChunkedPath.js'
+import { coordOf, isNested, isPoint } from '../geometry/polyline.js'
 import { EditArena } from './EditArena.js'
 import { EditFillLayer } from './EditFillLayer.js'
 import { defineEditIconSet, editHandleChannels, EditHandleLayer } from './EditHandleLayer.js'
@@ -73,18 +75,12 @@ const devolverPane = (map, nombre) => {
   delete map._panes?.[nombre]
 }
 
-const toPair    = c => (Array.isArray(c) ? [c[0], c[1]] : [c.lat, c.lng])
 const clonePair = p => [p[0], p[1]]
 
-// Un par [lat,lng] finito (rechaza NaN/Infinity/undefined). Garbage-in: se descarta, no se propaga.
-const isFinitePair = p => Number.isFinite(p[0]) && Number.isFinite(p[1])
-// Coacción tolerante de la ENTRADA a par finito, o null si no es una coordenada válida (null/undefined,
-// componentes no numéricos, no-finitos). Distinta de `toPair`, que asume una latlng viva de Leaflet.
-const toFinitePair = c => {
-  if (c == null) return null
-  const p = toPair(c)
-  return isFinitePair(p) ? p : null
-}
+// Coacción tolerante de la ENTRADA a par, o null si no es un punto (null/undefined, componentes no
+// numéricos, no-finitos): garbage-in se descarta, no se propaga. Una latlng viva de Leaflet es un punto
+// `{ lat, lng }`.
+const toFinitePair = c => (isPoint(c) ? [coordOf(c, 0), coordOf(c, 1)] : null)
 
 const vertexAt = (path, v, p) => v >= 0 && path.xAt(v) === p[0] && path.yAt(v) === p[1]
 
@@ -104,14 +100,6 @@ const consumir = e => {
   e.preventDefault?.()
   e.stopPropagation?.()
 }
-
-// ¿`value` es multi-anillo? Un anillo simple tiene COORDENADAS como elementos (pares [lat,lng] U objetos
-// {lat,lng}); un multi-anillo tiene ANILLOS como elementos. Se discrimina por `value[0]`: si es un par de
-// números (value[0][0] es número) → es una coordenada → anillo simple; si es un array cuyo primer elemento
-// NO es número (otra coordenada anidada, sea par u objeto) → es un anillo → multi. Un objeto {lat,lng} como
-// coordenada no es array, así que también cae en anillo simple. Esto soporta ambas formas de entrada.
-const isMultiRing = value =>
-  Array.isArray(value?.[0]) && value[0][0] != null && typeof value[0][0] !== 'number'
 
 export class EditableGeometry {
 
@@ -271,7 +259,7 @@ export class EditableGeometry {
     switch (this.#kind) {
       case 'polygon': {
         if (!value?.length) { this.#simpleRing = true; return { rings: [this.#trazo(0, [], true)] } }
-        this.#simpleRing = !isMultiRing(value)
+        this.#simpleRing = !isNested(value)   // un multi-anillo es un path anidado
         const anillos = this.#simpleRing ? [value] : value
         return { rings: anillos.map((r, i) => this.#trazo(i, r ?? [], true)) }
       }
@@ -289,9 +277,10 @@ export class EditableGeometry {
   }
 
   // El `ChunkedPath` del índice `i`, REUSADO entre ingestas: re-ingerirlo en su sitio deja vivo el stack
-  // GPU que lo espeja —textura, VBO y programas—, que es lo caro de un `setValue`.
+  // GPU que lo espeja —textura, VBO y programas—, que es lo caro de un `setValue`. Las coordenadas llegan
+  // en cualquier iterable, como las de una parte de un path.
   #trazo(i, coords, closed) {
-    const pts  = coords.map(toFinitePair).filter(Boolean)
+    const pts  = Array.from(coords, toFinitePair).filter(Boolean)
     const path = this.#paths[i]
     if (!path) return (this.#paths[i] = new ChunkedPath({ points: pts, closed }))
     path.setClosed(closed)
