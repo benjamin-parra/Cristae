@@ -73,6 +73,33 @@ En `polygon`, la salida **espeja la entrada**: si entró un anillo simple, sale 
 
 ---
 
+## El gesto y el click del mapa
+
+En `mode: 'edit'`, la pulsación sobre un handle es del editor: el mapa no se arrastra con ella, y el
+`click` con que el navegador la cierra se corta en captura sobre el contenedor del mapa, antes de que lo
+vean su destino o la burbuja. No sale como click del mapa (`map:click` en el motor,
+`cristae:mapclick` en el elemento) ni como el `click` de una capa debajo, y un listener de `click` en
+`document` o en un ancestro del mapa tampoco lo ve, salvo que escuche en captura. El click de teclado
+no cierra ningún gesto y sigue su camino.
+
+- Un click en el vacío sigue siendo del mapa y sale como `map:click` / `cristae:mapclick`.
+- Lo que cae sobre un control o un popup —lo que Leaflet marca con `disableClickPropagation`— es suyo
+  aunque tape un handle: la pulsación no toma el handle, y el doble click no lo borra. Un control sin
+  esa marca es superficie del mapa, como lo es para Leaflet: si tapa un handle, su click es del gesto y
+  no le llega.
+- El doble click que no borra —en `rectangle`, en `point` o en un trazo que ya está en su mínimo— sigue
+  siendo del mapa, que hace zoom, donde el navegador despacha `dblclick`. Donde no lo despacha para el
+  toque, Leaflet lo arma con los dos clicks, que ya son del gesto: ahí un doble tap sobre un handle no
+  hace nada.
+- El click sigue siendo del gesto aunque un `onCommit` a mitad de la pulsación pase a `mode: 'draw'` o
+  destruya el editor: en `draw` no agrega un vértice donde se soltó.
+- El gesto es del puntero que lo tomó: otro dedo que se apoya mientras dura no toma otro handle, ni
+  mueve o suelta el vértice tomado.
+
+En `mode: 'draw'` no hay gesto sobre handles: el click del mapa **es** la edición.
+
+---
+
 ## Declarativo
 
 ```html

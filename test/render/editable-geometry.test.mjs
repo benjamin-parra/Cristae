@@ -3,14 +3,15 @@
 // dblclick respeta el mínimo topológico (≥3 en polígono); (3) insertar en una arista agrega un vértice en
 // el midpoint; (4) el modo draw agrega puntos al recibir un click de mapa y captura un punto vía el
 // handler expuesto; (5) destroy limpia el gesto y los listeners; (6) el costo en el arena: insertar
-// desplaza a lo sumo un chunk y el drag no renumera nada.
+// desplaza a lo sumo un chunk y el drag no renumera nada; (7) el click que cierra una pulsación sobre un
+// handle es del gesto; en el vacío, o sobre un control, no.
 //
 // El gesto ya no vive en un `L.marker` por vértice: lo posee la capa GL. El test lo ejerce como el
-// navegador —pointerdown / pointermove / pointerup / dblclick sobre el contenedor del mapa— y DECLARA qué
-// entrada hay bajo el puntero (`spy.bajoElCursor`): el parche que el pase decodifica lo compone el doble
-// con los draws que la capa emitió de verdad, así que una entrada que quedó fuera de sus rangos —o que se
-// apagó con el tile transparente— no se pickea. El resto del árbol (ChunkedPath, arena, capas, picking) es
-// el REAL.
+// navegador —pointerdown / pointermove / pointerup / pointercancel / click / dblclick sobre el contenedor
+// del mapa— y DECLARA qué entrada hay bajo el puntero (`spy.bajoElCursor`): el parche que el pase
+// decodifica lo compone el doble con los draws que la capa emitió de verdad, así que una entrada que quedó
+// fuera de sus rangos —o que se apagó con el tile transparente— no se pickea. El resto del árbol
+// (ChunkedPath, arena, capas, picking) es el REAL.
 //
 // El harness (engine-stub) shimea window/document — se importa PRIMERO.
 
@@ -37,23 +38,12 @@ let glVigente = null
 
 after(conGlDeEdicion(() => glVigente))
 
-// El contenedor del mapa reparte el gesto (el doble del harness no escucha nada) y `L.DomUtil` posiciona
-// los nodos del banco y el canvas de la superficie.
-const contenedor = () => {
-  const oyentes = new Map()
-  return {
-    oyentes,
-    style                 : {},
-    addEventListener      : (tipo, fn) => oyentes.set(tipo, fn),
-    removeEventListener   : tipo => oyentes.delete(tipo),
-    setPointerCapture     : () => {},
-    getBoundingClientRect : () => ({ left: 0, top: 0, width: 800, height: 600 }),
-  }
-}
-
+// `L.DomUtil` posiciona los nodos del banco y el canvas de la superficie.
 const conDomUtil = L => ({ ...L, DomUtil: { ...L.DomUtil, setPosition: () => {} } })
 
-const montar = ({ kind = 'polygon', value = null, mode = 'edit', dpr = 1, style, pintado } = {}) => {
+// `alAsentar` corre dentro de `onCommit` y recibe el editor: es donde un consumidor lo corta —pasa a draw,
+// lo destruye— antes de que llegue el resto de la pulsación.
+const montar = ({ kind = 'polygon', value = null, mode = 'edit', dpr = 1, style, pintado, alAsentar } = {}) => {
   const spy = makePickSpy()
   spy.tileVacio = TILE_VACIO
   glVigente = makeEditGl(spy, makeSurface({ dpr }))
@@ -68,29 +58,35 @@ const montar = ({ kind = 'polygon', value = null, mode = 'edit', dpr = 1, style,
     }
     glVigente = new Proxy(glVigente, { get: (t, p) => trampa[p] ?? t[p] })
   }
-  const container = contenedor()
   // El gesto es NUESTRO mientras dura, así que apaga el arrastre del mapa; el doble deja ver que lo
-  // devuelve por todos los caminos de salida (soltar, y también los cortes de afuera).
+  // devuelve por todos los caminos de salida (soltar, y también los cortes de afuera). El contenedor del
+  // doble del mapa reparte los eventos como el DOM.
   const dragging  = makeDragging()
-  const map       = { ...makeMap(), getContainer: () => container, dragging }
+  const map       = { ...makeMap(), dragging }
+  const container = map.getContainer()
   const changes   = [], commits = []
+  // Lo que llega a la burbuja como click del mapa: lo que el motor emitiría como `cristae:mapclick`, o
+  // como click de la capa que haya debajo.
+  const alMapa    = []
+  map.on('click', e => alMapa.push(e.latlng))
   const ed = new EditableGeometry({
     L: conDomUtil(makeLeaflet()), map, pane: 'edit', kind, value, mode, style,
-    onChange: leer => changes.push(leer()), onCommit: leer => commits.push(leer()),
+    onChange: leer => changes.push(leer()),
+    onCommit: leer => {
+      commits.push(leer())
+      alAsentar?.(ed)
+    },
   })
-  return { ed, kind, map, container, dragging, spy, changes, commits, punto: [0, 0] }
+  return { ed, kind, map, container, dragging, spy, changes, commits, alMapa, punto: [0, 0], destino: null, puntero: 1 }
 }
 
 // El evento como lo despacha el navegador, y con el testigo de si el editor se lo QUEDÓ: consumirlo es
 // sacárselo al mapa, así que reconocer un handle donde no hay ninguno se nota acá aunque no edite nada.
-const emitir = (esc, tipo, x, y) => {
-  const e = {
-    clientX: x, clientY: y, button: 0, pointerId: 1, consumido: false,
-    preventDefault() { e.consumido = true }, stopPropagation() { e.consumido = true },
-  }
-  esc.container.oyentes.get(tipo)?.(e)
-  return e
-}
+// `cortado` es la mitad que decide si el evento sigue a la burbuja, donde escucha Leaflet. `detail` es la
+// cuenta de clicks —0 en el de teclado, que no viene de un puntero—, `target` el nodo DOM bajo el puntero
+// (`esc.destino`) y `pointerId`, el puntero que lo despacha (`esc.puntero`).
+const emitir = (esc, tipo, x, y, detail = 1) =>
+  esc.container.emitir(tipo, { clientX: x, clientY: y, detail, target: esc.destino, pointerId: esc.puntero })
 
 // Qué HAY bajo el puntero, no qué contesta el pase: se declara la entrada del arena y el doble sólo la
 // devuelve si algún draw del trazo la cubrió y su tile la deja escribir (ver `componer` en el harness).
@@ -132,6 +128,30 @@ const soltar = esc => emitir(esc, 'pointerup', esc.punto[0], esc.punto[1])
 
 // Píxel sin handle: bajo el cursor no hay ninguna entrada que el pase pueda atribuir.
 const vaciar = esc => (esc.spy.bajoElCursor = null, esc)
+
+// El `click` con que el navegador cierra la pulsación, en su mismo píxel. Pasa primero por la captura del
+// contenedor —donde escucha el editor— y, si nadie cortó la propagación, sigue a la burbuja, donde
+// Leaflet lo vuelve el click del mapa.
+const click = (esc, detail) => {
+  const e = emitir(esc, 'click', esc.punto[0], esc.punto[1], detail)
+  e.cortado || esc.map.fire('click', { latlng: esc.map.containerPointToLatLng(esc.punto) })
+  return e
+}
+
+// Una pulsación entera, hasta el `click` que la cierra: sobre el handle `ref`, o sobre un píxel sin handle.
+const pulsarHandle = (esc, ref, anillo = 0) => {
+  tomar(esc, ref, anillo)
+  soltar(esc)
+  return click(esc)
+}
+
+const pulsarVacio = (esc, x, y) => {
+  vaciar(esc)
+  esc.punto = [x, y]
+  emitir(esc, 'pointerdown', x, y)
+  soltar(esc)
+  return click(esc)
+}
 
 // Un hover RESUELTO: el pase de hover no bloquea, así que la primera muestra lo pide y la segunda lo
 // cobra. Recién ahí el vecindario está promovido.
@@ -274,9 +294,9 @@ test('destroy quita la suscripción al mapa y el gesto del contenedor', () => {
   assert.equal(esc.changes.length, 1, 'tras destroy el click del mapa ya no dispara onChange')
 
   const edit = montar({ kind: 'polygon', value: SQUARE })
-  assert.ok(edit.container.oyentes.size > 0, 'en edit el gesto está cableado al contenedor')
+  assert.ok(edit.container.oyentes.length > 0, 'en edit el gesto está cableado al contenedor')
   edit.ed.destroy()
-  assert.equal(edit.container.oyentes.size, 0, 'y destroy lo descablea entero')
+  assert.equal(edit.container.oyentes.length, 0, 'y destroy lo descablea entero')
 })
 
 /* ── setValue: input controlado, NO emite (contrato central) ── */
@@ -529,6 +549,178 @@ test('una pulsación sin arrastre no es una edición: no emite ni asienta', () =
   esc.ed.destroy()
 })
 
+/* ── El click que cierra la pulsación: del gesto si tomó un handle, del mapa si no ── */
+
+test('el click que cierra el arrastre de un handle no llega al mapa, en las cuatro formas', () => {
+  const casos = [
+    ['polygon', SQUARE],
+    ['polyline', [[0, 0], [5, 5], [9, 9]]],
+    ['point', [5, 5]],
+    ['rectangle', [[0, 0], [10, 20]]],
+  ]
+  casos.forEach(([kind, value]) => {
+    const esc = montar({ kind, value })
+    arrastrar(esc, esc.ed.paths[0]?.firstVertex ?? 0, [[3, 4]])
+    const e = click(esc)
+    assert.deepEqual(
+      { consumido: e.consumido, cortado: e.cortado, alMapa: esc.alMapa.length, commits: esc.commits.length },
+      { consumido: true, cortado: true, alMapa: 0, commits: 1 },
+      `${kind}: el arrastre asentó y su click no sigue viaje`,
+    )
+    esc.ed.destroy()
+  })
+})
+
+test('un click quieto sobre un vértice tampoco llega al mapa, y el testigo vale un solo click', () => {
+  const esc = montar({ kind: 'polygon', value: SQUARE })
+
+  const delGesto = pulsarHandle(esc, refsDe(esc.ed.paths[0])[1])
+  const suelto   = click(esc)                           // sin `pointerdown` propio, aunque traiga `detail`
+
+  assert.deepEqual(
+    { delGesto: delGesto.cortado, suelto: suelto.cortado, alMapa: esc.alMapa.length, changes: esc.changes.length },
+    { delGesto: true, suelto: false, alMapa: 1, changes: 0 },
+    'la pulsación sin arrastre no edita ni sale como click; el click siguiente ya no es del gesto',
+  )
+
+  esc.ed.destroy()
+})
+
+test('el click de un midpoint no llega al mapa', () => {
+  const esc  = montar({ kind: 'polyline', value: [[0, 0], [0, 10]] })
+  const path = esc.ed.paths[0]
+
+  const e = pulsarHandle(esc, path.midOf(path.firstVertex))
+
+  assert.deepEqual({ cortado: e.cortado, alMapa: esc.alMapa.length }, { cortado: true, alMapa: 0 })
+
+  esc.ed.destroy()
+})
+
+// `onCommit` corre a mitad de la pulsación —al soltar un arrastre, o en el `pointerdown` que inserta por un
+// midpoint, antes de tomar el gesto— y puede sacar al editor de edit. El click que la cierra sigue siendo
+// del gesto: no sale al mapa ni, en draw, agrega un vértice donde se soltó. La inserción cortada tampoco
+// toma el gesto, así que el arrastre del mapa queda como estaba, y lo que siguió escuchando por ese click
+// se retira con él.
+const CORTES = [['draw', ed => ed.setMode('draw')], ['destroy', ed => ed.destroy()]]
+
+test('un onCommit que corta la pulsación no suelta su click al mapa', () => {
+  const gestos = [
+    ['arrastre', esc => click(arrastrar(esc, esc.ed.paths[0].firstVertex, [[3, 4]])), 2],
+    ['midpoint', esc => pulsarHandle(esc, esc.ed.paths[0].midOf(esc.ed.paths[0].firstVertex)), 3],
+  ]
+  CORTES.forEach(([corte, alAsentar]) => gestos.forEach(([gesto, pulsar, vertices]) => {
+    const esc = montar({ kind: 'polyline', value: [[0, 0], [0, 10]], alAsentar })
+    const e   = pulsar(esc)
+    assert.deepEqual(
+      {
+        cortado  : e.cortado,
+        arrastre : esc.dragging.activo,
+        alMapa   : esc.alMapa.length,
+        vertices : esc.ed.getValue().length,
+        oyentes  : esc.container.oyentes.length,
+      },
+      { cortado: true, arrastre: true, alMapa: 0, vertices, oyentes: 0 },
+      `${gesto} cortado por ${corte}`,
+    )
+    esc.ed.destroy()
+  }))
+})
+
+// Un arrastre táctil no despacha click: lo que siguió escuchando por él se retira con la pulsación
+// siguiente, que es del mapa.
+test('sin click que consumir, la pulsación que sigue al corte es del mapa', () => {
+  CORTES.forEach(([corte, alAsentar]) => {
+    const esc = montar({ kind: 'polyline', value: [[0, 0], [0, 10]], alAsentar })
+    arrastrar(esc, esc.ed.paths[0].firstVertex, [[3, 4]])
+    const e = pulsarVacio(esc, 500, 300)
+    assert.deepEqual(
+      { consumido: e.consumido, alMapa: esc.alMapa.length, oyentes: esc.container.oyentes.length },
+      { consumido: false, alMapa: 1, oyentes: 0 },
+      corte,
+    )
+    esc.ed.destroy()
+  })
+})
+
+// El navegador despacha dos pulsaciones completas —cada una con su click— antes del `dblclick`.
+test('el doble click que borra un vértice se consume entero: sus dos clicks y el dblclick', () => {
+  const esc = montar({ kind: 'polygon', value: SQUARE })
+  const v0  = refsDe(esc.ed.paths[0])[0]
+
+  const eventos = [pulsarHandle(esc, v0), pulsarHandle(esc, v0), doble(esc, v0)]
+
+  assert.deepEqual(eventos.map(e => e.cortado), [true, true, true], 'ninguno de los tres sigue al mapa')
+  assert.deepEqual({ vertices: esc.ed.getValue().length, alMapa: esc.alMapa.length }, { vertices: 3, alMapa: 0 },
+    'borró el vértice y el mapa no vio ningún click')
+
+  esc.ed.destroy()
+})
+
+test('un click en el vacío sigue siendo del mapa', () => {
+  const esc = montar({ kind: 'polygon', value: SQUARE })
+
+  const e = pulsarVacio(esc, 500, 300)
+
+  assert.deepEqual({ consumido: e.consumido, alMapa: esc.alMapa }, { consumido: false, alMapa: [{ lat: 3, lng: 5 }] })
+
+  esc.ed.destroy()
+})
+
+// Un arrastre táctil no despacha su click, y un gesto cancelado tampoco: el testigo queda armado. El click
+// de teclado pasa igual, y el de puntero trae su `pointerdown`, que lo desarma.
+test('un testigo que quedó armado no se come el click siguiente, de teclado ni de puntero', () => {
+  const esc = montar({ kind: 'polygon', value: SQUARE })
+  const v1  = refsDe(esc.ed.paths[0])[1]
+
+  arrastrar(esc, v1, [[3, 4]])
+  const teclado = click(esc, 0)                         // Enter sobre un control del mapa
+  tomar(esc, v1)
+  emitir(esc, 'pointercancel', esc.punto[0], esc.punto[1])
+  const puntero = pulsarVacio(esc, 500, 300)
+
+  assert.deepEqual({ teclado: teclado.consumido, puntero: puntero.consumido }, { teclado: false, puntero: false })
+
+  esc.ed.destroy()
+})
+
+// En draw el click del mapa ES la edición, y el del contenedor ya no se escucha.
+test('en draw el click del mapa sigue agregando vértices', () => {
+  const esc = montar({ kind: 'polyline', value: [[0, 0], [0, 10]] })
+
+  esc.ed.setMode('draw')
+  pulsarVacio(esc, 200, 100)
+  pulsarVacio(esc, 400, 300)
+
+  assert.deepEqual(
+    { oye: esc.container.oyentes.some(o => o.tipo === 'click'), valor: esc.ed.getValue() },
+    { oye: false, valor: [[0, 0], [0, 10], [1, 2], [3, 4]] },
+  )
+
+  esc.ed.destroy()
+})
+
+// Los controles viven dentro del contenedor, por encima de la superficie de edición: uno que tapa un handle
+// se queda con la pulsación, su click y su doble click, que no toman ni borran el vértice de abajo. El
+// control lo marca `disableClickPropagation`, y la pulsación cae en un botón suyo. Llega con el testigo
+// armado por un arrastre sin click, y su `pointerdown` lo desarma igual.
+test('sobre un control que tapa un handle, la pulsación es del control', () => {
+  const esc     = montar({ kind: 'polygon', value: SQUARE })
+  const v1      = refsDe(esc.ed.paths[0])[1]
+  const control = { _leaflet_disable_click: true, parentNode: esc.container }
+  arrastrar(esc, v1, [[3, 4]])
+  esc.destino = { parentNode: control }
+
+  const eventos = [tomar(esc, v1), soltar(esc), click(esc), doble(esc, v1)]
+
+  assert.deepEqual(
+    { consumidos: eventos.map(e => e.consumido), vertices: esc.ed.getValue().length },
+    { consumidos: [false, false, false, false], vertices: 4 },
+  )
+
+  esc.ed.destroy()
+})
+
 /* ── El pick: caché por píxel y pase síncrono ── */
 
 // La caché se mide por su COSTO: el pase síncrono es el único que lee el framebuffer dentro del gesto, y
@@ -599,6 +791,34 @@ test('el gesto devuelve el arrastre del mapa, lo termine el usuario o lo corte e
   esc.ed.destroy()
   assert.equal(esc.dragging.activo, true, 'destruir el editor a mitad de gesto también lo devuelve')
   assert.equal(esc.commits.length, asentados, 'y no asienta: destruirlo no es confirmar la edición')
+})
+
+// El gesto es del puntero que lo tomó. Un segundo dedo que se apoya sobre otro handle no lo reinicia —y
+// el arrastre que el primero ya había apagado quedaría sin nadie que lo devuelva—, no arrastra el vértice
+// tomado ni lo suelta: el primero lo asienta donde lo dejó.
+test('un segundo puntero no toca el gesto de otro', () => {
+  const esc      = montar({ kind: 'polygon', value: SQUARE })
+  const [v0, v1] = refsDe(esc.ed.paths[0])
+
+  tomar(esc, v0)
+  mover(esc, 2, 3)
+  esc.puntero = 2
+  const ajenos = [tomar(esc, v1), mover(esc, 8, 8), soltar(esc)]
+  assert.equal(esc.dragging.activo, false, 'el gesto sigue vivo con el segundo dedo levantado')
+  esc.puntero = 1
+  soltar(esc)
+
+  assert.deepEqual(
+    {
+      consumidos : ajenos.map(e => e.consumido),
+      arrastre   : esc.dragging.activo,
+      commits    : esc.commits.length,
+      tomado     : esc.ed.getValue()[0],
+    },
+    { consumidos: [false, false, false], arrastre: true, commits: 1, tomado: [2, 3] },
+  )
+
+  esc.ed.destroy()
 })
 
 test('setMode a mitad de gesto lo suelta sin asentar', () => {

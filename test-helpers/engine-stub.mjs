@@ -327,14 +327,48 @@ export const installCanvasStub = () => {}
 
 /* ── Leaflet + L.map ── */
 
-// Contenedor DOM que toca Interaction (addEventListener/style/rect) y el overlay de interacción
-// (appendChild/removeChild del canvas). No-op salvo lo mínimo.
-const makeContainer = () => ({
-  style: {},
-  addEventListener() {}, removeEventListener() {},
-  appendChild() {}, removeChild() {},
-  getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 600 }),
-})
+// El contenedor del mapa: lo que tocan Interaction, el editor y el overlay de interacción (el canvas que
+// cuelga y descuelga). Reparte los eventos como el DOM, para que un test emita lo que despacharía el
+// navegador con `emitir(tipo, campos)`: un oyente es tipo, función y captura, y cada fase reparte sobre
+// la lista de ese momento, así que un oyente quitado a mitad ya no oye y uno agregado recién oye el
+// próximo. `target` es el nodo bajo el puntero, y null el contenedor mismo, donde oyen las dos fases;
+// desde un descendiente la burbuja llega salvo que alguien corte la propagación o que el tipo no burbujee.
+// El evento anota si alguien lo consumió (`consumido`) y si cortó su propagación (`cortado`).
+const NO_BURBUJEAN = new Set(['pointerenter', 'pointerleave'])
+const enCaptura    = opciones => opciones === true || !!opciones?.capture
+
+export const makeContainer = () => {
+  const oyentes  = []
+  const buscar   = (tipo, fn, opciones) =>
+    oyentes.findIndex(o => o.tipo === tipo && o.fn === fn && o.captura === enCaptura(opciones))
+  const repartir = (e, captura) => oyentes
+    .filter(o => o.tipo === e.type && o.captura === captura)
+    .forEach(o => o.quitado || o.fn(e))
+  return {
+    oyentes,
+    style: {},
+    addEventListener(tipo, fn, opciones) {
+      buscar(tipo, fn, opciones) < 0 && oyentes.push({ tipo, fn, captura: enCaptura(opciones), quitado: false })
+    },
+    removeEventListener(tipo, fn, opciones) {
+      const i = buscar(tipo, fn, opciones)
+      i >= 0 && (oyentes.splice(i, 1)[0].quitado = true)
+    },
+    appendChild() {}, removeChild() {},
+    setPointerCapture() {},
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 600 }),
+    emitir(type, campos) {
+      const e = {
+        type, clientX: 0, clientY: 0, button: 0, detail: 1, pointerId: 1, target: null, ...campos,
+        consumido: false, cortado: false,
+        preventDefault() { e.consumido = true }, stopPropagation() { e.consumido = e.cortado = true },
+      }
+      repartir(e, true)
+      if (!e.target || !NO_BURBUJEAN.has(type) && !e.cortado) repartir(e, false)
+      return e
+    },
+  }
+}
 
 // Proyección determinista e INVERTIBLE (px = coord·100): el fold la usa para el layout de la espiral
 // (latLng→container→offsets→latLng). No se asertan píxeles; sólo hace falta que sea consistente.
@@ -373,6 +407,12 @@ export const makeMap = ({ zoom = 3 } = {}) => {
     removeLayer(layer) { map._added = map._added.filter(l => l !== layer); return map },
     _added: [],
     getContainer: () => container,
+    // Fiel a Leaflet: lo que `DomEvent.disableClickPropagation` marcó —un control, un popup— no es del
+    // mapa. Sube desde el destino hasta el contenedor, el que el mapa tenga montado.
+    _isClickDisabled(el) {
+      for (const c = this.getContainer(); el && el !== c; el = el.parentNode)
+        if (el._leaflet_disable_click) return true
+    },
     // Fiel a Leaflet: `getPane` lee el registro `_panes`, y sacar el pane del DOM NO lo saca de ahí —
     // quien lo desmonte tiene que borrar la entrada o el alta siguiente reusa un nodo desconectado.
     _panes: panesRegistro,

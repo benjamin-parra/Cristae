@@ -5,6 +5,38 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
 [`docs/versionado.md`](docs/versionado.md) — en `0.x`, el **minor cuenta los cambios medios**
 (capacidad o eje de API nuevo) y el **patch los menores desde el último medio** (fix / perf / revert).
 
+## [Sin publicar]
+
+### Corregido
+- **Soltar un handle del editor ya no deja un click en el mapa.** En `mode: 'edit'` el editor consume en
+  captura el `pointerdown` que reconoce un handle, y eso suprime los eventos de compatibilidad del
+  mouse, pero no el `click` que el navegador despacha al soltar: llegaba al mapa como un click más
+  —`map:click` / `cristae:mapclick` en el vacío, el `click` de la capa si había una interactiva
+  debajo—. Quien agrega vértices con el click del mapa recibía uno donde terminaba el arrastre, y lo
+  mismo al pulsar un vértice sin moverlo, al insertar por un midpoint y en los dos clicks previos al
+  doble click que borra. Ahora ese click se consume con el resto del gesto; el de teclado, que no cierra
+  ninguna pulsación, sigue su camino, y el de puntero es del gesto aunque un `onCommit` a mitad de la
+  pulsación pase a `mode: 'draw'` o destruya el editor. Un click en el vacío sigue siendo del mapa, y
+  `mode: 'draw'` no cambia ([`docs/editing.md`](docs/editing.md)).
+  *Migración*: el click que cierra un gesto sobre un handle se corta en captura sobre el contenedor del
+  mapa, así que no llega ni a su destino ni a la burbuja: no lo ve un listener de `click` en `document`
+  o en un ancestro del mapa —como ya no veía su `pointerdown`—, ni un control propio dentro del mapa que
+  tape el handle sin `L.DomEvent.disableClickPropagation`. Esa marca, que Leaflet ya pide para que el
+  click del control no sea del mapa, lo deja fuera del gesto. Un filtro propio que descartaba el click
+  posterior a un arrastre sobra.
+- **Un control del mapa que tapa un handle se queda con su pulsación.** El editor elegía el handle por
+  píxel sin mirar qué nodo recibía el evento: pulsar el zoom o un popup encima de un vértice lo tomaba
+  —y lo arrastraba si el puntero se movía—, y un doble click ahí lo borraba. Ahora lo que cae sobre un
+  subárbol que Leaflet marca con `disableClickPropagation` es del control, como lo es para el mapa.
+- **Un `onCommit` que corta la inserción por midpoint ya no deja el mapa sin arrastre.** Insertar
+  asienta en el `pointerdown`, y el editor tomaba el gesto después igual: si ese `onCommit` había pasado
+  a `mode: 'draw'` o destruido el editor, nadie oía el `pointerup` que devuelve el arrastre del mapa, y
+  quedaba apagado. Ahora el gesto no empieza.
+- **Un segundo dedo ya no le quita el gesto al primero.** Con un vértice tomado, otro puntero que se
+  apoyaba sobre otro handle reiniciaba el gesto: el mapa quedaba sin arrastre para el resto de la sesión
+  y el primer vértice, sin asentar. Además cualquiera de los dos movía y soltaba el vértice. Ahora el
+  gesto es del puntero que lo tomó.
+
 ## [0.35.0] - 2026-10-01
 
 > Sale como **minor**: los accessors de cada capa ganan `hashOf` ([`docs/versionado.md`](docs/versionado.md)).
