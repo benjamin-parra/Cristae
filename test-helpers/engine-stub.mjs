@@ -459,13 +459,16 @@ export const makeMap = ({ zoom = 3 } = {}) => {
 
 // Doble del handler `map.dragging`. Expone la MISMA superficie que `L.Handler` —`enable`/`disable`/
 // `enabled()`—, que es por donde una capa averigua si el arrastre estaba prendido antes de tomarlo
-// prestado; `activo` es el campo que leen los asertos.
+// prestado, más el `moving()` de `Map.Drag`, que es lo que relee el árbitro del cursor. `activo` y
+// `moviendo` son los campos que fijan y leen los asertos.
 export const makeDragging = ({ activo = true } = {}) => {
   const h = {
     activo,
+    moviendo : false,
     enable()  { h.activo = true;  return h },
     disable() { h.activo = false; return h },
-    enabled:  () => h.activo,
+    enabled  : () => h.activo,
+    moving   : () => h.moviendo,
   }
   return h
 }

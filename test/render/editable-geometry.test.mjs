@@ -4,7 +4,8 @@
 // el midpoint; (4) el modo draw agrega puntos al recibir un click de mapa y captura un punto vía el
 // handler expuesto; (5) destroy limpia el gesto y los listeners; (6) el costo en el arena: insertar
 // desplaza a lo sumo un chunk y el drag no renumera nada; (7) el click que cierra una pulsación sobre un
-// handle es del gesto; en el vacío, o sobre un control, no.
+// handle es del gesto; en el vacío, o sobre un control, no; (8) el nivel de handle que el editor informa
+// al mapa para el cursor.
 //
 // El gesto ya no vive en un `L.marker` por vértice: lo posee la capa GL. El test lo ejerce como el
 // navegador —pointerdown / pointermove / pointerup / pointercancel / click / dblclick sobre el contenedor
@@ -19,6 +20,7 @@ import './../../test-helpers/engine-stub.mjs'
 import { conGlDeEdicion, contadorNodos, makeDragging, makeEditGl, makeLeaflet, makeMap, makePickSpy, makeSurface } from '../../test-helpers/engine-stub.mjs'
 import { after, test } from 'node:test'
 import assert from 'node:assert/strict'
+import { HANDLE_HELD, HANDLE_NONE, HANDLE_OVER } from '../../src/events/events.js'
 import { ROLE } from '../../src/geometry/ChunkedPath.js'
 import { defineEditIconSet, editHandleChannels } from '../../src/render/EditHandleLayer.js'
 import { EditableGeometry } from '../../src/render/EditableGeometry.js'
@@ -61,7 +63,7 @@ const montar = ({ kind = 'polygon', value = null, mode = 'edit', dpr = 1, style,
   const dragging  = makeDragging()
   const map       = { ...makeMap(), dragging }
   const container = map.getContainer()
-  const changes   = [], commits = []
+  const changes   = [], commits = [], informes = []
   // Lo que llega a la burbuja como click del mapa: lo que el motor emitiría como `cristae:mapclick`, o
   // como click de la capa que haya debajo.
   const alMapa    = []
@@ -73,15 +75,16 @@ const montar = ({ kind = 'polygon', value = null, mode = 'edit', dpr = 1, style,
       commits.push(leer())
       alAsentar?.(ed)
     },
+    onHandleLevel: nivel => informes.push(nivel),
   })
-  return { ed, kind, map, container, dragging, spy, changes, commits, alMapa, punto: [0, 0], destino: null, puntero: 1 }
+  return { ed, kind, map, container, dragging, spy, changes, commits, informes, alMapa, punto: [0, 0], destino: null, puntero: 1 }
 }
 
 // El evento como lo despacha el navegador, y con el testigo de si el editor se lo QUEDÓ: consumirlo es
 // sacárselo al mapa, así que reconocer un handle donde no hay ninguno se nota acá aunque no edite nada.
 // `cortado` es la mitad que decide si el evento sigue a la burbuja, donde escucha Leaflet. `detail` es la
 // cuenta de clicks —0 en el de teclado, que no viene de un puntero—, `target` el nodo DOM bajo el puntero
-// (`esc.destino`) y `pointerId`, el puntero que lo despacha (`esc.puntero`).
+// (`esc.destino`; null es el contenedor mismo) y `pointerId`, el puntero que lo despacha (`esc.puntero`).
 const emitir = (esc, tipo, x, y, detail = 1) =>
   esc.container.emitir(tipo, { clientX: x, clientY: y, detail, target: esc.destino, pointerId: esc.puntero })
 
@@ -936,6 +939,126 @@ test('destroy recoge el vecindario promovido: no queda un nodo del gesto colgand
 
   esc.ed.destroy()
   assert.equal(nodos.vivos, 0, 'y destroy lo suelta con el resto del stack, no lo deja en el pane')
+})
+
+/* ── El nivel de handle que ve el mapa ── */
+
+// El mapa lo traduce a cursor. Se informa en cada momento que puede cambiarlo, y sólo si cambió: una
+// muestra del puntero que resuelve lo mismo no llega al mapa.
+test('el nivel de handle se informa al cambiar, y sólo al cambiar: hover, gesto y salida', () => {
+  const esc  = montar({ kind: 'polygon', value: SQUARE })
+  const path = esc.ed.paths[0]
+  const v1   = refsDe(path)[1]
+
+  posar(apuntar(esc, v1), 40, 40)
+  posar(esc, 40, 40)
+  assert.deepEqual(esc.informes, [HANDLE_OVER], 'sobre un vértice, una vez aunque el hover se repita')
+
+  tomar(esc, v1)
+  mover(esc, 3, 4)
+  mover(esc, 5, 6)
+  assert.deepEqual(esc.informes, [HANDLE_OVER, HANDLE_HELD], 'tomado, y los frames del arrastre no lo repiten')
+
+  soltar(esc)
+  posar(vaciar(esc), 900, 900)
+  posar(apuntar(esc, path.midOf(v1)), 40, 40)
+  emitir(esc, 'pointerleave', 40, 40)
+  assert.deepEqual(esc.informes, [HANDLE_OVER, HANDLE_HELD, HANDLE_OVER, HANDLE_NONE, HANDLE_OVER, HANDLE_NONE],
+    'soltado sigue bajo el puntero; el vacío lo suelta, un midpoint también cuenta y salir lo suelta')
+
+  esc.ed.destroy()
+})
+
+// Pasar por un control —el zoom, la atribución— y volver al mapa no es salir del mapa: el puntero sigue
+// sobre el handle, y soltarlo lo apagaría hasta que el pase asíncrono lo vuelva a contestar.
+test('la salida de un descendiente del contenedor no suelta el handle; la del contenedor, sí', () => {
+  const esc = montar({ kind: 'polygon', value: SQUARE })
+
+  posar(apuntar(esc, refsDe(esc.ed.paths[0])[1]), 40, 40)
+  esc.destino = { parentNode: esc.container }
+  emitir(esc, 'pointerleave', 40, 40)
+  assert.deepEqual(esc.informes, [HANDLE_OVER], 'salió de un control')
+  esc.destino = null
+  emitir(esc, 'pointerleave', 40, 40)
+  assert.deepEqual(esc.informes, [HANDLE_OVER, HANDLE_NONE], 'salió del mapa')
+
+  esc.ed.destroy()
+})
+
+test('la vista, el modo, el valor y el borrado sueltan el handle informado', () => {
+  const cortes = [
+    ['la vista cambió', esc => esc.map.fire('moveend')],
+    ['fuera de edit', esc => esc.ed.setMode('draw')],
+    ['un valor nuevo', esc => esc.ed.setValue(SQUARE)],
+    ['el vértice se borró', esc => doble(esc, refsDe(esc.ed.paths[0])[0])],
+  ]
+  cortes.forEach(([corte, cortar]) => {
+    const esc = montar({ kind: 'polygon', value: SQUARE })
+    posar(apuntar(esc, refsDe(esc.ed.paths[0])[1]), 40, 40)
+    cortar(esc)
+    assert.deepEqual(esc.informes, [HANDLE_OVER, HANDLE_NONE], corte)
+    esc.ed.destroy()
+  })
+})
+
+// Mientras dura otro modo nadie sigue al puntero: lo que se resolvió bajo él antes no vale al volver.
+test('de vuelta en edit no se informa un handle que se resolvió antes de salir', () => {
+  const esc = montar({ kind: 'polygon', value: SQUARE })
+
+  posar(apuntar(esc, refsDe(esc.ed.paths[0])[1]), 40, 40)
+  esc.ed.setMode('draw')
+  esc.ed.setMode('edit')
+
+  assert.deepEqual(esc.informes, [HANDLE_OVER, HANDLE_NONE])
+
+  esc.ed.destroy()
+})
+
+// El ref tomado es posicional: el valor nuevo lo suelta. Sin hover previo, la pulsación informa «bajo el
+// puntero» antes de «tomado».
+test('setValue a mitad de gesto suelta el handle tomado', () => {
+  const esc = montar({ kind: 'polygon', value: SQUARE })
+
+  tomar(esc, refsDe(esc.ed.paths[0])[1])
+  mover(esc, 5, 20)
+  esc.ed.setValue(SQUARE)
+
+  assert.deepEqual(esc.informes, [HANDLE_OVER, HANDLE_HELD, HANDLE_NONE])
+
+  esc.ed.destroy()
+})
+
+// La pulsación resuelve el píxel en el acto, sin esperar al hover —el touch no lo tiene, y una muestra
+// puede no haber vuelto del GPU—, y eso cuenta también cuando no toma nada: el handle que dejó informado
+// una muestra anterior se suelta aunque la última todavía no haya contestado.
+test('una pulsación en el vacío suelta el handle aunque el GPU no haya contestado la última muestra', () => {
+  const esc = montar({ kind: 'polygon', value: SQUARE })
+
+  posar(apuntar(esc, refsDe(esc.ed.paths[0])[1]), 40, 40)
+  esc.spy.status = 0x911A   // TIMEOUT_EXPIRED: el pase de hover deja de contestar
+  emitir(vaciar(esc), 'pointermove', 900, 900)
+  emitir(esc, 'pointerdown', 900, 900)
+
+  assert.deepEqual(esc.informes, [HANDLE_OVER, HANDLE_NONE])
+
+  esc.ed.destroy()
+})
+
+// Tras destroy el mapa ya olvidó al editor: un aviso tardío lo volvería a anotar, con su cursor pegado.
+test('destroy suelta el handle y no informa nada después, aunque lo corte un onCommit', () => {
+  const quieto = montar({ kind: 'polygon', value: SQUARE })
+  posar(apuntar(quieto, refsDe(quieto.ed.paths[0])[1]), 40, 40)
+  quieto.ed.destroy()
+  assert.deepEqual(quieto.informes, [HANDLE_OVER, HANDLE_NONE])
+
+  const casos = [['destroy', ed => ed.destroy()], ['draw', ed => ed.setMode('draw')]]
+  casos.forEach(([corte, alAsentar]) => {
+    const esc = montar({ kind: 'polygon', value: SQUARE, alAsentar })
+    arrastrar(esc, refsDe(esc.ed.paths[0])[1], [[3, 4]])
+    assert.deepEqual(esc.informes, [HANDLE_OVER, HANDLE_HELD, HANDLE_NONE],
+      `${corte} en onCommit: el vértice soltado ya no es un handle`)
+    esc.ed.destroy()
+  })
 })
 
 /* ── Costo en el arena: insertar toca un chunk, arrastrar no toca la estructura ── */

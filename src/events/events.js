@@ -1,5 +1,7 @@
 // Máscaras de canal de evento. Un handler declara demanda sobre un canal (click u hover);
-// el registro solo resuelve hits para los canales con demanda activa → cero picking ocioso.
+// el registro solo resuelve hits para los canales con demanda activa → cero picking ocioso. También los
+// niveles de handle que el editor (render/) le informa al árbitro del cursor (engine/): es el módulo
+// neutral que comparten los dos lados.
 
 export const EVENT_CLICK = 1
 export const EVENT_HOVER = 2
@@ -13,8 +15,14 @@ export const EVENT_SECONDARY = 4
 // puntero al pasar por encima de sus features —como `.leaflet-interactive` en Leaflet—, aunque el
 // consumidor no escuche el canal de hover. Sin esto, una capa solo-click no tendría picking de
 // hover y el cursor nunca cambiaría (contradiría el "cursor automático" de SPECS §eventos).
-// Ver engine/Interaction (#hover.pickDemand / #emitHover) e interaction/LayerRegistry (hasHitForChannels).
+// Ver engine/Interaction (syncHoverDemand / #emitHover) e interaction/LayerRegistry (hasHitForChannels).
 export const PICK_CHANNELS = EVENT_CLICK | EVENT_HOVER
+
+// Nivel de handle que un editor le informa al motor, que lo traduce a cursor y, con varios editores, se
+// queda con el más fuerte (ver engine/Interaction).
+export const HANDLE_NONE = 0
+export const HANDLE_OVER = 1   // un handle bajo el puntero
+export const HANDLE_HELD = 2   // el gesto tiene uno tomado
 
 // Tipo de evento → bit de canal (dispatch por tabla en vez de if/else). Los tres sabores de hover
 // comparten el canal EVENT_HOVER: 'hover' (estado actual), 'hover:start' y 'hover:end' (deltas).

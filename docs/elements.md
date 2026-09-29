@@ -66,8 +66,13 @@ Contenedor. Monta el `MapEngine`, expone cámara/engine y reenvía los eventos d
 | `world-copies` | boolean | atributo |
 | `no-zoom-control` | boolean | atributo |
 | `zoom-animation` | `"none"` (default) \| `"in-only"` \| `"on"` | atributo — **reactivo** |
+| `cursor` | valor CSS de `cursor` (`"crosshair"`, …); vacío o inválido = ninguno | atributo — **reactivo** |
 | `viewport-insets` | object | prop `viewportInsets` |
 | `tile` | `{ url, maxZoom?, attribution?, subdomains?, … }` | **prop** |
+
+> **`cursor`:** el del contenedor mientras el consumidor lo pida —una herramienta activa, por ejemplo—,
+> sin hojas de estilo propias dentro del shadow root. Cómo convive con el arrastre, el editor y el
+> `pointer` de las features: [precedencia](./interaction.md#el-cursor-del-contenedor).
 
 > **`no-zoom-control`:** quita el control +/− nativo de Leaflet. Para reemplazarlo con uno propio,
 > se usa un `<cristae-toolbar>` en un slot del overlay con items que llamen `camera.zoomIn()`/`camera.zoomOut()`.

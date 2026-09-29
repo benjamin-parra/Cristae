@@ -154,6 +154,46 @@ alguien lo escucha. `onDemandChange` dispara el recálculo justo cuando un conta
 
 ---
 
+## El cursor del contenedor
+
+`engine/Interaction.js` es el **único** que escribe `container.style.cursor`, y sólo cuando el valor
+efectivo cambia. Ninguna capa le compite: todas crean sus objetos Leaflet con `interactive: false`, así
+que no hay un hijo `.leaflet-interactive` que imponga su `pointer`. Los polígonos y los círculos, que
+reciben el estilo del consumidor, se lo dan a Leaflet sólo a través de `pathStyle` (`render/focus.js`),
+que le fija `interactive: false` encima: el `interactive` de un `styleOf` se ignora. Las líneas, los
+marcadores y las patas del cluster lo llevan en literal, porque a Leaflet no le pasan el estilo del
+consumidor. Gana la primera fila que aplica:
+
+| # | Cuando | Cursor |
+|---|---|---|
+| 1 | el usuario arrastra el mapa (de `dragstart` a que Leaflet lo da por terminado) | `grabbing` |
+| 2 | un editor tiene un handle tomado | `grabbing` |
+| 3 | hay un handle de un editor bajo el puntero (vértice o midpoint) | `grab` |
+| 4 | el consumidor pidió uno: `cursor` de `<cristae-map>`, `engine.setCursor` | ese valor |
+| 5 | hay una feature interactiva bajo el puntero | `pointer` |
+| 6 | nada | `''` — queda el `grab` de Leaflet |
+
+- **El arrastre es `dragstart`, no `movestart`**: un `flyTo` también mueve el mapa y no pisa el cursor
+  del consumidor. Se escribe explícito porque Leaflet lo marca con `leaflet-dragging` en
+  `document.body`, y desde el shadow root de `<cristae-map>` la regla `.leaflet-dragging .leaflet-grab`
+  no lo alcanza.
+- **Termina cuando Leaflet deja de darlo en curso** (`map.dragging.moving()`), no sólo en `dragend`: un
+  segundo dedo —el pinch— o un segundo botón lo cortan sin emitirlo. El estado se relee en `dragend`, en
+  `moveend` y en el `pointerup` y el `pointerenter` del contenedor; nunca por `pointermove`.
+- **Vacío, `null` o rechazado por `CSS.supports('cursor', …)` es ninguno**: el estilo ignoraría el valor
+  y dejaría puesto el anterior. Sin `CSS` global —un DOM emulado— no hay con qué validar, y se acepta.
+- **Reponer el vigente no hace nada**: se compara ya normalizado, así que reaplicarlo en cada movimiento
+  del puntero no relanza el picking ni se salta `hover-throttle`.
+- **El consumidor gana también sobre las features**, como `.leaflet-crosshair` sobre
+  `.leaflet-interactive` en Leaflet. Con su cursor puesto, el picking que sólo decidía el `pointer` no
+  corre: lo justifica únicamente la demanda de hover, y sólo en las capas que la tienen. Al quitarlo, el
+  `pointer` se resuelve donde quedó el puntero, sin esperar a que se mueva.
+- Popups y controles conservan su `cursor: auto`: la regla va en ellos.
+- El editor informa su nivel —ninguno, bajo el puntero, tomado— y el nombre del cursor lo pone el
+  árbitro. Con varios editores manda el más fuerte.
+
+---
+
 ## Nota de consumo — hover/click con JS puro
 
 Los handlers de `hover`/`click` (sea vía `bus.on(...)` o los `CustomEvent` `cristae:hover` /

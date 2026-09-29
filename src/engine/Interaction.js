@@ -1,28 +1,35 @@
-import { EVENT_HOVER, PICK_CHANNELS } from '../events/events.js'
+import { EVENT_HOVER, HANDLE_HELD, HANDLE_OVER, PICK_CHANNELS } from '../events/events.js'
 
 // Interaction — traduce los eventos del puntero del L.map en hits ruteados por el EventBus.
 // Cablea tres cosas y nada más: (1) pointer/click del DOM → registry.resolveHits → bus.dispatch;
 // (2) la sesión de hover con picking GPU no bloqueante (request → poll rAF → collect); (3) la
-// supresión de hover durante zoom/pan y el cursor automático. No conoce capas ni dominio: pide
-// los hits al registro y los puntos pickeables al motor.
+// supresión de hover durante zoom/pan y el cursor del contenedor, del que es el ÚNICO escritor. No
+// conoce capas ni dominio: pide los hits al registro y los puntos pickeables al motor.
 //
 // Picking dirigido por demanda, con DOS motivos para correr la sesión de hover (ver PICK_CHANNELS):
-//   · entregar EVENTOS de hover  → demanda del canal HOVER  (`#hover.hoverDemand`);
-//   · CURSOR de affordance       → demanda de CLICK *o* HOVER (`#hover.pickDemand`).
+//   · entregar EVENTOS de hover  → demanda del canal HOVER (`#hover.hoverDemand`);
+//   · el `pointer` del cursor    → demanda de CLICK o HOVER (`#hover.pickDemand`), salvo con cursor
+//                                  del consumidor.
 // El cursor `pointer` es una affordance de la INTERACTIVIDAD, no del canal de hover: una capa
 // clickeable debe marcar el puntero al pasar sobre sus features —como `.leaflet-interactive` en
 // Leaflet, y como promete SPECS §eventos ("cursor automático … capa interactive")— aunque el
 // consumidor NO escuche `cristae:hover`. Por eso la sesión de hover (que es lo que sabe si el
 // puntero cae sobre una feature) se corre también bajo demanda de CLICK, pero los EVENTOS de hover
 // se emiten solo si hay demanda de HOVER. Si ningún canal interactivo tiene demanda, la sesión no
-// se inicia (el picking correría en cada pointermove — lo más frecuente — y es caro). El cursor se
-// restaura al salir del contenedor, durante zoom/pan, y al caer la demanda interactiva a cero.
+// se inicia (el picking correría en cada pointermove — lo más frecuente — y es caro). Con un cursor
+// del consumidor puesto el `pointer` no se vería, así que no se resuelve: `pickChannels` se reduce a
+// HOVER, #emitHover no lo consulta y quitarlo lo resuelve en el acto.
 
 const noRaf = cb => setTimeout(cb, 0)
 const hasRaf = typeof requestAnimationFrame === 'function'
 const raf = hasRaf ? requestAnimationFrame : noRaf
 const cancelRaf = hasRaf ? cancelAnimationFrame : clearTimeout
 const now = () => performance.now()
+
+// El cursor del consumidor, normalizado en la frontera: ausente, vacío o rechazado por el CSS es
+// ninguno. El estilo ignora un valor que no parsea, y el árbitro lo daría por escrito con el anterior
+// todavía puesto. Sin `CSS` global —un DOM emulado— no hay con qué validar, y se acepta.
+const consumerCursor = cursor => cursor && (globalThis.CSS?.supports('cursor', cursor) ?? true) ? cursor : ''
 
 export class Interaction {
 
@@ -36,68 +43,119 @@ export class Interaction {
   #onInteractionEnd
   #onEmptyClick
 
-  // Estado del puntero (muta-y-reusa salvo seq). seq distingue muestras para validar el cache.
-  #pointer       = { seq: 0, clientX: 0, clientY: 0, containerPoint: { x: 0, y: 0 } }
+  // Estado del puntero (muta-y-reusa salvo seq). seq distingue muestras para validar el cache; `inside`
+  // lo prenden el `pointerenter` o cualquier muestra —un motor montado con el puntero ya encima no recibe
+  // `pointerenter`— y lo apaga el `pointerleave` del contenedor.
+  #pointer       = { seq: 0, inside: false, clientX: 0, clientY: 0, containerPoint: { x: 0, y: 0 } }
   #containerRect = null
 
   #interacting = false          // gesto de zoom/pan en curso → suprime hover (ortogonal al subsistema)
 
-  // Estado del subsistema de hover (picking GPU): demanda, sesión activa, cursor y bookkeeping de
+  // Estado del subsistema de hover (picking GPU): demanda, sesión activa y bookkeeping de
   // throttle/latest-only. Se muta-y-reusa (nunca se reasigna) — los métodos calientes cachean la ref.
   #hover = {
-    hoverDemand: false,       // demanda del canal HOVER → emitir eventos de hover
-    pickDemand : false,       // demanda de CLICK u HOVER → correr el picking (para el cursor)
-    dirty      : false,       // llegó un pointermove con la sesión abierta → relee al cerrar
-    lastAt     : -Infinity,   // marca de tiempo del último inicio de sesión (throttle)
-    session    : null,        // sesión de picking en curso | null
-    generation : 0,           // sella cada sesión (invalidación)
-    rafId      : null,        // handle del rAF del tick | null
-    cursorOn   : false,       // ¿el cursor 'pointer' está puesto?
+    hoverDemand  : false,           // demanda del canal HOVER → emitir eventos de hover
+    pickDemand   : false,           // demanda de algún canal de `pickChannels` → correr el picking
+    pickChannels : PICK_CHANNELS,   // CLICK|HOVER, o sólo HOVER con cursor del consumidor
+    dirty        : false,           // llegó un pointermove con la sesión abierta → relee al cerrar
+    lastAt       : -Infinity,       // marca de tiempo del último inicio de sesión (throttle)
+    session      : null,            // sesión de picking en curso | null
+    generation   : 0,               // sella cada sesión (invalidación)
+    rafId        : null,            // handle del rAF del tick | null
+  }
+
+  // Entradas del árbitro del cursor: cada una la mantiene su fuente y #paintCursor resuelve la
+  // precedencia. Se muta-y-reusa, como #hover.
+  #cursor = {
+    consumer : '',          // el que pide el consumidor ('' = ninguno)
+    dragging : false,       // el usuario arrastra el mapa
+    held     : new Set(),   // editores con un handle tomado
+    over     : new Set(),   // editores con un handle bajo el puntero
+    hit      : false,       // feature interactiva bajo el puntero
+    written  : '',          // lo último escrito: sólo se escribe al cambiar
   }
 
   #domHandlers = new Map()
   #mapHandlers = new Map()
 
-  constructor({ map, registry, bus, container, pickLayers, hoverThrottleMs = 0, onInteractionStart, onInteractionEnd, onEmptyClick } = {}) {
+  constructor({ map, registry, bus, container, pickLayers, hoverThrottleMs = 0, cursor, onInteractionStart, onInteractionEnd, onEmptyClick } = {}) {
     this.#map                = map
     this.#registry           = registry
     this.#bus                = bus
     this.#container          = container ?? map.getContainer()
     this.#pickLayers         = pickLayers ?? (() => [])
     this.#throttleMs         = hoverThrottleMs
+    this.#cursor.consumer    = consumerCursor(cursor)
     this.#onInteractionStart = onInteractionStart
     this.#onInteractionEnd   = onInteractionEnd
     this.#onEmptyClick       = onEmptyClick
     this.#wire()
+    this.#paintCursor()
   }
 
   set hoverThrottleMs(ms) { this.#throttleMs = ms }
 
-  // El motor la llama cuando cambia la demanda (alta/baja de un handler de click/hover). Recalcula
-  // los dos gates: HOVER (emitir eventos) y CLICK|HOVER (correr el picking para el cursor).
+  // Cursor del consumidor, en vivo: mueve el gate del picking además de lo que se pinta. El vigente no
+  // toca nada, así que reponerlo por evento no relanza el pase ni se salta el throttle. Quitarlo
+  // resuelve el `pointer` donde quedó el puntero, sin esperar a que se mueva, y una sesión abierta lo
+  // relee al cerrar.
+  set cursor(cursor) {
+    const c    = this.#cursor
+    const h    = this.#hover
+    const next = consumerCursor(cursor)
+    if (next === c.consumer) return
+    c.consumer = next
+    this.syncHoverDemand()
+    this.#paintCursor()
+    if (c.consumer || !h.pickDemand || this.#interacting || !this.#pointer.inside) return
+    h.dirty = true
+    h.session || this.#startHover(this.#sampleOf(this.#pointer))
+  }
+
+  // Un editor informa su nivel de handle y queda en el conjunto de ese nivel: con varios, el más
+  // fuerte lo da la precedencia de #paintCursor, sin recorrerlos.
+  setHandleLevel(id, level) {
+    const c = this.#cursor
+    level === HANDLE_HELD ? c.held.add(id) : c.held.delete(id)
+    level === HANDLE_OVER ? c.over.add(id) : c.over.delete(id)
+    this.#paintCursor()
+  }
+
+  // Recalcula los dos gates del encabezado. La llaman el motor, cuando cambia la demanda (alta/baja de un
+  // handler de click/hover), y el setter del cursor.
   syncHoverDemand() {
-    const ids     = this.#registry.layerIds()
-    const h       = this.#hover
-    h.hoverDemand = ids.some(id => this.#registry.demandMaskOf(id) & EVENT_HOVER)
-    h.pickDemand  = ids.some(id => this.#registry.demandMaskOf(id) & PICK_CHANNELS)
+    const ids      = this.#registry.layerIds()
+    const h        = this.#hover
+    h.pickChannels = this.#cursor.consumer ? EVENT_HOVER : PICK_CHANNELS
+    h.hoverDemand  = ids.some(id => this.#registry.demandMaskOf(id) & EVENT_HOVER)
+    h.pickDemand   = ids.some(id => this.#registry.demandMaskOf(id) & h.pickChannels)
     if (!h.pickDemand) this.#endHover()
   }
 
+  // Devuelve el cursor que escribió: un motor nuevo sobre el mismo contenedor arranca de ''. Las
+  // entradas quedan en cero para que el aviso tardío de un editor que se destruye después no lo repinte.
   destroy() {
+    const c = this.#cursor
     this.#cancelRaf()
     this.#domHandlers.forEach((fn, type) => this.#container.removeEventListener(type, fn))
     this.#mapHandlers.forEach((fn, type) => this.#map.off(type, fn))
     this.#domHandlers.clear()
     this.#mapHandlers.clear()
     this.#hover.session = null
+    c.held.clear()
+    c.over.clear()
+    c.consumer = ''
+    c.dragging = c.hit = false
+    this.#paintCursor()
   }
 
   /* ── Cableado ── */
 
   #wire() {
-    this.#onDom('pointerenter', () => this.#syncRect())
+    this.#onDom('pointerenter', () => { this.#pointer.inside = true; this.#syncRect(); this.#syncDragging() })
     this.#onDom('pointermove', e => this.#onPointerMove(e))
     this.#onDom('pointerleave', () => this.#onPointerLeave())
+    this.#onDom('pointerup', () => this.#syncDragging())
 
     this.#onMap('click', e => this.#onClick(e))
     // secondary-click va por listener DOM del CONTENEDOR, no por el evento 'contextmenu' de
@@ -107,8 +165,11 @@ export class Interaction {
     // puede llamar preventDefault() sobre el evento entregado.
     this.#onDom('contextmenu', e => this.#onSecondaryClick(e), { passive: false })
     this.#onMap('movestart', () => this.#beginInteraction())
+    // El arrastre del USUARIO, no `movestart`: ése también lo dispara un flyTo, que no es un agarre.
+    this.#onMap('dragstart', () => { this.#cursor.dragging = true; this.#paintCursor() })
+    this.#onMap('dragend', () => this.#syncDragging())
     this.#onMap('zoomstart', () => this.#beginInteraction())
-    this.#onMap('moveend', () => this.#endInteraction())
+    this.#onMap('moveend', () => { this.#endInteraction(); this.#syncDragging() })
     this.#onMap('zoomend', () => { this.#pickLayers().forEach(({ layer }) => layer.syncPickingSize()); this.#endInteraction() })
   }
 
@@ -123,6 +184,7 @@ export class Interaction {
     const rect = this.#containerRect ??= this.#container.getBoundingClientRect()
     const p = this.#pointer
     p.seq++
+    p.inside           = true
     p.clientX          = event.clientX
     p.clientY          = event.clientY
     p.containerPoint.x = event.clientX - rect.left
@@ -157,9 +219,9 @@ export class Interaction {
   }
 
   #onPointerLeave() {
+    this.#pointer.inside = false
     this.#endHover()
     this.#bus.dispatch('hover:out', null, null)
-    this.#setCursor(false)
   }
 
   #onClick(event) {
@@ -194,10 +256,10 @@ export class Interaction {
     h.dirty  = false
     h.lastAt = now()
 
-    // Se pickean las capas interactivas con demanda de CLICK u HOVER: las solo-click se pickean
-    // para poder marcar el cursor (sus EVENTOS de hover no se emiten — ver #emitHover).
+    // Se pickean las capas visibles con demanda de `pickChannels` (los EVENTOS de hover sólo salen con
+    // demanda de HOVER — ver #emitHover).
     const active = this.#pickLayers().filter(({ layerId }) =>
-      this.#registry.isLayerVisible(layerId) && (this.#registry.demandMaskOf(layerId) & PICK_CHANNELS))
+      this.#registry.isLayerVisible(layerId) && (this.#registry.demandMaskOf(layerId) & h.pickChannels))
 
     const queued = active.filter(({ layer }) => layer.requestHoverHit(sample))
     if (!queued.length) return this.#emitHover(sample)         // nada que pickear → resolver inline
@@ -236,22 +298,25 @@ export class Interaction {
   }
 
   #emitHover(sample) {
+    const c = this.#cursor
     // EVENTOS de hover: solo si hay demanda del canal HOVER (resolveHits('hover') ya filtra por él,
     // así que para una capa solo-click esto no dispara nada espurio).
     if (this.#hover.hoverDemand) this.#bus.dispatch('hover', this.#registry.resolveHits('hover', sample), sample)
-    // CURSOR de affordance: `pointer` si el puntero cae sobre una feature de una capa interactiva
-    // con demanda de click u hover (no requiere escuchar 'hover'). Alinea la implementación con
-    // SPECS §eventos: "cursor automático … capa interactive".
-    this.#setCursor(this.#registry.hasHitForChannels(PICK_CHANNELS, sample))
+    // `hit` alimenta la fila `pointer` del árbitro: una feature de una capa con demanda de click u hover
+    // (no hace falta escuchar 'hover'). Con cursor del consumidor no se consulta (ver encabezado).
+    c.hit = !c.consumer && this.#registry.hasHitForChannels(PICK_CHANNELS, sample)
+    this.#paintCursor()
   }
 
+  // Cerrar la sesión (leave / zoom-pan / demanda a cero) suelta el `pointer`.
   #endHover() {
     const h = this.#hover
     this.#cancelRaf()
     h.session = null
     h.generation++
     this.#pickLayers().forEach(({ layer }) => layer.cancelHoverHit())
-    this.#setCursor(false)   // cerrar la sesión (leave / zoom-pan / demanda a cero) restaura el cursor
+    this.#cursor.hit = false
+    this.#paintCursor()
   }
 
   /* ── Supresión durante zoom/pan ── */
@@ -261,7 +326,6 @@ export class Interaction {
     this.#interacting = true
     this.#endHover()
     this.#bus.dispatch('hover:out', null, null)
-    this.#setCursor(false)
     this.#onInteractionStart?.()
   }
 
@@ -271,13 +335,27 @@ export class Interaction {
     this.#onInteractionEnd?.()
   }
 
-  /* ── Cursor automático ── */
+  /* ── Cursor del contenedor ── */
 
-  #setCursor(on) {
-    const h = this.#hover
-    if (on === h.cursorOn) return
-    h.cursorOn                   = on
-    this.#container.style.cursor = on ? 'pointer' : ''
+  // El arrastre lo prende `dragstart`, cuando Leaflet todavía no lo marca en curso, y lo apaga releer ese
+  // estado. Un segundo dedo o un segundo botón lo cortan sin `dragend`, así que se relee también en lo que
+  // siempre les sigue: el `moveend` del pinch, y el `pointerup` del último botón o, si se soltó fuera del
+  // mapa, el `pointerenter` de la vuelta.
+  #syncDragging() {
+    this.#cursor.dragging = !!this.#map.dragging?.moving()
+    this.#paintCursor()
+  }
+
+  // La precedencia es el orden de la expresión (la tabla, en docs/interaction.md). El arrastre se escribe
+  // explícito porque Leaflet lo marca en `document.body`, fuera del alcance del CSS del shadow root.
+  // [0-alloc]: corre por muestra resuelta del hover.
+  #paintCursor() {
+    const c     = this.#cursor
+    const value = c.dragging || c.held.size ? 'grabbing'
+      : c.over.size ? 'grab'
+      : c.consumer || (c.hit ? 'pointer' : '')
+    if (value === c.written) return
+    c.written = this.#container.style.cursor = value
   }
 
   #cancelRaf() {

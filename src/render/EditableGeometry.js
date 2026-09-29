@@ -3,10 +3,12 @@
 //
 // Contrato de "input controlado": el valor ENTRA por `value` (constructor / setValue) y las ediciones
 // SALEN por `onChange` (live, cada cambio — incluye cada frame de drag) y `onCommit` (una vez, al asentar
-// el gesto: al soltar / edición discreta). La primitiva POSEE los handles (vértices, puntos de arista
-// para insertar, borrado por dblclick y el trazado de uno nuevo en modo draw) y también el DIBUJO de la
-// geometría: el arrastre muestra sus dos aristas vivas SIN escribir a GPU —el vértice viaja como uniform—.
-// Atar además un addPolygonLayer/addLineLayer al mismo `value` es válido: dibuja lo mismo.
+// el gesto: al soltar / edición discreta). Aparte, `onHandleLevel(nivel)` —interno, lo cablea el motor—
+// le informa al mapa el nivel de handle bajo el puntero o tomado, sólo al cambiar. La primitiva POSEE los
+// handles (vértices, puntos de arista para insertar, borrado por dblclick y el trazado de uno nuevo en
+// modo draw) y también el DIBUJO de la geometría: el arrastre muestra sus dos aristas vivas SIN escribir a
+// GPU —el vértice viaja como uniform—. Atar además un addPolygonLayer/addLineLayer al mismo `value` es
+// válido: dibuja lo mismo.
 //
 // Cada trazo tiene su stack: `ChunkedPath` (el arena en CPU) → `EditArena` (su espejo GPU) → relleno,
 // contorno y handles como sprites, más el banco `EditHandleDom`, que repone como nodo SÓLO el vecindario
@@ -24,6 +26,7 @@
 //   · polyline  → path: [[lat,lng],…]
 //   · point     → [lat,lng]  (o null mientras no se dibujó)
 //   · rectangle → bounds: [[sur,oeste],[norte,este]]  (o null mientras no se dibujó)
+import { HANDLE_HELD, HANDLE_NONE, HANDLE_OVER } from '../events/events.js'
 import { ChunkedPath, ROLE } from '../geometry/ChunkedPath.js'
 import { coordOf, isNested, isPoint } from '../geometry/polyline.js'
 import { EditArena } from './EditArena.js'
@@ -103,7 +106,7 @@ const consumir = e => {
 
 export class EditableGeometry {
 
-  #L; #map; #pane; #kind; #onChange; #onCommit; #container; #surface; #gl; #iconSet
+  #L; #map; #pane; #kind; #onChange; #onCommit; #onHandleLevel; #container; #surface; #gl; #iconSet
   #mode       = 'edit'
   #geom       = null                       // representación interna viva (mutada in place por el gesto)
   #simpleRing = true                       // polygon: recordar si la entrada era anillo simple (para la salida)
@@ -127,6 +130,8 @@ export class EditableGeometry {
   // Es del gesto aunque `onCommit` saque al editor de edit a mitad de la pulsación (ver `#detachPointer`).
   #clickDelGesto = false
 
+  #informado = HANDLE_NONE                 // el último nivel de handle que recibió `onHandleLevel`
+
   #hover    = { x: -1, y: -1, trazo: -1, ref: -1, sello: -1 }       // la última respuesta, por píxel
   #muestra  = { id: 0, x: 0, y: 0, trazo: -1, ref: -1, deben: 0 }   // la pedida, y lo que va resolviendo
   // `x`/`y` es el píxel donde se apretó y `dx`/`dy` el offset de agarre: dónde cayó ese píxel DENTRO del
@@ -143,23 +148,24 @@ export class EditableGeometry {
   #punto    = [0, 0]                       // el píxel que se convierte a latlng por frame; Leaflet sólo desarma arrays
   #esquina  = [0, 0]                       // la esquina que devuelve el arrastre de rectángulo
 
-  constructor({ L, map, pane, kind = 'polygon', value = null, mode = 'edit', style, onChange, onCommit } = {}) {
+  constructor({ L, map, pane, kind = 'polygon', value = null, mode = 'edit', style, onChange, onCommit, onHandleLevel } = {}) {
     if (!KINDS.has(kind)) throw new Error(`EditableGeometry: kind inválido "${kind}"`)
-    this.#style      = { ...ESTILO, ...style }
-    this.#L          = L
-    this.#map        = map
-    this.#pane       = pane ?? PANE
-    this.#panePropio = tomarPane(map, this.#pane)
-    this.#kind       = kind
-    this.#onChange   = onChange
-    this.#onCommit   = onCommit
-    this.#container  = map.getContainer()
-    this.#surface    = new EditSurface({ L, map, pane: this.#pane })
-    this.#gl         = this.#surface.attach()
-    this.#iconSet    = defineEditIconSet()
-    this.#fill       = CERRADOS.has(kind) ? new EditFillLayer({ gl: this.#gl, rings: this.#trazos, color: this.#style.fillColor, opacity: this.#style.fillOpacity }) : null
-    this.#geom       = this.#ingest(value)
-    this.#mode       = mode
+    this.#style         = { ...ESTILO, ...style }
+    this.#L             = L
+    this.#map           = map
+    this.#pane          = pane ?? PANE
+    this.#panePropio    = tomarPane(map, this.#pane)
+    this.#kind          = kind
+    this.#onChange      = onChange
+    this.#onCommit      = onCommit
+    this.#onHandleLevel = onHandleLevel
+    this.#container     = map.getContainer()
+    this.#surface       = new EditSurface({ L, map, pane: this.#pane })
+    this.#gl            = this.#surface.attach()
+    this.#iconSet       = defineEditIconSet()
+    this.#fill          = CERRADOS.has(kind) ? new EditFillLayer({ gl: this.#gl, rings: this.#trazos, color: this.#style.fillColor, opacity: this.#style.fillOpacity }) : null
+    this.#geom          = this.#ingest(value)
+    this.#mode          = mode
     this.#map.on('moveend zoomend resize', this.#onView)
     mode === 'draw' && this.#attachMap()
     mode === 'edit' && this.#attachPointer()
@@ -176,8 +182,10 @@ export class EditableGeometry {
     this.#geom = this.#ingest(value)
     this.#drawAnchor = null
     this.#rebuild()
+    this.#informar()
   }
 
+  // Fuera de `edit` nadie sigue al puntero, así que lo resuelto bajo él tampoco vale al volver.
   setMode(mode) {
     if (mode === this.#mode) return
     this.#releaseInteraction()
@@ -187,8 +195,10 @@ export class EditableGeometry {
     this.#drawAnchor = null
     mode === 'draw' && this.#attachMap()
     mode === 'edit' && this.#attachPointer()
+    this.#invalidar()
     this.#promover(-1, -1)
     this.#draw()
+    this.#informar()
   }
 
   // Parcial: lo que no venga en `style` queda como estaba.
@@ -240,6 +250,7 @@ export class EditableGeometry {
     this.#fill?.destroy()
     this.#surface.destroy()
     this.#soltarPane()
+    this.#informar()
   }
 
   // El pane sólo se devuelve si es de los editores, y sólo cuando se va el último que lo usa: el nombre es
@@ -359,6 +370,7 @@ export class EditableGeometry {
     this.#invalidar()
     this.#gesto.ref < 0 && this.#promover(-1, -1)
     this.#draw()
+    this.#informar()
   }
   #attachMap() { this.#map.on('click', this.#onMapClick); this.#map.on('dblclick', this.#onMapDblClick) }
   #detachMap() { this.#map.off('click', this.#onMapClick); this.#map.off('dblclick', this.#onMapDblClick) }
@@ -370,13 +382,14 @@ export class EditableGeometry {
   // y no hace falta apagarlos. El arrastre del mapa se toma prestado ADEMÁS mientras dura el gesto, porque
   // el puntero puede salirse del contenedor sin soltarlo (ver `#beginInteraction`). Lo que cae sobre un
   // control —un subárbol que Leaflet declara fuera del mapa con `disableClickPropagation`— es del control
-  // aunque tape un handle.
+  // aunque tape un handle. `pointerleave` va sin captura: no se consume, y como no burbujea, en captura
+  // llegaría también cuando el puntero sale de un descendiente —un control—, que no es salir del mapa.
   #cablear(metodo) {
     const c = this.#container
     c[metodo]('pointermove',   this.#onPointerMove,  CAPTU)
     c[metodo]('pointerup',     this.#onPointerUp,    CAPTU)
     c[metodo]('pointercancel', this.#onPointerUp,    CAPTU)
-    c[metodo]('pointerleave',  this.#onPointerLeave, CAPTU)
+    c[metodo]('pointerleave',  this.#onPointerLeave)
     c[metodo]('dblclick',      this.#onDblClick,     CAPTU)
   }
   #cablearPulsacion(metodo) {
@@ -442,6 +455,7 @@ export class EditableGeometry {
     if (this.#gesto.ref >= 0) return
     this.#invalidar()
     this.#promover(-1, -1) && this.#draw()
+    this.#informar()
   }
 
   #onClick = e => {
@@ -460,6 +474,7 @@ export class EditableGeometry {
     const t = this.#trazos[h.trazo]
     if (!t || t.path.roleAt(h.ref) !== ROLE.vertex) return
     this.#onVertexDelete(t, h.ref) && consumir(e)
+    this.#informar()
   }
 
   // El píxel del contenedor. La caja se cachea: leerla por `pointermove` fuerza un layout, que es
@@ -490,6 +505,7 @@ export class EditableGeometry {
     h.trazo = trazo
     h.ref   = ref
     h.sello = this.#sello
+    this.#informar()
     return h
   }
 
@@ -560,6 +576,20 @@ export class EditableGeometry {
     return true
   }
 
+  // El nivel de handle que ve el mapa sale del estado mismo —el gesto, y la última respuesta bajo el
+  // puntero mientras haya handles que tomar—, pero no se recalcula solo: lo llaman `#cachear` y cada
+  // entrada de `edit` que mueva el gesto, el sello, el modo o la superficie. Las de draw no, porque ahí es
+  // NONE por construcción. Se informa sólo al cambiar.
+  #informar() {
+    const h     = this.#hover
+    const nivel = this.#gesto.ref >= 0 ? HANDLE_HELD
+      : this.#conHandles && h.sello === this.#sello && h.ref >= 0 ? HANDLE_OVER
+      : HANDLE_NONE
+    if (nivel === this.#informado) return
+    this.#informado = nivel
+    this.#onHandleLevel?.(nivel)
+  }
+
   // El gesto empieza: el vecindario pasa a `grabbing` y el mapa presta el arrastre —el puntero es nuestro
   // hasta que se levante, y la captura la devuelve el navegador tras despachar el `pointerup`—. Sólo se
   // toma prestado lo que estaba prendido: un mapa que el consumidor tenía fijo no se puede «devolver».
@@ -583,6 +613,7 @@ export class EditableGeometry {
     g.arrastre && this.#map.dragging.disable()
     this.#container.setPointerCapture?.(e.pointerId)
     this.#draw()
+    this.#informar()
   }
 
   // Los cuatro refs del rectángulo: son estables durante todo el gesto, y releerlos por frame arma un

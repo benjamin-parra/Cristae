@@ -24,6 +24,22 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   [`docs/geometry.md`](docs/geometry.md).
   *Migración*: ninguna — `cristae/map` sigue exportando `toParts` y `sampleAlong`, y suma `distance`
   y `sphere`.
+- **El consumidor elige el cursor del mapa, en vivo: `<cristae-map cursor="…">`.** Una herramienta activa
+  —dibujar, medir— pide `crosshair` con el atributo (`cursor` en `<CristaeMap>`; en el motor, la opción
+  `cursor` al construirlo y `engine.setCursor` en vivo) y lo suelta con un valor vacío; uno que el CSS rechace cuenta como ninguno, porque el estilo lo
+  ignoraría y dejaría puesto el anterior, y reponer el vigente no hace nada. Hasta ahora el cursor
+  automático reescribía el del contenedor al entrar y salir de cada feature interactiva, y sostener otro
+  exigía inyectar una regla con `!important` dentro del shadow root. El cursor del contenedor pasa a tener
+  un solo escritor que arbitra por precedencia: el arrastre del mapa y el gesto de un editor (`grabbing`),
+  un handle bajo el puntero (`grab`), el cursor del consumidor y el `pointer` de una feature interactiva
+  ([`docs/interaction.md`](docs/interaction.md#el-cursor-del-contenedor)). El arrastre se lee de
+  `dragstart`, así que un `flyTo` no lo pisa, y dura lo que Leaflet lo dé en curso: un pinch o un segundo
+  botón que lo cortan sin `dragend` no dejan el `grabbing` puesto. Con un cursor puesto, el picking que
+  sólo decidía el `pointer` deja de correr: un mapa solo-click no paga picking de hover mientras dura la
+  herramienta, y al soltarla el `pointer` vuelve sin esperar a que el puntero se mueva.
+  *Migración*: quien escribía `style.cursor` del contenedor a mano, o inyectaba una regla forzada en el
+  shadow root, pasa al atributo: el árbitro reescribe el contenedor cada vez que su valor cambia, y la
+  regla forzada tapa también el `grab`/`grabbing` del editor y del arrastre.
 
 ### Cambiado
 - **Los paths de líneas y el `value` de los editores aceptan las cuatro formas de punto.** Un punto

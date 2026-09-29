@@ -82,10 +82,10 @@ import { CristaeMap, CristaePointLayer, CristaeCluster, CristaePopup } from '@cr
 ```
 
 - **`CristaeMap`** — piel del `<cristae-map>`: `tile`, `initialCenter`/`initialZoom`, `zoomAnimation`,
-  `viewportInsets`, `emptyMessage`, y los eventos `onReady` / `onViewportChange` / `onMapClick` /
-  `onClick` / `onHover` / `onPointerMove` / `onInteractionStart` / `onInteractionEnd` (cada handler
-  recibe el `CustomEvent` con su `detail` tipado) + los del bus (`onSecondaryClick`, `onHoverStart`,
-  `onHoverEnd`).
+  `cursor`, `viewportInsets`, `emptyMessage`, y los eventos `onReady` / `onViewportChange` /
+  `onMapClick` / `onClick` / `onHover` / `onPointerMove` / `onInteractionStart` / `onInteractionEnd`
+  (cada handler recibe el `CustomEvent` con su `detail` tipado) + los del bus (`onSecondaryClick`,
+  `onHoverStart`, `onHoverEnd`).
 - **Capas de dato** (genéricas sobre el ítem `T`): `CristaePointLayer`, `CristaeLineLayer`,
   `CristaePolygonLayer`, `CristaeHtmlLayer`, `CristaeLabelLayer`. Entrada `data` (el motor posee la
   Source) o `source` (el consumidor la comparte entre vistas — basta con que cumpla `CristaeReadSource`,

@@ -97,6 +97,12 @@ no cierra ningún gesto y sigue su camino.
 - El gesto es del puntero que lo tomó: otro dedo que se apoya mientras dura no toma otro handle, ni
   mueve o suelta el vértice tomado.
 
+El cursor acompaña al gesto: `grab` con un handle bajo el puntero y `grabbing` mientras está tomado, por
+encima del `cursor` que haya pedido el consumidor ([precedencia](./interaction.md#el-cursor-del-contenedor)).
+El pase que reconoce el handle no bloquea, así que el cursor sigue a la última muestra del puntero ya
+resuelta: con el puntero quieto justo al entrar o salir de un handle, lo corrige el próximo movimiento o
+la pulsación.
+
 En `mode: 'draw'` no hay gesto sobre handles: el click del mapa **es** la edición.
 
 ---

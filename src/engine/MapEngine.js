@@ -144,7 +144,7 @@ export class MapEngine {
   camera
   ready
 
-  constructor({ leaflet, glify, container, mapOptions, insets, hoverThrottleMs = 0, map, zoomAnimation, zoomControl = true } = {}) {
+  constructor({ leaflet, glify, container, mapOptions, insets, hoverThrottleMs = 0, map, zoomAnimation, zoomControl = true, cursor } = {}) {
     this.#L       = leaflet
     this.#glify   = glify
     this.#ownsMap = !map
@@ -172,6 +172,7 @@ export class MapEngine {
       bus:        this.#bus,
       pickLayers: () => this.#pick.entries,
       hoverThrottleMs,
+      cursor,
       onInteractionStart: () => this.#emit('interactionstart', {}),
       onInteractionEnd:   () => this.#emit('interactionend', {}),
       onEmptyClick:       latlng => this.#emit('map:click', { latlng }),   // click en espacio vacío → latlng
@@ -438,7 +439,10 @@ export class MapEngine {
     const paneName = pane ?? `cristae-edit-${id}`
     const zIndex   = z ?? (BASE_Z + order * Z_STEP + LABEL_Z_OFFSET)   // handles por encima de las capas
     this.#ensurePane(paneName, zIndex, false)                          // markers interactivos → pane con puntero
-    const editor = new EditableGeometry({ L: this.#L, map: this.#map, pane: paneName, kind, value, mode, style, onChange, onCommit })
+    const editor = new EditableGeometry({
+      L: this.#L, map: this.#map, pane: paneName, kind, value, mode, style, onChange, onCommit,
+      onHandleLevel: level => this.#interaction.setHandleLevel(id, level),   // el árbitro del cursor lo traduce
+    })
     const record = { kind: 'editable', editor, paneName, zIndex, order, visible: true, enabled: true }
     this.#layers.set(id, record)
     return {
@@ -818,6 +822,13 @@ export class MapEngine {
   // 'on' (ambos sentidos). Aplica desde el zoom siguiente; no reconstruye capas ni pierde su cableado.
   setZoomAnimation(mode) {
     this.#zoomAnimation = mode
+    return this
+  }
+
+  // Cursor del contenedor que pide el consumidor, en vivo. Interaction lo normaliza y lo arbitra: qué
+  // cuenta como ninguno y su precedencia, en docs/interaction.md#el-cursor-del-contenedor.
+  setCursor(cursor) {
+    this.#interaction.cursor = cursor
     return this
   }
 

@@ -226,6 +226,8 @@ export interface CristaeMapProps extends CristaeBaseProps {
   /** El elemento lo reenvía verbatim al motor: `"on"` es contrato de `MapEngineOptions`, la doc del
    *  elemento sólo enumera `"none"` (default) y `"in-only"`. */
   zoomAnimation?  : 'none' | 'in-only' | 'on';
+  /** Cursor del contenedor (cualquier valor CSS), reactivo: ver `MapEngine.setCursor`. */
+  cursor?         : string | null;
   /** Mensaje del estado "sin datos" (o usar un hijo `slot="empty"`). */
   emptyMessage?   : string;
 

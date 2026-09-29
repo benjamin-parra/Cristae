@@ -660,6 +660,8 @@ export interface MapEngineOptions {
   hoverThrottleMs? : number;
   zoomAnimation?   : "none" | "in-only" | "on";
   zoomControl?     : boolean;
+  /** Cursor inicial del contenedor, con las reglas de `setCursor`. */
+  cursor?          : string | null;
 }
 
 // Orquestador headless: crea el L.map, deriva panes por orden de declaración (el consumidor no toca z)
@@ -721,6 +723,9 @@ export class MapEngine {
 
   /** Política de animación del zoom, en vivo. Aplica desde el zoom siguiente. */
   setZoomAnimation(mode: "none" | "in-only" | "on"): this;
+  /** Cursor del contenedor, en vivo: `null`, `''` o un valor que el CSS rechace es ninguno. Su precedencia
+   *  frente al arrastre, el editor y el `pointer` automático: docs/interaction.md#el-cursor-del-contenedor. */
+  setCursor(cursor: string | null): this;
   getLeafletMap(): unknown;
   /** Escape genérico al handler subyacente (Leaflet map, hoy). Usar sólo si falta una capacidad. */
   getUnsafeHandler(): unknown;

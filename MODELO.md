@@ -402,7 +402,7 @@ Hit = {
 3. **Sin `onDisambiguate` en el core.** `click` entrega **todos** los hits ordenados; abrir un popup de desambiguación o tomar el top es decisión del consumidor.
 4. **Suscripción por capa (API imperativa).** `engine.on('click', 'fleet', cb)`, `engine.on('hover', ['places','zones'], cb)`. A nivel `CustomEvent` (global), el consumidor filtra por `detail.hits[].layerId`.
 5. **Lifecycle de hover** (igual que hoy, generalizado): enter contenedor → sesión; `pointermove` throttled → picking async → diff de set → `hover`; leave → `hover` con `hits:[]`; suprimido durante zoom/pan.
-6. **Cursor automático.** El motor ya conoce el set de hits → si ese set incluye una capa `interactive`, pone el cursor `pointer` y lo restaura al vaciarse. Reemplaza el `container.style.cursor='pointer'` que la página escribe hoy a mano; el consumidor no toca el cursor (el contenedor vive en el shadow DOM).
+6. **Cursor automático.** El motor ya conoce el set de hits → si ese set incluye una capa `interactive`, pone el cursor `pointer` y lo restaura al vaciarse. Reemplaza el `container.style.cursor='pointer'` que la página escribe hoy a mano. El consumidor no escribe el contenedor (vive en el shadow DOM): pide su cursor —el de una herramienta activa— con el atributo `cursor`, que gana sobre el `pointer`, y un solo escritor arbitra los dos con el arrastre y el editor ([precedencia](./docs/interaction.md#el-cursor-del-contenedor)).
 
 ---
 
@@ -443,7 +443,7 @@ camera.getCenter() / getZoom() / getBounds()
 
 ## 12. Superficie pública (resumen)
 
-**Mapa (props reactivas / atributos):** `tile`, `theme` (vía CSS vars), `world-copies`, `viewport-insets`, `hover-throttle`, `stale-tolerance-px`. **No reactivas (solo al montar):** `initial-center`, `initial-zoom` — el viewport vivo es imperativo (§9).
+**Mapa (props reactivas / atributos):** `tile`, `theme` (vía CSS vars), `world-copies`, `viewport-insets`, `hover-throttle`, `cursor`, `stale-tolerance-px`. **No reactivas (solo al montar):** `initial-center`, `initial-zoom` — el viewport vivo es imperativo (§9).
 
 **Mapa (métodos):** `addPointLayer(cfg)→handle`, `addPolygonLayer(cfg)→handle`, `addLabelLayer(cfg)→handle`, `removeLayer(id)`, `getLayer(id)`, `attachSource(id, source)`, cámara (§9), `createIcon(descriptor)`, `registerIconSet(name, set)`, `getLeafletMap()` (escape hatch — el `L.map` crudo) / `getUnsafeHandler()` (escape hatch avanzado — el `MapWidget` con sus métodos internos, sin garantías de estabilidad), `destroy()`, `ready: Promise`.
 
@@ -498,7 +498,7 @@ El `fleet-recipe` (en el adaptador WingLogistics, fuera del core) reconstruye to
 
 **Huecos detectados en la validación estricta (los tres se cierran por diseño, sin escape hatch ni romper el paradigma):**
 1. **Orden de apilado** — hoy 12 panes con z-index numérico. → orden del light DOM + atributo `z` (§6).
-2. **Cursor en hover** — hoy la página escribe `container.style.cursor='pointer'`. → automático: una capa `interactive` cambia el cursor cuando el set de hits la incluye (el motor ya conoce el set; §8.3). El consumidor no lo maneja.
+2. **Cursor en hover** — hoy la página escribe `container.style.cursor='pointer'`. → automático: una capa `interactive` cambia el cursor cuando el set de hits la incluye (el motor ya conoce el set; §8.3). El consumidor no escribe el cursor: si quiere otro, lo pide con el atributo `cursor`.
 3. **Restyle de polígono en hover** (geocerca `setStyle({opacity})`) — presentación transitoria, no rebuild. → `hoverStyleOf?` en polygon-layer (restyle barato de path; §6).
 
 La cámara (follow/fit/pan) queda imperativa **correctamente** (acción, no estado, §5.4), no es un hueco. Veredicto: **un caso de uso real y complejo se expresa por completo en el modelo declarativo, y al hacerlo elimina el ciclo de vida complejo** — la generalización queda validada en al menos este caso.

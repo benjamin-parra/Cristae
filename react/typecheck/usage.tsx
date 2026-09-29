@@ -54,6 +54,7 @@ export const ViaData = () => (
     initialZoom={5}
     initialCenter={[-33.4, -70.6]}
     zoomAnimation="none"
+    cursor="crosshair"
     tile={{ url: 'https://tiles/{z}/{x}/{y}.png', maxZoom: 19 }}
     onViewportChange={(e) => {
       const d: CristaeViewportChangeDetail = e.detail
