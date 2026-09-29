@@ -63,19 +63,6 @@ const makeMap = () => {
   return map
 }
 
-// El stub crudo no trae el reposicionado de panes que la superficie usa para anclarse.
-const makeL = () => {
-  const leaflet = makeLeaflet()
-  return {
-    ...leaflet,
-    DomUtil: {
-      ...leaflet.DomUtil,
-      getPosition: () => ({ x: 0, y: 0 }),
-      setPosition: (el, p) => { el.style.transform = `translate(${p.x}px, ${p.y}px)` },
-    },
-  }
-}
-
 const listenerCount = (map, ...types) => types.reduce((n, type) => n + (map.listeners.get(type)?.size ?? 0), 0)
 
 /* ── Dato: un Source mínimo con el accessor que la capa consume ── */
@@ -92,7 +79,7 @@ const fakeSource = (items, styleOf = null) => ({
 const mount = ({ items = [{ id: 1, path: recorrido(50) }], styleOf = null, map = makeMap() } = {}) => {
   const spy = newSpy()
   currentGl = editGl(spy)
-  const layer = new LineGpuLayer({ L: makeL(), map, pane: 'gpu-line', source: fakeSource(items, styleOf) })
+  const layer = new LineGpuLayer({ L: makeLeaflet(), map, pane: 'gpu-line', source: fakeSource(items, styleOf) })
   return { layer, map, spy }
 }
 
@@ -165,7 +152,7 @@ test('addLineLayer({ backend: "gpu" }) monta el sustrato de quads, no el de glif
   const map    = makeMap()
   currentGl    = editGl(newSpy())
   // `glify: {}` no sabe montar nada: si el sustrato se resolviera al de siempre, esto reventaría.
-  const engine = new MapEngine({ leaflet: makeL(), glify: {}, map })
+  const engine = new MapEngine({ leaflet: makeLeaflet(), glify: {}, map })
   const handle = engine.addLineLayer({
     id: 'ruta',
     backend: 'gpu',
@@ -178,7 +165,7 @@ test('addLineLayer({ backend: "gpu" }) monta el sustrato de quads, no el de glif
 test('pedir picking sobre el sustrato gpu falla RUIDOSO, no deja una capa muda', () => {
   const map    = makeMap()
   currentGl    = editGl(newSpy())
-  const engine = new MapEngine({ leaflet: makeL(), glify: {}, map })
+  const engine = new MapEngine({ leaflet: makeLeaflet(), glify: {}, map })
   assert.throws(
     () => engine.addLineLayer({ id: 'x', backend: 'gpu', interactive: true, accessors: { idOf: r => r.id, pathOf: r => r.path } }),
     /no resuelve picking/,
@@ -187,7 +174,7 @@ test('pedir picking sobre el sustrato gpu falla RUIDOSO, no deja una capa muda',
 
 test('un backend desconocido se rechaza nombrando los válidos', () => {
   const map    = makeMap()
-  const engine = new MapEngine({ leaflet: makeL(), glify: {}, map })
+  const engine = new MapEngine({ leaflet: makeLeaflet(), glify: {}, map })
   assert.throws(
     () => engine.addLineLayer({ id: 'x', backend: 'triangulos', accessors: { idOf: r => r.id, pathOf: r => r.path } }),
     /glify \| gpu \| leaflet/,

@@ -38,9 +38,6 @@ let glVigente = null
 
 after(conGlDeEdicion(() => glVigente))
 
-// `L.DomUtil` posiciona los nodos del banco y el canvas de la superficie.
-const conDomUtil = L => ({ ...L, DomUtil: { ...L.DomUtil, setPosition: () => {} } })
-
 // `alAsentar` corre dentro de `onCommit` y recibe el editor: es donde un consumidor lo corta —pasa a draw,
 // lo destruye— antes de que llegue el resto de la pulsación.
 const montar = ({ kind = 'polygon', value = null, mode = 'edit', dpr = 1, style, pintado, alAsentar } = {}) => {
@@ -70,7 +67,7 @@ const montar = ({ kind = 'polygon', value = null, mode = 'edit', dpr = 1, style,
   const alMapa    = []
   map.on('click', e => alMapa.push(e.latlng))
   const ed = new EditableGeometry({
-    L: conDomUtil(makeLeaflet()), map, pane: 'edit', kind, value, mode, style,
+    L: makeLeaflet(), map, pane: 'edit', kind, value, mode, style,
     onChange: leer => changes.push(leer()),
     onCommit: leer => {
       commits.push(leer())

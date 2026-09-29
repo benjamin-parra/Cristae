@@ -7,19 +7,10 @@
 // Sin DOM real ni customElements: se ejercita el código REAL por métodos prestados del prototipo
 // sobre un `this` falso (los campos de base son `_handle`/`_engine`, no privados #, así que prestar
 // funciona). Corre con: node --test test/element/label-visible.test.mjs
-import '../../test-helpers/engine-stub.mjs'   // window/document (documentElement.style) para evaluar Leaflet/Lit
+import '../../test-helpers/element-stub.mjs'   // window/document y lo que Lit toca al evaluar: PRIMERO
 import test from 'node:test'
 import assert from 'node:assert/strict'
-
-// Extensiones locales del stub para que lit-html/node evalúe (imports DINÁMICOS tras montar los shims,
-// porque los `import` estáticos se hoisten y correrían antes de estas asignaciones).
-globalThis.HTMLElement ??= class {}
-globalThis.customElements ??= { define() {}, get() {}, whenDefined() { return Promise.resolve() } }
-globalThis.document.createTreeWalker ??= () => ({ currentNode: null, nextNode() { return null } })
-globalThis.document.createDocumentFragment ??= () => ({ appendChild() {} })
-globalThis.document.createTextNode ??= (t) => ({ data: String(t) })
-
-const { CristaeLabelLayer } = await import('../../src/element/CristaeLabelLayer.js')
+import { CristaeLabelLayer } from '../../src/element/CristaeLabelLayer.js'
 
 // Motor falso: addLabelLayer registra la cfg y devuelve un handle que apunta sus setVisible.
 function fakeEngine() {

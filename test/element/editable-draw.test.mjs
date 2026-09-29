@@ -2,22 +2,14 @@
 // probado con el otro doblado —el editor con callbacks falsos, el elemento con un motor falso—, así que
 // un click de mapa en modo `draw` nunca había atravesado la cadena entera hasta el CustomEvent.
 //
-// El harness (engine-stub) shimea window/document — se importa PRIMERO.
+// El harness (element-stub) shimea window/document y lo que Lit toca al evaluar — se importa PRIMERO.
 
-import './../../test-helpers/engine-stub.mjs'
+import '../../test-helpers/element-stub.mjs'
 import { conGlDeEdicion, makeEditGl, makeLeaflet, makeMap as makeMapStub, makePickSpy, makeSurface } from '../../test-helpers/engine-stub.mjs'
 import { after, test } from 'node:test'
 import assert from 'node:assert/strict'
-
-globalThis.HTMLElement ??= class {}
-globalThis.customElements ??= { define() {}, get() {}, whenDefined() { return Promise.resolve() } }
-globalThis.document.createTreeWalker ??= () => ({ currentNode: null, nextNode() { return null } })
-globalThis.document.createDocumentFragment ??= () => ({ appendChild() {} })
-globalThis.document.createTextNode ??= (t) => ({ data: String(t) })
-globalThis.CustomEvent ??= class { constructor(type, init) { Object.assign(this, { type }, init) } }
-
-const { CristaeEditablePolyline } = await import('../../src/element/CristaeEditablePolyline.js')
-const { MapEngine } = await import('../../src/engine/MapEngine.js')
+import { CristaeEditablePolyline } from '../../src/element/CristaeEditablePolyline.js'
+import { MapEngine } from '../../src/engine/MapEngine.js'
 
 // `conGlDeEdicion` da el webgl2 del doble Y un 2D no-op: el atlas de handles rasteriza al montar.
 let currentGl = null
@@ -46,23 +38,11 @@ const makeMap = () => {
   return map
 }
 
-const makeL = () => {
-  const leaflet = makeLeaflet()
-  return {
-    ...leaflet,
-    DomUtil: {
-      ...leaflet.DomUtil,
-      getPosition: () => ({ x: 0, y: 0 }),
-      setPosition: (el, p) => { el.style.transform = `translate(${p.x}px, ${p.y}px)` },
-    },
-  }
-}
-
 // El elemento REAL sobre el motor REAL: sólo se le prestan los campos que la base usa.
 const montarElemento = ({ mode = 'draw', value = [] } = {}) => {
   const map = makeMap()
   currentGl = makeEditGl(makePickSpy(), makeSurface())
-  const engine = new MapEngine({ leaflet: makeL(), glify: {}, map })
+  const engine = new MapEngine({ leaflet: makeLeaflet(), glify: {}, map })
 
   const el = Object.create(CristaeEditablePolyline.prototype)
   el.id = 'ruta'

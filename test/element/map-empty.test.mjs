@@ -3,19 +3,10 @@
 // Se testea el predicado (la sustancia de la decisión "se muestra con 0 features / se oculta con
 // datos"); el filtrado de labels (handles sin `source`) y el toggle DOM se cablean sobre él en el
 // componente (cristaeLayerMounted → #refreshEmpty). Corre con: node --test test/element/map-empty.test.mjs
-import '../../test-helpers/engine-stub.mjs'   // window/document (documentElement.style) para evaluar Leaflet/Lit
+import '../../test-helpers/element-stub.mjs'   // window/document y lo que Lit toca al evaluar: PRIMERO
 import test from 'node:test'
 import assert from 'node:assert/strict'
-
-// Extensiones locales del stub para que lit-html/node evalúe al importar CristaeMap (import DINÁMICO
-// tras los shims: los estáticos se hoisten y correrían antes).
-globalThis.HTMLElement ??= class {}
-globalThis.customElements ??= { define() {}, get() {}, whenDefined() { return Promise.resolve() } }
-globalThis.document.createTreeWalker ??= () => ({ currentNode: null, nextNode() { return null } })
-globalThis.document.createDocumentFragment ??= () => ({ appendChild() {} })
-globalThis.document.createTextNode ??= (t) => ({ data: String(t) })
-
-const { dataLayersEmpty } = await import('../../src/element/CristaeMap.js')
+import { dataLayersEmpty } from '../../src/element/CristaeMap.js'
 
 // Capa de datos falsa: un handle (`controls`) con una Source cuyo snapshot son `items`.
 const layer = (items) => ({ controls: { source: { getSnapshot: () => items } } })

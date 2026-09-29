@@ -538,6 +538,8 @@ export const makeLeaflet = () => {
       getPosition:  () => ({ x: 0, y: 0 }),
       // Lo que Leaflet le aplica a un elemento `leaflet-zoom-animated` en cada frame de zoom.
       setTransform: (el, pt, escala) => { el.style.transform = `translate3d(${pt.x}px, ${pt.y}px, 0) scale(${escala})` },
+      // Cómo ancla Leaflet un nodo en el marco del mapa: la superficie de edición, el banco de handles.
+      setPosition:  (el, pt) => { el.style.transform = `translate3d(${pt.x}px, ${pt.y}px, 0)` },
     },
     point:   (x, y) => ({ x, y }),
     latLng:  (lat, lng) => ({ lat, lng }),

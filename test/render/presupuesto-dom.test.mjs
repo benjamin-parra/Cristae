@@ -70,15 +70,9 @@ let glVigente = null
 
 after(conGlDeEdicion(() => glVigente))
 
-// `DomUtil.setPosition` es lo que usan la superficie y el banco para colocar sus nodos; el shim de
-// Leaflet del harness sólo traía el getter.
 const editor = cfg => {
-  const L = makeLeaflet()
   glVigente = makeEditGl()
-  return new EditableGeometry({
-    L: { ...L, DomUtil: { ...L.DomUtil, setPosition: () => {} } },
-    map: makeMap(), pane: 'edit', ...cfg,
-  })
+  return new EditableGeometry({ L: makeLeaflet(), map: makeMap(), pane: 'edit', ...cfg })
 }
 
 // La Source real emite en rAF (defer:'raf' → setTimeout(0) bajo el shim); un macrotask lo vacía, así
