@@ -482,7 +482,9 @@ export const makeLeaflet = () => {
   const log = { markers: [], paths: [], icons: [], clearLayers: 0, addLayer: 0 }
 
   // Molde único de path vectorial: expone TODOS los mutadores de path y cada capa usa los suyos
-  // (polygon → setLatLngs, circle → setLatLng/setRadius) contra los mismos campos.
+  // (polygon → setLatLngs, circle → setLatLng/setRadius) contra los mismos campos. `style` es el último
+  // estilo recibido y `opts`, las opciones vivas: `setStyle` se funde en ellas, como el `setOptions` de
+  // Leaflet, que es lo que después lee su renderer.
   const path = (tipo, { latlngs = null, latlng = null, opts = {} }) => {
     const morir = nodoDom()
     const p = {
@@ -491,10 +493,10 @@ export const makeLeaflet = () => {
       radius:  opts.radius,
       removed: false,
       setStyleCalls: 0, setLatLngsCalls: 0, setLatLngCalls: 0, setRadiusCalls: 0,
-      setStyle(s)    { p.setStyleCalls++;   p.style   = s;            return p },
-      setLatLngs(ll) { p.setLatLngsCalls++; p.latlngs = ll;           return p },
-      setLatLng(ll)  { p.setLatLngCalls++;  p.latlng  = toLatLng(ll); return p },
-      setRadius(r)   { p.setRadiusCalls++;  p.radius  = r;            return p },
+      setStyle(s)    { p.setStyleCalls++;   p.style   = s; Object.assign(opts, s); return p },
+      setLatLngs(ll) { p.setLatLngsCalls++; p.latlngs = ll;                        return p },
+      setLatLng(ll)  { p.setLatLngCalls++;  p.latlng  = toLatLng(ll);              return p },
+      setRadius(r)   { p.setRadiusCalls++;  p.radius  = r;                         return p },
       getLatLngs: () => p.latlngs,
       getLatLng:  () => p.latlng,
       getRadius:  () => p.radius,

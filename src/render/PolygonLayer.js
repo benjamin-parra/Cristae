@@ -1,5 +1,5 @@
 import { prepareIndex, idsFor } from '../geometry/polygon.js'
-import { focusedStyle } from './focus.js'
+import { pathStyle } from './focus.js'
 
 // Capa de POLÍGONOS reactiva a un Source. Hermana de LeafletLineLayer (Leaflet-nativo, sin contexto
 // WebGL): dibuja con `L.polygon` y le delega a Leaflet la reproyección en pan/zoom. A diferencia del
@@ -65,7 +65,7 @@ export class PolygonLayer {
     const a = this.#accessors
     this.#source.getSnapshot().forEach(item => {
       const id = a.idOf(item)
-      this.#byId.get(id)?.setStyle(focusedStyle(a.styleOf?.(item), this.#focus, id))
+      this.#byId.get(id)?.setStyle(pathStyle(a.styleOf?.(item), this.#focus, id))
     })
     return true
   }
@@ -102,7 +102,7 @@ export class PolygonLayer {
     dirty.forEach(id => {
       const item = itemById(id)
       const poly = this.#byId.get(id)
-      poly.setStyle(focusedStyle(a.styleOf?.(item), this.#focus, id))
+      poly.setStyle(pathStyle(a.styleOf?.(item), this.#focus, id))
       poly.setLatLngs(a.ringsOf(item))
     })
     this.#reindex(snap)
@@ -116,7 +116,7 @@ export class PolygonLayer {
     this.#byId.clear()
     snap.forEach(item => {
       const id   = a.idOf(item)
-      const poly = this.#L.polygon(a.ringsOf(item), { pane: this.#pane, ...focusedStyle(a.styleOf?.(item), this.#focus, id) })
+      const poly = this.#L.polygon(a.ringsOf(item), { pane: this.#pane, ...pathStyle(a.styleOf?.(item), this.#focus, id) })
       poly.addTo(this.#group)
       this.#byId.set(id, poly)
     })

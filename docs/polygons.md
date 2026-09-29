@@ -36,16 +36,18 @@ document.querySelector('#geocercas').source = geocercas
 El `gpu` es el default porque el perfil habitual de esta capa es el volumen. Pero el costo que hay que
 tener en la cabeza no es el de dibujo sino el de **contexto**: cada capa GPU abre el suyo, y el
 navegador da unos ~16 en total; pasado el techo empieza a evictar los viejos. Con pocas figuras —o con
-varias capas de polígonos en la misma página— `leaflet` no tiene rival: no toma contexto, reproyecta
-solo y trae los eventos nativos del path.
+varias capas de polígonos en la misma página— `leaflet` no tiene rival: no toma contexto y reproyecta
+solo.
 
 ## Estilo
 
 Las opciones son las de un path de Leaflet, con sus mismos defaults — `color` `#3388ff`, `weight` 3,
 `opacity` 1, `fillColor` = `color`, `fillOpacity` 0.2, `stroke` y `fill` en `true`. El `styleOf` de
 los accessors recibe **la entidad** y pisa esos defaults por figura; `applyFocus(ids, dim)` atenúa lo
-que queda fuera del foco. El estilo se resuelve **una vez por polígono**, no por frame: cuando la
-selección o el filtro lo mueven, se reevalúa con `refresh()`.
+que queda fuera del foco. `interactive` es la excepción y se ignora: el picking es por índice, y los
+eventos salen por `cristae:click`/`cristae:hover` con `interactive` en la capa; un path interactivo para
+Leaflet pondría su propio `pointer` encima del cursor del mapa. El estilo se resuelve **una vez por
+polígono**, no por frame: cuando la selección o el filtro lo mueven, se reevalúa con `refresh()`.
 
 ## Agujeros contra solapes
 

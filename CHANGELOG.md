@@ -43,6 +43,13 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   pares tiene que estrechar el tipo; los `Editable*Value` tipan lo que entra y toman el tipo de punto
   como parámetro, así que quien guarda lo emitido y lo lee lo tipa con
   `Editable*Value<[number, number]>`, o con `<LatLngLike>` para la forma de antes.
+- **Polígonos y círculos del sustrato `leaflet` pierden los eventos nativos de su path.** Son
+  `interactive: false` para Leaflet, como las líneas, al nacer y en cada restilo del patch y del foco, y
+  el `interactive` de un `styleOf` se ignora. Su picking es por índice, así que `cristae:click` y
+  `cristae:hover` no cambian: lo que se pierde es escuchar el path mismo, que la doc del sustrato
+  anunciaba como ventaja.
+  *Migración*: quien escuchaba los eventos del `L.polygon` o del `L.circle` —alcanzados por
+  `getLeafletMap()`— los pide al mapa: `interactive` en la capa y `cristae:click` / `cristae:hover`.
 
 ### Corregido
 - **Soltar un handle del editor ya no deja un click en el mapa.** En `mode: 'edit'` el editor consume en
@@ -87,6 +94,11 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   cabeza se leía como un anillo simple, y se descartaba entero.
 - **`fitToLayers` ya no desborda la pila con un string entre las coordenadas.** Un string en lo que
   devuelven `positionOf`, `pathOf` o `ringsOf` se abría como iterable, y cada carácter es otro string.
+- **Un polígono o un círculo del sustrato `leaflet` ya no pone su propio `pointer`.** `L.polygon` nacía
+  interactivo para Leaflet, cuyo renderer le marca `leaflet-interactive` al pasarle por encima: el
+  puntero aparecía aunque la capa no fuera interactiva y tapaba el cursor del mapa. El círculo ya nacía
+  con `interactive: false`, pero un `styleOf` que devolviera `interactive: true` lo pisaba. Ahora ninguno
+  lo es para Leaflet, a costa de sus eventos nativos (en *Cambiado*).
 
 ## [0.35.0] - 2026-10-01
 

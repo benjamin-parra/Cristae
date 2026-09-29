@@ -14,7 +14,7 @@
 // el hit coincide con el borde dibujado.
 
 import { arcMeters } from '../geometry/geodesic.js'
-import { focusedStyle } from './focus.js'
+import { pathStyle } from './focus.js'
 
 export class CircleLayer {
 
@@ -54,7 +54,7 @@ export class CircleLayer {
     const a = this.#accessors
     this.#source.getSnapshot().forEach(item => {
       const id = a.idOf(item)
-      this.#byId.get(id)?.circle.setStyle(focusedStyle(a.styleOf?.(item), this.#focus, id))
+      this.#byId.get(id)?.circle.setStyle(pathStyle(a.styleOf?.(item), this.#focus, id))
     })
     return true
   }
@@ -116,7 +116,7 @@ export class CircleLayer {
       rec.lat = pos.lat; rec.lng = pos.lng; rec.radius = radius
       rec.circle.setLatLng([pos.lat, pos.lng])
       rec.circle.setRadius(radius)
-      rec.circle.setStyle(focusedStyle(a.styleOf?.(item), this.#focus, id))
+      rec.circle.setStyle(pathStyle(a.styleOf?.(item), this.#focus, id))
     })
   }
 
@@ -143,13 +143,13 @@ export class CircleLayer {
       // así que retenerlo a través del pipeline apuntaría todas las filas al mismo objeto mutado.
       .map(item => {
         const pos = a.positionOf(item), id = a.idOf(item)
-        return { id, lat: pos?.lat, lng: pos?.lng, radius: a.radiusMetersOf(item), st: focusedStyle(a.styleOf?.(item), this.#focus, id) }
+        return { id, lat: pos?.lat, lng: pos?.lng, radius: a.radiusMetersOf(item), st: pathStyle(a.styleOf?.(item), this.#focus, id) }
       })
       .filter(({ lat, lng, radius }) =>
         Number.isFinite(lat) && Number.isFinite(lng) && Number.isFinite(radius) && radius > 0)
       .forEach(({ id, lat, lng, radius, st }) => {
         const circle = this.#L
-          .circle([lat, lng], { pane: this.#pane, radius, interactive: false, ...st })
+          .circle([lat, lng], { pane: this.#pane, radius, ...st })
           .addTo(this.#group)
         this.#byId.set(id, { circle, lat, lng, radius })
       })

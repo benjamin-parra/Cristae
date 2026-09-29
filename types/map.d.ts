@@ -88,7 +88,8 @@ export interface PolygonAccessors<T> extends Pick<SourceAccessors<T>, "hashOf"> 
   idOf     : (g: T) => string | number;
   /** Anillos Leaflet `[[lat,lng],…]` o multi-anillo `[[[lat,lng],…],…]`. */
   ringsOf  : (g: T) => number[][] | number[][][];
-  /** Opciones de `L.polygon` (color, fillColor, weight, opacity, …). */
+  /** Opciones de `L.polygon` (color, fillColor, weight, opacity, …), salvo `interactive`, que se ignora:
+   *  el picking es por índice. */
   styleOf? : (g: T) => Record<string, unknown>;
 }
 
@@ -419,7 +420,8 @@ export interface CircleAccessors<T> extends Pick<SourceAccessors<T>, "hashOf"> {
   positionOf     : (c: T) => { lat: number; lng: number };
   /** Radio en METROS (escala con el zoom, a diferencia del sprite px fijo). */
   radiusMetersOf : (c: T) => number;
-  /** Opciones de `L.circle` (color, fillColor, weight, opacity, …). */
+  /** Opciones de `L.circle` (color, fillColor, weight, opacity, …), salvo `interactive`, que se ignora:
+   *  el picking es por índice. */
   styleOf?       : (c: T) => Record<string, unknown>;
 }
 export interface CircleLayerConfig<T> {

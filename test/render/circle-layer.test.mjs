@@ -102,6 +102,24 @@ test('sólo pica en la copia del mundo donde el círculo está dibujado', () => 
   layer.destroy()
 })
 
+// Como en los polígonos: el `interactive: false` de `pathStyle` (render/focus.js) llega al constructor y a
+// cada `setStyle`. Cada paso anota [setStyle recibidos, interactive vigente].
+test('el L.circle no es interactivo para Leaflet ni al nacer, ni en el patch, ni en el foco', async () => {
+  const L      = makeLeaflet()
+  const source = createSource({ ...accessors, styleOf: () => ({ interactive: true }) })
+  const items  = [{ id: 1, lat: 0, lng: 0, radius: 1000 }, { id: 2, lat: 10, lng: 10, radius: 1000 }]
+  source.set(items)
+  await flush()
+  const layer  = new CircleLayer({ L, map: makeMap(), pane: 'p', source, interactive: true })
+  const estado = () => L.log.paths.map(p => [p.setStyleCalls, p.opts.interactive])
+  assert.deepEqual(estado(), [[0, false], [0, false]], 'al nacer')
+  source.patch(items, new Set([1]))
+  await flush()
+  assert.deepEqual(estado(), [[1, false], [0, false]], 'el patch reestila sólo el sucio')
+  layer.applyFocus(new Set([1]))
+  assert.deepEqual(estado(), [[2, false], [1, false]], 'el foco reestila todos')
+})
+
 test('patch que reestila (setStyle/setRadius) toca SÓLO ese círculo, sin recrear ni rebuildear', async () => {
   const { L, source } = await mount()
   const baseClear = L.log.clearLayers

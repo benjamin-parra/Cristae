@@ -58,6 +58,24 @@ const mount = async () => {
   return { L, map, source, layer }
 }
 
+// El `interactive: false` que `pathStyle` pone encima del `styleOf` (el porqué, en render/focus.js) llega
+// al constructor y a cada `setStyle`. Cada paso anota [setStyle recibidos, interactive vigente].
+test('el L.polygon no es interactivo para Leaflet ni al nacer, ni en el patch, ni en el foco', async () => {
+  const L      = makeLeaflet()
+  const source = createSource({ ...accessors, styleOf: () => ({ interactive: true }) })
+  const items  = [{ id: 'a', rings: square(0, 0) }, { id: 'b', rings: square(10, 10) }]
+  source.set(items)
+  await flush()
+  const layer  = new PolygonLayer({ L, map: makeMap(), pane: 'p', source, interactive: true })
+  const estado = () => L.log.paths.map(p => [p.setStyleCalls, p.opts.interactive])
+  assert.deepEqual(estado(), [[0, false], [0, false]], 'al nacer')
+  source.patch(items, new Set(['a']))
+  await flush()
+  assert.deepEqual(estado(), [[1, false], [0, false]], 'el patch reestila sólo el sucio')
+  layer.applyFocus(new Set(['a']))
+  assert.deepEqual(estado(), [[2, false], [1, false]], 'el foco reestila todos')
+})
+
 test('patch de UN polígono re-estila SÓLO ese L.polygon (no clearLayers, no rebuild de los demás)', async () => {
   const { L, source, layer } = await mount()
 
@@ -77,7 +95,7 @@ test('patch de UN polígono re-estila SÓLO ese L.polygon (no clearLayers, no re
   assert.equal(L.log.paths.length, baseline.polys, 'el patch NO creó nuevas instancias L.polygon')
   assert.equal(pa.setStyleCalls, baseline.sa + 1, "sólo el polígono 'a' se re-estiló")
   assert.equal(pb.setStyleCalls, baseline.sb, "el polígono 'b' quedó intacto")
-  assert.deepEqual(pa.style, { color: '#ff0000', fillColor: '#ff0000', weight: 2 }, 'el nuevo estilo llegó a setStyle')
+  assert.deepEqual(pa.style, { color: '#ff0000', fillColor: '#ff0000', weight: 2, interactive: false }, 'el nuevo estilo llegó a setStyle')
 })
 
 test('agregar un polígono (cambia el tamaño) cae a rebuild total (clearLayers + recreación)', async () => {
