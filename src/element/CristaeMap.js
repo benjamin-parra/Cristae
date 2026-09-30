@@ -1,4 +1,5 @@
-import { LitElement, html, css, unsafeCSS } from 'lit'
+import { LitElement, html, css, unsafeCSS, nothing } from 'lit'
+import { unsafeHTML } from 'lit/directives/unsafe-html.js'
 import L from 'leaflet'
 import { surfaceCss } from '../host/styles.js'
 import { MapEngine } from '../engine/MapEngine.js'
@@ -77,6 +78,9 @@ export class CristaeMap extends LitElement {
     // Estado reactivo interno (no atributo): ¿mostrar el estado vacío? Lo computa el mapa desde sus
     // capas de datos; dispara re-render del overlay del mensaje.
     _empty             : { state: true },
+    // Lo que dibujan el zoom y la atribución: el zoom de la vista asentada y la atribución del proveedor.
+    _zoom              : { state: true },
+    _attribution       : { state: true },
   }
 
   // La superficie del mapa se posiciona con la hoja del anfitrión (tiles absolutos, z de los panes,
@@ -86,7 +90,7 @@ export class CristaeMap extends LitElement {
     unsafeCSS(surfaceCss),
     css`
       /* isolation:isolate crea un stacking context en el host: confina el z-index interno
-         (panes de Leaflet 200-700, controles 800-1000, overlays) para que el mapa NO se
+         (panes de Leaflet 200-700, overlays 1000) para que el mapa NO se
          pinte por encima de modales/drawers de la página. Sin esto, esos z-index compiten
          en el contexto raíz y tapan UI superpuesta. position:relative solo no alcanza. */
       :host { display: block; position: relative; isolation: isolate; width: 100%; height: 100%; }
@@ -113,6 +117,26 @@ export class CristaeMap extends LitElement {
       .bc { align-items: center;     justify-content: flex-end; }
       .br { align-items: flex-end;   justify-content: flex-end; }
       ::slotted(*) { pointer-events: auto; }
+      /* El zoom y la atribución son del elemento: viven en las zonas, fuera del contenedor del mapa, así
+         que su puntero nunca llega a la superficie. Toman el aspecto de los controles de Leaflet y se
+         estilan desde afuera por sus parts: zoom, zoom-in, zoom-out y attribution. */
+      .zoom, .attribution { pointer-events: auto; font: 12px/1.4 "Helvetica Neue", Arial, Helvetica, sans-serif; }
+      .zoom {
+        display: flex; flex-direction: column;
+        border: 2px solid rgba(0, 0, 0, 0.2); border-radius: 4px; background-clip: padding-box;
+      }
+      .zoom button {
+        width: 30px; height: 30px; padding: 0; border: 0; border-bottom: 1px solid #ccc;
+        background: #fff; color: #000; font: bold 22px/30px "Lucida Console", Monaco, monospace;
+        cursor: pointer; user-select: none;
+      }
+      .zoom button:first-child { border-radius: 2px 2px 0 0; }
+      .zoom button:last-child { border-bottom: none; border-radius: 0 0 2px 2px; }
+      .zoom button:hover, .zoom button:focus-visible { background: #f4f4f4; }
+      .zoom button:disabled { cursor: default; background: #f4f4f4; color: #bbb; }
+      .attribution { padding: 0 5px; background: rgba(255, 255, 255, 0.8); color: #333; }
+      .attribution a { color: #0078a8; text-decoration: none; }
+      .attribution a:hover, .attribution a:focus { text-decoration: underline; }
       /* Estado "sin datos": mensaje centrado sobre el mapa, POR DEBAJO de los overlays de control
          (z-index 900 < 1000) y sin capturar el puntero (no bloquea drag/zoom del mapa vacío). El
          contenido sloteado sí reactiva el puntero (un CTA clickeable). Oculto salvo estado vacio. */
@@ -146,11 +170,21 @@ export class CristaeMap extends LitElement {
   // resuelve una sola vez, cuando el motor queda listo.
   ready = new Promise(resolve => this.#resolveReady = resolve)
 
+  // El zoom abre su zona y la atribución la cierra, como los controles de Leaflet en sus esquinas. Los
+  // botones le piden el zoom al motor vigente al pulsarlos: tras un re-montaje es otro, y el render no se
+  // repite si nada cambió. La atribución va como HTML (docs/tiles.md#la-atribución).
   render() {
+    const camera = this.#engine?.camera
     return html`
       <div id="map"></div>
       <div class="overlays">
-        <div class="zone tl"><slot name="top-left"></slot></div>
+        <div class="zone tl">${this.noZoomControl ? nothing : html`
+          <div class="zoom" part="zoom">
+            <button type="button" part="zoom-in" title="Zoom in" aria-label="Zoom in"
+              ?disabled=${this._zoom >= camera?.getMaxZoom()} @click=${() => this.#engine?.camera.zoomIn()}>+</button>
+            <button type="button" part="zoom-out" title="Zoom out" aria-label="Zoom out"
+              ?disabled=${this._zoom <= camera?.getMinZoom()} @click=${() => this.#engine?.camera.zoomOut()}>&minus;</button>
+          </div>`}<slot name="top-left"></slot></div>
         <div class="zone tc"><slot name="top-center"></slot></div>
         <div class="zone tr"><slot name="top-right"></slot></div>
         <div class="zone cl"><slot name="center-left"></slot></div>
@@ -158,7 +192,8 @@ export class CristaeMap extends LitElement {
         <div class="zone cr"><slot name="center-right"></slot></div>
         <div class="zone bl"><slot name="bottom-left"></slot></div>
         <div class="zone bc"><slot name="bottom-center"></slot></div>
-        <div class="zone br"><slot name="bottom-right"></slot></div>
+        <div class="zone br"><slot name="bottom-right"></slot>${this._attribution ? html`
+          <div class="attribution" part="attribution">${unsafeHTML(this._attribution)}</div>` : nothing}</div>
       </div>
       <div class="empty-state" part="empty" ?hidden=${!this._empty}>
         <slot name="empty">${this.emptyMessage ?? ''}</slot>
@@ -264,8 +299,9 @@ export class CristaeMap extends LitElement {
   // cámara y el motor emite `viewportchange` — la región visible cambió aunque la cámara no se movió —
   // para que los overlays anclados (popup, botón central del cluster) se re-encuadren al instante.
   // `zoom-animation`, `cursor` y los límites también son reactivos: se cambian en vivo sin remontar el
-  // mapa. Los límites van juntos, así que cambiar uno los vuelve a fijar todos.
-  updated(changed) {
+  // mapa. Los límites van juntos, así que cambiar uno los vuelve a fijar todos. Todo llega al motor antes
+  // del render, que lee de la cámara los topes con que habilita el zoom.
+  willUpdate(changed) {
     if (!this.#engine) return
     if (changed.has('zoomAnimation')) this.#engine.setZoomAnimation(this.zoomAnimation ?? 'none')
     if (changed.has('cursor')) this.#engine.setCursor(this.cursor)
@@ -299,11 +335,12 @@ export class CristaeMap extends LitElement {
       insets: this.viewportInsets,
       hoverThrottleMs: this.hoverThrottle ?? 0,
       zoomAnimation: this.zoomAnimation ?? 'none',
-      zoomControl: !this.noZoomControl,
       cursor: this.cursor,
       ...this.#limits(),
     })
     if (this.tile) this.#engine.setTileProvider({ noWrap: !this.worldCopies, ...this.tile })
+    this._zoom        = this.#engine.camera.getZoom()
+    this._attribution = this.#engine.getTileAttribution()
 
     this.#wireEvents()
     this.#pending.forEach(el => el.cristaeMount(this.#engine))
@@ -323,7 +360,12 @@ export class CristaeMap extends LitElement {
   #wireEvents() {
     const e = this.#engine
     // Siempre activos: baja frecuencia, sin coste de picking.
-    e.on('viewportchange', d => this.#emit('viewportchange', d))
+    e.on('viewportchange', d => {
+      this._zoom = d.zoom
+      this.#emit('viewportchange', d)
+    })
+    // Un tope que se abre no mueve la vista: el render vuelve a leer los topes para habilitar el zoom.
+    e.on('zoomlevelschange', () => this.requestUpdate())
     e.on('interactionstart', () => this.#emit('interactionstart', {}))
     e.on('interactionend', () => this.#emit('interactionend', {}))
     // Click en el MAPA (área libre, con latlng) → CustomEvent DOM `cristae:mapclick`. Mismo patrón

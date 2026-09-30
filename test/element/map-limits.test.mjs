@@ -1,5 +1,5 @@
 // Los límites de la cámara de <cristae-map> llegan al motor como `zoom-animation` y `cursor`: como
-// opciones al montar y, en vivo, por `updated()`, los cuatro juntos. Sin DOM real: el elemento se monta
+// opciones al montar y, en vivo, por `willUpdate()`, los cuatro juntos. Sin DOM real: el elemento se monta
 // con `montarMapa` del harness, y lo que se mira es lo que recibe el mapa doble. Corre con:
 //   node --test test/element/map-limits.test.mjs
 // El harness va PRIMERO: window/document y lo que Lit toca al evaluar.
@@ -36,12 +36,12 @@ test('los límites son reactivos: cambiar uno los vuelve a fijar todos, y quitar
 
   const { el, map } = await montarMapa({ minZoom: 3, maxBoundsViscosity: 1 }, conLimites(makeMap()))
   el.maxZoom = 12
-  el.updated(new Map([['maxZoom', undefined]]))
+  el.willUpdate(new Map([['maxZoom', undefined]]))
   assert.deepEqual(limitesDe(map), { minZoom: 3, maxZoom: 12, maxBounds: null, maxBoundsViscosity: 1 })
 
   el.minZoom   = null
   el.maxBounds = [[-1, -1], [1, 1]]
-  el.updated(new Map([['minZoom', 3], ['maxBounds', undefined]]))
+  el.willUpdate(new Map([['minZoom', 3], ['maxBounds', undefined]]))
   assert.deepEqual(limitesDe(map), { minZoom: undefined, maxZoom: 12, maxBounds: [[-1, -1], [1, 1]], maxBoundsViscosity: 1 })
   el.disconnectedCallback()
 })
@@ -49,11 +49,11 @@ test('los límites son reactivos: cambiar uno los vuelve a fijar todos, y quitar
 test('max-bounds es JSON, como viewport-insets: una caja o un par de esquinas', async () => {
   const { el, map } = await montarMapa({}, conLimites(makeMap()))
   el.attributeChangedCallback('max-bounds', null, '{"south":-10,"west":-20,"north":10,"east":20}')
-  el.updated(new Map([['maxBounds', undefined]]))
+  el.willUpdate(new Map([['maxBounds', undefined]]))
   assert.deepEqual(map.options.maxBounds, [[-10, -20], [10, 20]])
 
   el.attributeChangedCallback('max-bounds', null, '[[-1,-1],[1,1]]')
-  el.updated(new Map([['maxBounds', undefined]]))
+  el.willUpdate(new Map([['maxBounds', undefined]]))
   assert.deepEqual(map.options.maxBounds, [[-1, -1], [1, 1]])
   el.disconnectedCallback()
 })

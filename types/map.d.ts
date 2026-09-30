@@ -264,6 +264,8 @@ export interface EngineSignals {
   'viewportchange'   : (detail: ViewportChangeDetail) => void;
   /** Cada paso del movimiento, para lo que sigue la vista en continuo (SPECS §10). */
   'move'             : (detail: Record<string, never>) => void;
+  /** Cambiaron los topes del zoom, aunque la vista no se haya movido (SPECS §10). */
+  'zoomlevelschange' : (detail: { minZoom: number; maxZoom: number }) => void;
   'map:click'        : (detail: MapClickDetail) => void;
   'interactionstart' : (detail: Record<string, never>) => void;
   'interactionend'   : (detail: Record<string, never>) => void;
@@ -667,6 +669,8 @@ export interface Camera {
   getCenter(): LatLng;
   getZoom(): number;
   getBounds(): Bounds;
+  /** Zoom mínimo efectivo: el límite `minZoom` si lo hay y, si no, el que permiten las capas. */
+  getMinZoom(): number;
   /** Zoom máximo efectivo: el límite `maxZoom` si lo hay y, si no, la capacidad del tile. */
   getMaxZoom(): number;
   zoomIn(delta?: number): this;
@@ -690,14 +694,13 @@ export interface MapHost {
  *  (SPECS §6). */
 export function adoptLeafletHost(map: unknown, options?: { leaflet?: unknown }): MapHost;
 
-/** Con `host`, el motor trabaja sobre ese mapa y no lee `container`, `view`, `zoomControl` ni los
- *  límites; sin él, crea el suyo sobre `container` (SPECS §6). */
+/** Con `host`, el motor trabaja sobre ese mapa y no lee `container`, `view` ni los límites; sin él, crea
+ *  el suyo sobre `container`, sin controles (SPECS §6). */
 export interface MapEngineOptions {
   host?               : MapHost;
   container?          : HTMLElement;
   /** Vista inicial del mapa propio. Default: `[0, 0]`, zoom 2. */
   view?               : { center?: LatLngPoint; zoom?: number };
-  zoomControl?        : boolean;
   glify               : unknown;
   insets?             : Insets;
   hoverThrottleMs?    : number;
@@ -772,6 +775,9 @@ export class MapEngine {
   registerIconSet(name: string, set: IconSet): this;
   createIcon(config: { size?: number; draw?: (ctx: CanvasRenderingContext2D, size: number) => void }): HTMLCanvasElement;
   setTileProvider(tile: { url: string; [k: string]: unknown }): this;
+  /** Atribución del proveedor vigente, tal como se dio —HTML, como en Leaflet—, o `null`. El motor no la
+   *  dibuja: docs/tiles.md#la-atribución. */
+  getTileAttribution(): string | null;
 
   /** Política de animación del zoom, en vivo (SPECS §9). Aplica desde el zoom siguiente. */
   setZoomAnimation(mode: "none" | "in-only" | "on"): this;

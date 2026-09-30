@@ -172,8 +172,10 @@ export class Camera {
   getCenter() { return this.#hostCamera.center() }
   getZoom() { return this.#hostCamera.zoom() }
   getBounds() { return this.#hostCamera.bounds() }
-  // Zoom máximo EFECTIVO: el límite `maxZoom` si lo hay y, si no, la capacidad del tile (el mínimo maxZoom
-  // entre las capas). Cierra el motivo de bajar a getLeafletMap() para saber hasta dónde se puede acercar.
+  // Zoom EFECTIVO en cada extremo: el límite `minZoom`/`maxZoom` si lo hay y, si no, lo que permiten las
+  // capas (el máximo minZoom y el mínimo maxZoom entre ellas). Cierran el motivo de bajar a getLeafletMap()
+  // para saber hasta dónde se puede alejar o acercar.
+  getMinZoom() { return this.#hostCamera.minZoom() }
   getMaxZoom() { return this.#hostCamera.maxZoom() }
 
   /* ── Zoom (ortogonal al follow: cambiar de nivel NO cancela el seguimiento de un punto, a

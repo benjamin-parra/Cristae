@@ -24,8 +24,9 @@ const { default: L }                          = await import('leaflet')
 const { createLeafletHost, adoptLeafletHost } = await import('../../src/host/LeafletHost.js')
 const { MapEngine }                           = await import('../../src/engine/MapEngine.js')
 
-const URL_TILES = 'https://{s}.tiles.test/{z}/{x}/{y}/{-y}.png'
-const PANE      = 'tileZoomSnapshotPane'
+const URL_TILES  = 'https://{s}.tiles.test/{z}/{x}/{y}/{-y}.png'
+const PANE       = 'tileZoomSnapshotPane'
+const ATRIBUCION = '&copy; <a href="https://proveedor.test">Proveedor</a>'
 
 const capaDe = map => {
   let capa
@@ -159,6 +160,19 @@ test('un proveedor nuevo suelta al anterior con sus fotos', () => {
   host.destroy()
 })
 
+test('la atribución es la del proveedor vigente, tal como la dio, y el mapa propio no la dibuja', () => {
+  const host         = createLeafletHost({ container: contenedor(), view: { center: [-33, -70], zoom: 10 } })
+  const atribuciones = [host.tiles.attribution()]
+  host.tiles.setProvider({ url: URL_TILES, attribution: ATRIBUCION })
+  atribuciones.push(host.tiles.attribution())
+  host.tiles.setProvider({ url: URL_TILES })
+  atribuciones.push(host.tiles.attribution())
+
+  assert.deepEqual(atribuciones, [null, ATRIBUCION, null])
+  assert.equal(host.map.getContainer().querySelector('.leaflet-control'), null, 'ni zoom ni atribución de Leaflet')
+  host.destroy()
+})
+
 test('el motor pone los tiles por su anfitrión, y al destruirse se los saca a un mapa adoptado', () => {
   const map    = new L.Map(contenedor(), { center: [-33, -70], zoom: 10 })
   const host   = adoptLeafletHost(map)
@@ -167,6 +181,7 @@ test('el motor pone los tiles por su anfitrión, y al destruirse se los saca a u
   engine.setTileProvider({ url: URL_TILES, attribution: '© Proveedor' })
   const capa = capaDe(map)
   assert.equal(capa.options.attribution, '© Proveedor', 'las opciones llegan a la capa')
+  assert.equal(engine.getTileAttribution(), '© Proveedor', 'y el motor da su atribución')
   cargar(capa)
   engine.camera.setZoom(9)
   assert.equal(map.getPane(PANE).children.length, 1)

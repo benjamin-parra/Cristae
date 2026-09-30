@@ -63,7 +63,7 @@ test('setLimits fija los cuatro: el zoom queda entre los topes, y el que no vien
   const { camera, destroy } = createLeafletHost({ container: contenedor(), view: { center: [0, 0], zoom: 10 } })
   camera.setLimits({ ...NINGUNO, minZoom: 3, maxZoom: 8 })
   assert.equal(camera.zoom(), 8, 'la vista que queda fuera vuelve adentro')
-  assert.equal(camera.maxZoom(), 8)
+  assert.deepEqual([camera.minZoom(), camera.maxZoom()], [3, 8])
   camera.setZoom(1)
   assert.equal(camera.zoom(), 3)
 
@@ -71,6 +71,8 @@ test('setLimits fija los cuatro: el zoom queda entre los topes, y el que no vien
   assert.equal(camera.maxZoom(), Infinity, 'sin tope ni tiles, no hay techo')
   camera.setZoom(15)
   assert.equal(camera.zoom(), 15)
+  camera.setLimits({})
+  assert.equal(camera.minZoom(), 0, 'sin tope ni tiles, el piso es 0')
   destroy()
 })
 
@@ -126,6 +128,21 @@ test('el motor pone sus límites en el mapa propio y no los lee en uno adoptado'
   propio.destroy()
   ajeno.destroy()
   map.remove()
+})
+
+// Abrir un tope no mueve la vista: el aviso es lo único que sale, uno por tope que cambia.
+test('el motor avisa con zoomlevelschange que cambiaron los topes, aunque la vista no se mueva', () => {
+  const engine = new MapEngine({ container: contenedor(), view: { center: [0, 0], zoom: 10 }, glify: null, maxZoom: 10 })
+  const avisos = []
+  engine.on('zoomlevelschange', detail => avisos.push(detail))
+  engine.on('viewportchange', () => avisos.push('viewportchange'))
+
+  engine.setLimits({ minZoom: 3, maxZoom: 15 })
+  assert.deepEqual(
+    { ultimo: avisos.at(-1), vista: avisos.includes('viewportchange'), zoom: engine.camera.getZoom() },
+    { ultimo: { minZoom: 3, maxZoom: 15 }, vista: false, zoom: 10 },
+  )
+  engine.destroy()
 })
 
 test('al soltarse, el mapa adoptado recupera los límites que tenía antes del primer setLimits', () => {

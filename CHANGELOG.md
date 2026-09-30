@@ -76,6 +76,11 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   del contenedor de la capa: la lleva su pane, como los tiles su capa. El filtro rige también con un
   motor fuera de `<cristae-map>`; el fondo, no: ahí el contenedor es un nodo de la página.
   *Migración*: quien inyectaba esas reglas pasa a las custom properties.
+- **`camera.getMinZoom()`, el par de `getMaxZoom()`, y el evento `zoomlevelschange` del motor.** El zoom
+  mínimo efectivo: el límite `minZoom` si lo hay y, si no, el que permiten las capas. Es el tope en que el
+  zoom de `<cristae-map>` deshabilita su −. Cuando cambia alguno de los dos, el motor emite
+  `zoomlevelschange` con `{ minZoom, maxZoom }`: abrir un tope no mueve la vista ni emite `viewportchange`
+  ([SPECS §10](SPECS.md)).
 - **`camera.fitBounds` acepta `maxZoom` y `animate`.** `maxZoom` topa el zoom del encuadre antes de
   centrar —si no es un número finito no topa, como un límite—, y `animate: false` encuadra sin animar;
   el zoom sigue obedeciendo la política de `zoom-animation` ([SPECS §9](SPECS.md)).
@@ -156,7 +161,7 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   hasta que el motor pida otra política —`zoomAnimation: 'none'` conserva el default del mapa que creaba
   el motor—, dibuja como aquél si se crea con `preferCanvas: true`, `fadeAnimation: false` y
   `markerZoomAnimation: false`, y se remueve con `map.remove()` después de `engine.destroy()`.
-  `zoomControl` y `zoomAnimation` no cambian.
+  `zoomAnimation` no cambia.
 - **La política de animación del zoom alcanza al cierre del pinch y a `flyTo`.** Los dos animaban con
   cualquier `zoom-animation`: Leaflet cierra el pinch y vuela sin pasar por donde se filtraba cada zoom.
   Ahora la política juzga cada zoom por sus dos extremos, lo pida quien lo pida: con `'none'` el cierre
@@ -182,6 +187,21 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   ya no llega a Cristae: se despachan `pointerdown` y `pointerup` sobre el contenedor del mapa. En un
   mapa adoptado, lo que su dueño cuelga de los panes con Leaflet —un `L.popup`, un marcador— ya no le
   saca el click a Cristae; un control sí.
+- **El zoom y la atribución de `<cristae-map>` los dibuja el elemento, y el mapa nace sin los controles
+  de Leaflet.** Vivían dentro del contenedor, así que cada pulsación sobre ellos había que separarla de
+  las de la superficie. Ahora son overlays de las zonas: el +/− abre `top-left` y se deshabilita en cada
+  tope de la cámara, y la atribución del proveedor cierra `bottom-right`, sin el prefijo «Leaflet». La
+  atribución sigue entrando como HTML, igual que en Leaflet, y con la misma consecuencia: es
+  configuración del integrador, no un dato de usuario ([`docs/tiles.md`](docs/tiles.md#la-atribución)).
+  Se estilan por `::part(zoom)`, `::part(zoom-in)`, `::part(zoom-out)` y `::part(attribution)`, y
+  `no-zoom-control` pasa a ser reactivo. El motor sin elemento también crea su mapa sin controles, y da
+  la atribución con `engine.getTileAttribution()` para que la dibuje quien lo usa.
+  *Migración*: `MapEngineOptions.zoomControl` sale; un motor sin elemento que mostraba el +/− de Leaflet
+  dibuja el suyo con `camera.zoomIn()`/`camera.zoomOut()`, y la atribución con `getTileAttribution()`.
+  El mapa del elemento ya no tiene `zoomControl` ni `attributionControl`: quien sacaba el zoom con
+  `getLeafletMap().removeControl(…)` pasa `no-zoom-control`. Un control de Leaflet agregado con
+  `getLeafletMap().addControl(…)` a ese mapa queda sin posición ni estilo, porque la hoja del shadow root
+  ya no los trae: va un `<cristae-toolbar>` u otro nodo en el slot de una zona.
 
 ### Eliminado
 - **`LatLngLike` sale de los tipos.** Era el punto de la cámara con el contrato de Leaflet, un par o

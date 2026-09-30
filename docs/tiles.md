@@ -42,6 +42,14 @@ anterior, con su capa y sus fotos. Al destruirse el motor, el anfitrión le saca
 capa y el pane de la retención que le puso. El filtro de los tiles y el fondo del mapa no son opciones
 del proveedor: son custom properties, y dónde rige cada una está en [`<cristae-map>`](./elements.md#cristae-map).
 
+## La atribución
+
+`attribution` del proveedor es HTML, como en Leaflet, para que lleve el enlace a la licencia que piden
+los proveedores. El mapa no la dibuja: `<cristae-map>` la pone al pie de su zona `bottom-right`, y
+`engine.getTileAttribution()` la devuelve tal cual —o `null`— a quien use el motor sin el elemento.
+Como se inserta como marcado en la página —el shadow root no aísla scripts—, es configuración del
+integrador: un texto que venga de un usuario o de un tercero se escapa antes de ponerlo.
+
 El resto de este documento es la **retención de snapshots** durante el zoom (interno; no hace falta tocarlo).
 
 ---

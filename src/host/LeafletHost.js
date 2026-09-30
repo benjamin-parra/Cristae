@@ -10,13 +10,14 @@ import { TILE_FILTER } from './styles.js'
 //
 // Las facetas son `camera` —estado, comandos, proyección, política de animación del zoom y ciclo de
 // vista—, `surface`, los nodos donde dibujan las capas, `tiles`, el proveedor de la capa base con la
-// retención de su imagen, e `input`, la entrada del contenedor y el arrastre del mapa. `substrate` es el
-// Leaflet y el mapa para lo que todavía dibuja con Leaflet: los sustratos vectoriales y glify, y nada
-// más. `map` queda para `getLeafletMap()`.
+// retención de su imagen y su atribución, e `input`, la entrada del contenedor y el arrastre del mapa.
+// `substrate` es el Leaflet y el mapa para lo que todavía dibuja con Leaflet: los sustratos vectoriales y
+// glify, y nada más. `map` queda para `getLeafletMap()`.
 
 // El ciclo de vista, con un solo emisor: cada tipo tiene un oyente en el mapa, y los suscriptores del
-// anfitrión se reparten ese lugar en el orden en que llegaron.
-const VIEW_EVENTS = ['movestart', 'move', 'moveend', 'zoomstart', 'zoomanim', 'zoomend', 'resize']
+// anfitrión se reparten ese lugar en el orden en que llegaron. `zoomlevelschange` avisa que cambiaron los
+// topes del zoom —un límite, o una capa que trae los suyos—, aunque la vista no se mueva.
+const VIEW_EVENTS = ['movestart', 'move', 'moveend', 'zoomstart', 'zoomanim', 'zoomend', 'resize', 'zoomlevelschange']
 
 // Los eventos del contenedor en que se relee si el arrastre del mapa sigue en curso (ver `input`).
 const DRAG_SYNC = ['pointerup', 'pointerenter']
@@ -168,6 +169,7 @@ const hostOf = (map, leaflet, ownsMap, zoomPolicy) => {
     hasView : () => !!map._loaded,
     center  : () => plainLatLng(map.getCenter()),
     zoom    : () => map.getZoom(),
+    minZoom : () => map.getMinZoom(),
     maxZoom : () => map.getMaxZoom(),
     size    : () => plainPoint(map.getSize()),
     bounds() {
@@ -280,10 +282,12 @@ const hostOf = (map, leaflet, ownsMap, zoomPolicy) => {
   }
 
   // Un proveedor a la vez (docs/tiles.md#el-proveedor-lo-pone-el-anfitrión). La retención va antes que la
-  // capa, por el orden en que Leaflet avisa el reset (docs/tiles.md#la-retención).
+  // capa, por el orden en que Leaflet avisa el reset (docs/tiles.md#la-retención). La atribución es la del
+  // proveedor vigente, como la dio: la dibuja quien usa el mapa, porque el anfitrión no pone controles.
   let tileLayer        = null
   let releaseRetention = null
   const tiles          = {
+    attribution: () => tileLayer?.getAttribution() ?? null,
     // Las opciones, salvo `url`, van tal cual a la capa de Leaflet. Su nodo nace cuando la capa entra al
     // mapa, que en uno adoptado sin vista es en su primer `setView`: el filtro se le pone ahí.
     setProvider({ url, ...options } = {}) {
@@ -316,7 +320,8 @@ const hostOf = (map, leaflet, ownsMap, zoomPolicy) => {
     DRAG_SYNC.forEach(type => container[onContainer](type, syncDrag, PASSIVE))
   }
 
-  // Lo que no cuelga de `mapPane` es la UI que Leaflet pone en el contenedor: los controles.
+  // Lo que no cuelga de `mapPane` es la UI que Leaflet pone en el contenedor: los controles, que un mapa
+  // propio no trae.
   const mapPane = map.getPane('mapPane')
 
   const input = {
@@ -377,15 +382,17 @@ const hostOf = (map, leaflet, ownsMap, zoomPolicy) => {
 // Un mapa propio sobre `container`, con la vista inicial de `view` y los límites de `limits`, que van en
 // la construcción para que esa vista ya los cumpla: puestos después, la corregirían con un movimiento.
 // `zoomAnimation` de Leaflet queda en su default a propósito: ver el latch, arriba. Sin otra política,
-// el zoom no anima.
-export const createLeafletHost = ({ container, view: { center = [0, 0], zoom = 2 } = {}, zoomControl = true, limits }) =>
+// el zoom no anima. Nace sin controles: el contenedor es pura superficie, y el zoom y la atribución los
+// dibuja quien usa el mapa, fuera de él.
+export const createLeafletHost = ({ container, view: { center = [0, 0], zoom = 2 } = {}, limits }) =>
   hostOf(new L.Map(container, {
     preferCanvas        : true,
     fadeAnimation       : false,
     markerZoomAnimation : false,
+    zoomControl         : false,
+    attributionControl  : false,
     center              : latLngOf(L.LatLng, center),
     zoom,
-    zoomControl,
     ...leafletLimits(limits),
   }), L, true, 'none')
 

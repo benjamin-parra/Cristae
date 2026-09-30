@@ -197,7 +197,8 @@ consumidor. Gana la primera fila que aplica:
   `.leaflet-interactive` en Leaflet. Con su cursor puesto, el picking que sólo decidía el `pointer` no
   corre: lo justifica únicamente la demanda de hover, y sólo en las capas que la tienen. Al quitarlo, el
   `pointer` se resuelve donde quedó el puntero, sin esperar a que se mueva.
-- Popups y controles conservan su `cursor: auto`: la regla va en ellos.
+- Los popups conservan su `cursor: auto`: la regla va en su pane. El zoom y la atribución del elemento
+  viven fuera del contenedor, y el cursor de éste no los alcanza.
 - El editor informa su nivel —ninguno, bajo el puntero, tomado— y el nombre del cursor lo pone el
   árbitro. Con varios editores manda el más fuerte.
 

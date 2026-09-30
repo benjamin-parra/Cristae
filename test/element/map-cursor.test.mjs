@@ -1,5 +1,5 @@
 // El atributo `cursor` de <cristae-map> llega al motor por el mismo camino que `zoom-animation`: como
-// opción al montar y, en vivo, por `updated()`. Sin DOM real: el elemento se monta con `montarMapa` del
+// opción al montar y, en vivo, por `willUpdate()`. Sin DOM real: el elemento se monta con `montarMapa` del
 // harness, sobre el mapa doble, cuyo contenedor es el que el árbitro del cursor escribe. Corre con:
 //   node --test test/element/map-cursor.test.mjs
 // El harness va PRIMERO: window/document y lo que Lit toca al evaluar.
@@ -25,10 +25,10 @@ test('el atributo `cursor` es reactivo: cambiarlo y quitarlo llega al motor sin 
   const { el, cursor } = await montar({})
   assert.equal(cursor(), undefined, 'sin cursor el motor no toca el contenedor')
   el.cursor = 'copy'
-  el.updated(new Map([['cursor', undefined]]))
+  el.willUpdate(new Map([['cursor', undefined]]))
   assert.equal(cursor(), 'copy')
   el.cursor = null
-  el.updated(new Map([['cursor', 'copy']]))
+  el.willUpdate(new Map([['cursor', 'copy']]))
   assert.equal(cursor(), '')
   el.disconnectedCallback()
 })

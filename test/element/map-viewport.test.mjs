@@ -17,7 +17,7 @@ test('viewport-insets re-emite la vista con el centro y la caja planos', async (
   const { el } = await montarMapa({ dispatchEvent: ev => eventos.push(ev) }, map)
 
   el.viewportInsets = { left: 300 }
-  el.updated(new Map([['viewportInsets', undefined]]))
+  el.willUpdate(new Map([['viewportInsets', undefined]]))
 
   const { detail } = eventos.findLast(ev => ev.type === 'cristae:viewportchange')
   assert.deepEqual(detail, {

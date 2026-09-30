@@ -64,7 +64,7 @@ Contenedor. Monta el `MapEngine`, expone cámara/engine y reenvía los eventos d
 | `initial-zoom` | number | atributo |
 | `hover-throttle` | number (ms) | atributo |
 | `world-copies` | boolean | atributo |
-| `no-zoom-control` | boolean | atributo |
+| `no-zoom-control` | boolean; quita el zoom del elemento | atributo — **reactivo** |
 | `zoom-animation` | `"none"` (default) \| `"in-only"` \| `"on"`; qué anima cada uno, [SPECS §9](../SPECS.md) | atributo — **reactivo** |
 | `cursor` | valor CSS de `cursor` (`"crosshair"`, …); vacío o inválido = ninguno | atributo — **reactivo** |
 | `min-zoom` · `max-zoom` | number; topes del zoom | atributo — **reactivo** |
@@ -92,8 +92,15 @@ Contenedor. Monta el `MapEngine`, expone cámara/engine y reenvía los eventos d
 > agrega y en el pane de la foto, y no toca los panes del mapa. El fondo sale de la hoja del elemento:
 > fuera de él, el contenedor es un nodo de la página, y lo estila ella.
 
-> **`no-zoom-control`:** quita el control +/− nativo de Leaflet. Para reemplazarlo con uno propio,
-> se usa un `<cristae-toolbar>` en un slot del overlay con items que llamen `camera.zoomIn()`/`camera.zoomOut()`.
+> **Zoom y atribución:** los dibuja el elemento, no Leaflet, cuyo mapa nace sin controles. El +/− abre
+> la zona `top-left`, antes de lo sloteado ahí, y se deshabilita en cada tope de la cámara; la atribución
+> del proveedor cierra la zona `bottom-right`, como HTML ([`tiles.md`](./tiles.md#la-atribución)). Viven
+> en el shadow root y se estilan desde afuera por sus parts: `::part(zoom)`, `::part(zoom-in)`,
+> `::part(zoom-out)` y `::part(attribution)`. Los nombres accesibles del +/− son fijos, «Zoom in» y
+> «Zoom out». `no-zoom-control` lo quita; para reemplazarlo con uno propio —con otros textos, por
+> ejemplo—, se usa un `<cristae-toolbar>` en un slot del overlay con items que llamen
+> `camera.zoomIn()`/`camera.zoomOut()`. La hoja del shadow root no trae la de los controles de Leaflet: uno
+> agregado con `getLeafletMap().addControl(…)` queda sin posición ni estilo.
 
 > **`tile`:** objeto reactivo; reasignarlo **re-provee** los tiles
 > ([`tiles.md`](./tiles.md#el-proveedor-lo-pone-el-anfitrión)). Las opciones extra van tal cual a
@@ -194,7 +201,8 @@ center-left   center          center-right
 bottom-left   bottom-center   bottom-right
 ```
 
-El overlay no captura el puntero (deja pasar drag/zoom); cada hijo sloteado lo reactiva.
+El overlay no captura el puntero (deja pasar drag/zoom); cada hijo sloteado lo reactiva. El zoom y la
+atribución del elemento comparten `top-left` y `bottom-right` con lo sloteado ([`<cristae-map>`](#cristae-map)).
 
 ---
 

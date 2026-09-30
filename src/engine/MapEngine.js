@@ -130,8 +130,8 @@ export class MapEngine {
 
   // Lo que queda en `limits` son los límites de la cámara. Como la vista inicial, son del mapa propio: uno
   // adoptado trae los de su dueño.
-  constructor({ host, container, view, zoomControl, glify, insets, hoverThrottleMs = 0, zoomAnimation, cursor, ...limits } = {}) {
-    this.#host      = host ?? createLeafletHost({ container, view, zoomControl, limits: limitsOf(limits) })
+  constructor({ host, container, view, glify, insets, hoverThrottleMs = 0, zoomAnimation, cursor, ...limits } = {}) {
+    this.#host      = host ?? createLeafletHost({ container, view, limits: limitsOf(limits) })
     this.#substrate = this.#host.substrate
     this.#glify     = glify
     // Sin modo explícito queda el del anfitrión: no anima en un mapa propio, y en uno adoptado no se
@@ -173,6 +173,11 @@ export class MapEngine {
 
     this.#host.camera.on('moveend zoomend', emitViewport)
     this.#host.camera.on('move', () => this.#emit('move', MOVE_DETAIL))
+    // Los topes del zoom cambian sin que la vista se mueva cuando se abren: lo que los muestra no se
+    // entera por `viewportchange`.
+    this.#host.camera.on('zoomlevelschange', () => this.#emit('zoomlevelschange', {
+      minZoom: this.camera.getMinZoom(), maxZoom: this.camera.getMaxZoom(),
+    }))
     this.#wireRenderLifecycle()
     this.#wireZoomReproject()
 
@@ -787,6 +792,10 @@ export class MapEngine {
     this.#host.tiles.setProvider(tile)
     return this
   }
+
+  // La atribución del proveedor vigente, tal como la dio —HTML, como en Leaflet—, o `null`. El mapa no la
+  // dibuja: la dibuja quien lo usa (docs/tiles.md#la-atribución).
+  getTileAttribution() { return this.#host.tiles.attribution() }
 
   // Política de animación del zoom, en vivo (SPECS §9). Aplica desde el zoom siguiente; no reconstruye
   // capas ni pierde su cableado.
