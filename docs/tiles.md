@@ -1,4 +1,4 @@
-# Tiles — retención de imagen durante el zoom
+# Tiles — proveedor y retención de imagen durante el zoom
 
 > Pieza de [Cristae](../MODELO.md). Capa de presentación sobre Leaflet, ortogonal al
 > [atlas de iconos](./atlas.md) y al [pipeline de interacción](./interaction.md): no toca
@@ -32,6 +32,15 @@ map.tile = { ...tilePresets.cartoDark, maxZoom: 17 }    // con override
 | `esriImagery` | Esri World Imagery (satelital) |
 
 Son **datos**, no un code-path: un proveedor con key (Google, Mapbox) se arma como objeto `{ url, … }`.
+Las opciones que acepta un proveedor están en [`elements.md`](./elements.md) (`tile`).
+
+## El proveedor lo pone el anfitrión
+
+Ni el elemento ni el motor tocan la capa de tiles: `map.tile` y `engine.setTileProvider(tile)` se la
+piden al anfitrión del mapa, que la crea y la agrega. Hay un proveedor a la vez: el nuevo suelta al
+anterior, con su capa y sus fotos. Al destruirse el motor, el anfitrión le saca a un mapa adoptado la
+capa y el pane de la retención que le puso.
+
 El resto de este documento es la **retención de snapshots** durante el zoom (interno; no hace falta tocarlo).
 
 ---
@@ -43,9 +52,9 @@ Leaflet (solo se engancha a sus eventos):
 
 1. **El hueco gris tras el reset.** Leaflet avisa el reset (`viewprereset`) antes de que la capa
    suelte sus tiles: ahí se captura un canvas con los tiles cargados. Al cerrar el reset
-   (`viewreset`) el canvas se pone con `translate3d` + `scale` en el lugar que ocupa en la vista
-   nueva. Vive en un **pane propio** (`pointer-events: none`) por debajo del de tiles: los tiles
-   nuevos lo tapan a medida que llegan, y no interfiere con la interacción.
+   (`viewreset`) el canvas se cuelga, escalado, en el lugar que ocupa en la vista nueva. Vive en un
+   **pane propio** (`pointer-events: none`) por debajo del de tiles: los tiles nuevos lo tapan a medida
+   que llegan, y no interfiere con la interacción.
 
 2. **El primer frame tras un zoom grande.** Un solo snapshot del nivel actual cubre poco al
    saltar varios niveles. Por eso un **seed prefetch** precarga, en tiempo ocioso, tiles de
@@ -56,8 +65,8 @@ Leaflet (solo se engancha a sus eventos):
 Un zoom animado empieza con `zoomstart` y sin reset: la foto visible sale del documento, porque el
 pane de la retención no acompaña a la transición, y la próxima la elige el reset siguiente.
 
-Ningún flag global, ningún estado compartido entre mapas: toda la retención vive en la
-clausura que devuelve `createTileSnapshotRetention(map, …)`. Cada `L.map` tiene la suya.
+Ningún flag global, ningún estado compartido entre mapas: la retención es del anfitrión, una por
+proveedor, y todo su estado vive en su clausura.
 
 ---
 
@@ -73,15 +82,15 @@ Construcción: `new ZoomSnapshotStore({ maxSnapshots = 8, maxSeedSnapshots = 3 }
 | Método | Firma | Complejidad | Notas |
 |---|---|---|---|
 | `add(snapshot, { kind })` | `({element, meta}, {kind?: 'normal'\|'seed'}) → entry` | O(1) + trim | registra el canvas + metadata; `kind` por defecto `'normal'`. Tras agregar recorta (`#trim`) |
-| `select({ targetZoom, pixelOrigin, viewportSize, zoomScale })` | `(ctx) → placement[]` | O(s) (s = snapshots) | puntúa cada candidato y devuelve `[]`, `[primary]` o `[secondary, primary]`. `zoomScale(target, source) → number` lo provee el caller (Leaflet) |
+| `select({ targetZoom, pixelOrigin, viewportSize, zoomScale })` | `(ctx) → placement[]` | O(s) (s = snapshots) | puntúa cada candidato y devuelve `[]`, `[primary]` o `[secondary, primary]`. `pixelOrigin` y `viewportSize` son `{ x, y }`; `zoomScale(target, source) → number` lo provee el caller |
 | `clear()` | `() → void` | O(s) | descarta todos los canvas (sale del DOM + colapsa dimensiones) y vacía |
 | `ZoomSnapshotStore.discard(entry)` | `(entry) → void` | O(1) | estática: saca el canvas del DOM y pone `width = height = 0` para soltar memoria |
 
 `add` recibe el snapshot tal como lo arma la retención: `{ element: canvas, meta: { sourceZoom,
-sourcePixelTopLeft } }`. El `placement` que devuelve `select` es
-`{ snapshot, frame: { left, top, right, bottom, scale }, visible, score }` — `frame` es el
-canvas ya proyectado al espacio de píxeles del zoom destino; el caller aplica
-`translate3d(left, top) scale(scale)`.
+sourcePixelTopLeft } }`, con la esquina como `{ x, y }` en píxeles de `sourceZoom`. El
+`placement` que devuelve `select` es `{ snapshot, frame: { left, top, right, bottom, scale },
+visible, score }` — `frame` es el canvas ya proyectado al espacio de píxeles del zoom destino;
+el caller lo cuelga con `frameTransform(left, top, scale)` (`src/render/frame.js`).
 
 ### Scoring primario y secundario
 
@@ -106,39 +115,26 @@ pinte por debajo (el primario tapa al secundario en la zona compartida).
 
 ---
 
-## `createTileSnapshotRetention(map, opts)` — la retención
+## La retención
 
-Engancha la retención a un `L.map`. Se auto-suscribe al reset de Leaflet y al inicio de cada zoom,
-y gestiona internamente un `ZoomSnapshotStore` y el seed prefetch. Se crea antes de agregar la capa
-de tiles: Leaflet reparte `viewprereset` en el orden de suscripción, y la capa suelta sus tiles en el
-suyo.
+Vive en el anfitrión, que es el único que toca los privados de la capa de tiles. Al poner un
+proveedor, el anfitrión crea la retención antes de agregar la capa: Leaflet reparte `viewprereset`
+en el orden de suscripción, y la capa suelta sus tiles en el suyo. La retención gestiona su
+`ZoomSnapshotStore` y el seed prefetch, y se suelta con el proveedor: cancela el prefetch, descarta
+los canvas, se desuscribe y desmonta su pane.
 
-```js
-createTileSnapshotRetention(map, {
-  paneName = 'tileZoomSnapshotPane',  // pane propio para los canvas de snapshot
-  paneZIndex = 150,                   // z-index del pane (por encima del de tiles)
-})
-```
-
-Ciclo de eventos que cablea (todos sobre `map`):
+Ciclo de eventos que cablea (todos sobre el mapa):
 
 | Evento Leaflet | Acción interna |
 |---|---|
-| `viewprereset` | captura los tiles cargados de la capa activa y cancela el prefetch en vuelo |
+| `viewprereset` | captura los tiles cargados de la capa y cancela el prefetch en vuelo |
 | `zoomstart` | saca del documento la foto visible (queda en el almacén) |
 | `viewreset` | muestra la mejor combinación para la vista nueva |
 
-API devuelta:
-
-| Método | Firma | Complejidad | Notas |
-|---|---|---|---|
-| `activateLayer(layer)` | `(L.TileLayer) → void` | O(1) | adopta la capa de tiles activa: invalida snapshots viejos y agenda el seed prefetch. No-op si ya es la activa |
-| `invalidateSnapshots()` | `() → void` | O(s) | descarta todos los canvas y cancela el prefetch en vuelo. Para cuando cambia el **proveedor** de tiles (los snapshots viejos son de otro proveedor) |
-| `destroy()` | `() → void` | O(s) | cancela prefetch, limpia snapshots y des-suscribe todos los eventos |
-
-`activateLayer` ya invalida snapshots internamente; `invalidateSnapshots` se expone como
-contrato explícito para quien **reemplaza** la capa de tiles sin cambiar de objeto (ej:
-cambia la URL del proveedor de la misma `L.TileLayer`).
+La foto cuelga del pane `tileZoomSnapshotPane` (z 150, `pointer-events: none`), que la superficie del
+anfitrión monta en el primer reset. Su clase, `leaflet-tileZoomSnapshot-pane`, es por donde una hoja de
+estilos alcanza la foto: el `filter` del contenedor de la capa se copia al canvas al fotografiar, pero
+uno puesto sobre el pane de tiles no, y hay que ponérselo también a éste.
 
 ---
 
@@ -148,7 +144,7 @@ Para tener material antes del salto, la retención precarga snapshots de niveles
 
 - **Agendado con `requestIdleCallback`** (timeout 700 ms). Si el navegador no lo soporta, el
   prefetch simplemente no corre (el zoom sigue funcionando, solo con menos cobertura inicial).
-  Se agenda al activar una capa, y nunca si ya hay uno agendado.
+  Se agenda al retener la capa de un proveedor.
 - **Niveles objetivo:** `zoom + {1, 2, 4, 8}`, acotados a `maxZoom`. Por nivel se cargan hasta
   `MAX_SEED_TILES_PER_ZOOM` (24) tiles, ordenados por **cercanía al centro** (distancia
   Manhattan), así se prioriza lo que el usuario verá primero.
@@ -156,11 +152,10 @@ Para tener material antes del salto, la retención precarga snapshots de niveles
   del zoom de sus tiles: el zoom de la URL, la vuelta al mundo de la x y el rango con que invierte
   la y (`tms`, `{-y}`). Para una semilla se le pone un momento la grilla del zoom de la semilla
   (`_tileZoom` + `_resetGrid`) y después se le devuelve la suya.
-- **Generación cancelable.** Cada prefetch lleva un número de `generation`; cualquier
-  `cancelSeedPrefetch` (lo dispara un reset, `activateLayer`, `invalidateSnapshots` o
-  `destroy`) **incrementa** la generación. Las descargas en vuelo chequean
-  `generation !== currentGeneration()` entre tile y tile y se **abortan** descartando el
-  trabajo. No hay race: una prefetch obsoleta nunca inyecta un canvas viejo.
+- **Generación cancelable.** Cada prefetch lleva un número de `generation`; un reset o soltar la
+  retención la **incrementan**. Las descargas en vuelo la chequean entre tile y tile y se
+  **abortan** descartando el trabajo. No hay race: una prefetch obsoleta nunca inyecta un canvas
+  viejo.
 - Los snapshots de seed se agregan con `kind: 'seed'` y se recortan con un cupo propio
   (`maxSeedSnapshots`) **antes** del recorte global, para que no desplacen a los snapshots
   reales capturados en el zoom.
@@ -169,8 +164,8 @@ Para tener material antes del salto, la retención precarga snapshots de niveles
 
 ## Invariantes
 
-1. **Un mapa, una retención.** Todo el estado vive en la clausura de
-   `createTileSnapshotRetention`; no hay singletons ni estado compartido entre mapas.
+1. **Un proveedor, una retención.** El anfitrión la crea con la capa y la suelta al cambiar de
+   proveedor o al destruirse; no hay singletons ni estado compartido entre mapas.
 2. **Prefetch obsoleto nunca contamina.** El check de `generation` aborta toda descarga cuya
    generación quedó atrás; un canvas de seed solo se agrega si su generación sigue vigente.
 3. **La capa vuelve a su grilla.** Armar la URL de una semilla le cambia la grilla un momento, y
@@ -178,27 +173,3 @@ Para tener material antes del salto, la retención precarga snapshots de niveles
 4. **Los canvas se liberan de verdad.** `discard` los saca del DOM y colapsa sus dimensiones a
    0 para soltar la memoria del bitmap, no solo la referencia.
 
----
-
-## Ejemplo de uso
-
-```js
-import L from 'leaflet'
-import { createTileSnapshotRetention } from './src/tiles/TileSnapshotRetention.js'
-
-const map = L.map('mapa', { center: [-33.45, -70.66], zoom: 12 })
-const tiles = L.tileLayer('https://tile.proveedor.com/{z}/{x}/{y}.png', {
-  maxZoom: 19,
-}).addTo(map)
-
-// Adjuntar la retención al mapa y activarla sobre la capa de tiles.
-const retention = createTileSnapshotRetention(map, { paneZIndex: 150 })
-retention.activateLayer(tiles)
-// A partir de acá, cada zoom mantiene la imagen visible sin hueco gris.
-
-// Si más adelante se cambia de proveedor de tiles (misma o nueva capa):
-retention.invalidateSnapshots()   // descarta fotos del proveedor viejo
-
-// Al desmontar el mapa:
-retention.destroy()
-```

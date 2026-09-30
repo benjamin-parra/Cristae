@@ -1,5 +1,6 @@
 import L from 'leaflet'
 import { coordOf, hasPointShape } from '../geometry/polyline.js'
+import { retainTileSnapshots } from './TileSnapshotRetention.js'
 
 // El anfitrión: Leaflet detrás de facetas con los valores de la API (SPECS §0). Se crea sobre un
 // contenedor o adopta un mapa que ya existe; es uno por mapa, y quien lo destruye es el motor que lo
@@ -7,9 +8,10 @@ import { coordOf, hasPointShape } from '../geometry/polyline.js'
 // cristae/geometry y lo que sale es un objeto plano.
 //
 // Las facetas son `camera` —estado, comandos, proyección, política de animación del zoom y ciclo de
-// vista— y `surface`, los nodos donde dibujan las capas. `substrate` es el Leaflet y el mapa para lo
-// que todavía dibuja con Leaflet: los sustratos vectoriales y glify, y nada más. `map` y `leaflet` son
-// para lo que no tiene faceta: tiles, entrada y `getLeafletMap()`.
+// vista—, `surface`, los nodos donde dibujan las capas, y `tiles`, el proveedor de la capa base con la
+// retención de su imagen. `substrate` es el Leaflet y el mapa para lo que todavía dibuja con Leaflet:
+// los sustratos vectoriales y glify, y nada más. `map` es para lo que no tiene faceta: la entrada y
+// `getLeafletMap()`.
 
 // El ciclo de vista, con un solo emisor: cada tipo tiene un oyente en el mapa, y los suscriptores del
 // anfitrión se reparten ese lugar en el orden en que llegaron.
@@ -229,6 +231,21 @@ const hostOf = (map, leaflet, ownsMap, zoomPolicy) => {
     followZoom: node => node.className += ' leaflet-zoom-animated',
   }
 
+  // Un proveedor a la vez (docs/tiles.md#el-proveedor-lo-pone-el-anfitrión). La retención va antes que la
+  // capa, por el orden en que Leaflet avisa el reset (docs/tiles.md#la-retención).
+  let tileLayer        = null
+  let releaseRetention = null
+  const tiles          = {
+    // Las opciones, salvo `url`, van tal cual a la capa de Leaflet.
+    setProvider({ url, ...options } = {}) {
+      releaseRetention?.()
+      tileLayer?.remove()
+      tileLayer        = new leaflet.TileLayer(url, options)
+      releaseRetention = retainTileSnapshots(map, surface, tileLayer)
+      tileLayer.addTo(map)
+    },
+  }
+
   // El `load` con que un mapa adoptado toma su primera vista lo oye el anfitrión, y el oyente se va con
   // él: un motor destruido no se entera de la vista que tome el mapa después.
   let onLoad = NOOP
@@ -237,12 +254,14 @@ const hostOf = (map, leaflet, ownsMap, zoomPolicy) => {
     ready: new Promise(resolve => camera.hasView() ? resolve() : map.on('load', onLoad = () => resolve())),
     camera,
     surface,
+    tiles,
     substrate: Object.freeze({ L: leaflet, map }),
     map,
-    leaflet,
     // Un mapa adoptado sigue vivo: el anfitrión sólo le devuelve lo que le tomó y le saca lo que le puso.
     destroy() {
       releases.forEach(release => release())
+      releaseRetention?.()
+      tileLayer?.remove()
       VIEW_EVENTS.forEach(type => map.off(type, relays[type]))
       map.off('load', onLoad)
       ownsMap && map.remove()

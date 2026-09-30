@@ -7,7 +7,7 @@
 // Corre con: node --test test/host/leaflet-host.test.mjs
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { contenedor, prepararDom } from '../../test-helpers/leaflet-real.mjs'
+import { contenedor, frame, prepararDom } from '../../test-helpers/leaflet-real.mjs'
 
 // Con transformaciones 3D, como en un navegador: sin ellas Leaflet no anima ningún zoom ni vuela.
 const window = prepararDom({ transformaciones3d: true })
@@ -27,8 +27,7 @@ const montar = zoomPolicy => {
   return { host, camera: host.camera, oido }
 }
 
-// Un zoom animado se asienta a los 250 ms; un frame alcanza para que arranque.
-const frame   = () => new Promise(resolve => window.requestAnimationFrame(resolve))
+// Un zoom animado se asienta a los 250 ms.
 const asiente = camera => new Promise(resolve => { const off = camera.on('zoomend', () => { off(); resolve() }) })
 
 // Un cambio de zoom por la cámara: si anima, `zoomanim` llega un frame después y la vista se asienta

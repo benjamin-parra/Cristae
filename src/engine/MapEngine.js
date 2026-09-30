@@ -19,15 +19,14 @@ import { frameTransform } from '../render/frame.js'
 import { createClusterFold } from '../cluster/ClusterFold.js'
 import { defineClusterIconSet } from '../atlas/IconSet.js'
 import { createSource } from '../data/index.js'
-import { createTileSnapshotRetention } from '../tiles/TileSnapshotRetention.js'
 import { createLeafletHost } from '../host/LeafletHost.js'
 import { foldRuns, iterable } from '../geometry/polyline.js'
 import { emptyBounds, growBounds, growRun, readBounds } from '../geometry/bounds.js'
 
 // MapEngine — orquestador headless (SPECS §6). Framework-agnóstico, sin dominio. Monta sobre un
 // anfitrión —el que recibe o el que crea sobre `container`—, deriva panes por orden de declaración (el
-// consumidor no toca z-index) y cablea las piezas: registry + bus + Interaction (picking) + Camera +
-// retención de tiles. Cada registro sostiene su pane en la superficie del anfitrión mientras vive.
+// consumidor no toca z-index) y cablea las piezas: registry + bus + Interaction (picking) + Camera. Los
+// tiles son del anfitrión. Cada registro sostiene su pane en la superficie del anfitrión mientras vive.
 // Cada capa de puntos posee un Source interno (ruta C) o adopta uno externo (ruta B).
 
 const BASE_Z = 400
@@ -99,14 +98,12 @@ const _liveEngines = new Set()
 export class MapEngine {
 
   #host
-  #map                            // el mapa del anfitrión, para tiles, registro de hits y `getLeafletMap()`
+  #map                            // el mapa del anfitrión, para el registro de hits y `getLeafletMap()`
   #substrate                      // el Leaflet y el mapa de los sustratos vectoriales y de glify
   #glify
   #registry
   #bus
   #interaction
-  #tiles      = null
-  #tileLayer  = null
   #destroying = false             // teardown del engine en curso → no rebuildear glify (canvas muriendo)
 
   #layers             = new Map()      // id → record { kind, source, layer, controls, paneName, order }
@@ -785,11 +782,8 @@ export class MapEngine {
     return canvas
   }
 
-  setTileProvider({ url, ...options } = {}) {
-    this.#tiles ||= createTileSnapshotRetention(this.#map)
-    if (this.#tileLayer) { this.#tiles.invalidateSnapshots(); this.#tileLayer.remove() }
-    this.#tileLayer = this.#host.leaflet.tileLayer(url, options).addTo(this.#map)
-    this.#tiles.activateLayer(this.#tileLayer)
+  setTileProvider(tile) {
+    this.#host.tiles.setProvider(tile)
     return this
   }
 
@@ -870,7 +864,6 @@ export class MapEngine {
     ;[...this.#highlightOverlays].forEach(e => e.dispose())
     this.#interaction.destroy()
     this.camera.destroy()
-    this.#tiles?.destroy()
     this.#layers.forEach((_, id) => this.removeLayer(id))
     this.#signals.clear()
     this.#host.destroy()

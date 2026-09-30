@@ -13,10 +13,14 @@ export const prepararDom = ({ transformaciones3d = false } = {}) => {
   transformaciones3d && (window.WebKitCSSMatrix = class { m11 = 1 })
   globalThis.window                = window
   globalThis.document              = window.document
+  globalThis.getComputedStyle      = window.getComputedStyle.bind(window)
   globalThis.requestAnimationFrame = window.requestAnimationFrame
   globalThis.cancelAnimationFrame  = window.cancelAnimationFrame
   return window
 }
+
+// Un frame del DOM: lo que tarda en arrancar un zoom animado.
+export const frame = () => new Promise(resolve => requestAnimationFrame(resolve))
 
 // Un contenedor de 800×600 en el documento: jsdom no mide, así que el tamaño y la caja se declaran.
 export const contenedor = () => {

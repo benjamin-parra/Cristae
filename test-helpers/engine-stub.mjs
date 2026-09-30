@@ -8,10 +8,10 @@
 // entrega a gl.texImage2D, no-op). Así el harness ejerce el camino real de iconos, no uno paralelo.
 //
 // Globals de módulo (se ejecutan al EVALUAR este helper, ANTES que el árbol de MapEngine): el anfitrión
-// y TileSnapshotRetention hacen `import L from 'leaflet'` por top-level (no por inyección), y la carga de
-// Leaflet real toca window/navigator/document. Shim mínimo para que el módulo evalúe en node — Leaflet
-// real NO se usa en el fold (L va inyectado por makeLeaflet). Mismo `document` sirve para el canvas que
-// rasteriza defineClusterIconSet. El test importa este helper ANTES que MapEngine, así el shim ya está.
+// hace `import L from 'leaflet'` por top-level (no por inyección), y la carga de Leaflet real toca
+// window/navigator/document. Shim mínimo para que el módulo evalúe en node — Leaflet real NO se usa en
+// el fold (L va inyectado por makeLeaflet). Mismo `document` sirve para el canvas que rasteriza
+// defineClusterIconSet. El test importa este helper ANTES que MapEngine, así el shim ya está.
 
 /* ── Registro de nodos DOM (alimenta el presupuesto; ver contadorNodos abajo) ── */
 

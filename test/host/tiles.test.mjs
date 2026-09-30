@@ -1,52 +1,42 @@
-// La retención de tiles sobre el Leaflet REAL, en jsdom con transformaciones 3D, como en un navegador:
-// ahí Leaflet puede animar cualquier zoom, y la política del motor decide cuál no anima. La retención
-// cubre ése, el que resetea la vista, y se hace a un lado en el animado. Son también los tests de
-// contrato de lo que lee de Leaflet: que avise el reset (`viewprereset`) antes de que la capa suelte sus
-// tiles y que un zoom animado no resetee, que `_tileZoom` y `_tiles` digan qué tiles cargados hay, y
+// La faceta `tiles` del anfitrión sobre el Leaflet REAL, en jsdom con transformaciones 3D, como en un
+// navegador: ahí Leaflet puede animar cualquier zoom, y la política decide cuál no anima. La retención
+// cubre ése, el que resetea la vista, y se hace a un lado en el animado; un proveedor nuevo suelta al
+// anterior, y el anfitrión le saca a un mapa adoptado lo que le puso. Son también los tests de contrato
+// de lo que la retención lee de Leaflet: que avise el reset (`viewprereset`) antes de que la capa suelte
+// sus tiles y que un zoom animado no resetee, que `_tileZoom` y `_tiles` digan qué tiles cargados hay, y
 // que `_resetGrid` recalcule la grilla con que `_wrapCoords` y `getTileUrl` arman la URL de un tile.
-// Corre con: node --test test/tiles/retention.test.mjs
+// Corre con: node --test test/host/tiles.test.mjs
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { JSDOM, VirtualConsole } from 'jsdom'
+import { contenedor, frame, prepararDom } from '../../test-helpers/leaflet-real.mjs'
 
-// Leaflet decide al evaluarse si puede animar: sin transformaciones 3D no anima ningún zoom, y
-// `WebKitCSSMatrix` es lo que mira. jsdom no rasteriza: el contexto 2D sólo anota lo que se le dibuja.
-const { window } = new JSDOM('<!doctype html><body></body>', { pretendToBeVisual: true, virtualConsole: new VirtualConsole() })
-window.WebKitCSSMatrix           = class { m11 = 1 }
-globalThis.window                = window
-globalThis.document              = window.document
-globalThis.getComputedStyle      = window.getComputedStyle.bind(window)
-globalThis.requestAnimationFrame = window.requestAnimationFrame
-globalThis.cancelAnimationFrame  = window.cancelAnimationFrame
-
+// Con transformaciones 3D, como en un navegador: sin ellas Leaflet no anima ningún zoom. jsdom no
+// rasteriza: el contexto 2D sólo anota lo que se le dibuja.
+const window  = prepararDom({ transformaciones3d: true })
 const dibujos = []
 window.HTMLCanvasElement.prototype.getContext = () => new Proxy({}, {
   get: (_, key) => (key === 'drawImage' ? (...args) => dibujos.push(args) : () => {}),
   set: () => true,
 })
-const { default: L } = await import('leaflet')
-const { MapEngine }  = await import('../../src/engine/MapEngine.js')
+const { default: L }                          = await import('leaflet')
+const { createLeafletHost, adoptLeafletHost } = await import('../../src/host/LeafletHost.js')
+const { MapEngine }                           = await import('../../src/engine/MapEngine.js')
 
 const URL_TILES = 'https://{s}.tiles.test/{z}/{x}/{y}/{-y}.png'
 const PANE      = 'tileZoomSnapshotPane'
 
-// Un contenedor de 800×600: jsdom no mide, así que el tamaño se declara.
-const contenedor = () => {
-  const container = window.document.createElement('div')
-  window.document.body.appendChild(container)
-  Object.entries({ clientWidth: 800, clientHeight: 600, offsetWidth: 800, offsetHeight: 600 })
-    .forEach(([k, value]) => Object.defineProperty(container, k, { value }))
-  return container
-}
-
-// Un motor con su mapa, la política pedida y tiles; `capa` es la capa de tiles que puso el motor.
-const montar = (zoomAnimation, center = [-33, -70]) => {
-  const engine = new MapEngine({ container: contenedor(), view: { center, zoom: 10 }, zoomAnimation })
-  engine.setTileProvider({ url: URL_TILES, noWrap: false })
-  const map    = engine.getLeafletMap()
+const capaDe = map => {
   let capa
   map.eachLayer(layer => layer instanceof L.TileLayer && (capa = layer))
-  return { engine, map, capa }
+  return capa
+}
+
+// Un anfitrión propio con la política pedida y un proveedor.
+const montar = (zoomPolicy, center = [-33, -70]) => {
+  const host = createLeafletHost({ container: contenedor(), view: { center, zoom: 10 } })
+  host.camera.zoomPolicy = zoomPolicy
+  host.tiles.setProvider({ url: URL_TILES, noWrap: false })
+  return { host, camera: host.camera, map: host.map, capa: capaDe(host.map) }
 }
 
 // Cada tile de la capa carga por el camino de Leaflet: su imagen dispara `load`. jsdom no decodifica,
@@ -56,18 +46,17 @@ const cargar = capa => Object.values(capa._tiles).forEach(({ el }) => {
   el.dispatchEvent(new window.Event('load'))
 })
 
-// Un zoom animado arranca en el frame siguiente y se asienta a los 250 ms.
-const frame   = () => new Promise(resolve => window.requestAnimationFrame(resolve))
+// Un zoom animado se asienta a los 250 ms.
 const asiente = map => new Promise(resolve => map.once('zoomend', resolve))
 const pausa   = ms => new Promise(resolve => setTimeout(resolve, ms))
 
 test('un zoom que Leaflet no anima deja la foto de los tiles que soltó, debajo del de tiles y sin puntero', () => {
-  const { engine, map, capa } = montar('none')
+  const { host, camera, map, capa } = montar('none')
   cargar(capa)
   const tiles = Object.keys(capa._tiles).length
   dibujos.length = 0
 
-  engine.camera.setZoom(9)
+  camera.setZoom(9)
 
   const pane = map.getPane(PANE)
   assert.equal(map.getZoom(), 9)
@@ -76,40 +65,107 @@ test('un zoom que Leaflet no anima deja la foto de los tiles que soltó, debajo 
   assert.equal(dibujos.length, tiles, 'con todos los tiles cargados')
   assert.match(pane.firstChild.style.transform, /scale\(0\.5\)$/, 'reproyectada al zoom nuevo')
   assert.deepEqual([pane.style.zIndex, pane.style.pointerEvents], ['150', 'none'])
-  engine.destroy()
+  host.destroy()
 })
 
 test('un zoom animado no fotografía, y esconde la foto que había', async () => {
-  const { engine, map, capa } = montar('in-only')
+  const { host, camera, map, capa } = montar('in-only')
   cargar(capa)
-  engine.camera.setZoom(9)
+  camera.setZoom(9)
   const pane = map.getPane(PANE)
   assert.equal(pane.children.length, 1, 'alejar no anima: foto')
   const antes = dibujos.length
 
   const asentado = asiente(map)
-  engine.camera.setZoom(10)
+  camera.setZoom(10)
   await frame()
   assert.equal(pane.children.length, 0, 'acercar anima: la foto no acompaña a la transición y sale al empezar')
   await asentado
   assert.equal(map.getZoom(), 10)
   assert.equal(dibujos.length, antes, 'el zoom animado no fotografía')
   assert.equal(pane.children.length, 0, 'ni vuelve a poner la foto al asentarse')
-  engine.destroy()
+  host.destroy()
 })
 
 // Un paneo más largo que el contenedor tampoco lo anima Leaflet: resetea sin cambiar el zoom, así que no
 // hay `zoomstart` que esconda la foto de antes.
 test('un salto sin cambio de zoom también resetea, y la foto que ya no cae en la vista sale', () => {
-  const { engine, map, capa } = montar('none')
+  const { host, camera, map, capa } = montar('none')
   cargar(capa)
-  engine.camera.setZoom(9)
+  camera.setZoom(9)
   const pane = map.getPane(PANE)
   assert.equal(pane.children.length, 1)
 
-  engine.camera.setView([-20, -70], 9)
+  camera.setView([-20, -70], 9)
   assert.equal(pane.children.length, 0)
+  host.destroy()
+})
+
+test('un proveedor nuevo suelta al anterior con sus fotos', () => {
+  const { host, camera, map, capa } = montar('none')
+  cargar(capa)
+  camera.setZoom(9)
+  assert.equal(map.getPane(PANE).children.length, 1)
+
+  host.tiles.setProvider({ url: 'https://otro.test/{z}/{x}/{y}.png', attribution: '© Otro' })
+  const nueva = capaDe(map)
+  assert.notEqual(nueva, capa)
+  assert.equal(map.hasLayer(capa), false, 'la capa anterior sale del mapa')
+  assert.equal(map.getPane(PANE), undefined, 'y sus fotos con ella')
+
+  cargar(nueva)
+  camera.setZoom(8)
+  assert.equal(map.getPane(PANE).children.length, 1, 'el reset siguiente muestra sólo la foto del proveedor nuevo')
+  host.destroy()
+})
+
+test('el motor pone los tiles por su anfitrión, y al destruirse se los saca a un mapa adoptado', () => {
+  const map    = new L.Map(contenedor(), { center: [-33, -70], zoom: 10 })
+  const host   = adoptLeafletHost(map)
+  const engine = new MapEngine({ host, zoomAnimation: 'none' })
+
+  engine.setTileProvider({ url: URL_TILES, attribution: '© Proveedor' })
+  const capa = capaDe(map)
+  assert.equal(capa.options.attribution, '© Proveedor', 'las opciones llegan a la capa')
+  cargar(capa)
+  engine.camera.setZoom(9)
+  assert.equal(map.getPane(PANE).children.length, 1)
+
   engine.destroy()
+  assert.equal(map.hasLayer(capa), false, 'la capa que puso sale del mapa')
+  assert.equal(map.getPane(PANE), undefined, 'y el pane de la retención también')
+  assert.deepEqual(['viewprereset', 'viewreset'].filter(tipo => map.listens(tipo)), [], 'nadie oye ya los resets')
+  map.remove()
+})
+
+// Un mapa adoptado puede llegar sin vista, y Leaflet agrega la capa de tiles recién cuando la toma: en ese
+// primer reset la capa todavía no tiene tiles que fotografiar, y antes no hay zoom desde el que sembrar.
+test('un proveedor sobre un mapa adoptado sin vista no rompe su primer setView ni siembra sin vista', async () => {
+  const rechazos = []
+  const anotar   = error => rechazos.push(error)
+  process.on('unhandledRejection', anotar)
+  globalThis.requestIdleCallback = cb => setTimeout(cb, 0)
+  globalThis.cancelIdleCallback  = clearTimeout
+  try {
+    const map    = new L.Map(contenedor())
+    const engine = new MapEngine({ host: adoptLeafletHost(map), zoomAnimation: 'none' })
+    engine.setTileProvider({ url: URL_TILES })
+    await pausa(20)
+    assert.deepEqual(rechazos, [], 'sin vista no hay semillas')
+
+    map.setView([-33, -70], 10)
+    const capa = capaDe(map)
+    assert.equal(capa._tileZoom, 10, 'la capa entra con la vista')
+    cargar(capa)
+    engine.camera.setZoom(9)
+    assert.equal(map.getPane(PANE).children.length, 1, 'y desde ahí la retención cubre el zoom que no anima')
+    engine.destroy()
+    map.remove()
+  } finally {
+    process.off('unhandledRejection', anotar)
+    delete globalThis.requestIdleCallback
+    delete globalThis.cancelIdleCallback
+  }
 })
 
 test('Leaflet avisa el reset antes de que la capa suelte sus tiles, y un zoom animado no resetea', async () => {
@@ -133,7 +189,7 @@ test('Leaflet avisa el reset antes de que la capa suelte sus tiles, y un zoom an
 })
 
 test('`_tileZoom` es el zoom de los tiles de la capa, y `_tiles` los trae con su nodo, sus coordenadas y cuándo cargaron', () => {
-  const { engine, capa } = montar('none')
+  const { host, capa } = montar('none')
   const entradas = Object.values(capa._tiles)
   assert.equal(capa._tileZoom, 10)
   assert.ok(entradas.length > 0)
@@ -142,7 +198,7 @@ test('`_tileZoom` es el zoom de los tiles de la capa, y `_tiles` los trae con su
 
   cargar(capa)
   assert.ok(entradas.every(({ loaded }) => loaded > 0), 'al cargar la imagen, Leaflet anota cuándo')
-  engine.destroy()
+  host.destroy()
 })
 
 // Junto al antimeridiano la vista de un zoom más profundo cruza el borde del mundo, y las semillas de ese
@@ -154,17 +210,17 @@ test('una semilla pide el tile que Leaflet pediría a ese zoom: la vuelta al mun
   globalThis.cancelIdleCallback  = clearTimeout
   globalThis.Image               = class { set src(url) { pedidas.push(url); queueMicrotask(() => this.onload()) } }
 
-  const centro                = [10.3, 179.99]
-  const { engine, map, capa } = montar('none', centro)
-  const grilla                = () => [capa._tileZoom, capa._wrapX, capa._wrapY, capa._globalTileRange]
-  const antes                 = grilla()
-  const zoomDe                = url => Number(url.split('/')[3])
+  const centro                      = [10.3, 179.99]
+  const { host, camera, map, capa } = montar('none', centro)
+  const grilla                      = () => [capa._tileZoom, capa._wrapX, capa._wrapY, capa._globalTileRange]
+  const antes                       = grilla()
+  const zoomDe                      = url => Number(url.split('/')[3])
   await pausa(20)
   assert.deepEqual(grilla(), antes, 'la capa vuelve a su grilla después de armar las URL')
 
   ;[11, 12].forEach(zoom => {
     const semillas = pedidas.filter(url => zoomDe(url) === zoom)
-    engine.camera.setView(centro, zoom)
+    camera.setView(centro, zoom)
     const tiles     = Object.values(capa._tiles).filter(t => t.coords.z === zoom)
     const deLeaflet = new Set(tiles.map(t => t.el.src))
     assert.ok(tiles.some(t => t.coords.x >= 2 ** zoom), `zoom ${zoom}: la vista cruza el borde del mundo`)
@@ -176,5 +232,5 @@ test('una semilla pide el tile que Leaflet pediría a ese zoom: la vuelta al mun
   delete globalThis.requestIdleCallback
   delete globalThis.cancelIdleCallback
   delete globalThis.Image
-  engine.destroy()
+  host.destroy()
 })

@@ -77,12 +77,13 @@ Contenedor. Monta el `MapEngine`, expone cámara/engine y reenvía los eventos d
 > **`no-zoom-control`:** quita el control +/− nativo de Leaflet. Para reemplazarlo con uno propio,
 > se usa un `<cristae-toolbar>` en un slot del overlay con items que llamen `camera.zoomIn()`/`camera.zoomOut()`.
 
-> **`tile`:** objeto reactivo; reasignarlo **re-provee** los tiles (con snapshot de la capa anterior para
-> evitar flash). Las opciones extra van tal cual a `L.tileLayer` (`maxZoom`, `attribution`, `subdomains`
-> para `{s}`, …). **`world-copies`** controla `noWrap`: por defecto el mundo **no** se repite en
-> horizontal (`noWrap:true`); se activa `world-copies` para permitir las copias. (El setter es
-> `setTileProvider`; con el web component no se llama directamente.) Presets públicos listos en `tilePresets`
-> (`map.tile = tilePresets.osm`) — ver [`tiles.md`](./tiles.md).
+> **`tile`:** objeto reactivo; reasignarlo **re-provee** los tiles
+> ([`tiles.md`](./tiles.md#el-proveedor-lo-pone-el-anfitrión)). Las opciones extra van tal cual a
+> `L.tileLayer` (`maxZoom`, `attribution`, `subdomains` para `{s}`, …). **`world-copies`** controla
+> `noWrap`: por defecto el mundo **no** se repite en horizontal (`noWrap:true`); se activa
+> `world-copies` para permitir las copias. (El setter es `setTileProvider`; con el web component no se
+> llama directamente.) Presets públicos listos en `tilePresets` (`map.tile = tilePresets.osm`) — ver
+> [`tiles.md`](./tiles.md).
 
 Acceso (getters/métodos): `el.engine`, `el.camera` (ver *Cámara* abajo), `el.ready`, `el.on(event,
 [layerId], cb)`, `el.getLayer(id)`, `el.invalidateCanvas()`. `el.engine` es la **escotilla de bajo

@@ -121,12 +121,13 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   `new MapEngine({ container, view })` crea el mapa sobre el contenedor con la vista inicial de `view`
   —`{ center, zoom }`, el centro en cualquier forma de punto— y `destroy()` lo remueve. Un mapa que ya
   existe se adopta con `adoptLeafletHost(map, { leaflet })`, nuevo en `cristae/map`, y llega al motor
-  como `host`: el motor no lo destruye, y al destruirse le quita sus listeners y su política de zoom,
-  que antes quedaban puestos en el mapa prestado. `leaflet` es el Leaflet que construyó el mapa, y ahora
-  es opcional: por defecto, el de Cristae ([SPECS §6](SPECS.md)). La cámara del motor ya no toca Leaflet
-  directo: pasa por el anfitrión del mapa, que es donde viven la conversión de valores y la política de
-  zoom. La señal `ready` del motor sale junto con su promesa, en una microtarea: con un mapa propio salía
-  dentro del constructor, donde nadie alcanzaba a oírla.
+  como `host`: el motor no lo destruye, y al destruirse le quita sus listeners, su política de zoom, la
+  capa de tiles que le puso y el pane de la retención, que antes quedaban puestos en el mapa prestado.
+  `leaflet` es el Leaflet que construyó el mapa, y ahora es opcional: por defecto, el de Cristae
+  ([SPECS §6](SPECS.md)). La cámara del motor ya no toca Leaflet directo: pasa por el anfitrión del
+  mapa, que es donde viven la conversión de valores y la política de zoom. La señal `ready` del motor
+  sale junto con su promesa, en una microtarea: con un mapa propio salía dentro del constructor, donde
+  nadie alcanzaba a oírla.
   *Migración*: `new MapEngine({ leaflet: L, glify, map })` pasa a
   `new MapEngine({ host: adoptLeafletHost(map, { leaflet: L }), glify })`, y `mapOptions: { center, zoom }`
   a `view: { center, zoom }`. Otra opción de Leaflet —`minZoom`, `maxBounds`, …— se pasa al crear un mapa

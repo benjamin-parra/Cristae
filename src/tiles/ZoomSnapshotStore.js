@@ -17,23 +17,13 @@ const centerRect = size => {
   return rect(insetX, insetY, size.x - insetX, size.y - insetY)
 }
 
-// Proyecta el canvas de un snapshot al espacio de píxeles del zoom destino.
+// Proyecta el canvas de un snapshot al espacio de píxeles del zoom destino. Los puntos son `{ x, y }`
+// planos: la esquina del snapshot en píxeles de su zoom y el origen de píxel de la vista destino.
 const projectedFrame = (snapshot, targetZoom, pixelOrigin, zoomScale) => {
   const scale = zoomScale(targetZoom, snapshot.sourceZoom)
-  const topLeft = snapshot.sourcePixelTopLeft
-    .multiplyBy(scale)
-    .subtract(pixelOrigin)
-    .round()
-
-  return {
-    ...rect(
-      topLeft.x,
-      topLeft.y,
-      topLeft.x + snapshot.width * scale,
-      topLeft.y + snapshot.height * scale,
-    ),
-    scale,
-  }
+  const left  = Math.round(snapshot.sourcePixelTopLeft.x * scale - pixelOrigin.x)
+  const top   = Math.round(snapshot.sourcePixelTopLeft.y * scale - pixelOrigin.y)
+  return { ...rect(left, top, left + snapshot.width * scale, top + snapshot.height * scale), scale }
 }
 
 const scoreCandidate = (snapshot, context) => {

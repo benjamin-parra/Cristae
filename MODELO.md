@@ -96,7 +96,7 @@ shared/external/Cristae/          # raiz del paquete (se sirve por GitHub: git i
    ├─ events/                    # EventBus.js + events.js (máscaras de canal)
    ├─ interaction/               # LayerRegistry.js + HitResolver.js
    ├─ geometry/                  # entry cristae/geometry (metros, cajas) + índices de picking
-   ├─ tiles/                     # provider + ZoomSnapshotStore + presets
+   ├─ tiles/                     # ZoomSnapshotStore + presets
    ├─ data/                      # ── NÚCLEO compartido (no depende de nada) ──
    │  ├─ Store.js  Emitter.js    # store reactivo + emisor coalescido
    │  ├─ Source.js               # contrato Source + defineSource / createSource

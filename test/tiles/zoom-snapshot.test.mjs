@@ -1,22 +1,13 @@
 // Scoring puro de ZoomSnapshotStore.select(): elige el mejor par (primario que cubre el
-// centro + secundario que rellena el hueco) contra un viewport destino. Corre por frame de
-// zoom, así que su corrección se congela acá con una proyección inyectada (zoomScale) para no
-// depender de Leaflet. Se testea el ORÁCULO — el comportamiento actual — no lo deseado.
+// centro + secundario que rellena el hueco) contra un viewport destino. Corre en cada reset de
+// la vista, así que su corrección se congela acá con una proyección inyectada (zoomScale) y
+// puntos planos, sin Leaflet. Se testea el ORÁCULO — el comportamiento actual — no lo deseado.
 // Corre con: node --test test/tiles/zoom-snapshot.test.mjs
 
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import { ZoomSnapshotStore } from '../../src/tiles/ZoomSnapshotStore.js'
-
-// Punto mínimo con el álgebra que projectedFrame() usa (multiplyBy/subtract/round).
-const pt = (x, y) => ({
-  x,
-  y,
-  multiplyBy(s) { return pt(x * s, y * s) },
-  subtract(o) { return pt(x - o.x, y - o.y) },
-  round() { return pt(Math.round(x), Math.round(y)) },
-})
 
 // Canvas falso: add() lee width/height; discard() llama remove() y colapsa las dimensiones.
 const el = (width, height) => ({ width, height, removed: false, remove() { this.removed = true } })
@@ -25,19 +16,31 @@ const el = (width, height) => ({ width, height, removed: false, remove() { this.
 // proyectado es rect(x, y, x+w, y+h), así que la geometría del scoring es predecible.
 const snap = (x, y, w, h, sourceZoom = 5) => ({
   element: el(w, h),
-  meta: { sourceZoom, sourcePixelTopLeft: pt(x, y) },
+  meta: { sourceZoom, sourcePixelTopLeft: { x, y } },
 })
 
 // select() con un viewport 100×100, proyección identidad y zoom destino fijo.
 const selectOn = (store) => store.select({
   targetZoom: 5,
-  pixelOrigin: pt(0, 0),
+  pixelOrigin: { x: 0, y: 0 },
   viewportSize: { x: 100, y: 100 },
   zoomScale: () => 1,
 })
 
 test('sin entries → []', () => {
   assert.deepEqual(selectOn(new ZoomSnapshotStore()), [])
+})
+
+test('el marco se proyecta con la escala del zoom y el origen de píxel de la vista, redondeado', () => {
+  const store = new ZoomSnapshotStore()
+  store.add(snap(10.4, 20.6, 60, 60, 4))
+  const [placement] = store.select({
+    targetZoom  : 5,
+    pixelOrigin : { x: 5, y: 5 },
+    viewportSize: { x: 100, y: 100 },
+    zoomScale   : (targetZoom, sourceZoom) => 2 ** (targetZoom - sourceZoom),
+  })
+  assert.deepEqual(placement.frame, { left: 16, top: 36, right: 136, bottom: 156, scale: 2 })
 })
 
 test('un snapshot fuera del viewport (coverage 0 → score 0) no se elige', () => {
