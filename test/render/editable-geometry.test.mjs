@@ -263,12 +263,13 @@ test('el midpoint se agarra directo: la pulsación lo vuelve vértice y el MISMO
 test('modo draw: click de mapa agrega puntos y el handler expuesto captura un punto', () => {
   const esc = montar({ kind: 'polyline', value: [], mode: 'draw' })
 
-  // El modo draw se suscribe a map.on('click') (API Leaflet, no DOM) → fire simula el click en mapa vacío.
+  // El modo draw oye el click que el anfitrión reconoce como del mapa (`input.onRecognized`), no el del
+  // DOM → fire simula el click en mapa vacío.
   esc.map.fire('click', { latlng: { lat: 1, lng: 2 } })
   esc.map.fire('click', { latlng: { lat: 3, lng: 4 } })
   assert.deepEqual(esc.changes.at(-1), [[1, 2], [3, 4]], 'cada click agrega un vértice al trazo')
 
-  // Sub-pieza expuesta: el caller puede rutear su propia captura de punto sin pasar por map.on.
+  // Sub-pieza expuesta: el caller puede rutear su propia captura de punto sin pasar por el anfitrión.
   esc.ed.handleMapClick({ lat: 5, lng: 6 })
   assert.deepEqual(esc.changes.at(-1), [[1, 2], [3, 4], [5, 6]], 'handleMapClick agrega igual que el click nativo')
 
@@ -549,6 +550,21 @@ test('draw dblclick de cierre: no duplica el último vértice ni re-emite idént
   assert.deepEqual(esc.ed.getValue(), [[0, 0], [5, 5], [9, 9]], 'el último vértice aparece una sola vez')
 
   esc.ed.destroy()
+})
+
+// El duplicado que el dedup del click no ve —uno que ya traía el valor— lo colapsa el doble click, y uno
+// disparado por código sin posición cierra sobre el último vértice.
+test('draw dblclick de cierre: colapsa el duplicado final que traía el valor', () => {
+  const casos = [
+    ['en la posición del último', { latlng: { lat: 5, lng: 5 } }],
+    ['sin posición', undefined],
+  ]
+  casos.forEach(([caso, e]) => {
+    const esc = montar({ kind: 'polyline', value: [[0, 0], [5, 5], [5, 5]], mode: 'draw' })
+    esc.map.fire('dblclick', e)
+    assert.deepEqual([esc.changes.length, esc.ed.getValue()], [1, [[0, 0], [5, 5]]], caso)
+    esc.ed.destroy()
+  })
 })
 
 /* ── onChange (live) vs onCommit (settle) ── */

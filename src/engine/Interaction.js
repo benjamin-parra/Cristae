@@ -1,7 +1,7 @@
 import { EVENT_HOVER, HANDLE_HELD, HANDLE_OVER, PICK_CHANNELS } from '../events/events.js'
 
-// Interaction — traduce los eventos del puntero del L.map en hits ruteados por el EventBus. El ciclo de
-// vista lo oye por la cámara del anfitrión; el click y el arrastre, del mapa.
+// Interaction — traduce lo que oye del anfitrión en hits ruteados por el EventBus: el puntero, el click y
+// el arrastre, por su entrada, y el ciclo de vista, por su cámara.
 // Cablea tres cosas y nada más: (1) pointer/click del DOM → registry.resolveHits → bus.dispatch;
 // (2) la sesión de hover con picking GPU no bloqueante (request → poll rAF → collect); (3) la
 // supresión de hover durante zoom/pan y el cursor del contenedor, del que es el ÚNICO escritor. No
@@ -32,9 +32,11 @@ const now = () => performance.now()
 // todavía puesto. Sin `CSS` global —un DOM emulado— no hay con qué validar, y se acepta.
 const consumerCursor = cursor => cursor && (globalThis.CSS?.supports('cursor', cursor) ?? true) ? cursor : ''
 
+const PASSIVE = Object.freeze({ passive: true })
+
 export class Interaction {
 
-  #map
+  #input
   #hostCamera
   #camera
   #registry
@@ -78,16 +80,15 @@ export class Interaction {
     written  : '',          // lo último escrito: sólo se escribe al cambiar
   }
 
-  #domHandlers = new Map()
-  #offs        = []             // bajas de lo que se oye del mapa y de la cámara del anfitrión
+  #offs = []                    // bajas de lo que se oye de la entrada y de la cámara del anfitrión
 
-  constructor({ host, camera, registry, bus, container, pickLayers, hoverThrottleMs = 0, cursor, onInteractionStart, onInteractionEnd, onEmptyClick } = {}) {
-    this.#map                = host.map
+  constructor({ host, camera, registry, bus, pickLayers, hoverThrottleMs = 0, cursor, onInteractionStart, onInteractionEnd, onEmptyClick } = {}) {
+    this.#input              = host.input
     this.#hostCamera         = host.camera
     this.#camera             = camera
     this.#registry           = registry
     this.#bus                = bus
-    this.#container          = container ?? host.map.getContainer()
+    this.#container          = host.surface.container
     this.#pickLayers         = pickLayers ?? (() => [])
     this.#throttleMs         = hoverThrottleMs
     this.#cursor.consumer    = consumerCursor(cursor)
@@ -142,9 +143,7 @@ export class Interaction {
   destroy() {
     const c = this.#cursor
     this.#cancelRaf()
-    this.#domHandlers.forEach((fn, type) => this.#container.removeEventListener(type, fn))
     this.#offs.forEach(off => off())
-    this.#domHandlers.clear()
     this.#offs = []
     this.#hover.session = null
     c.held.clear()
@@ -157,34 +156,32 @@ export class Interaction {
   /* ── Cableado ── */
 
   #wire() {
-    this.#onDom('pointerenter', () => { this.#pointer.inside = true; this.#syncRect(); this.#syncDragging() })
+    this.#onDom('pointerenter', () => { this.#pointer.inside = true; this.#containerRect = this.#container.getBoundingClientRect() })
     this.#onDom('pointermove', e => this.#onPointerMove(e))
     this.#onDom('pointerleave', () => this.#onPointerLeave())
-    this.#onDom('pointerup', () => this.#syncDragging())
 
-    this.#onMap('click', e => this.#onClick(e))
-    // secondary-click va por listener DOM del CONTENEDOR, no por el evento 'contextmenu' de
+    this.#offs.push(this.#input.onRecognized('click', e => this.#onClick(e)))
+    // secondary-click va por el evento crudo del contenedor, no por el 'contextmenu' que reconoce
     // Leaflet: con un listener Leaflet el mapa ejecuta preventDefault en TODO click derecho
     // (haya o no feature debajo), matando el menú nativo del browser incondicionalmente. Con el
-    // listener DOM el default queda intacto y decide el consumidor. No-passive: el consumidor
+    // evento crudo el default queda intacto y decide el consumidor. No-passive: el consumidor
     // puede llamar preventDefault() sobre el evento entregado.
     this.#onDom('contextmenu', e => this.#onSecondaryClick(e), { passive: false })
     this.#onView('movestart', () => this.#beginInteraction())
     // El arrastre del USUARIO, no `movestart`: ése también lo dispara un flyTo, que no es un agarre.
-    this.#onMap('dragstart', () => { this.#cursor.dragging = true; this.#paintCursor() })
-    this.#onMap('dragend', () => this.#syncDragging())
+    this.#offs.push(this.#input.onDrag(dragging => { this.#cursor.dragging = dragging; this.#paintCursor() }))
     this.#onView('zoomstart', () => this.#beginInteraction())
-    this.#onView('moveend', () => { this.#endInteraction(); this.#syncDragging() })
+    this.#onView('moveend', () => this.#endInteraction())
     this.#onView('zoomend', () => { this.#pickLayers().forEach(({ layer }) => layer.syncPickingSize()); this.#endInteraction() })
   }
 
-  #onDom(type, fn, options = { passive: true }) { this.#container.addEventListener(type, fn, options); this.#domHandlers.set(type, fn) }
-  #onMap(type, fn) { this.#map.on(type, fn); this.#offs.push(() => this.#map.off(type, fn)) }
+  #onDom(type, fn, options = PASSIVE) {
+    this.#input.on(type, fn, options)
+    this.#offs.push(() => this.#input.off(type, fn, options))
+  }
   #onView(type, fn) { this.#offs.push(this.#hostCamera.on(type, fn)) }
 
   /* ── Puntero ── */
-
-  #syncRect() { this.#containerRect = this.#container.getBoundingClientRect() }
 
   #updatePointer(event) {
     const rect = this.#containerRect ??= this.#container.getBoundingClientRect()
@@ -223,14 +220,13 @@ export class Interaction {
     this.#bus.dispatch('hover:out', null, null)
   }
 
-  // El bus entrega el evento del DOM, nunca el de Leaflet: un click que no lo trae —uno disparado por
-  // código— sale con `null`. La muestra toma la posición del click y su píxel; el que se dispara con sólo
-  // `latlng` no trae píxel, y lo proyecta la cámara.
-  #onClick(event) {
-    const { latlng } = event
-    const sample     = this.#sampleOf(event.containerPoint ?? this.#camera.latLngToContainerPoint(latlng), latlng)
-    const hits       = this.#registry.resolveHits('click', sample)
-    this.#bus.dispatch('click', hits, event.originalEvent ?? null)
+  // El bus entrega el evento del DOM: un click que no lo trae —uno disparado por código— sale con `null`.
+  // La muestra toma la posición del click y su píxel; el que se dispara con sólo `latlng` no trae píxel,
+  // y lo proyecta la cámara.
+  #onClick({ latlng, point, event }) {
+    const sample = this.#sampleOf(point ?? this.#camera.latLngToContainerPoint(latlng), latlng)
+    const hits   = this.#registry.resolveHits('click', sample)
+    this.#bus.dispatch('click', hits, event ?? null)
     // Click en ESPACIO VACÍO (ningún hit en ninguna capa): entrega la coordenada cruda. Es la
     // captura de latlng para colocar un punto / editar geometría — el consumidor la cablea con el
     // callback inyectado. Cuando SÍ hay hit, el click ya se enrutó por el bus y esto no corre.
@@ -242,7 +238,7 @@ export class Interaction {
   // `resolveClick`). El menú nativo del browser queda INTACTO por default: lo suprime el
   // consumidor con `event.preventDefault()` sólo cuando resolvió un hit propio.
   #onSecondaryClick(event) {
-    const sample = this.#sampleOf(this.#map.mouseEventToContainerPoint(event))
+    const sample = this.#sampleOf(this.#input.containerPoint(event))
     this.#bus.dispatch('secondary-click', this.#registry.resolveHits('secondary-click', sample), event)
   }
 
@@ -333,15 +329,6 @@ export class Interaction {
   }
 
   /* ── Cursor del contenedor ── */
-
-  // El arrastre lo prende `dragstart`, cuando Leaflet todavía no lo marca en curso, y lo apaga releer ese
-  // estado. Un segundo dedo o un segundo botón lo cortan sin `dragend`, así que se relee también en lo que
-  // siempre les sigue: el `moveend` del pinch, y el `pointerup` del último botón o, si se soltó fuera del
-  // mapa, el `pointerenter` de la vuelta.
-  #syncDragging() {
-    this.#cursor.dragging = !!this.#map.dragging?.moving()
-    this.#paintCursor()
-  }
 
   // La precedencia es el orden de la expresión (la tabla, en docs/interaction.md). El arrastre se escribe
   // explícito porque Leaflet lo marca en `document.body`, fuera del alcance del CSS del shadow root.

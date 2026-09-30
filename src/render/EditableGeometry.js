@@ -83,8 +83,9 @@ const consumir = e => {
 export class EditableGeometry {
 
   #host; #camera; #pane; #kind; #onChange; #onCommit; #onHandleLevel; #container; #surface; #gl; #iconSet
-  #map                                     // el mapa, para la entrada cruda: clicks, arrastre prestado y controles
+  #input                                   // la entrada del anfitrión: eventos, clicks del mapa, arrastre y controles
   #bajaVista
+  #bajasMapa  = []                         // las del click y el doble click del mapa, mientras está en draw
   #mode       = 'edit'
   #geom       = null                       // representación interna viva (mutada in place por el gesto)
   #simpleRing = true                       // polygon: recordar si la entrada era anillo simple (para la salida)
@@ -114,7 +115,7 @@ export class EditableGeometry {
   // `x`/`y` es el píxel donde se apretó y `dx`/`dy` el offset de agarre: dónde cayó ese píxel DENTRO del
   // handle. El vértice se desplaza lo que se desplaza el puntero, no salta a centrarse bajo él. `puntero`
   // es el que lo tomó: otro que se apoye, se mueva o se levante mientras dura no es del gesto.
-  #gesto    = { trazo: null, ref: -1, movido: false, x: 0, y: 0, dx: 0, dy: 0, arrastre: false, puntero: -1 }
+  #gesto    = { trazo: null, ref: -1, movido: false, x: 0, y: 0, dx: 0, dy: 0, devolver: null, puntero: -1 }
   #promo    = { trazo: -1, ref: -1 }
   #vivo     = { ring: 0, vertex: -1, x: 0, y: 0 }             // el vértice en arrastre, en world0 px
   #vista    = { zoom: 0, center: { x: 0, y: 0 }, size: { x: 0, y: 0 }, drag: null }
@@ -132,7 +133,7 @@ export class EditableGeometry {
     this.#style         = { ...ESTILO, ...style }
     this.#host          = host
     this.#camera        = host.camera
-    this.#map           = host.map
+    this.#input         = host.input
     this.#pane          = pane ?? PANE
     this.#kind          = kind
     this.#onChange      = onChange
@@ -198,7 +199,7 @@ export class EditableGeometry {
   }
 
   // Sub-pieza "click en mapa vacío → latlng": expuesta para que el consumidor rutee su propia captura de
-  // punto (además de la suscripción nativa a map.on('click') que hace el modo draw). En draw, agrega/coloca.
+  // punto (además del click del mapa que oye el modo draw). En draw, agrega/coloca.
   handleMapClick(latlng) {
     if (this.#mode !== 'draw' || !latlng) return
     const p = toFinitePair(latlng)
@@ -312,18 +313,19 @@ export class EditableGeometry {
     this.#muestra.deben = 0
   }
 
-  /* ── Suscripción nativa al mapa (modo draw) ─────────────────────────────────────────────── */
-  // map.on/off es API de Leaflet (NO sniffing del DOM). El dblclick CIERRA el trazo (polígono/polilínea):
-  // el dedup de handleMapClick ya neutraliza los `click` que Leaflet emite junto al `dblclick`, así que acá
-  // sólo se colapsa el duplicado final que se haya colado y se emite SÓLO si de verdad cambió algo.
-  #onMapClick    = e => this.handleMapClick(e?.latlng)
+  /* ── El click del mapa (modo draw) ──────────────────────────────────────────────────────── */
+  // Los que el anfitrión reconoce como del mapa (NO sniffing del DOM). El dblclick CIERRA el trazo
+  // (polígono/polilínea): el dedup de handleMapClick ya neutraliza los `click` que llegan junto al
+  // `dblclick`, así que acá sólo se colapsa el duplicado final que se haya colado y se emite SÓLO si de
+  // verdad cambió algo.
+  #onMapClick    = e => this.handleMapClick(e.latlng)
   #onMapDblClick = e => {
     if (this.#mode !== 'draw' || !CRECEN.has(this.#kind)) return
     const t    = this.#trazos[0]
     const path = t.path
     if (path.length < 2) return
     const fin = path.lastVertex
-    const p   = e?.latlng ? toFinitePair(e.latlng) : [path.xAt(fin), path.yAt(fin)]
+    const p   = e.latlng ? toFinitePair(e.latlng) : [path.xAt(fin), path.yAt(fin)]
     if (!p) return
     const antes     = path.length
     const duplicado = v => vertexAt(path, v, p) && vertexAt(path, path.prevVertex(v), p)
@@ -342,41 +344,46 @@ export class EditableGeometry {
     this.#draw()
     this.#informar()
   }
-  #attachMap() { this.#map.on('click', this.#onMapClick); this.#map.on('dblclick', this.#onMapDblClick) }
-  #detachMap() { this.#map.off('click', this.#onMapClick); this.#map.off('dblclick', this.#onMapDblClick) }
+  #attachMap() {
+    this.#bajasMapa = [
+      this.#input.onRecognized('click', this.#onMapClick),
+      this.#input.onRecognized('dblclick', this.#onMapDblClick),
+    ]
+  }
+  #detachMap() { this.#bajasMapa.splice(0).forEach(baja => baja()) }
 
   /* ── El gesto, que es de la capa GL ─────────────────────────────────────────────────────── */
 
-  // Se escucha en CAPTURA: el evento que reconoce un handle no llega a los handlers de Leaflet —arrastre
-  // del mapa, zoom por doble click, click del mapa—, que escuchan en burbuja sobre este mismo contenedor,
-  // y no hace falta apagarlos. El arrastre del mapa se toma prestado ADEMÁS mientras dura el gesto, porque
-  // el puntero puede salirse del contenedor sin soltarlo (ver `#beginInteraction`). Lo que cae sobre un
-  // control —un subárbol que Leaflet declara fuera del mapa con `disableClickPropagation`— es del control
-  // aunque tape un handle. `pointerleave` va sin captura: no se consume, y como no burbujea, en captura
-  // llegaría también cuando el puntero sale de un descendiente —un control—, que no es salir del mapa.
+  // Se escucha en CAPTURA: el evento que reconoce un handle no llega al anfitrión —arrastre del mapa, zoom
+  // por doble click, click del mapa—, que oye en burbuja sobre este mismo contenedor, y no hace falta
+  // apagarlo. El arrastre del mapa se toma prestado ADEMÁS mientras dura el gesto, porque el puntero puede
+  // salirse del contenedor sin soltarlo (ver `#beginInteraction`). Lo que cae sobre un control es del
+  // control aunque tape un handle. `pointerleave` va sin captura: no se consume, y como no burbujea, en
+  // captura llegaría también cuando el puntero sale de un descendiente —un control—, que no es salir del
+  // mapa.
   #cablear(metodo) {
-    const c = this.#container
-    c[metodo]('pointermove',   this.#onPointerMove,  CAPTU)
-    c[metodo]('pointerup',     this.#onPointerUp,    CAPTU)
-    c[metodo]('pointercancel', this.#onPointerUp,    CAPTU)
-    c[metodo]('pointerleave',  this.#onPointerLeave)
-    c[metodo]('dblclick',      this.#onDblClick,     CAPTU)
+    const input = this.#input
+    input[metodo]('pointermove',   this.#onPointerMove,  CAPTU)
+    input[metodo]('pointerup',     this.#onPointerUp,    CAPTU)
+    input[metodo]('pointercancel', this.#onPointerUp,    CAPTU)
+    input[metodo]('pointerleave',  this.#onPointerLeave)
+    input[metodo]('dblclick',      this.#onDblClick,     CAPTU)
   }
   #cablearPulsacion(metodo) {
-    this.#container[metodo]('pointerdown', this.#onPointerDown, CAPTU)
-    this.#container[metodo]('click',       this.#onClick,       CAPTU)
+    this.#input[metodo]('pointerdown', this.#onPointerDown, CAPTU)
+    this.#input[metodo]('click',       this.#onClick,       CAPTU)
   }
   #attachPointer() {
-    this.#cablear('addEventListener')
-    this.#cablearPulsacion('addEventListener')
+    this.#cablear('on')
+    this.#cablearPulsacion('on')
   }
   // Un `onCommit` a mitad de la pulsación —al soltar un arrastre, o en el `pointerdown` que inserta por un
   // midpoint— puede sacar al editor de edit, y el click que la cierra llega igual. Con el testigo armado,
   // `pointerdown` y `click` siguen escuchando hasta ese click o hasta la próxima pulsación, que ya no lo
   // trae: el primero que llegue los retira.
   #detachPointer() {
-    this.#cablear('removeEventListener')
-    this.#clickDelGesto || this.#cablearPulsacion('removeEventListener')
+    this.#cablear('off')
+    this.#clickDelGesto || this.#cablearPulsacion('off')
   }
 
   // Hay handles que tomar: en `edit` y con la superficie viva. Un `onCommit` a mitad de pulsación puede
@@ -388,8 +395,8 @@ export class EditableGeometry {
   #onPointerDown = e => {
     if (this.#gesto.ref >= 0) return
     this.#clickDelGesto = false
-    if (!this.#conHandles) return this.#cablearPulsacion('removeEventListener')
-    if (e.button > 0 || this.#map._isClickDisabled(e.target)) return
+    if (!this.#conHandles) return this.#cablearPulsacion('off')
+    if (e.button > 0 || this.#input.withinControl(e.target)) return
     this.#rect = null                      // el gesto se ancla en una caja fresca: un scroll movió la vieja
     const p = this.#puntoDe(e)
     const h = this.#bajoElPixel(p[0], p[1])
@@ -432,13 +439,13 @@ export class EditableGeometry {
     if (!this.#clickDelGesto || !e.detail) return
     this.#clickDelGesto = false
     consumir(e)
-    this.#conHandles || this.#cablearPulsacion('removeEventListener')
+    this.#conHandles || this.#cablearPulsacion('off')
   }
 
   // El evento se consume sólo si de verdad borró: sobre un kind que no baja de vértices, el doble click
   // sigue siendo del mapa.
   #onDblClick = e => {
-    if (this.#map._isClickDisabled(e.target)) return
+    if (this.#input.withinControl(e.target)) return
     const p = this.#puntoDe(e)
     const h = this.#bajoElPixel(p[0], p[1])
     const t = this.#trazos[h.trazo]
@@ -561,10 +568,8 @@ export class EditableGeometry {
   }
 
   // El gesto empieza: el vecindario pasa a `grabbing` y el mapa presta el arrastre —el puntero es nuestro
-  // hasta que se levante, y la captura la devuelve el navegador tras despachar el `pointerup`—. Sólo se
-  // toma prestado lo que estaba prendido: un mapa que el consumidor tenía fijo no se puede «devolver».
-  // El offset de agarre se mide UNA vez, acá: es el único punto donde el vértice todavía está donde lo
-  // agarraron.
+  // hasta que se levante, y la captura la devuelve el navegador tras despachar el `pointerup`—. El offset
+  // de agarre se mide UNA vez, acá: es el único punto donde el vértice todavía está donde lo agarraron.
   #beginInteraction(t, ref, e, p) {
     const g = this.#gesto
     const c = this.#camera.toContainer([t.path.xAt(ref), t.path.yAt(ref)])
@@ -576,11 +581,10 @@ export class EditableGeometry {
     g.y        = p[1]
     g.dx       = c.x - p[0]
     g.dy       = c.y - p[1]
-    g.arrastre = this.#map.dragging?.enabled?.() ?? false
+    g.devolver = this.#input.lendDrag()
     g.puntero  = e.pointerId
     this.#kind === 'rectangle' && this.#capturarEsquinas(t.path)
     t.bank.grab(true)
-    g.arrastre && this.#map.dragging.disable()
     this.#container.setPointerCapture?.(e.pointerId)
     this.#draw()
     this.#informar()
@@ -603,18 +607,18 @@ export class EditableGeometry {
   #releaseInteraction() {
     const g = this.#gesto
     if (g.ref < 0) return null
-    const tomado = { t: g.trazo, ref: g.ref, movido: g.movido }
-    const presto = g.arrastre
+    const tomado   = { t: g.trazo, ref: g.ref, movido: g.movido }
+    const devolver = g.devolver
     g.trazo    = null
     g.ref      = -1
     g.movido   = false
-    g.arrastre = false
+    g.devolver = null
     if (tomado.movido) {
       this.#invalidar()
       tomado.t.arena.writeEntry(tomado.ref)
     }
     tomado.t.bank.grab(false)
-    presto && this.#map.dragging?.enable()
+    devolver()
     return tomado
   }
 

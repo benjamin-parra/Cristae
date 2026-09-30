@@ -403,6 +403,8 @@ export const makeMap = ({ zoom = 3 } = {}) => {
     fire(type, e = {}) { handlers.get(type)?.forEach(cb => cb(e)); return map },
     // Fiel a Leaflet: `_loaded` dice si el mapa ya tiene vista. El del harness nace con ella.
     _loaded: true,
+    // Fiel a Leaflet: el handler del arrastre existe siempre, prendido o no.
+    dragging: makeDragging(),
     getContainer: () => container,
     // Fiel a Leaflet: lo que `DomEvent.disableClickPropagation` marcó —un control, un popup— no es del
     // mapa. Sube desde el destino hasta el contenedor, el que el mapa tenga montado.
@@ -493,8 +495,8 @@ export const estiloTrasladado = anotar => {
 }
 
 // Doble del handler `map.dragging`. Expone la MISMA superficie que `L.Handler` —`enable`/`disable`/
-// `enabled()`—, que es por donde una capa averigua si el arrastre estaba prendido antes de tomarlo
-// prestado, más el `moving()` de `Map.Drag`, que es lo que relee el árbitro del cursor. `activo` y
+// `enabled()`—, que es por donde el anfitrión averigua si el arrastre estaba prendido antes de prestarlo,
+// más el `moving()` de `Map.Drag`, que es lo que relee para cerrar un arrastre cortado. `activo` y
 // `moviendo` son los campos que fijan y leen los asertos.
 export const makeDragging = ({ activo = true } = {}) => {
   const h = {

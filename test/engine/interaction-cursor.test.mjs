@@ -64,13 +64,13 @@ const capaDePick = layerId => {
 // El puntero arranca adentro del contenedor: entrando, como en toda muestra real, o con `yaEncima`, sobre
 // el mapa desde antes de que el motor montara —una carga, un remontaje—, que no despacha `pointerenter`.
 const montar = ({ demandas = { capa: EVENT_CLICK }, cursor, yaEncima = false } = {}) => {
-  const map       = { ...makeMap(), dragging: makeDragging() }
   const container = contenedor()
+  const map       = { ...makeMap(), getContainer: () => container, dragging: makeDragging() }
   const registry  = registro(demandas)
   const capas     = Object.keys(demandas).map(capaDePick)
   const bus       = { eventos: [], dispatch: tipo => bus.eventos.push(tipo) }
   const host      = adoptLeafletHost(map)
-  const it        = new Interaction({ host, camera: new Camera({ host }), registry, bus, container, cursor, pickLayers: () => capas })
+  const it        = new Interaction({ host, camera: new Camera({ host }), registry, bus, cursor, pickLayers: () => capas })
   it.syncHoverDemand()
   yaEncima || container.emitir('pointerenter')
   return { it, map, container, registry, capas, bus }
@@ -320,6 +320,18 @@ test('destroy devuelve el cursor y el aviso tardío de un editor no lo repinta',
   const escritas = container.escritas.length
   it.setHandleLevel('b', HANDLE_NONE)
   assert.equal(container.escritas.length, escritas, 'el editor que se destruye después no escribe')
+})
+
+// Lo que oía del anfitrión se da de baja con él: ni el arrastre, ni el puntero, ni el click, ni la vista.
+test('destroy da de baja lo que oía del anfitrión', () => {
+  const esc = montar({ demandas: { capa: EVENT_CLICK | EVENT_HOVER } })
+  esc.it.destroy()
+  const escritas = esc.container.escritas.length
+
+  esc.map.fire('movestart').fire('dragstart')
+  esc.container.emitir('pointermove')
+  esc.map.fire('click', { latlng: { lat: 0, lng: 0 } })
+  assert.deepEqual({ escritas: esc.container.escritas.length, eventos: esc.bus.eventos }, { escritas, eventos: [] })
 })
 
 /* ── El cableado del motor con el editor ── */

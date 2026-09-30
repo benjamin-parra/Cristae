@@ -8,17 +8,21 @@ import { retainTileSnapshots } from './TileSnapshotRetention.js'
 // cristae/geometry y lo que sale es un objeto plano.
 //
 // Las facetas son `camera` —estado, comandos, proyección, política de animación del zoom y ciclo de
-// vista—, `surface`, los nodos donde dibujan las capas, y `tiles`, el proveedor de la capa base con la
-// retención de su imagen. `substrate` es el Leaflet y el mapa para lo que todavía dibuja con Leaflet:
-// los sustratos vectoriales y glify, y nada más. `map` es para lo que no tiene faceta: la entrada y
-// `getLeafletMap()`.
+// vista—, `surface`, los nodos donde dibujan las capas, `tiles`, el proveedor de la capa base con la
+// retención de su imagen, e `input`, la entrada del contenedor y el arrastre del mapa. `substrate` es el
+// Leaflet y el mapa para lo que todavía dibuja con Leaflet: los sustratos vectoriales y glify, y nada
+// más. `map` queda para `getLeafletMap()`.
 
 // El ciclo de vista, con un solo emisor: cada tipo tiene un oyente en el mapa, y los suscriptores del
 // anfitrión se reparten ese lugar en el orden en que llegaron.
 const VIEW_EVENTS = ['movestart', 'move', 'moveend', 'zoomstart', 'zoomanim', 'zoomend', 'resize']
 
+// Los eventos del contenedor en que se relee si el arrastre del mapa sigue en curso (ver `input`).
+const DRAG_SYNC = ['pointerup', 'pointerenter']
+const PASSIVE   = Object.freeze({ passive: true })
+const NOOP      = () => {}
+
 const CONTAINER_ORIGIN = Object.freeze([0, 0])
-const NOOP             = () => {}
 
 // Lo que la superficie le escribe a un pane: lo que le devuelve a uno prestado.
 const PANE_STYLE = ['zIndex', 'pointerEvents', 'visibility', 'opacity']
@@ -46,22 +50,40 @@ const latLngOf = (LatLng, point) => {
   return new LatLng(coordOf(point, 0), coordOf(point, 1))
 }
 
+// Los avisos que reparte el anfitrión, con una lista por tipo. La lista se reemplaza al suscribir y al
+// bajar, así que un reparto recorre la del momento en que empezó: quien se suscribe a mitad no entra en
+// él. Quien se baja a mitad sale también de él —la baja apaga su entrada—, porque ya soltó lo que su
+// oyente toca. `on` toma uno o varios tipos separados por espacios, como en Leaflet, y devuelve una sola
+// baja.
+const emitter = types => {
+  const lists = Object.fromEntries(types.map(type => [type, []]))
+  return {
+    fire(type, detail) {
+      const list = lists[type]
+      for (let i = 0; i < list.length; i++) list[i].live && list[i].fn(detail)
+    },
+    on(names, fn) {
+      const each  = names.split(' ')
+      const entry = { fn, live: true }
+      each.forEach(type => lists[type] = [...lists[type], entry])
+      return () => {
+        entry.live = false
+        each.forEach(type => lists[type] = lists[type].filter(e => e !== entry))
+      }
+    },
+  }
+}
+
 const hostOf = (map, leaflet, ownsMap, zoomPolicy) => {
   const toLatLng  = point => latLngOf(leaflet.LatLng, point)
-  const listeners = Object.fromEntries(VIEW_EVENTS.map(type => [type, []]))
+  const container = map.getContainer()
+  const view      = emitter(VIEW_EVENTS)
 
-  // La lista se reemplaza al suscribir y al bajar, así que un reparto recorre la del momento en que
-  // empezó: quien se suscribe a mitad no entra en él. Quien se baja a mitad sale también de él —la baja
-  // apaga su entrada—, porque ya soltó lo que su oyente toca.
-  const fire = (type, detail) => {
-    const list = listeners[type]
-    for (let i = 0; i < list.length; i++) list[i].live && list[i].fn(detail)
-  }
   // `zoomanim` es el único con carga: la vista destino. Leaflet lo dispara antes de mover la vista, así
   // que durante el reparto `zoom()` y `center()` todavía dan la de partida.
   const relays = Object.fromEntries(VIEW_EVENTS.map(type => [type, type === 'zoomanim'
-    ? e => fire(type, { center: plainLatLng(e.center), zoom: e.zoom })
-    : () => fire(type)]))
+    ? e => view.fire(type, { center: plainLatLng(e.center), zoom: e.zoom })
+    : () => view.fire(type)]))
 
   // La política decide por los dos extremos de cada zoom, lo pida quien lo pida: 'none' no anima
   // ninguno, 'in-only' sólo los que no alejan y 'on' todos (el porqué de cada modo, en SPECS §9).
@@ -163,16 +185,7 @@ const hostOf = (map, leaflet, ownsMap, zoomPolicy) => {
     get zoomPolicy() { return zoomPolicy },
     set zoomPolicy(mode) { zoomPolicy = mode },
 
-    // `types` son uno o varios tipos separados por espacios, como en Leaflet; devuelve una sola baja.
-    on(types, fn) {
-      const list  = types.split(' ')
-      const entry = { fn, live: true }
-      list.forEach(type => listeners[type] = [...listeners[type], entry])
-      return () => {
-        entry.live = false
-        list.forEach(type => listeners[type] = listeners[type].filter(e => e !== entry))
-      }
-    },
+    on: view.on,
   }
 
   // Varias capas pueden montar el mismo nombre de pane, y lo sostienen todas. Uno que se creó se va con la
@@ -184,7 +197,7 @@ const hostOf = (map, leaflet, ownsMap, zoomPolicy) => {
     node && (node.style[key] = value)
   }
   const surface = {
-    container: map.getContainer(),
+    container,
 
     // Un nodo en el marco que sigue al paneo, colgado del pane raíz del mapa. `z` y `pointer` se aplican
     // si vienen: quien sólo necesita el nodo lo toma como lo dejó el que lo configuró.
@@ -246,6 +259,67 @@ const hostOf = (map, leaflet, ownsMap, zoomPolicy) => {
     },
   }
 
+  // El arrastre del usuario, que `onDrag` avisa con `true` al empezar y `false` al terminar. Leaflet lo
+  // abre con `dragstart`, cuando todavía no lo marca en curso; cuándo termina, aunque Leaflet lo corte
+  // sin `dragend`, y en qué eventos se relee, en docs/interaction.md#el-cursor-del-contenedor. Se oye
+  // desde que alguien lo pide.
+  const drag        = emitter(['drag'])
+  let dragging      = false
+  let dragHeard     = false
+  const setDragging = value => {
+    if (value === dragging) return
+    dragging = value
+    drag.fire('drag', value)
+  }
+  const startDrag = () => setDragging(true)
+  const syncDrag  = () => setDragging(!!map.dragging.moving())
+  const hearDrag  = (onMap, onContainer) => {
+    map[onMap]('dragstart', startDrag)
+    map[onMap]('dragend moveend', syncDrag)
+    DRAG_SYNC.forEach(type => container[onContainer](type, syncDrag, PASSIVE))
+  }
+
+  const input = {
+    // El evento tal como llega al contenedor: `on` y `off` son su `addEventListener` y su
+    // `removeEventListener`, con las mismas opciones. El anfitrión oye en burbuja sobre ese mismo nodo
+    // —su arrastre, su zoom por doble click, su click—, así que un oyente en captura oye cada evento antes
+    // que él, y cortar ahí su propagación se lo saca.
+    on  : (type, fn, options) => container.addEventListener(type, fn, options),
+    off : (type, fn, options) => container.removeEventListener(type, fn, options),
+
+    // El píxel del contenedor donde cayó un evento del puntero, descontados la escala CSS y el borde.
+    containerPoint: event => plainPoint(map.mouseEventToContainerPoint(event)),
+
+    onDrag(fn) {
+      dragHeard || hearDrag('on', 'addEventListener')
+      dragHeard = true
+      return drag.on('drag', fn)
+    },
+    // Presta el arrastre del mapa a quien tomó el puntero, y devuelve con qué soltarlo. Sólo se presta lo
+    // que estaba prendido: un mapa que su dueño dejó fijo no se puede «devolver».
+    lendDrag() {
+      const handler = map.dragging
+      if (!handler.enabled()) return NOOP
+      handler.disable()
+      return () => handler.enable()
+    },
+
+    // Lo que todavía reconoce Leaflet. `onRecognized` entrega el `click` o el `dblclick` que Leaflet da
+    // por del mapa —no el que cierra un arrastre ni el que cae en un control— con su posición plana, su
+    // píxel y el evento del DOM; uno disparado por código trae sólo lo que se le pasó. `withinControl`
+    // dice si un nodo cae en un subárbol que Leaflet declara fuera del mapa: un control o un popup.
+    onRecognized(type, fn) {
+      const relay = e => fn({
+        latlng : e.latlng && plainLatLng(e.latlng),
+        point  : e.containerPoint && plainPoint(e.containerPoint),
+        event  : e.originalEvent,
+      })
+      map.on(type, relay)
+      return () => map.off(type, relay)
+    },
+    withinControl: target => !!map._isClickDisabled(target),
+  }
+
   // El `load` con que un mapa adoptado toma su primera vista lo oye el anfitrión, y el oyente se va con
   // él: un motor destruido no se entera de la vista que tome el mapa después.
   let onLoad = NOOP
@@ -255,6 +329,7 @@ const hostOf = (map, leaflet, ownsMap, zoomPolicy) => {
     camera,
     surface,
     tiles,
+    input,
     substrate: Object.freeze({ L: leaflet, map }),
     map,
     // Un mapa adoptado sigue vivo: el anfitrión sólo le devuelve lo que le tomó y le saca lo que le puso.
@@ -264,6 +339,7 @@ const hostOf = (map, leaflet, ownsMap, zoomPolicy) => {
       tileLayer?.remove()
       VIEW_EVENTS.forEach(type => map.off(type, relays[type]))
       map.off('load', onLoad)
+      dragHeard && hearDrag('off', 'removeEventListener')
       ownsMap && map.remove()
     },
   }

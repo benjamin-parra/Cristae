@@ -177,8 +177,9 @@ consumidor. Gana la primera fila que aplica:
   `document.body`, y desde el shadow root de `<cristae-map>` la regla `.leaflet-dragging .leaflet-grab`
   no lo alcanza.
 - **Termina cuando Leaflet deja de darlo en curso** (`map.dragging.moving()`), no sólo en `dragend`: un
-  segundo dedo —el pinch— o un segundo botón lo cortan sin emitirlo. El estado se relee en `dragend`, en
-  `moveend` y en el `pointerup` y el `pointerenter` del contenedor; nunca por `pointermove`.
+  segundo dedo —el pinch— o un segundo botón lo cortan sin emitirlo. El anfitrión relee el estado en lo
+  que siempre les sigue: el `dragend`, el `moveend` del pinch, el `pointerup` del último botón o, si se
+  soltó fuera del mapa, el `pointerenter` de la vuelta; nunca por `pointermove`.
 - **Vacío, `null` o rechazado por `CSS.supports('cursor', …)` es ninguno**: el estilo ignoraría el valor
   y dejaría puesto el anterior. Sin `CSS` global —un DOM emulado— no hay con qué validar, y se acepta.
 - **Reponer el vigente no hace nada**: se compara ya normalizado, así que reaplicarlo en cada movimiento

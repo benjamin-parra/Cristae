@@ -22,12 +22,13 @@ export const prepararDom = ({ transformaciones3d = false } = {}) => {
 // Un frame del DOM: lo que tarda en arrancar un zoom animado.
 export const frame = () => new Promise(resolve => requestAnimationFrame(resolve))
 
-// Un contenedor de 800×600 en el documento: jsdom no mide, así que el tamaño y la caja se declaran.
-export const contenedor = () => {
+// Un contenedor de 800×600 en el origen de la página: jsdom no mide, así que el tamaño y la caja se
+// declaran. `caja` corre o escala su rectángulo en pantalla, y `borde` le pone un borde.
+export const contenedor = ({ caja = { left: 0, top: 0, width: 800, height: 600 }, borde = 0 } = {}) => {
   const container = document.createElement('div')
   document.body.appendChild(container)
-  Object.entries({ clientWidth: 800, clientHeight: 600, offsetWidth: 800, offsetHeight: 600 })
+  Object.entries({ clientWidth: 800, clientHeight: 600, offsetWidth: 800, offsetHeight: 600, clientLeft: borde, clientTop: borde })
     .forEach(([k, value]) => Object.defineProperty(container, k, { value }))
-  container.getBoundingClientRect = () => ({ left: 0, top: 0, right: 800, bottom: 600, width: 800, height: 600, x: 0, y: 0 })
+  container.getBoundingClientRect = () => ({ ...caja, right: caja.left + caja.width, bottom: caja.top + caja.height, x: caja.left, y: caja.top })
   return container
 }
