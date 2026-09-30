@@ -3,9 +3,9 @@
 > Pieza de [Cristae](../MODELO.md). Implementa [SPECS §8.3](../SPECS.md) (label-layer). Capa de
 > presentación pura: posiciona etiquetas sobre el mapa; no resuelve hits ni conoce el dominio.
 
-`LabelLayer` dibuja etiquetas de texto (píldoras) sobre un canvas overlay de Leaflet, ancladas a
-coordenadas geográficas. Una sola capa genérica: el **glifo** lo pinta una función inyectable
-(`paint`), así que el estilo (vehículo, lugar, lo que sea) es del consumidor, no de la capa.
+`LabelLayer` dibuja etiquetas de texto (píldoras) sobre un canvas montado en la superficie del mapa,
+ancladas a coordenadas geográficas. Una sola capa genérica: el **glifo** lo pinta una función
+inyectable (`paint`), así que el estilo (vehículo, lugar, lo que sea) es del consumidor, no de la capa.
 
 ---
 
@@ -15,14 +15,15 @@ La `ConstantLabelLayer` de referencia triplicaba el código: `vehicle`, `place` 
 una con su pane, su set de hover y su función de dibujo casi idéntica. Tres caminos para el mismo
 problema (anclar texto + cull + elevar el hover) → triple superficie de bug.
 
-`LabelLayer` colapsa eso en **un** overlay de canvas (`CanvasOverlay`, una `L.Layer` mínima) más
-**un** `paint(ctx, point, label, hovered, style)` inyectable. La diferencia visual entre "vehículo" y
-"lugar" es solo un `paint` distinto (o el `drawLabel` por defecto con campos distintos en el label).
-Cero dominio en la capa.
+`LabelLayer` colapsa eso en **un** canvas más **un** `paint(ctx, point, label, hovered, style)`
+inyectable. La diferencia visual entre "vehículo" y "lugar" es solo un `paint` distinto (o el
+`drawLabel` por defecto con campos distintos en el label). Cero dominio en la capa.
 
-El overlay maneja lo no trivial: alineación con el mapa (`containerPointToLayerPoint`), nitidez en
-pantallas HiDPI (`devicePixelRatio` + `setTransform`), y **se oculta durante el `zoom`** (si no, las
-etiquetas se deslizarían desfasadas del mapa durante la animación) reapareciendo en `zoomend`.
+La capa maneja lo no trivial: alineación con el mapa (el canvas se ancla al origen del contenedor en el
+marco que sigue al paneo), nitidez en pantallas HiDPI (`devicePixelRatio` + `setTransform`), y **se
+oculta durante el `zoom`** (si no, las etiquetas se deslizarían desfasadas del mapa durante la
+animación) reapareciendo en `zoomend`. El ciclo de vista y la proyección son los de la cámara del
+anfitrión del mapa; la capa no es una capa de Leaflet.
 
 ---
 
@@ -30,7 +31,7 @@ etiquetas se deslizarían desfasadas del mapa durante la animación) reaparecien
 
 Construcción:
 ```js
-new LabelLayer({ map, camera, pane: { name, zIndex }, paint = drawLabel, boundsPad = 0.08, style })
+new LabelLayer({ host, pane, paint = drawLabel, boundsPad = 0.08, style })
 ```
 
 | Método / prop | Firma | Notas |
@@ -41,12 +42,15 @@ new LabelLayer({ map, camera, pane: { name, zIndex }, paint = drawLabel, boundsP
 | `setVisibility(visible)` | `(bool) → void` | muestra/oculta el pane |
 | `applyFocus(ids, dim?)` | `(Set<id>\|null, number) → true` | atenúa por `globalAlpha` las etiquetas que quedan fuera de `ids` (`null` = sin foco). Lo llama el motor por el eje `focus-ids` ([`elements.md`](elements.md)); devuelve `true` porque el pane queda pleno |
 | `clear()` | `() → void` | vacía labels + hover (no-op si ya estaba vacío) |
-| `destroy()` | `() → void` | quita el overlay del mapa |
+| `destroy()` | `() → void` | desmonta el canvas y suelta el pane y el ciclo de vista |
 
 **`Label`** solo exige `{ id, lat, lng, text }`; cualquier otro campo (p. ej. `accent`) lo interpreta
 el `paint`. El culling por bounds (`boundsPad` de padding) y la elevación de los hovered son de la
 capa; el resto es del painter. La caja del culling y el `point` que recibe el painter —el píxel del
-contenedor, `{ x, y }`— salen de la `camera` del motor, planos.
+contenedor, `{ x, y }`— salen de la cámara del anfitrión, planos: sobre un mapa adoptado que todavía no
+tiene vista la capa no pinta, y lo hace en el `moveend` que la trae. El canvas, sin puntero, cuelga del
+pane de nombre `pane`, que la capa sostiene hasta `destroy()` y no configura: su `z` lo pone quien lo
+configura —el motor, al darla de alta; en uso suelto, quien crea el pane—.
 
 ### `drawLabel` (painter por defecto, exportado)
 
@@ -71,15 +75,17 @@ trae `accent`— una franja de acento a la izquierda. Memoiza el ancho medido (`
 ## Ejemplo de uso
 
 ```js
+import { MapEngine, adoptLeafletHost } from 'cristae/map'
 import { LabelLayer, drawLabel } from './src/render/LabelLayer.js'
 
-// Standalone con el painter por defecto, sobre el mapa y la cámara de un motor.
-const map    = engine.getLeafletMap()
+// Standalone con el painter por defecto, sobre el anfitrión que también usa el motor.
+const host   = adoptLeafletHost(map)
+const engine = new MapEngine({ host, glify })
+map.createPane('fleetLabelsPane').style.zIndex = '665'
 const labels = new LabelLayer({
-  map,
-  camera : engine.camera,
-  pane   : { name: 'fleetLabelsPane', zIndex: 665 },
-  style  : { surface: '#fff', text: '#0f172a', accent: '#2563eb' },
+  host,
+  pane  : 'fleetLabelsPane',
+  style : { surface: '#fff', text: '#0f172a', accent: '#2563eb' },
 })
 
 labels.setLabels([
@@ -91,11 +97,11 @@ labels.setLabels([
 labels.setHovered([1])
 
 // Painter propio: otro look sin tocar la capa.
+map.createPane('tagsPane').style.zIndex = '640'
 const minimal = new LabelLayer({
-  map,
-  camera : engine.camera,
-  pane   : { name: 'tagsPane', zIndex: 640 },
-  paint  : (ctx, point, label) => {
+  host,
+  pane  : 'tagsPane',
+  paint : (ctx, point, label) => {
     ctx.fillStyle = '#000'
     ctx.fillText(label.text, point.x, point.y)
   },

@@ -7,8 +7,8 @@
 // stub cuyo ctx es no-op y cuyos píxeles nunca se leen en CPU (Atlas.tileAt guarda el canvas; sólo se
 // entrega a gl.texImage2D, no-op). Así el harness ejerce el camino real de iconos, no uno paralelo.
 //
-// Globals de módulo (se ejecutan al EVALUAR este helper, ANTES que el árbol de MapEngine): LabelLayer y
-// TileSnapshotRetention hacen `import L from 'leaflet'` por top-level (no por inyección), y la carga de
+// Globals de módulo (se ejecutan al EVALUAR este helper, ANTES que el árbol de MapEngine): el anfitrión
+// y TileSnapshotRetention hacen `import L from 'leaflet'` por top-level (no por inyección), y la carga de
 // Leaflet real toca window/navigator/document. Shim mínimo para que el módulo evalúe en node — Leaflet
 // real NO se usa en el fold (L va inyectado por makeLeaflet). Mismo `document` sirve para el canvas que
 // rasteriza defineClusterIconSet. El test importa este helper ANTES que MapEngine, así el shim ya está.
@@ -37,7 +37,9 @@ const elemento = (base = {}) => Object.assign(base, {
   removeChild(hijo) { hijo?.remove?.() },
 })
 
-const NOOP_CTX = new Proxy({}, { get: () => () => {}, set: () => true })
+// Un contexto 2D que no dibuja: todo es no-op salvo `measureText`, que mide 0 como un texto vacío, para
+// que un painter de etiquetas pueda maquetar.
+const NOOP_CTX = new Proxy({ measureText: () => ({ width: 0 }) }, { get: (t, p) => t[p] ?? (() => {}), set: () => true })
 const makeCanvas = () => ({ width: 0, height: 0, style: {}, getContext: () => NOOP_CTX })
 
 if (!globalThis.window) {
@@ -401,11 +403,6 @@ export const makeMap = ({ zoom = 3 } = {}) => {
     fire(type, e = {}) { handlers.get(type)?.forEach(cb => cb(e)); return map },
     // Fiel a Leaflet: `_loaded` dice si el mapa ya tiene vista. El del harness nace con ella.
     _loaded: true,
-    // L.Layer.addTo(map) delega en map.addLayer. Se registra sin invocar onAdd: el harness no monta
-    // canvas reales (la CanvasOverlay de labels exigiría panes y contexto 2D vivos).
-    addLayer(layer) { map._added.push(layer); return map },
-    removeLayer(layer) { map._added = map._added.filter(l => l !== layer); return map },
-    _added: [],
     getContainer: () => container,
     // Fiel a Leaflet: lo que `DomEvent.disableClickPropagation` marcó —un control, un popup— no es del
     // mapa. Sube desde el destino hasta el contenedor, el que el mapa tenga montado.
@@ -416,6 +413,8 @@ export const makeMap = ({ zoom = 3 } = {}) => {
     // Fiel a Leaflet: `getPane` lee el registro `_panes`, y sacar el pane del DOM NO lo saca de ahí —
     // quien lo desmonte tiene que borrar la entrada o el alta siguiente reusa un nodo desconectado.
     _panes: panesRegistro,
+    // Fiel a Leaflet: el renderer de los paths de cada pane, que el mapa cachea por nombre.
+    _paneRenderers: {},
     getPane: (n) => panesRegistro[n] ?? null,
     createPane: (n) => (panesRegistro[n] = { style: {}, connected: true, appendChild() {}, remove() { panesRegistro[n].connected = false } }),
     getZoom: () => map._zoom,
@@ -423,7 +422,6 @@ export const makeMap = ({ zoom = 3 } = {}) => {
     setZoomForTest(z) { map._zoom = z; return map },
     getCenter: () => map._center,
     _center: { lat: 0, lng: 0 },
-    getZoomScale: (a, b) => 2 ** (a - (b ?? map._zoom)),
     // Helper del TEST: un frame de zoom ANIMADO como lo hace Leaflet — emite `zoomanim` con la vista
     // DESTINO y recién DESPUÉS mueve la vista viva (durante la transición, getZoom/getCenter ya son las
     // del destino: por eso una capa que se reproyecte contra el mapa vivo aterriza en el final).
@@ -456,6 +454,42 @@ export const makeMap = ({ zoom = 3 } = {}) => {
     remove() {},
   }
   return map
+}
+
+// Las capas oyen la vista por la cámara del anfitrión, no por el mapa, así que lo que una deja enganchado
+// al irse se cuenta ahí. Envuelve `camera.on` —antes de montar nada— y devuelve cuántas suscripciones
+// siguen vivas para los tipos pedidos; una baja cuenta una vez aunque se llame dos.
+export const oyentesDeVista = host => {
+  const on    = host.camera.on
+  const vivas = new Map()
+  const sumar = (tipos, n) => tipos.forEach(tipo => vivas.set(tipo, (vivas.get(tipo) ?? 0) + n))
+  host.camera.on = (types, fn) => {
+    const tipos = types.split(' ')
+    const off   = on(types, fn)
+    let viva    = true
+    sumar(tipos, 1)
+    return () => {
+      viva && sumar(tipos, -1)
+      viva = false
+      off()
+    }
+  }
+  return (...tipos) => tipos.reduce((n, tipo) => n + (vivas.get(tipo) ?? 0), 0)
+}
+
+// Un `style` que anota cada transform que le escriben y conserva el último. Lo anotado es lo que una capa
+// escribe al colgar un nodo del marco del mapa (`frameTransform`), ya leído: la posición y, en un frame
+// de zoom animado, la escala.
+export const estiloTrasladado = anotar => {
+  let transform = ''
+  return {
+    get transform() { return transform },
+    set transform(t) {
+      const [, x, y, escala = '1'] = /^translate3d\(([^p]+)px, ([^p]+)px, 0\)(?: scale\((.+)\))?$/.exec(t)
+      anotar({ x: +x, y: +y, escala: +escala })
+      transform = t
+    },
+  }
 }
 
 // Doble del handler `map.dragging`. Expone la MISMA superficie que `L.Handler` —`enable`/`disable`/
@@ -540,14 +574,6 @@ export const makeLeaflet = () => {
     marker,
     // El constructor con que el anfitrión le pasa los puntos al mapa.
     LatLng: class { constructor(lat, lng) { this.lat = lat; this.lng = lng } },
-    DomUtil: {
-      getPosition:  () => ({ x: 0, y: 0 }),
-      // Lo que Leaflet le aplica a un elemento `leaflet-zoom-animated` en cada frame de zoom.
-      setTransform: (el, pt, escala) => { el.style.transform = `translate3d(${pt.x}px, ${pt.y}px, 0) scale(${escala})` },
-      // Cómo ancla Leaflet un nodo en el marco del mapa: la superficie de edición, el banco de handles.
-      setPosition:  (el, pt) => { el.style.transform = `translate3d(${pt.x}px, ${pt.y}px, 0)` },
-    },
-    point:   (x, y) => ({ x, y }),
     divIcon(opts = {}) {
       const icon = { isDivIcon: true, ...opts }
       log.icons.push(icon)

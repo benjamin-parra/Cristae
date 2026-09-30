@@ -17,13 +17,14 @@
 // El harness (engine-stub) shimea window/document — se importa PRIMERO.
 
 import './../../test-helpers/engine-stub.mjs'
-import { conGlDeEdicion, contadorNodos, makeDragging, makeEditGl, makeLeaflet, makeMap, makePickSpy, makeSurface } from '../../test-helpers/engine-stub.mjs'
+import { conGlDeEdicion, contadorNodos, makeDragging, makeEditGl, makeMap, makePickSpy, makeSurface } from '../../test-helpers/engine-stub.mjs'
 import { after, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { HANDLE_HELD, HANDLE_NONE, HANDLE_OVER } from '../../src/events/events.js'
 import { ROLE } from '../../src/geometry/ChunkedPath.js'
 import { defineEditIconSet, editHandleChannels } from '../../src/render/EditHandleLayer.js'
 import { EditableGeometry } from '../../src/render/EditableGeometry.js'
+import { adoptLeafletHost } from '../../src/host/LeafletHost.js'
 
 /* ── Harness de la sesión de edición ── */
 
@@ -69,7 +70,7 @@ const montar = ({ kind = 'polygon', value = null, mode = 'edit', dpr = 1, style,
   const alMapa    = []
   map.on('click', e => alMapa.push(e.latlng))
   const ed = new EditableGeometry({
-    L: makeLeaflet(), map, pane: 'edit', kind, value, mode, style,
+    host: adoptLeafletHost(map), pane: 'edit', kind, value, mode, style,
     onChange: leer => changes.push(leer()),
     onCommit: leer => {
       commits.push(leer())

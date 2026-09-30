@@ -249,9 +249,9 @@ test('el painter de etiquetas recibe un píxel plano, también el de una elevada
   }
 })
 
-// Un mapa adoptado puede llegar sin vista: `ready` espera a que la tenga. Los insets se guardan igual
-// —los encuadres los usan—, pero sin vista no hay centro ni caja que emitir.
-test('asignar insets a un mapa adoptado sin vista no lanza ni emite: la vista sale desde ready', async () => {
+// Un mapa adoptado puede llegar sin vista. Los insets se guardan igual —los encuadres los usan—, pero sin
+// vista no hay centro ni caja que emitir: la vista sale desde que el mapa la toma.
+test('asignar insets a un mapa adoptado sin vista no lanza ni emite, y emite desde que la toma', () => {
   const map    = L.map(contenedor())
   const engine = new MapEngine({ host: adoptLeafletHost(map), glify: null })
   const vistas = []
@@ -260,13 +260,64 @@ test('asignar insets a un mapa adoptado sin vista no lanza ni emite: la vista sa
   engine.camera.insets = { top: 10 }
   assert.deepEqual(vistas, [], 'sin vista, los insets sólo se guardan')
   map.setView([-33, -70], 10)
-  await engine.ready
   const antes = vistas.length
   engine.camera.insets = { top: 20 }
   assert.equal(vistas.length, antes + 1, 'con vista, cambiar los insets la emite')
   plano(vistas.at(-1), ['center', 'zoom', 'bounds'], 'viewportchange')
   engine.destroy()
   map.remove()
+})
+
+// Las etiquetas pintan con la caja y la proyección de la cámara, que sin vista no se pueden leer: esperan
+// al `moveend` que la trae.
+test('una capa de etiquetas sobre un mapa adoptado sin vista no lanza, y pinta al tomarla', () => {
+  const getContext = window.HTMLCanvasElement.prototype.getContext
+  window.HTMLCanvasElement.prototype.getContext = () => new Proxy({}, { get: () => () => {}, set: () => true })
+  try {
+    const map      = L.map(contenedor())
+    const engine   = new MapEngine({ host: adoptLeafletHost(map), glify: null })
+    const pintados = new Set()
+    const rotulos  = engine.addLabelLayer({ id: 'rotulos', paint: (ctx, point, label) => pintados.add(label.id) })
+
+    rotulos.setLabels([{ id: 1, lat: -33, lng: -70, text: 'centro' }])
+    assert.deepEqual([...pintados], [], 'sin vista no pinta')
+    map.setView([-33, -70], 10)
+    assert.deepEqual([...pintados], [1], 'la vista trae el pintado')
+    engine.destroy()
+    map.remove()
+  } finally {
+    window.HTMLCanvasElement.prototype.getContext = getContext
+  }
+})
+
+// El calor proyecta cada punto con la cámara, igual que las etiquetas: sin vista, espera al `moveend` que
+// la trae. La Source reparte en el frame siguiente, y lo que lanza su oyente sale por la consola.
+test('una capa de calor sobre un mapa adoptado sin vista no lanza, y pinta al tomarla', async t => {
+  const estampas   = []
+  const frame      = () => new Promise(resolve => requestAnimationFrame(resolve))
+  const getContext = window.HTMLCanvasElement.prototype.getContext
+  const contexto   = {
+    drawImage    : (...args) => estampas.push(args),
+    getImageData : () => ({ data: new Uint8ClampedArray(4) }),
+  }
+  window.HTMLCanvasElement.prototype.getContext = () =>
+    new Proxy({}, { get: (_, clave) => contexto[clave] ?? (() => ({ addColorStop() {} })), set: () => true })
+  const errores = t.mock.method(console, 'error', () => {})
+  try {
+    const map    = L.map(contenedor())
+    const engine = new MapEngine({ host: adoptLeafletHost(map), glify: null })
+    engine.addHeatLayer({ id: 'calor', accessors: { idOf: it => it.id, positionOf: it => it }, data: [{ id: 1, lat: -33, lng: -70 }] })
+
+    await frame()
+    assert.deepEqual([errores.mock.callCount(), estampas.length], [0, 0], 'sin vista no lanza ni pinta')
+    map.setView([-33, -70], 10)
+    await frame()
+    assert.ok(estampas.length > 0, 'la vista trae el pintado')
+    engine.destroy()
+    map.remove()
+  } finally {
+    window.HTMLCanvasElement.prototype.getContext = getContext
+  }
 })
 
 test('tras destroy, asignar insets no lanza: el mapa propio ya no está', async () => {

@@ -144,3 +144,18 @@ test('base grande (> splitThreshold): expand particiona en sub-grupos y el paylo
   assert.equal(e.groups.reduce((n, g) => n + g.count, 0), 25, 'los sub-grupos cubren las 25 sin perder ni duplicar')
   assert.ok(e.groups.every(g => g.entities.length === g.count), 'cada sub-grupo trae sus entidades')
 })
+
+// El fold monta un pane por pieza —las burbujas, las patas de la espiral y sus dos capas de puntos— y
+// ninguno sobrevive a su baja. El de las patas no es de ninguna capa: lo monta y lo suelta el fold.
+test('dispose suelta los panes del fold, el de las patas incluido', () => {
+  for (const bubble of [undefined, { kind: 'label' }]) {
+    const { control, map, bubbles } = mount({ foldOpts: { bubble } })
+    const foldId = control.bubbleLayerId.replace(':clusters', '')
+    const panes  = [`${foldId}-bubbles`, `${foldId}-legs`, `cristae-point-${foldId}:spider`, `cristae-point-${foldId}:spider-sub`]
+    bubble || control.expand(bubbles()[0].id)          // la espiral abierta: patas dibujadas en su pane
+    panes.forEach(pane => assert.ok(map.getPane(pane), `${pane} montado`))
+
+    control.dispose()
+    panes.forEach(pane => assert.equal(map.getPane(pane), null, `${pane} fuera del registro (burbuja ${bubble?.kind ?? 'point'})`))
+  }
+})

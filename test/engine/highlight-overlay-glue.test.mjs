@@ -40,6 +40,7 @@ test('addHighlightOverlay: cablea el pase separado end-to-end sobre MapEngine', 
   draws.length = 0
   engine.getLeafletMap().fire('zoomend'); await flushRaf()
   assert.equal(draws.length, 0, 'destroy desconecta del viewport y de la Source')
+  assert.equal(engine.getLeafletMap().getPane('cristae-highlight-hl'), null, 'y suelta su pane')
 
   engine.destroy()
 })

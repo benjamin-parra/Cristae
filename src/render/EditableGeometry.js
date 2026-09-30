@@ -37,7 +37,7 @@ import { EditStrokeLayer } from './EditStrokeLayer.js'
 import { EditSurface } from './EditSurface.js'
 import { Picking } from './Picking.js'
 import { pixelScaleOf } from './pixel-scale.js'
-import { projX0, projY0 } from './project.js'
+import { projX0, projY0, readView } from './project.js'
 
 const MIN_VERTICES = { polygon: 3, polyline: 2 }   // mínimo bajo el cual el borrado por dblclick se ignora
 const KINDS        = new Set(['polygon', 'rectangle', 'polyline', 'point'])
@@ -53,30 +53,6 @@ const CAPTU = { capture: true }
 // Recorrido en px por debajo del cual la pulsación no es un arrastre: la tolerancia de click de
 // `L.Draggable`. Sin él el temblor de un click cuenta como edición y asienta.
 const UMBRAL = 3
-
-// El pane se direcciona por NOMBRE, así que dos editores sobre el mismo mapa comparten el nodo: la cuenta
-// —que cuelga del mapa y se va con él— decide quién lo devuelve. Un pane que ya existía es del consumidor
-// y no entra al registro.
-const PANES = new WeakMap()
-
-const tomarPane = (map, nombre) => {
-  const cuenta = PANES.get(map) ?? PANES.set(map, new Map()).get(map)
-  const previa = cuenta.get(nombre) ?? 0
-  if (!previa && map.getPane(nombre)) return false
-  cuenta.set(nombre, previa + 1)
-  return true
-}
-
-// Leaflet no expone `removePane`, así que además del nodo hay que sacar la entrada del registro: si no, el
-// próximo editor hereda un pane desconectado.
-const devolverPane = (map, nombre) => {
-  const cuenta = PANES.get(map)
-  const queda  = cuenta.get(nombre) - 1
-  queda ? cuenta.set(nombre, queda) : cuenta.delete(nombre)
-  if (queda) return
-  map.getPane(nombre)?.remove()
-  delete map._panes?.[nombre]
-}
 
 const clonePair = p => [p[0], p[1]]
 
@@ -106,7 +82,9 @@ const consumir = e => {
 
 export class EditableGeometry {
 
-  #L; #map; #pane; #kind; #onChange; #onCommit; #onHandleLevel; #container; #surface; #gl; #iconSet
+  #host; #camera; #pane; #kind; #onChange; #onCommit; #onHandleLevel; #container; #surface; #gl; #iconSet
+  #map                                     // el mapa, para la entrada cruda: clicks, arrastre prestado y controles
+  #bajaVista
   #mode       = 'edit'
   #geom       = null                       // representación interna viva (mutada in place por el gesto)
   #simpleRing = true                       // polygon: recordar si la entrada era anillo simple (para la salida)
@@ -115,7 +93,6 @@ export class EditableGeometry {
   #style      = null                       // el vocabulario Leaflet del display que el editor reemplaza
   #paths      = []                         // ChunkedPath por índice de trazo, REUSADOS entre ingestas
   #trazos     = []                         // { orden, path, arena, picking, handles, stroke, bank }
-  #panePropio = false                      // el pane es de los editores, así que se devuelve en destroy
 
   // Testigo de lo que el pase de picking contestaría en un píxel: sube cuando cambia la geometría, el
   // encuadre o la lista de trazos —lo único que puede volver mentirosa una respuesta ya resuelta—. La
@@ -145,28 +122,30 @@ export class EditableGeometry {
   #pixel    = new Int32Array(2)
   #xy       = new Float64Array(2)
   #esquinas = new Int32Array(4)            // los cuatro refs del rectángulo, capturados al tomar el gesto
-  #punto    = [0, 0]                       // el píxel que se convierte a latlng por frame; Leaflet sólo desarma arrays
+  #punto    = [0, 0]                       // el píxel del arrastre que la cámara convierte, reusado en cada frame
   #esquina  = [0, 0]                       // la esquina que devuelve el arrastre de rectángulo
 
-  constructor({ L, map, pane, kind = 'polygon', value = null, mode = 'edit', style, onChange, onCommit, onHandleLevel } = {}) {
+  // El pane se direcciona por NOMBRE: dos editores sobre el mismo mapa comparten el nodo, y la superficie
+  // del anfitrión lo sostiene mientras quede uno.
+  constructor({ host, pane, kind = 'polygon', value = null, mode = 'edit', style, onChange, onCommit, onHandleLevel } = {}) {
     if (!KINDS.has(kind)) throw new Error(`EditableGeometry: kind inválido "${kind}"`)
     this.#style         = { ...ESTILO, ...style }
-    this.#L             = L
-    this.#map           = map
+    this.#host          = host
+    this.#camera        = host.camera
+    this.#map           = host.map
     this.#pane          = pane ?? PANE
-    this.#panePropio    = tomarPane(map, this.#pane)
     this.#kind          = kind
     this.#onChange      = onChange
     this.#onCommit      = onCommit
     this.#onHandleLevel = onHandleLevel
-    this.#container     = map.getContainer()
-    this.#surface       = new EditSurface({ L, map, pane: this.#pane })
+    this.#container     = host.surface.container
+    this.#surface       = new EditSurface({ host, pane: this.#pane })
     this.#gl            = this.#surface.attach()
     this.#iconSet       = defineEditIconSet()
     this.#fill          = CERRADOS.has(kind) ? new EditFillLayer({ gl: this.#gl, rings: this.#trazos, color: this.#style.fillColor, opacity: this.#style.fillOpacity }) : null
     this.#geom          = this.#ingest(value)
     this.#mode          = mode
-    this.#map.on('moveend zoomend resize', this.#onView)
+    this.#bajaVista     = host.camera.on('moveend zoomend resize', this.#onView)
     mode === 'draw' && this.#attachMap()
     mode === 'edit' && this.#attachPointer()
     this.#rebuild()
@@ -245,20 +224,11 @@ export class EditableGeometry {
     this.#releaseInteraction()
     this.#detachMap()
     this.#detachPointer()
-    this.#map.off('moveend zoomend resize', this.#onView)
+    this.#bajaVista()
     this.#trazos.splice(0).forEach(t => this.#soltar(t))
     this.#fill?.destroy()
     this.#surface.destroy()
-    this.#soltarPane()
     this.#informar()
-  }
-
-  // El pane sólo se devuelve si es de los editores, y sólo cuando se va el último que lo usa: el nombre es
-  // compartido, y llevárselo con otro editor vivo le desmonta el canvas de la sesión.
-  #soltarPane() {
-    if (!this.#panePropio) return
-    this.#panePropio = false
-    devolverPane(this.#map, this.#pane)
   }
 
   /* ── Ingesta / serialización (puras respecto a Leaflet) ─────────────────────────────────── */
@@ -597,7 +567,7 @@ export class EditableGeometry {
   // agarraron.
   #beginInteraction(t, ref, e, p) {
     const g = this.#gesto
-    const c = this.#map.latLngToContainerPoint([t.path.xAt(ref), t.path.yAt(ref)])
+    const c = this.#camera.toContainer([t.path.xAt(ref), t.path.yAt(ref)])
     this.#promover(t.orden, ref)
     g.trazo    = t
     g.ref      = ref
@@ -672,7 +642,7 @@ export class EditableGeometry {
     const c = this.#punto
     c[0] = x + g.dx
     c[1] = y + g.dy
-    const p = toFinitePair(this.#map.containerPointToLatLng(c))
+    const p = toFinitePair(this.#camera.fromContainer(c))
     const q = p && this.#mover(g.trazo, g.ref, p)
     if (!q) return
     g.movido = true
@@ -812,7 +782,7 @@ export class EditableGeometry {
     return {
       orden, path, arena, picking, handles,
       stroke : new EditStrokeLayer({ gl, arena, path, project, width: this.#style.weight, color: this.#style.color }),
-      bank   : new EditHandleDom({ L: this.#L, map: this.#map, pane: this.#pane, path, arena, project, iconSet }),
+      bank   : new EditHandleDom({ host: this.#host, pane: this.#pane, path, arena, project, iconSet }),
     }
   }
 
@@ -831,22 +801,7 @@ export class EditableGeometry {
     return CRECEN.has(this.#kind) ? { tiles, sizes } : { tiles: [tiles[0], tiles[1], tiles[0]], sizes }
   }
 
-  /* ── Vista y frame ──────────────────────────────────────────────────────────────────────── */
-
-  // El encuadre que leen las tres capas, mutado y reusado: se arma por frame, y una asignación por frame
-  // sobra. `center` va en world0 px, que es lo que espera la matriz del arena.
-  #encuadre() {
-    const v = this.#vista
-    const c = this.#map.getCenter()
-    const s = this.#map.getSize()
-    v.zoom     = this.#map.getZoom()
-    v.center.x = projX0(c.lng)
-    v.center.y = projY0(c.lat)
-    v.size.x   = s.x
-    v.size.y   = s.y
-    v.drag     = this.#gesto.movido ? this.#vivo : null
-    return v
-  }
+  /* ── Frame ──────────────────────────────────────────────────────────────────────────────── */
 
   // Un frame de la sesión. Sin rAF: lo llama quien cambió algo —una edición, un frame del gesto o un
   // movimiento del mapa—. Los contornos van TODOS antes que los handles: si no, el trazo de un anillo
@@ -855,7 +810,9 @@ export class EditableGeometry {
     const gl = this.#gl
     if (!this.#surface.attached || this.#surface.contextLost) return
     this.#surface.resetCanvasReference()
-    const vista = this.#encuadre()
+    // El encuadre que leen las tres capas, con el vértice que arrastra el gesto.
+    const vista = readView(this.#camera, this.#vista)
+    vista.drag  = this.#gesto.movido ? this.#vivo : null
     gl.clearColor(0, 0, 0, 0)
     gl.clear(gl.COLOR_BUFFER_BIT | gl.STENCIL_BUFFER_BIT)
     this.#fill?.draw(vista)

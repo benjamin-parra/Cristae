@@ -39,7 +39,8 @@ window.L = L
 await import('leaflet.glify')
 
 const map    = L.map('map', { center: CENTRO, zoom: 13, zoomControl: true })
-const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: L }), glify: L.glify })
+const host   = adoptLeafletHost(map, { leaflet: L })
+const engine = new MapEngine({ host, glify: L.glify })
 await engine.ready
 engine.setTileProvider({ url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', maxZoom: 19, attribution: '© OpenStreetMap' })
 
@@ -118,9 +119,7 @@ const programa = (gl, fuenteVS, fuenteFS) => {
 
 /* ── Contexto propio (EditSurface de src/) ───────────────────────────────────────────────────────── */
 
-const pane = map.createPane(PANE)
-pane.style.zIndex       = '640'               // sobre los canvas de glify, bajo popups y controles
-pane.style.pointerEvents = 'none'
+host.surface.mount(PANE, 640, { pointer: false })   // sobre los canvas de glify, bajo popups y controles
 
 let superficie = null
 let gpu        = null
@@ -130,7 +129,7 @@ const enVuelo  = []
 const cache    = new Map()
 
 const montarGl = antialias => {
-  superficie = new EditSurface({ L, map, pane: PANE, antialias })
+  superficie = new EditSurface({ host, pane: PANE, antialias })
   const gl = superficie.attach()
   const tex = gl.createTexture()
   gl.bindTexture(gl.TEXTURE_2D, tex)

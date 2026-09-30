@@ -1,6 +1,6 @@
 import { LitElement, html, css, unsafeCSS } from 'lit'
 import L from 'leaflet'
-import { leafletCss } from './leafletCss.js'
+import { surfaceCss } from '../host/styles.js'
 import { MapEngine } from '../engine/MapEngine.js'
 
 // glify es un plugin que se registra sobre window.L → aseguramos la instancia y lo importamos
@@ -72,11 +72,11 @@ export class CristaeMap extends LitElement {
     _empty: { state: true },
   }
 
-  // Leaflet posiciona tiles/panes con su CSS (.leaflet-tile{position:absolute}, z-index de panes,
-  // clases de zoom-anim). En shadow DOM el CSS global NO cruza el borde → hay que inyectarlo acá,
-  // o los tiles caen a flujo normal (sueltos/apilados) y los transforms inline los mandan fuera.
+  // La superficie del mapa se posiciona con la hoja del anfitrión (tiles absolutos, z de los panes,
+  // transición del zoom). En shadow DOM el CSS global NO cruza el borde → hay que adoptarla acá, o los
+  // tiles caen a flujo normal (sueltos/apilados) y los transforms inline los mandan fuera.
   static styles = [
-    unsafeCSS(leafletCss),
+    unsafeCSS(surfaceCss),
     css`
       /* isolation:isolate crea un stacking context en el host: confina el z-index interno
          (panes de Leaflet 200-700, controles 800-1000, overlays) para que el mapa NO se
@@ -116,9 +116,6 @@ export class CristaeMap extends LitElement {
       }
       .empty-state[hidden] { display: none; }
       .empty-state ::slotted(*) { pointer-events: auto; }
-      /* Leaflet solo aplica user-select:none a tiles/markers, no a los controles → el +/− del
-         zoom queda seleccionable como texto. Lo evitamos en la barra de controles. */
-      .leaflet-bar a { user-select: none; -webkit-user-select: none; }
     `,
   ]
 

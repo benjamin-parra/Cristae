@@ -48,6 +48,7 @@ import assert from 'node:assert/strict'
 import { createSource } from '../../src/data/Source.js'
 import { defineEditIconSet } from '../../src/render/EditHandleLayer.js'
 import { EditableGeometry } from '../../src/render/EditableGeometry.js'
+import { adoptLeafletHost } from '../../src/host/LeafletHost.js'
 import { PolygonLayer } from '../../src/render/PolygonLayer.js'
 import { CircleLayer } from '../../src/render/CircleLayer.js'
 import { PointLayer } from '../../src/render/PointLayer.js'
@@ -72,7 +73,7 @@ after(conGlDeEdicion(() => glVigente))
 
 const editor = cfg => {
   glVigente = makeEditGl()
-  return new EditableGeometry({ L: makeLeaflet(), map: makeMap(), pane: 'edit', ...cfg })
+  return new EditableGeometry({ host: adoptLeafletHost(makeMap()), pane: 'edit', ...cfg })
 }
 
 // La Source real emite en rAF (defer:'raf' → setTimeout(0) bajo el shim); un macrotask lo vacía, así

@@ -13,3 +13,17 @@ export const projY0 = lat => {
   const s = Math.sin(c * D)
   return 256 * (0.5 - 0.25 / Math.PI * Math.log((1 + s) / (1 - s)))
 }
+
+// La vista de la cámara del anfitrión, escrita en `view`: el zoom, el centro en píxeles world0 —lo que
+// esperan las matrices de las capas GPU— y el tamaño del contenedor. `view` es un portador que reusa quien
+// lo pasa, porque la vista se lee por frame, y lo consume en el acto.
+export const readView = (camera, view) => {
+  const c = camera.center()
+  const s = camera.size()
+  view.zoom     = camera.zoom()
+  view.center.x = projX0(c.lng)
+  view.center.y = projY0(c.lat)
+  view.size.x   = s.x
+  view.size.y   = s.y
+  return view
+}

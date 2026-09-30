@@ -1,16 +1,16 @@
-import L from 'leaflet'
 import { withAlpha } from './color.js'
 import { focusFactor } from './focus.js'
+import { frameTransform } from './frame.js'
 import { boundsContain, boundsPad } from '../geometry/bounds.js'
 
-// LabelLayer — etiquetas de texto sobre un canvas overlay.
+// LabelLayer — etiquetas de texto sobre un canvas montado en la superficie del mapa.
 // Genérico: una sola capa, sin variantes de dominio.
 // El glifo lo pinta un `paint(ctx, point, label, hovered)` inyectable; se incluye `drawLabel` por
 // defecto. El label es opaco salvo {id, lat, lng, text}; el resto de campos los interpreta el painter.
 // El painter es API: la caja del culling y el píxel `point` salen de la cámara, planos.
 //
-// El overlay redibuja en moveend/zoomend/resize y se OCULTA durante el zoom-anim (si no, las
-// etiquetas se deslizan desfasadas del mapa). Culling por bounds + los hovered se dibujan encima.
+// El canvas redibuja en moveend/zoomend/resize y se OCULTA durante el zoom-anim (si no, las etiquetas
+// se deslizan desfasadas del mapa). Culling por bounds + los hovered se dibujan encima.
 
 const LABEL_PADDING_X = 10
 const LABEL_HEIGHT = 22
@@ -25,88 +25,14 @@ const DEFAULT_STYLE = Object.freeze({
   accent:  '#2563eb',
 })
 
-// El lienzo: una L.Layer mínima que delega el pintado y mantiene el canvas alineado y nítido (DPR).
-class CanvasOverlay extends L.Layer {
-
-  #canvas = null
-  #ctx    = null
-  #paint
-  #width  = 0
-  #height = 0
-  #ratio  = 1
-  // Oculto (setVisibility false): no pintar el canvas aunque la Source emita (WS a ~60fps).
-  // El guard evita el O(n) fillText por frame en capas que el usuario no ve. Se re-habilita
-  // en setVisibility(true), que fuerza un repintado con el estado actual.
-  #enabled = true
-
-  constructor(paint) {
-    super()
-    this.#paint = paint
-  }
-
-  onAdd(map) {
-    this._map    = map
-    this.#canvas = L.DomUtil.create('canvas', 'cristae-label-canvas')
-    this.#ctx    = this.#canvas.getContext('2d', { alpha: true })
-    this.getPane().appendChild(this.#canvas)
-    map.on('zoomstart', this.#hide, this)
-    map.on('moveend zoomend resize', this.requestRedraw, this)
-    map.on('zoomend', this.#show, this)
-    this.requestRedraw()
-    return this
-  }
-
-  onRemove(map) {
-    map.off('zoomstart', this.#hide, this)
-    map.off('moveend zoomend resize', this.requestRedraw, this)
-    map.off('zoomend', this.#show, this)
-    L.DomUtil.remove(this.#canvas)
-    this.#canvas = null
-    this.#ctx    = null
-    this._map    = null
-  }
-
-  requestRedraw() {
-    if (!this._map || !this.#enabled) return
-    this.#resize()
-    this.#paint(this.#ctx)
-  }
-
-  // Habilita/deshabilita el pintado. En false, requestRedraw() es no-op (todos los callers:
-  // setLabels/setHovered/style y los eventos moveend/zoomend/resize de Leaflet). En true, fuerza
-  // un repintado inmediato para mostrar el estado actual al volver visible la capa.
-  setEnabled(v) {
-    this.#enabled = v
-    if (v && this._map) this.requestRedraw()
-  }
-
-  #hide() { this.#canvas.style.visibility = 'hidden' }
-  #show() { this.#canvas.style.visibility = '' }
-
-  #resize() {
-    const size = this._map.getSize()
-    const ratio = window.devicePixelRatio || 1
-    L.DomUtil.setPosition(this.#canvas, this._map.containerPointToLayerPoint([0, 0]))
-
-    if (this.#width !== size.x || this.#height !== size.y || this.#ratio !== ratio) {
-      this.#width               = size.x
-      this.#height              = size.y
-      this.#ratio               = ratio
-      this.#canvas.style.width  = `${size.x}px`
-      this.#canvas.style.height = `${size.y}px`
-      this.#canvas.width        = Math.round(size.x * ratio)
-      this.#canvas.height       = Math.round(size.y * ratio)
-    }
-    this.#ctx.setTransform(ratio, 0, 0, ratio, 0, 0)
-  }
-}
-
 export class LabelLayer {
 
-  #map
   #camera
-  #overlay
+  #surface
   #pane
+  #canvas
+  #ctx
+  #offView                                   // bajas del ciclo de vista
   #labels        = []
   #hovered       = new Set()
   #hoveredSource = null
@@ -114,26 +40,40 @@ export class LabelLayer {
   #paint
   #boundsPad
   #style
+  #width         = 0
+  #height        = 0
+  #ratio         = 1
+  // Oculta (setVisibility false): no pintar aunque la Source emita (WS a ~60fps). El guard evita el
+  // O(n) fillText por frame en capas que el usuario no ve; setVisibility(true) repinta con lo actual.
+  #enabled       = true
 
-  constructor({ map, camera, pane, paint = drawLabel, boundsPad = 0.08, style = DEFAULT_STYLE } = {}) {
-    this.#map       = map
+  // `pane` es el nombre del pane donde cuelga el canvas; su `z` lo pone quien lo configura.
+  constructor({ host, pane, paint = drawLabel, boundsPad = 0.08, style = DEFAULT_STYLE } = {}) {
+    const { camera, surface } = host
+    const canvas              = document.createElement('canvas')
+    canvas.className           = 'cristae-label-canvas'
+    canvas.style.pointerEvents = 'none'
+
     this.#camera    = camera
-    this.#pane      = pane.name
+    this.#surface   = surface
+    this.#pane      = pane
     this.#paint     = paint
     this.#boundsPad = boundsPad
     this.#style     = style
-    // Asegura (get-or-create) el pane de las etiquetas antes de montar el overlay.
-    const labelPane = this.#map.getPane(pane.name) ?? this.#map.createPane(pane.name)
-    labelPane.style.zIndex        = String(pane.zIndex)
-    labelPane.style.pointerEvents = 'none'
-    this.#overlay              = new CanvasOverlay(ctx => this.#render(ctx))
-    this.#overlay.options.pane = pane.name
-    this.#overlay.addTo(map)
+    this.#canvas    = canvas
+    this.#ctx       = canvas.getContext('2d', { alpha: true })
+    surface.mount(pane).appendChild(canvas)
+    this.#offView = [
+      camera.on('zoomstart', () => this.#canvas.style.visibility = 'hidden'),
+      camera.on('moveend zoomend resize', () => this.#redraw()),
+      camera.on('zoomend', () => this.#canvas.style.visibility = ''),
+    ]
+    this.#redraw()
   }
 
   setLabels(labels) {
     this.#labels = labels
-    this.#overlay.requestRedraw()
+    this.#redraw()
   }
 
   // El set de hover comparte identidad con su fuente: misma ref → no-op (idempotencia barata).
@@ -142,22 +82,21 @@ export class LabelLayer {
     this.#hoveredSource = ids
     this.#hovered.clear()
     ids.forEach(id => this.#hovered.add(id))
-    this.#overlay.requestRedraw()
+    this.#redraw()
   }
 
   set style(style) {
     this.#style = style
-    this.#overlay.requestRedraw()
+    this.#redraw()
   }
 
+  // Cortar el pintado ADEMÁS de ocultar el pane: oculta, la capa seguiría corriendo fillText en cada
+  // moveend/zoomend/emit. Al volver visible repinta con los labels actuales antes de que el pane
+  // aparezca (sin flash viejo).
   setVisibility(visible) {
-    // Cortar el pintado del canvas ADEMÁS de ocultar el pane: sin esto, la capa oculta seguía
-    // corriendo fillText en cada moveend/zoomend/emit. Al volver visible, setEnabled(true) fuerza
-    // un requestRedraw() con los labels actuales antes de que el pane aparezca (sin flash viejo).
-    this.#overlay.setEnabled(visible)
-    const pane = this.#map.getPane(this.#pane)
-    pane.style.setProperty('visibility', visible ? '' : 'hidden')
-    pane.style.setProperty('pointer-events', 'none')
+    this.#enabled = visible
+    this.#redraw()
+    this.#surface.setVisible(this.#pane, visible)
   }
 
   clear() {
@@ -165,34 +104,59 @@ export class LabelLayer {
     this.#labels = []
     this.#hovered.clear()
     this.#hoveredSource = null
-    this.#overlay.requestRedraw()
+    this.#redraw()
   }
 
   destroy() {
+    if (!this.#canvas) return
+    this.#offView.forEach(off => off())
+    this.#canvas.remove()
+    this.#surface.unmount(this.#pane)
     this.#labels = []
     this.#hovered.clear()
-    this.#overlay.remove()
+    this.#canvas = this.#ctx = null
   }
 
   // Atenúa por ETIQUETA (globalAlpha del pintado), no con la opacidad del pane.
   applyFocus(ids, dim = this.#focus.dim) {
     this.#focus = { ids, dim }
-    this.#overlay.requestRedraw()
+    this.#redraw()
     return true
   }
 
-  #render(ctx) {
-    prepareContext(ctx)
-    const box      = boundsPad(this.#camera.getBounds(), this.#boundsPad)
+  // Ancla el canvas al origen del contenedor —el pane lo traslada durante el paneo—, lo redimensiona sólo
+  // si cambió el tamaño o el devicePixelRatio —asignar el ancho lo limpia— y pinta. Sin vista no hay caja
+  // ni píxel que leer: un mapa adoptado que todavía no la tomó repinta en el `moveend` que la trae.
+  #redraw() {
+    if (!this.#canvas || !this.#enabled || !this.#camera.hasView()) return
+    const camera   = this.#camera
+    const canvas   = this.#canvas
+    const ctx      = this.#ctx
+    const size     = camera.size()
+    const origin   = camera.frameOrigin()
+    const ratio    = window.devicePixelRatio || 1
+    const box      = boundsPad(camera.bounds(), this.#boundsPad)
     const elevated = []
     const paint    = (point, label, hovered) => {
       ctx.globalAlpha = focusFactor(this.#focus, label.id)
       this.#paint(ctx, point, label, hovered, this.#style)
     }
 
+    canvas.style.transform = frameTransform(origin.x, origin.y)
+    if (this.#width !== size.x || this.#height !== size.y || this.#ratio !== ratio) {
+      this.#width         = size.x
+      this.#height        = size.y
+      this.#ratio         = ratio
+      canvas.style.width  = `${size.x}px`
+      canvas.style.height = `${size.y}px`
+      canvas.width        = Math.round(size.x * ratio)
+      canvas.height       = Math.round(size.y * ratio)
+    }
+    ctx.setTransform(ratio, 0, 0, ratio, 0, 0)
+    prepareContext(ctx)
     this.#labels.forEach(label => {
       if (!boundsContain(box, label)) return
-      const point = this.#camera.latLngToContainerPoint(label)
+      const point = camera.toContainer(label)
       if (this.#hovered.has(label.id)) elevated.push({ point, label })
       else paint(point, label, false)
     })

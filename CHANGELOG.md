@@ -51,6 +51,11 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   *Migración*: quien escribía `style.cursor` del contenedor a mano, o inyectaba una regla forzada en el
   shadow root, pasa al atributo: el árbitro reescribe el contenedor cada vez que su valor cambia, y la
   regla forzada tapa también el `grab`/`grabbing` del editor y del arrastre.
+- **`engine.on('move')` avisa cada paso del movimiento.** `viewportchange` sale cuando la vista se
+  asienta; lo que la sigue en continuo —una tarjeta o un botón anclados a un punto, durante el arrastre
+  y la inercia— oía el `move` del mapa de Leaflet con `getLeafletMap()`. La señal sale sin carga y no
+  tiene evento `cristae:` ([SPECS §10](SPECS.md)). `<cristae-popup>` y `<cristae-cluster>` la usan.
+  *Migración*: ninguna; quien oía `getLeafletMap().on('move')` puede pasar a la señal.
 
 ### Cambiado
 - **La cámara y los eventos entregan objetos planos, no los de Leaflet.** `camera.getCenter()` y
@@ -70,7 +75,7 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   fuera de [-90, 90], que no es un lugar. El `paint` de una label-layer recibe el píxel `{ x, y }` de la
   cámara, no un `L.Point`: ningún valor de Leaflet cruza la API ([SPECS §0](SPECS.md)). En el motor,
   `viewportchange` sale también al asignar `camera.insets`, como el del elemento con `viewport-insets`,
-  entre `ready` y el teardown; y `engine.on` tipa las señales `ready`, `viewportchange`, `map:click` e
+  mientras el mapa tiene vista y hasta el teardown; y `engine.on` tipa las señales `ready`, `viewportchange`, `map:click` e
   `interaction*` con los mismos payloads que el elemento.
   *Migración*: quien usaba los métodos de `L.LatLngBounds` o `L.LatLng` sobre lo que devuelven la
   cámara o los eventos pasa a los campos y a las funciones de `cristae/geometry`: `getSouth()` y sus
@@ -201,6 +206,18 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
 - **Un encuadre por capa sin posiciones ya no cambia el zoom.** `camera.fitToLayer` y `followBounds`
   con `maxZoom`, sin ninguna posición válida que encuadrar, no encuadraban pero igual bajaban el zoom a
   `maxZoom`. Ahora no mueven la cámara, como `fitToLayers`.
+- **Quitar una capa suelta su pane entero, y un pane que ya era del mapa se queda.** Una capa del
+  sustrato `leaflet` —polígonos, círculos o líneas— que se volvía a montar con el mismo id no se veía:
+  Leaflet guarda por nombre de pane el renderer que dibuja sus paths, el pane se quitaba sin él, y los
+  paths nuevos iban al lienzo del nodo viejo, fuera del documento; el renderer, además, seguía
+  redibujándose en cada movimiento. Ahora se va con su pane. El de las patas de la espiral de un cluster
+  quedaba colgado en el mapa al quitar el cluster, igual que el de sus burbujas cuando son etiquetas y el
+  del overlay de realce al destruirlo; ahora se sueltan, como el de un alta que lanza —un iconSet sin
+  registrar, unos `accessors` sin `idOf`, una rampa de calor que falla—, que quedaba en el mapa aunque la
+  capa no naciera. Y una capa cuyo `pane` nombraba uno que el mapa
+  ya tenía —uno de Leaflet, como `overlayPane`, o uno que creó el dueño de un mapa adoptado— lo sacaba
+  del mapa al quitarse; ahora lo usa prestado, y al irse la última capa se lo devuelve con el `z`, el
+  puntero, la visibilidad y la opacidad que tenía ([SPECS §8](SPECS.md)).
 
 ## [0.35.0] - 2026-10-01
 

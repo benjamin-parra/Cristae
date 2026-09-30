@@ -1,7 +1,7 @@
 import { EditSurface } from './EditSurface.js'
 import { RingStore } from './RingStore.js'
 import { StrokePass } from './StrokePass.js'
-import { projX0, projY0 } from './project.js'
+import { projX0, projY0, readView } from './project.js'
 import { toParts } from '../geometry/polyline.js'
 
 // Líneas ESTÁTICAS con grosor REAL: el trazo sale del mismo `StrokePass` que el contorno de polígonos
@@ -40,9 +40,9 @@ const tablasDe = (items, pathOf) => {
 
 export class LineGpuLayer {
 
-  #map; #surface; #gl; #stroke
+  #camera; #surface; #gl; #stroke
   #store   = null
-  #onView  = null
+  #offView = null
   #source  = null
   #styleOf = null
   #base    = ESTILO
@@ -51,20 +51,19 @@ export class LineGpuLayer {
   #visible = true
   #view    = { zoom: 0, center: { x: 0, y: 0 }, size: { x: 0, y: 0 } }
 
-  constructor({ L, map, pane, source, color, weight, opacity }) {
-    this.#map     = map
+  constructor({ host, pane, source, color, weight, opacity }) {
+    this.#camera  = host.camera
     this.#source  = source
     this.#styleOf = source?.accessors?.styleOf ?? null
     this.#base    = { ...ESTILO, ...(color && { color }), ...(weight != null && { weight }), ...(opacity != null && { opacity }) }
-    this.#surface = new EditSurface({ L, map, pane })
+    this.#surface = new EditSurface({ host, pane })
     this.#gl      = this.#surface.attach()
     // La superficie ya tomó uno de los ~16 contextos: lo que siga puede tirar y nadie devuelve uno solo.
     try {
       this.#stroke = new StrokePass({ gl: this.#gl, closed: false })
       this.#ingest(source ? source.getSnapshot() : [])
-      this.#onView = () => this.redraw()
-      map.on('moveend zoomend resize', this.#onView)
-      this.#unsub = source?.subscribe(() => this.#ingest(this.#source.getSnapshot()) || this.redraw())
+      this.#offView = host.camera.on('moveend zoomend resize', () => this.redraw())
+      this.#unsub   = source?.subscribe(() => this.#ingest(this.#source.getSnapshot()) || this.redraw())
     } catch (e) {
       this.destroy()
       throw e
@@ -82,25 +81,13 @@ export class LineGpuLayer {
     }))
   }
 
-  #viewport() {
-    const c = this.#map.getCenter()
-    const s = this.#map.getSize()
-    const v = this.#view
-    v.zoom     = this.#map.getZoom()
-    v.center.x = projX0(c.lng)
-    v.center.y = projY0(c.lat)
-    v.size.x   = s.x
-    v.size.y   = s.y
-    return v
-  }
-
   redraw() {
     if (!this.#visible || this.#surface.contextLost) return false
     const gl = this.#gl
     this.#surface.resetCanvasReference()
     gl.clearColor(0, 0, 0, 0)
     gl.clear(gl.COLOR_BUFFER_BIT | gl.STENCIL_BUFFER_BIT)
-    const view = this.#viewport()
+    const view = readView(this.#camera, this.#view)
     let pintado = false
     for (let k = 0; k < this.#tramos.length; k++) {
       const tramo = this.#tramos[k]
@@ -125,7 +112,7 @@ export class LineGpuLayer {
 
   destroy() {
     this.#unsub?.()
-    this.#onView && this.#map.off('moveend zoomend resize', this.#onView)
+    this.#offView?.()
     this.#stroke?.destroy()
     this.#store?.destroy()
     this.#surface.destroy()

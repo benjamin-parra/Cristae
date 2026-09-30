@@ -6,18 +6,20 @@
 // acá y el de `presupuesto-dom.test.mjs` son comparables: 799 nodos para 400 vértices contra 3.
 //
 // El harness va primero: instala los globals de módulo que el árbol toca al evaluarse.
-import { decorarElementos, makeGl, makeMap, contadorNodos } from '../../test-helpers/engine-stub.mjs'
+import { decorarElementos, estiloTrasladado, makeGl, makeMap, contadorNodos } from '../../test-helpers/engine-stub.mjs'
 import test, { after } from 'node:test'
 import assert from 'node:assert/strict'
 import { ChunkedPath } from '../../src/geometry/ChunkedPath.js'
 import { EditArena } from '../../src/render/EditArena.js'
 import { defineEditIconSet, editHandleChannels } from '../../src/render/EditHandleLayer.js'
 import { EditHandleDom } from '../../src/render/EditHandleDom.js'
+import { adoptLeafletHost } from '../../src/host/LeafletHost.js'
 
-// El banco no expone sus nodos, y lo que hay que caracterizar de ellos —que no enganchan un solo listener
-// y qué tile dibujan— no se ve desde afuera. La costura del harness los instrumenta al salir de la
-// fábrica: el elemento lo sigue creando el shim, así que el contador de nodos mide igual.
-const espia = { listeners: 0, pintadas: [] }
+// El banco no expone sus nodos, y lo que hay que caracterizar de ellos —que no enganchan un solo listener,
+// qué tile dibujan y dónde los cuelga— no se ve desde afuera. La costura del harness los instrumenta al
+// salir de la fábrica: el elemento lo sigue creando el shim, así que el contador de nodos mide igual.
+// `escrituras` son las posiciones que el banco les escribió, en orden.
+const espia = { listeners: 0, pintadas: [], escrituras: [] }
 
 const ctxEspia = el => new Proxy({
   drawImage: tile => espia.pintadas.push({ el, tile }),
@@ -26,6 +28,7 @@ const ctxEspia = el => new Proxy({
 after(decorarElementos(el => {
   el.addEventListener = () => espia.listeners++
   el.getContext       = () => ctxEspia(el)
+  el.style            = estiloTrasladado(t => espia.escrituras.push({ el, ...t }))
   return el
 }))
 
@@ -47,13 +50,12 @@ const puntos = n => Array.from({ length: n }, (_, i) => [-33.45 + i * 0.0007, -7
 const mapaEn = (x, y) => ({ ...makeMap(), containerPointToLayerPoint: () => ({ x, y }) })
 
 const montar = (n, { closed = false, map = makeMap(), zoom = 8 } = {}) => {
-  const posiciones = []
-  const L       = { DomUtil: { setPosition: (el, punto) => posiciones.push({ el, x: punto.x, y: punto.y }) } }
   const path    = new ChunkedPath({ points: puntos(n), localBits: BITS, closed })
   const iconSet = defineEditIconSet()
   const arena   = new EditArena({ gl: makeGl(), path, project, ...editHandleChannels(iconSet) })
-  const banco   = new EditHandleDom({ L, map, pane: 'edit', path, arena, project, iconSet })
-  return { path, arena, iconSet, banco, posiciones, vista: { zoom, center: { ...arena.anchor }, size: SIZE } }
+  const host    = adoptLeafletHost(map)
+  const banco   = new EditHandleDom({ host, pane: 'edit', path, arena, project, iconSet })
+  return { map, host, path, arena, iconSet, banco, posiciones: espia.escrituras, vista: { zoom, center: { ...arena.anchor }, size: SIZE } }
 }
 
 const refs = path => {
@@ -189,6 +191,16 @@ test('despromover no deja NINGÚN nodo vivo, y destruir tampoco', () => {
 
   m.banco.destroy()
   assert.equal(contador.vivos, 0)
+  assert.equal(m.map.getPane('edit'), null, 'y el pane, que sólo sostenía el banco, se va del mapa')
+})
+
+// El pane lo comparte con la superficie de edición: soltarlo dos veces le desmontaría el canvas a ella.
+test('un segundo destroy no vuelve a soltar el pane', () => {
+  const m = montar(23)
+  m.host.surface.mount('edit')
+  m.banco.destroy()
+  m.banco.destroy()
+  assert.ok(m.map.getPane('edit'), 'el otro que lo sostiene lo conserva')
 })
 
 test('promover dos veces seguidas RE-APUNTA el banco: ni un nodo de más', () => {

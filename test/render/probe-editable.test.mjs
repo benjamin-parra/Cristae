@@ -7,10 +7,11 @@
 // inagarrable—, que es exactamente lo que estas sondas buscan.
 
 import './../../test-helpers/engine-stub.mjs'
-import { conGlDeEdicion, contadorNodos, makeDragging, makeEditGl, makeLeaflet, makeMap, makePickSpy } from '../../test-helpers/engine-stub.mjs'
+import { conGlDeEdicion, contadorNodos, makeDragging, makeEditGl, makeMap, makePickSpy } from '../../test-helpers/engine-stub.mjs'
 import { after, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { EditableGeometry } from '../../src/render/EditableGeometry.js'
+import { adoptLeafletHost } from '../../src/host/LeafletHost.js'
 
 const P = 100
 
@@ -32,7 +33,7 @@ const contenedor = () => {
 
 // `panePrevio`: el pane de edición ya existe en el mapa antes de montar el editor — el caso en que el
 // pane es del consumidor y el editor sólo lo usa prestado. `sobre`: un editor ya montado cuyo MAPA se
-// comparte (dos editores sobre el mismo mapa comparten también su contenedor y su arrastre).
+// comparte (dos editores sobre el mismo mapa comparten también su anfitrión, su contenedor y su arrastre).
 const montar = ({ kind = 'polygon', value = null, mode = 'edit', panePrevio = false, sobre = null } = {}) => {
   const spy = makePickSpy()
   glVigente = makeEditGl(spy)
@@ -40,15 +41,13 @@ const montar = ({ kind = 'polygon', value = null, mode = 'edit', panePrevio = fa
   const dragging  = sobre?.dragging  ?? makeDragging()
   const map       = sobre?.map       ?? { ...makeMap(), getContainer: () => container, dragging }
   panePrevio && map.createPane('edit')
-  const puestos   = []                       // [nodo, {x,y}] de cada DomUtil.setPosition
-  const L         = makeLeaflet()
+  const host      = sobre?.host      ?? adoptLeafletHost(map)
   const changes   = [], commits = []
   const ed = new EditableGeometry({
-    L: { ...L, DomUtil: { ...L.DomUtil, setPosition: (el, pt) => puestos.push([el, pt.x, pt.y]) } },
-    map, pane: 'edit', kind, value, mode,
+    host, pane: 'edit', kind, value, mode,
     onChange: leer => changes.push(leer()), onCommit: leer => commits.push(leer()),
   })
-  return { ed, map, container, dragging, spy, changes, commits, puestos, pixel: 0 }
+  return { ed, map, host, container, dragging, spy, changes, commits, pixel: 0 }
 }
 
 const emitir = (esc, tipo, x, y) => esc.container.oyentes.get(tipo)?.({

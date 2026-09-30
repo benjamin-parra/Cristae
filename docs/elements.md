@@ -188,7 +188,7 @@ Toda capa hoja (`point` / `line` / `polygon` / `html` / `label`) los hereda de l
 | Miembro | Tipo | Atributo / prop |
 |---|---|---|
 | `z` | number | atributo — z-index del pane. Reactivo |
-| `pane` | string | atributo — pane propio (default `cristae-<kind>-<id>`). Se lee en el alta |
+| `pane` | string | atributo — pane propio (default `cristae-<kind>-<id>`). Se lee en el alta; con el mismo nombre, varias capas lo comparten ([SPECS §8](../SPECS.md)) |
 
 Sin `z`, el motor lo deriva del orden de declaración (`400 + orden·10`): las mismas capas montadas en
 otro orden apilan distinto.

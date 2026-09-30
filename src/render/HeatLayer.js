@@ -1,4 +1,5 @@
 import { toRGBA } from './color.js'
+import { frameTransform } from './frame.js'
 
 // Capa de CAMPO DE CALOR (heatmap) reactiva a un Source. Hermana de PointLayer/LineLayer en el ciclo
 // de vida (constructor {..}, subscribe al Source + redibujo coalescido a rAF, redraw/refresh/destroy),
@@ -13,10 +14,10 @@ import { toRGBA } from './color.js'
 // Por qué canvas y no GL: el heat aditivo real (splat gaussiano a un framebuffer + colorización en un
 // segundo pase) no sale de los shaders de la point-layer en UN paso sin parchar glify (no hay programa
 // de acumulación ni FBO expuesto). El canvas es un PRIMER backend honesto; la interfaz es idéntica a la
-// que tendría el backend GL (misma firma de constructor —incluido `glify` en el cfg, que este backend
-// ignora— y mismos accessors), así el swap posterior no toca el call-site (addHeatLayer). Costo conocido
-// del backend canvas: getImageData/putImageData reservan el framebuffer por redibujo (inherente a la
-// técnica; se acota coalesciendo a un frame). Ver `risks` del manifiesto.
+// que tendría el backend GL (misma firma de constructor y mismos accessors), así el swap posterior no
+// toca el call-site (addHeatLayer). Costo conocido del backend canvas: getImageData/putImageData
+// reservan el framebuffer por redibujo (inherente a la técnica; se acota coalesciendo a un frame). Ver
+// `risks` del manifiesto.
 //
 // accessors: { idOf, positionOf, weightOf? }. `weightOf` (o 1) es el peso del punto; se NORMALIZA por el
 // peso máximo del snapshot y se escala por `intensity`. Agnóstico: sin dominio, sin React, sin Wing.
@@ -61,7 +62,7 @@ const defaultRamp = t => interpStops(DEFAULT_STOPS, t)
 
 export class HeatLayer {
 
-  #map; #paneName; #source; #accessors
+  #camera; #surface; #paneName; #source; #accessors
   #canvas  = null
   #ctx     = null
   #brush   = null               // canvas offscreen con el degradado radial (la "brocha" reusada por punto)
@@ -69,19 +70,16 @@ export class HeatLayer {
   #radius; #blur; #intensity; #colorRamp
   #agendado = false             // ya hay un redibujo pedido para este frame (coalescing)
   #unsub    = null
+  #offView  = []                // bajas del ciclo de vista
 
-  // Handlers estables (misma ref en on/off). Campos-flecha: se inicializan antes del cuerpo del
-  // constructor, así ya existen cuando se registran los eventos del mapa.
-  #hide   = () => this.#canvas && (this.#canvas.style.visibility = 'hidden')
-  // NO revela acá: sólo agenda el redibujo. El canvas se muestra al FINAL de #draw (contenido fresco y
-  // colorizado). Revelar antes mostraría la vista anterior desubicada (zoomend) o, si colorize fallara,
-  // la acumulación negra cruda ("queda negro"). Ocultar hasta tener un frame válido es lo correcto.
-  #onView = () => this.#invalidate()
+  constructor({ host, pane, source, accessors = null, radius, blur, intensity, colorRamp } = {}) {
+    const canvas = document.createElement('canvas')
+    canvas.className           = 'cristae-heat-canvas'
+    canvas.style.position      = 'absolute'
+    canvas.style.pointerEvents = 'none'
 
-  // `glify` viaja en el cfg (espejo de PointLayer) pero este backend NO lo usa — no se desestructura
-  // para no dejar una var sin uso; el call-site lo pasa igual, listo para un futuro backend GL.
-  constructor({ map, pane, source, accessors = null, radius, blur, intensity, colorRamp } = {}) {
-    this.#map       = map
+    this.#camera    = host.camera
+    this.#surface   = host.surface
     this.#paneName  = pane
     this.#source    = source
     this.#accessors = accessors ?? source.accessors
@@ -90,17 +88,26 @@ export class HeatLayer {
     this.#intensity = intensity ?? DEFAULT_INTENSITY
     this.#colorRamp = colorRamp ?? defaultRamp
 
-    this.#mount()
     this.#buildBrush()
-    this.#buildPalette()        // consulta colorRamp GRAD_STEPS veces (una vez; se re-muestrea si cambia la rampa)
+    // Consulta colorRamp GRAD_STEPS veces (una vez; se re-muestrea si cambia la rampa). Es código del
+    // consumidor y puede lanzar: va antes de montar, para que una capa que no nace no deje su pane.
+    this.#buildPalette()
+    this.#canvas = canvas
+    this.#ctx    = canvas.getContext('2d')
+    this.#surface.mount(pane).appendChild(canvas)
     // Ruta del Source: dibuja SÍNCRONO (como LineLayer#onChange). El Emitter del Source ya coalesce sus
     // notificaciones a UN rAF, así que un rAF propio acá sería un SEGUNDO frame de latencia sin ganancia.
     // El rAF de #invalidate queda para los eventos de mapa (que Leaflet dispara sin coalescer).
     this.#unsub = source.subscribe(() => this.#draw())
     // El canvas vive en un pane que se traslada con el mapa (pan); en zoom hay que reproyectar y, durante
-    // el zoom-anim, ocultarlo (si no, el campo se desliza desfasado). Igual patrón que LabelLayer.
-    map.on?.('zoomstart', this.#hide)
-    map.on?.('moveend zoomend resize', this.#onView)
+    // el zoom-anim, ocultarlo (si no, el campo se desliza desfasado). Igual patrón que LabelLayer. Al
+    // asentar NO se revela: sólo se agenda el redibujo, y el canvas se muestra al FINAL de #draw, con el
+    // contenido fresco y colorizado. Revelar antes mostraría la vista anterior desubicada o, si colorize
+    // fallara, la acumulación negra cruda.
+    this.#offView = [
+      this.#camera.on('zoomstart', () => this.#canvas.style.visibility = 'hidden'),
+      this.#camera.on('moveend zoomend resize', () => this.#invalidate()),
+    ]
     this.#draw()                // primer paint síncrono
   }
 
@@ -112,10 +119,11 @@ export class HeatLayer {
   syncPickingSize() {}                                // sin picking (un heat no se pica)
 
   destroy() {
+    if (!this.#canvas) return
     this.#unsub?.()
-    this.#map.off?.('zoomstart', this.#hide)
-    this.#map.off?.('moveend zoomend resize', this.#onView)
-    this.#canvas?.remove?.()
+    this.#offView.forEach(off => off())
+    this.#canvas.remove()
+    this.#surface.unmount(this.#paneName)
     this.#canvas = null
     this.#ctx = null
   }
@@ -126,21 +134,6 @@ export class HeatLayer {
   set blur(v) { this.#blur = nonNeg(v, DEFAULT_BLUR); this.#buildBrush(); this.#invalidate() }
   set intensity(v) { this.#intensity = v ?? DEFAULT_INTENSITY; this.#invalidate() }
   set colorRamp(fn) { this.#colorRamp = fn ?? defaultRamp; this.#buildPalette(); this.#invalidate() }
-
-  /* ── Montaje del canvas sobre el pane (sin Leaflet: DOM directo) ── */
-
-  #mount() {
-    const map = this.#map
-    const pane = map.getPane?.(this.#paneName) ?? map.createPane?.(this.#paneName) ?? null
-    if (pane?.style) pane.style.pointerEvents = 'none'
-    const canvas = document.createElement('canvas')
-    canvas.className = 'cristae-heat-canvas'
-    canvas.style.position = 'absolute'
-    canvas.style.pointerEvents = 'none'
-    pane?.appendChild?.(canvas)
-    this.#canvas = canvas
-    this.#ctx = canvas.getContext('2d')
-  }
 
   /* ── Coalescing a un frame para disparos NO coalescidos aguas arriba: eventos de mapa (Leaflet los
      emite sync, pueden venir en ráfaga) y props en vivo (radius+blur+intensity juntos → un solo
@@ -154,12 +147,23 @@ export class HeatLayer {
 
   /* ── Redibujo: acumular densidad + colorizar ── */
 
+  // Sin vista no hay píxel que leer: un mapa adoptado que todavía no la tomó pinta en el `moveend` que la
+  // trae. El canvas se ancla al origen del contenedor —el pane lo traslada durante el paneo— y se
+  // redimensiona sólo si cambió el tamaño, que va en px CSS: el calor es un campo difuso, sin escalado
+  // por DPR (ver risks). Asignar el ancho lo limpia.
   #draw() {
-    const ctx = this.#ctx
-    if (!ctx || !this.#canvas) return
-    const { w, h } = this.#viewportSize()
+    const ctx    = this.#ctx
+    const canvas = this.#canvas
+    if (!ctx || !canvas || !this.#camera.hasView()) return
+    const rect = this.#surface.container.getBoundingClientRect()
+    const w    = Math.round(rect.width)
+    const h    = Math.round(rect.height)
     if (w === 0 || h === 0) return
-    this.#resize(w, h)
+
+    const origin = this.#camera.frameOrigin()
+    canvas.style.transform = frameTransform(origin.x, origin.y)
+    if (canvas.width !== w) canvas.width = w
+    if (canvas.height !== h) canvas.height = h
     ctx.clearRect(0, 0, w, h)
 
     const a        = this.#accessors
@@ -173,7 +177,7 @@ export class HeatLayer {
     items.forEach(item => {
       const pos = a.positionOf(item)
       if (!pos || !Number.isFinite(pos.lat) || !Number.isFinite(pos.lng)) return
-      const p = this.#map.latLngToContainerPoint([pos.lat, pos.lng])
+      const p = this.#camera.toContainer(pos)
       if (p.x < -R || p.x > w + R || p.y < -R || p.y > h + R) return   // culling: fuera del viewport
       const wgt = (weightOf ? (weightOf(item) || 0) : 1) / maxW
       // Aporte CHICO por punto (·POINT_ALPHA): con source-over la densidad ACUMULA en vez de saturar a
@@ -184,7 +188,7 @@ export class HeatLayer {
     ctx.globalAlpha = 1
 
     this.#colorize(w, h)
-    this.#canvas.style.visibility = ''    // recién ahora hay un frame válido → revelar (ver #onView)
+    canvas.style.visibility = ''    // recién ahora hay un frame válido → revelar (ver el zoomstart del constructor)
   }
 
   // Alpha acumulado (densidad) → color de la paleta. El alpha del pixel indexa 1:1 la rampa; el color
@@ -206,24 +210,6 @@ export class HeatLayer {
       data[i + 3] = (alpha * pal[j + 3]) / 255
     }
     ctx.putImageData(img, 0, 0)
-  }
-
-  /* ── Geometría del canvas ── */
-
-  // Tamaño del viewport en px CSS (el heat es un campo difuso → sin escalado por DPR, ver risks).
-  #viewportSize() {
-    const rect = this.#map.getContainer?.()?.getBoundingClientRect?.()
-    return { w: Math.round(rect?.width ?? 0), h: Math.round(rect?.height ?? 0) }
-  }
-
-  // Reposiciona el canvas al top-left del viewport en coords de capa (el pane se traslada con el mapa en
-  // pan → así el canvas queda fijo al viewport) y lo redimensiona sólo si cambió (setear width lo limpia).
-  #resize(w, h) {
-    const canvas = this.#canvas
-    const origin = this.#map.containerPointToLayerPoint?.([0, 0]) ?? { x: 0, y: 0 }
-    canvas.style.transform = `translate3d(${origin.x}px, ${origin.y}px, 0)`
-    if (canvas.width !== w) canvas.width = w
-    if (canvas.height !== h) canvas.height = h
   }
 
   /* ── Brocha + paleta (se reconstruyen sólo al cambiar radius/blur o la rampa) ── */

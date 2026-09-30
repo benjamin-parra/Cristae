@@ -89,6 +89,39 @@ test('un reparto no llama a quien se bajó ni a quien se suscribió a mitad de �
   host.destroy()
 })
 
+// Una capa que oye la vista asentada se suscribe a varios tipos de una vez, como en Leaflet, y se da de
+// baja con una sola llamada.
+test('on acepta varios tipos separados por espacios y los suelta con una sola baja', () => {
+  const { host, camera } = montar('none')
+  const oido = []
+  const off  = camera.on('movestart moveend', () => oido.push('vista'))
+
+  camera.setView([-33.1, -70.1], 10, { animate: false })
+  assert.equal(oido.length, 2, 'un aviso por tipo')
+  off()
+  camera.setView([-33.2, -70.2], 10, { animate: false })
+  assert.equal(oido.length, 2, 'y la baja suelta los dos')
+  host.destroy()
+})
+
+// Un mapa adoptado puede llegar sin vista, y entonces la cámara no se puede leer: `hasView` lo dice. Ya
+// vale en el `moveend` del primer `setView`, que es donde una capa repinta al tomar la vista. Es el test de
+// contrato del privado que lee, `_loaded`.
+test('hasView dice si la cámara se puede leer, y ya vale en el primer moveend', () => {
+  const map     = L.map(contenedor())
+  const host    = adoptLeafletHost(map)
+  let enMoveend = null
+  host.camera.on('moveend', () => enMoveend = host.camera.hasView())
+
+  assert.equal(host.camera.hasView(), false)
+  assert.throws(() => host.camera.bounds(), /Set map center and zoom first/)
+  map.setView(VISTA.center, VISTA.zoom)
+  assert.equal(enMoveend, true)
+  assert.doesNotThrow(() => host.camera.bounds())
+  host.destroy()
+  map.remove()
+})
+
 test("'none' no anima ningún zoom de setView; 'in-only' sólo los que no alejan; 'on' todos", async () => {
   const esperado = { none: [false, false], 'in-only': [true, false], on: [true, true] }
   for (const [modo, [acercar, alejar]] of Object.entries(esperado)) {
@@ -317,6 +350,18 @@ test('el motor suelta su anfitrión al destruirse', () => {
   assert.deepEqual(removidos, ['propio'], 'el mapa propio se remueve y el adoptado sigue siendo de su dueño')
   assert.equal(map._tryAnimatedZoom, L.Map.prototype._tryAnimatedZoom, 'que lo recibe sin la política')
   map.remove()
+})
+
+// El dueño de un mapa adoptado puede removerlo antes de destruir el motor, con un pane suyo que el motor
+// tomó prestado: el motor igual suelta lo que le puso.
+test('el motor suelta su anfitrión aunque el dueño haya removido el mapa antes', () => {
+  const map    = L.map(contenedor()).setView(VISTA.center, VISTA.zoom)
+  const engine = new MapEngine({ host: adoptLeafletHost(map), glify: null })
+  engine.addPolygonLayer({ id: 'zonas', backend: 'leaflet', pane: 'overlayPane', accessors: { idOf: it => it.id, ringsOf: it => it.rings } })
+
+  map.remove()
+  assert.doesNotThrow(() => engine.destroy())
+  assert.deepEqual(['_tryAnimatedZoom', '_animateZoom'].filter(name => Object.hasOwn(map, name)), [])
 })
 
 test('la señal ready del motor sale con su promesa: quien se suscribe al construirlo la oye', async () => {

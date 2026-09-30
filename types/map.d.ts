@@ -245,8 +245,8 @@ export interface BusChannels {
 }
 
 // ── Señales del motor ───────────────────────────────────────────────────────
-// Lo que el motor avisa sin picking: un solo payload, sin hits ni filtro por capa. Son también los
-// `detail` de los `cristae:*` del elemento (SPECS §10).
+// Lo que el motor avisa sin picking: un solo payload, sin hits ni filtro por capa. Salvo `move`, son
+// también los `detail` de los `cristae:*` del elemento (SPECS §10).
 
 /** La vista de la cámara que viaja en `viewportchange`; cuándo sale lo fija SPECS §10. */
 export interface ViewportChangeDetail {
@@ -261,6 +261,8 @@ export interface MapClickDetail {
 export interface EngineSignals {
   'ready'            : (detail: Record<string, never>) => void;
   'viewportchange'   : (detail: ViewportChangeDetail) => void;
+  /** Cada paso del movimiento, para lo que sigue la vista en continuo (SPECS §10). */
+  'move'             : (detail: Record<string, never>) => void;
   'map:click'        : (detail: MapClickDetail) => void;
   'interactionstart' : (detail: Record<string, never>) => void;
   'interactionend'   : (detail: Record<string, never>) => void;

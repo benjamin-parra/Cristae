@@ -8,6 +8,7 @@
 // Los dos midpoints del vecindario también salen de los draws de la capa, pero NO vuelven como nodo: su
 // posición deriva del vértice que se arrastra, y ese tramo ya lo dibuja el trazo con la posición viva.
 import { ROLE } from '../geometry/ChunkedPath.js'
+import { frameTransform } from './frame.js'
 
 // prev, v y next: el vecindario entero cabe en tres nodos.
 const CAP = 3
@@ -17,12 +18,11 @@ const VECINO   = 'vertex'
 const HOVER    = 'hover'
 const GRABBING = 'grabbing'
 
-const CLASE  = 'cristae-edit-handle'
-const ORIGIN = [0, 0]                    // esquina del contenedor; reusada porque el reposicionado llega por frame
+const CLASE = 'cristae-edit-handle'
 
 export class EditHandleDom {
 
-  #L; #map; #pane; #path; #arena; #project; #iconSet; #size
+  #camera; #surface; #paneName; #pane; #path; #arena; #project; #iconSet; #size
 
   #nodos    = []                         // ranuras vivas, en orden de trazo
   #refs     = new Int32Array(CAP)
@@ -35,15 +35,16 @@ export class EditHandleDom {
   #ly       = 0
   #xy       = new Float64Array(2)        // salida de project, reusada [0-alloc]
 
-  constructor({ L, map, pane, path, arena, project, iconSet, size = iconSet.defaultSize }) {
-    this.#L       = L
-    this.#map     = map
-    this.#pane    = map.getPane(pane) ?? map.createPane(pane)
-    this.#path    = path
-    this.#arena   = arena
-    this.#project = project
-    this.#iconSet = iconSet
-    this.#size    = size
+  constructor({ host, pane, path, arena, project, iconSet, size = iconSet.defaultSize }) {
+    this.#camera   = host.camera
+    this.#surface  = host.surface
+    this.#paneName = pane
+    this.#pane     = host.surface.mount(pane)
+    this.#path     = path
+    this.#arena    = arena
+    this.#project  = project
+    this.#iconSet  = iconSet
+    this.#size     = size
   }
 
   get promoted() { return this.#promoted }
@@ -82,11 +83,14 @@ export class EditHandleDom {
   }
 
   destroy() {
+    if (!this.#pane) return this
     this.#nodos.forEach(nodo => nodo.el.remove())
+    this.#surface.unmount(this.#paneName)
     this.#nodos.length = 0
     this.#count        = 0
     this.#promoted     = -1
     this.#view         = null
+    this.#pane         = null
     return this
   }
 
@@ -144,7 +148,7 @@ export class EditHandleDom {
     s.marginTop     = `${-this.#size / 2}px`
     s.pointerEvents = 'none'
     this.#pane.appendChild(el)
-    return { el, ctx: el.getContext('2d'), punto: { x: 0, y: 0 }, variante: null }
+    return { el, ctx: el.getContext('2d'), variante: null }
   }
 
   // El tile del atlas dibujado 1:1: los MISMOS píxeles que el sprite que la capa apaga.
@@ -159,25 +163,25 @@ export class EditHandleDom {
 
   /* ── Vista ────────────────────────────────────────────────────────────────────────────────── */
 
-  // rel-ancla → punto de CAPA: la misma aritmética que `matrixFor` más el origen del contenedor, que es la
-  // receta de Leaflet y se resuelve una vez por reposicionado, no por nodo. El promovido lee su posición
-  // viva; los adyacentes, la del arena, que es la que dibuja la GPU. Corre por frame de arrastre: [0-alloc].
+  // rel-ancla → punto de CAPA: la misma aritmética que `matrixFor` más el origen del contenedor en el
+  // marco, que se resuelve una vez por reposicionado, no por nodo. El promovido lee su posición viva; los
+  // adyacentes, la del arena, que es la que dibuja la GPU. Corre por frame de arrastre, y lo único que
+  // asigna por nodo es el string del transform, que el estilo no acepta de otra forma.
   #place() {
     const view = this.#view
     const nodos = this.#nodos
     if (!view || !nodos.length) return this
     const scale  = 2 ** view.zoom
     const anchor = this.#arena.anchor
-    const origen = this.#map.containerPointToLayerPoint(ORIGIN)
+    const origen = this.#camera.frameOrigin()
     const ox     = (anchor.x - view.center.x) * scale + view.size.x / 2 + origen.x
     const oy     = (anchor.y - view.center.y) * scale + view.size.y / 2 + origen.y
     for (let i = 0; i < nodos.length; i++) {
-      const nodo = nodos[i]
       const ref  = this.#refs[i]
       const vivo = ref === this.#promoted
-      nodo.punto.x = ox + (vivo ? this.#lx : this.#arena.relX(ref)) * scale
-      nodo.punto.y = oy + (vivo ? this.#ly : this.#arena.relY(ref)) * scale
-      this.#L.DomUtil.setPosition(nodo.el, nodo.punto)
+      nodos[i].el.style.transform = frameTransform(
+        ox + (vivo ? this.#lx : this.#arena.relX(ref)) * scale,
+        oy + (vivo ? this.#ly : this.#arena.relY(ref)) * scale)
     }
     return this
   }

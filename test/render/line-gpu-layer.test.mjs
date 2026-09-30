@@ -49,22 +49,13 @@ const makePane = () => {
 }
 
 const makeMap = () => {
-  const listeners = new Map()
-  const panes     = {}
-  const each      = (types, fn) => String(types).split(/\s+/).forEach(fn)
-  const map = Object.assign(makeMapStub(), {
-    listeners,
+  const panes = {}
+  return Object.assign(makeMapStub(), {
     _panes     : panes,
-    on(types, cb)      { each(types, t => (listeners.get(t) ?? listeners.set(t, new Set()).get(t)).add(cb)); return map },
-    off(types, cb)     { each(types, t => listeners.get(t)?.delete(cb)); return map },
-    fire(type, e = {}) { listeners.get(type)?.forEach(cb => cb(e)); return map },
     getPane    : name => panes[name] ?? null,
     createPane : name => (panes[name] = makePane()),
   })
-  return map
 }
-
-const listenerCount = (map, ...types) => types.reduce((n, type) => n + (map.listeners.get(type)?.size ?? 0), 0)
 
 /* ── Dato: un Source mínimo con el accessor que la capa consume ── */
 
@@ -80,7 +71,7 @@ const fakeSource = (items, styleOf = null) => ({
 const mount = ({ items = [{ id: 1, path: recorrido(50) }], styleOf = null, map = makeMap() } = {}) => {
   const spy = newSpy()
   currentGl = editGl(spy)
-  const layer = new LineGpuLayer({ L: makeLeaflet(), map, pane: 'gpu-line', source: fakeSource(items, styleOf) })
+  const layer = new LineGpuLayer({ host: adoptLeafletHost(map), pane: 'gpu-line', source: fakeSource(items, styleOf) })
   return { layer, map, spy }
 }
 
@@ -133,12 +124,12 @@ test('setVisible(false) deja de dibujar y setVisible(true) vuelve', () => {
   assert.equal(drawsOf(spy, () => layer.setVisible(true)), 1)
 })
 
-test('destroy() desengancha del mapa y devuelve el contexto', () => {
+test('destroy() desengancha del ciclo de vista, suelta su pane y devuelve el contexto', () => {
   const { layer, map, spy } = mount()
-  // La capa toma 'moveend zoomend resize'; su superficie suma los suyos del zoom animado.
-  assert.ok(listenerCount(map, 'moveend', 'zoomend', 'resize') >= 3)
   layer.destroy()
-  assert.equal(listenerCount(map, 'moveend', 'zoomend', 'resize', 'zoomanim'), 0, 'ni los de la superficie quedan')
+  const porEvento = ['moveend', 'zoomend', 'resize'].map(type => drawsOf(spy, () => map.fire(type)))
+  assert.deepEqual(porEvento, [0, 0, 0], 'una vista asentada ya no la repinta')
+  assert.equal(map.getPane('gpu-line'), null, 'el pane se va con la superficie, que era la única que lo sostenía')
   assert.equal(spy.released, 1, 'el techo de ~16 contextos es acumulativo: nadie devuelve uno solo')
 })
 

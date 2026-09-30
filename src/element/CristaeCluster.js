@@ -93,7 +93,7 @@ export class CristaeCluster extends CristaeLayerElement {
   #centerEl     = null
   #centerAnchor = null            // { lat, lng } del centro abierto (re-proyecta en cada move)
   #onCenterMove = null
-  #lmap         = null
+  #offMove      = null            // baja del `move` del motor, que sigue el paneo/inercia
 
   constructor() {
     super()
@@ -174,8 +174,7 @@ export class CristaeCluster extends CristaeLayerElement {
       this.#mapEl.addEventListener('cristae:viewportchange', this.#onCenterMove)
       addEventListener('scroll', this.#onCenterMove, true)
       addEventListener('resize', this.#onCenterMove)
-      const lmap = this.#mapEl.engine?.getLeafletMap?.()
-      if (lmap) { this.#lmap = lmap; lmap.on('move', this.#onCenterMove) }   // seguir paneo/inercia
+      this.#offMove = this.#mapEl.engine?.on('move', this.#onCenterMove)
     }
     this.#centerEl.style.display = ''
     this.#centerAnchor           = center
@@ -212,8 +211,8 @@ export class CristaeCluster extends CristaeLayerElement {
       this.#mapEl?.removeEventListener('cristae:viewportchange', this.#onCenterMove)
       removeEventListener('scroll', this.#onCenterMove, true)
       removeEventListener('resize', this.#onCenterMove)
-      this.#lmap?.off('move', this.#onCenterMove)
-      this.#onCenterMove = null; this.#lmap = null
+      this.#offMove?.()
+      this.#onCenterMove = this.#offMove = null
     }
     this.#centerEl?.remove()
     this.#centerEl = null; this.#centerAnchor = null

@@ -3,6 +3,7 @@
 
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
+import { adoptLeafletHost } from '../src/host/LeafletHost.js'
 import { EditSurface } from '../src/render/EditSurface.js'
 import { EditFillLayer } from '../src/render/EditFillLayer.js'
 import { EditStrokeLayer } from '../src/render/EditStrokeLayer.js'
@@ -39,11 +40,10 @@ L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
   maxZoom: 20, attribution: '© OpenStreetMap © CARTO',
 }).addTo(map)
 
-const pane = map.createPane(PANE)
-pane.style.zIndex        = '450'             // sobre el overlayPane de los SVG
-pane.style.pointerEvents = 'none'
+const host = adoptLeafletHost(map)
+host.surface.mount(PANE, 450, { pointer: false })   // sobre el overlayPane de los SVG
 
-const superficie = new EditSurface({ L, map, pane: PANE })
+const superficie = new EditSurface({ host, pane: PANE })
 const gl         = superficie.attach()
 
 /* ── Estado ──────────────────────────────────────────────────────────────────────────────────────── */

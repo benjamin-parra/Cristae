@@ -2,7 +2,7 @@ import { EditFillLayer } from './EditFillLayer.js'
 import { FEATHER, StrokePass } from './StrokePass.js'
 import { EditSurface } from './EditSurface.js'
 import { RingStore } from './RingStore.js'
-import { projX0, projY0 } from './project.js'
+import { projX0, projY0, readView } from './project.js'
 import { prepareRangeIndex, partsAtPoint } from '../geometry/polygon.js'
 import { focusedStyle } from './focus.js'
 import { growBoxOfRange } from '../geometry/bbox.js'
@@ -68,10 +68,10 @@ export const tablesFromRings = (items, ringsOf) => {
 
 export class PolygonGpuLayer {
 
-  #map; #surface; #gl; #store; #fill
+  #camera; #surface; #gl; #store; #fill
   #index   = null
   #idOf    = null
-  #onView  = null                     // handler de vista asentada
+  #offView = null                     // baja del repintado en vista asentada
   #box     = new Float64Array(4)      // [minLng, minLat, maxLng, maxLat] en grados
   #ringBox = new Float64Array(4)      // caja del anillo en world0, reusada por el descarte
   #parts   = null                     // una entrada por POLÍGONO: sus anillos y su estilo resuelto
@@ -94,18 +94,18 @@ export class PolygonGpuLayer {
   // Las opciones son las de un path de Leaflet, con sus defaults, para que la capa entre en lugar de
   // `L.polygon` sin traducir nada en el llamador.
   constructor({
-    L, map, pane, geometry = null, source = null, interactive = false, idOf = null,
+    host, pane, geometry = null, source = null, interactive = false, idOf = null,
     color = '#3388ff', weight = 3, opacity = 1,
     fill = true, fillColor = color, fillOpacity = 0.2, stroke = true, styleOf = null,
   }) {
-    this.#map         = map
+    this.#camera      = host.camera
     this.#source      = source
     this.#interactive = interactive
     // Con Source, los accessors mandan: es lo que permite montarla donde está la capa de Leaflet.
     this.#idOf    = idOf ?? source?.accessors?.idOf ?? null
     this.#styleOf = styleOf ?? source?.accessors?.styleOf ?? null
     this.#base    = { color, weight, opacity, fillColor, fillOpacity }
-    this.#surface = new EditSurface({ L, map, pane })
+    this.#surface = new EditSurface({ host, pane })
     this.#gl      = this.#surface.attach()
     // La superficie ya tomó uno de los ~16 contextos del navegador. Lo que siga puede tirar —el store
     // rechaza una geometría que no entra en la textura—, y un contexto que nadie devuelve no vuelve.
@@ -119,9 +119,8 @@ export class PolygonGpuLayer {
       this.#stroke = stroke ? new StrokePass({ gl: this.#gl, color, width: weight, opacity }) : null
       // El canvas se ancla en coordenadas de CAPA, así que el pane lo traslada durante el arrastre y
       // los píxeles siguen alineados: sólo una vista ya asentada necesita repintar.
-      this.#onView = () => this.redraw()
-      map.on('moveend zoomend resize', this.#onView)
-      this.#unsub = source?.subscribe(() => this.#onChange())
+      this.#offView = host.camera.on('moveend zoomend resize', () => this.redraw())
+      this.#unsub   = source?.subscribe(() => this.#onChange())
       this.restyle()
     } catch (e) {
       this.destroy()
@@ -266,7 +265,7 @@ export class PolygonGpuLayer {
     this.#surface.resetCanvasReference()
     gl.clearColor(0, 0, 0, 0)
     gl.clear(gl.COLOR_BUFFER_BIT | gl.STENCIL_BUFFER_BIT)
-    const view  = this.#viewport()
+    const view  = readView(this.#camera, this.#view)
     const partes = this.#onScreen(view)
     // Cada polígono se cubre POR SEPARADO. Su cobertura deja el bit del stencil en cero, así que el
     // siguiente apila en vez de restarse: con una sola cobertura al final, dos polígonos superpuestos
@@ -334,24 +333,11 @@ export class PolygonGpuLayer {
   // Seguro a medio construir: el alta puede fallar en cualquier paso y esto corre igual.
   destroy() {
     this.#unsub?.()
-    this.#onView && this.#map.off('moveend zoomend resize', this.#onView)
+    this.#offView?.()
     this.#fill?.destroy()
     this.#stroke?.destroy()
     this.#store?.destroy()
     this.#surface.destroy()
     this.#index = null
-  }
-
-  // Portador reusado: `center` va en píxeles world0 y el llamador lo consume en el acto.
-  #viewport() {
-    const c = this.#map.getCenter()
-    const s = this.#map.getSize()
-    const v = this.#view
-    v.zoom     = this.#map.getZoom()
-    v.center.x = projX0(c.lng)
-    v.center.y = projY0(c.lat)
-    v.size.x   = s.x
-    v.size.y   = s.y
-    return v
   }
 }

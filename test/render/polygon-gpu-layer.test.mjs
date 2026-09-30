@@ -11,7 +11,7 @@
 // El harness (engine-stub) shimea window/document — se importa PRIMERO.
 
 import './../../test-helpers/engine-stub.mjs'
-import { decorarElementos, makeGl, makeGlify, makeLeaflet, makeMap as makeMapStub, makePickSpy, makeSurface } from '../../test-helpers/engine-stub.mjs'
+import { decorarElementos, makeGl, makeGlify, makeLeaflet, makeMap as makeMapStub, makePickSpy, makeSurface, oyentesDeVista } from '../../test-helpers/engine-stub.mjs'
 import { after, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { MapEngine } from '../../src/engine/MapEngine.js'
@@ -67,36 +67,21 @@ const makePane = () => {
   return pane
 }
 
-// El mapa del harness con los oyentes a la vista (para contarlos) y los panes de Leaflet. `on`/`off`
-// aceptan varios tipos en una llamada, como Leaflet: la capa se engancha con `'moveend zoomend resize'`.
+// El mapa del harness con los panes de Leaflet.
 const makeMap = () => {
-  const listeners = new Map()
-  const panes     = {}
-  const each      = (types, fn) => String(types).split(/\s+/).forEach(fn)
-  const map = Object.assign(makeMapStub(), {
-    listeners,
+  const panes = {}
+  return Object.assign(makeMapStub(), {
     _panes     : panes,
-    on(types, cb)      { each(types, t => (listeners.get(t) ?? listeners.set(t, new Set()).get(t)).add(cb)); return map },
-    off(types, cb)     { each(types, t => listeners.get(t)?.delete(cb)); return map },
-    fire(type, e = {}) { listeners.get(type)?.forEach(cb => cb(e)); return map },
     getPane    : name => panes[name] ?? null,
     createPane : name => (panes[name] = makePane()),
   })
-  return map
 }
 
-const makeL = () => {
-  const leaflet = makeLeaflet()
-  return {
-    ...leaflet,
-    DomUtil : {
-      ...leaflet.DomUtil,
-      setPosition : (el, p) => { el.style.transform = `translate(${p.x}px, ${p.y}px)` },
-    },
-  }
+// Un anfitrión sobre ese mapa, con sus suscripciones de vista contadas desde antes de montar nada.
+const anfitrion = (map = makeMap()) => {
+  const host = adoptLeafletHost(map)
+  return { host, map, oyentes: oyentesDeVista(host) }
 }
-
-const listenerCount = (map, ...types) => types.reduce((n, type) => n + (map.listeners.get(type)?.size ?? 0), 0)
 
 /* ── Geometría: las tablas CSR del lector, sin pasar por el lector ── */
 
@@ -128,11 +113,11 @@ const tables = (rings, agrupacion = rings.map(() => 1)) => {
 
 const ONE_RING = () => tables([square(0, 0, 0.05)])
 
-const mount = (geometry = ONE_RING(), { cap = null, map = makeMap(), ...options } = {}) => {
+const mount = (geometry = ONE_RING(), { cap = null, sobre = anfitrion(), ...options } = {}) => {
   const spy = newSpy()
   currentGl = editGl(spy, cap)
-  const layer = new PolygonGpuLayer({ L: makeL(), map, pane: 'gpu', geometry, ...options })
-  return { layer, map, spy }
+  const layer = new PolygonGpuLayer({ host: sobre.host, pane: 'gpu', geometry, ...options })
+  return { layer, map: sobre.map, spy }
 }
 
 // Los `drawArrays` de UN repintado, contados desde cero.
@@ -153,11 +138,11 @@ const EAST_EDGE = eastEdge(makeMap())
 
 test('una capa nueva tras destroy() abre SU contexto, sube SU textura y dibuja', () => {
   // Los dos ciclos sobre el MISMO mapa: con mapas distintos, un `destroy()` inerte pasaría igual.
-  const map   = makeMap()
-  const first = mount(ONE_RING(), { map })
+  const sobre = anfitrion()
+  const first = mount(ONE_RING(), { sobre })
   first.layer.destroy()
 
-  const second = mount(ONE_RING(), { map })
+  const second = mount(ONE_RING(), { sobre })
   assert.equal(second.spy.texImages.length, 1, 'la capa nueva sube su propia textura')
   assert.equal(second.layer.redraw(), true, 'y el repintado llega a la GPU')
   assert.ok(drawsOf(second.spy, () => second.layer.redraw()) > 0, 'con draws de verdad, no un pase vacío')
@@ -166,7 +151,7 @@ test('una capa nueva tras destroy() abre SU contexto, sube SU textura y dibuja',
 
 test('el alta que reemplaza a una capa dada de baja cuelga su canvas de un pane VIVO', () => {
   const map    = makeMap()
-  const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeL() }), glify: makeGlify() })
+  const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeLeaflet() }), glify: makeGlify() })
   const pane   = 'cristae-polygon-gpu-areas'
 
   currentGl = editGl(newSpy())
@@ -192,20 +177,22 @@ test('el alta que reemplaza a una capa dada de baja cuelga su canvas de un pane 
 
 const VIEW_EVENTS = ['moveend', 'zoomend', 'resize', 'zoomanim']
 
-test('destroy() desengancha del mapa, devuelve el contexto y saca el canvas del pane', () => {
-  const map = makeMap()
-  assert.equal(listenerCount(map, ...VIEW_EVENTS), 0, 'el mapa arranca sin oyentes de vista')
+test('destroy() desengancha de la vista, devuelve el contexto y suelta el canvas y su pane', () => {
+  const sobre = anfitrion()
+  assert.equal(sobre.oyentes(...VIEW_EVENTS), 0, 'el anfitrión arranca sin oyentes de vista')
 
-  const { layer, spy } = mount(ONE_RING(), { map })
-  const canvas = map.getPane('gpu').children[0]
-  assert.equal(listenerCount(map, ...VIEW_EVENTS), 5,
+  const { layer, map, spy } = mount(ONE_RING(), { sobre })
+  const pane   = map.getPane('gpu')
+  const canvas = pane.children[0]
+  assert.equal(sobre.oyentes(...VIEW_EVENTS), 5,
     'la capa engancha la vista asentada (3) y su superficie el zoom animado (2, uno de ellos comparte `zoomend`)')
 
   layer.destroy()
-  assert.equal(listenerCount(map, ...VIEW_EVENTS), 0, 'no queda un solo oyente')
+  assert.equal(sobre.oyentes(...VIEW_EVENTS), 0, 'no queda un solo oyente')
   assert.equal(spy.released, 1, 'el contexto vuelve al techo de ~16 del navegador')
-  assert.equal(map.getPane('gpu').children.length, 0, 'y el canvas no queda colgando del pane')
-  assert.equal(canvas.pane.children.includes(canvas), false)
+  assert.equal(pane.children.includes(canvas), false, 'el canvas no queda colgando del pane')
+  assert.equal(map.getPane('gpu'), null, 'y el pane, que sólo sostenía la superficie, se va del registro')
+  assert.equal(pane.connected, false)
 })
 
 test('la vista asentada ya no repinta una capa destruida', () => {
@@ -264,7 +251,7 @@ test('setVisible(false) deja de dibujar y setVisible(true) vuelve', () => {
 
 test('MapEngine.setLayerVisibility alcanza a la capa, no sólo al pane', () => {
   const map    = makeMap()
-  const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeL() }), glify: makeGlify() })
+  const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeLeaflet() }), glify: makeGlify() })
   const spy    = newSpy()
   currentGl = editGl(spy)
   engine.addPolygonGpuLayer({ id: 'areas', geometry: ONE_RING() })
@@ -302,7 +289,7 @@ test('el motor tampoco repinta la capa por frame de arrastre', () => {
   const map      = Object.assign(makeMap(), {   // el marco del paneo: mover `position` es arrastrar
     containerPointToLayerPoint: ([x, y]) => ({ x: x - position.x, y: y - position.y }),
   })
-  const engine   = new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeL() }), glify: makeGlify() })
+  const engine   = new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeLeaflet() }), glify: makeGlify() })
   const spy      = newSpy()
   currentGl = editGl(spy)
   engine.addPolygonGpuLayer({ id: 'areas', geometry: ONE_RING() })
@@ -376,14 +363,14 @@ test('un conteo que no entra en la textura falla ruidoso al construir la capa', 
 // La superficie abre el contexto ANTES de que el store suba la textura, así que el fallo del tope
 // ocurre con uno de los ~16 contextos ya tomado y nadie lo devuelve.
 test('el fallo del tope no se queda con el contexto ni con el canvas', () => {
-  const spy = newSpy()
-  currentGl = editGl(spy, 1)
-  const map = makeMap()
-  assert.throws(() => new PolygonGpuLayer({ L: makeL(), map, pane: 'gpu', geometry: tables([square(0, 0, 0.05)]) }))
+  const spy   = newSpy()
+  currentGl   = editGl(spy, 1)
+  const sobre = anfitrion()
+  assert.throws(() => new PolygonGpuLayer({ host: sobre.host, pane: 'gpu', geometry: tables([square(0, 0, 0.05)]) }))
 
   assert.equal(spy.released, 1, 'el contexto se suelta antes de tirar, como hace la esclusa del stencil')
-  assert.equal(map.getPane('gpu')?.children.length ?? 0, 0, 'y el canvas no queda en el pane')
-  assert.equal(listenerCount(map, 'zoomanim', 'zoomend'), 0, 'ni la superficie enganchada al mapa')
+  assert.equal(sobre.map.getPane('gpu'), null, 'y ni el canvas ni su pane quedan en el mapa')
+  assert.equal(sobre.oyentes('zoomanim', 'zoomend'), 0, 'ni la superficie enganchada a la vista')
 })
 
 /* ── El harness no miente ── */
@@ -519,7 +506,7 @@ const conFuente = (source, options = {}, cap = null) => {
   const spy = newSpy()
   currentGl = editGl(spy, cap)
   const map = makeMap()
-  return { layer: new PolygonGpuLayer({ L: makeL(), map, pane: 'gpu', source, ...options }), map, spy, source }
+  return { layer: new PolygonGpuLayer({ host: adoptLeafletHost(map), pane: 'gpu', source, ...options }), map, spy, source }
 }
 
 test('con un Source y sus accessors, la capa dibuja sin recibir tablas', () => {
@@ -563,17 +550,17 @@ test('applyFocus atenúa lo que queda fuera del foco, y destroy desengancha del 
 /* ── 12. Alta fallida y reingesta fallida: la capa no se queda con nada a medias ── */
 
 test('si el alta falla en código del CONSUMIDOR, devuelve el contexto y no deja oyentes', () => {
-  const spy = newSpy()
-  currentGl = editGl(spy, null)
-  const map = makeMap()
+  const spy   = newSpy()
+  currentGl   = editGl(spy, null)
+  const sobre = anfitrion()
   assert.throws(() => new PolygonGpuLayer({
-    L: makeL(), map, pane: 'gpu', geometry: tables([square(0, 0, 0.05)], [1]),
+    host: sobre.host, pane: 'gpu', geometry: tables([square(0, 0, 0.05)], [1]),
     styleOf: () => { throw new Error('el styleOf del consumidor tira') },
   }), /styleOf del consumidor/)
 
   assert.equal(spy.released, 1, 'el contexto vuelve: es uno de los ~16 del navegador')
-  assert.equal(map.getPane('gpu')?.children.length ?? 0, 0, 'el canvas no queda colgado del pane')
-  assert.equal(listenerCount(map, ...VIEW_EVENTS), 0, 'ni un oyente de más')
+  assert.equal(sobre.map.getPane('gpu'), null, 'ni el canvas ni su pane quedan en el mapa')
+  assert.equal(sobre.oyentes(...VIEW_EVENTS), 0, 'ni un oyente de más')
 })
 
 test('una reingesta que falla deja la capa coherente, no dibujando contra una textura muerta', () => {
@@ -648,7 +635,7 @@ test('sin `owner`, el sujeto sigue siendo la parte', () => {
 
 const conMotor = () => {
   const map = makeMap()
-  const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeL() }), glify: makeGlify() })
+  const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeLeaflet() }), glify: makeGlify() })
   currentGl = editGl(newSpy())
   return { engine, map }
 }

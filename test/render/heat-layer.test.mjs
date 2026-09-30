@@ -7,6 +7,7 @@ import { makeMap } from '../../test-helpers/engine-stub.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { HeatLayer } from '../../src/render/HeatLayer.js'
+import { adoptLeafletHost } from '../../src/host/LeafletHost.js'
 import { createSource } from '../../src/data/Source.js'
 
 /* ── Spy de canvas 2D: cuenta las llamadas del pipeline y CAPTURA lo que hace falta para morder los
@@ -59,7 +60,7 @@ const mount = (points, opts = {}, accessors = { idOf, positionOf, weightOf }) =>
   const map = makeMap()
   const source = createSource(accessors)
   source.set(points)
-  const layer = new HeatLayer({ glify: {}, map, pane: 'heat', source, ...opts })
+  const layer = new HeatLayer({ host: adoptLeafletHost(map), pane: 'heat', source, ...opts })
   return { spy, map, source, layer }
 }
 

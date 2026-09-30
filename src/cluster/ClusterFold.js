@@ -7,10 +7,10 @@ import { Cluster } from './Cluster.js'
 // proyección) por el `bridge` acotado que le pasa `MapEngine.addClusterFold`. La API que expone (el
 // objeto `control` + el descriptor de retorno) es idéntica a la que devolvía el motor.
 //
-// El bridge expone: `map`/`L` (Leaflet), `layerOf(id)`, `nextOrder()`, `overlayZ(order, extra)` (z de
-// las capas del fold, sobre los labels), `subAccent` (acento default de la traza), `ensurePane`,
-// `makeBubbleSink`, `subClusterIconSet`, `addPointLayer`, `removeLayer`, `resyncBound`, `focus`,
-// `unfocusAll`, `emit`, `busOn`, `destroying()`.
+// El bridge expone: `camera` y `surface` (las facetas del anfitrión), `substrate` (el Leaflet y el mapa de
+// las patas del spider), `layerOf(id)`, `nextOrder()`, `overlayZ(order, extra)` (z de las capas del fold,
+// sobre los labels), `subAccent` (acento default de la traza), `makeBubbleSink`, `subClusterIconSet`,
+// `addPointLayer`, `removeLayer`, `resyncBound`, `focus`, `unfocusAll`, `emit`, `busOn`, `destroying()`.
 
 // Ventana de coalescido del re-index del cluster ante moves de POSICIÓN (no estructurales).
 // `cluster.index` (Supercluster.load) es O(n log n) + ~4 allocs/punto y resetea la firma → fuerza
@@ -84,7 +84,6 @@ export function createClusterFold(bridge, targets, { radius, maxZoom, minPoints,
 
   const foldId = `cluster-${bridge.nextOrder()}`
   const bubblePane = `${foldId}-bubbles`
-  bridge.ensurePane(bubblePane, bridge.overlayZ(base.order, 5))   // sobre los labels (+200)
   // La burbuja se registra SIEMPRE como interactiva (no condicionada a expandable): así habilitar
   // expandable en runtime no exige recablear el picking. El gate real vive en el handler de click.
   const sink = bridge.makeBubbleSink(bubble, bubblePane, base.order, foldId, true)
@@ -109,7 +108,8 @@ export function createClusterFold(bridge, targets, { radius, maxZoom, minPoints,
   // Las hojas expandidas QUEDAN suprimidas en el host; acá se renderizan en posiciones espirales
   // (markercluster-style) REUSANDO el iconSet del host (mismo sprite que el vehículo real) con líneas
   // desde el centro. Una sola sesión spider por fold: id + pane ESTABLES (reusados open/close) → sin
-  // leak de panes ni crecimiento de #order. La capa va por la API PÚBLICA addPointLayer (no privados).
+  // leak de panes ni crecimiento de #order. La capa va por la API PÚBLICA addPointLayer (no privados), y
+  // su pane se va con ella.
   const spiderId = `${foldId}:spider`
   // Hoja desplegada = dato del host en el overlay → se PRESENTA como su capa host (mismo id de dato, en
   // su posición desplegada); aplica a TODO canal (lo usa resolveHits). presentedFrom deja que el
@@ -153,12 +153,13 @@ export function createClusterFold(bridge, targets, { radius, maxZoom, minPoints,
   const legsPane = `${foldId}-legs`
   // Líneas DETRÁS de la burbuja (+5) y de los marcadores (+7): look canónico spiderfy. Si fueran
   // encima, con muchas patas tapan el centro y la burbuja dim queda ilegible.
-  bridge.ensurePane(legsPane, bridge.overlayZ(base.order, 4), true)        // sobre labels(+200); noPointer: las líneas no pican
-  const legGroup = bridge.L.layerGroup([], { pane: legsPane }).addTo(bridge.map)
-  const setLegs = segs => {
+  bridge.surface.mount(legsPane, bridge.overlayZ(base.order, 4), { pointer: false })   // sobre labels(+200); las líneas no pican
+  const { L, map } = bridge.substrate
+  const legGroup   = L.layerGroup([], { pane: legsPane }).addTo(map)
+  const setLegs    = segs => {
     legGroup.clearLayers()
     for (const s of segs)
-      bridge.L.polyline(s.pts, { pane: legsPane, color: s.color, weight: s.weight, opacity: s.opacity ?? 0.7, interactive: false }).addTo(legGroup)
+      L.polyline(s.pts, { pane: legsPane, color: s.color, weight: s.weight, opacity: s.opacity ?? 0.7, interactive: false }).addTo(legGroup)
   }
   // Recalcula espiral (px del contenedor → latlng) + marcadores + líneas desde cluster.expandedGroups.
   // Sin expansión → vacía capa y líneas. Colapsa en zoomstart, así que nunca queda con el pixel-radius
@@ -168,7 +169,7 @@ export function createClusterFold(bridge, targets, { radius, maxZoom, minPoints,
     leafLL.clear()
     const leafItems = [], subItems = [], segs = [], bands = []
     for (const g of cluster.expandedGroups) {
-      const c = bridge.map.latLngToContainerPoint([g.center.lat, g.center.lng])
+      const c = bridge.camera.toContainer(g.center)
       // sep mayor cuando hay sub-burbujas para que no se solapen ni queden impickeables. Los slots ya son
       // 1:1 con marcadores renderables (el índice del cluster deduplica por id) → el caracol se dimensiona
       // por g.slots.length sin huecos: cada slot recibe UNA posición, UNA pata y UN marcador.
@@ -203,7 +204,7 @@ export function createClusterFold(bridge, targets, { radius, maxZoom, minPoints,
         runType = null; runPts = null
       }
       g.slots.forEach((slot, i) => {
-        const ll = bridge.map.containerPointToLatLng(offs[i])
+        const ll = bridge.camera.fromContainer(offs[i])
         const pts = [[g.center.lat, g.center.lng], [ll.lat, ll.lng]]
         let type
         if (slot.kind === 'subcluster') {
@@ -335,7 +336,7 @@ export function createClusterFold(bridge, targets, { radius, maxZoom, minPoints,
       }
     }
   }
-  const doIndex = () => { cluster.index(snapshot(), idOf, positionOf); if (cluster.recluster(bridge.map.getZoom())) apply() }
+  const doIndex = () => { cluster.index(snapshot(), idOf, positionOf); if (cluster.recluster(bridge.camera.zoom())) apply() }
   // ¿hubo cambio ESTRUCTURAL (alta/baja/patch del set) en algún host esta ventana? Un move de
   // posición NO marca dirtyIds (sólo moveDirtyIds) → se trata como deriva, no como cambio de set.
   // Si un host no expone dirtyIds (ruta B sin la señal) caemos al comportamiento previo (inmediato)
@@ -355,9 +356,9 @@ export function createClusterFold(bridge, targets, { radius, maxZoom, minPoints,
       reindexTimer = setTimeout(() => { reindexTimer = null; doIndex() }, CLUSTER_REINDEX_THROTTLE_MS)  // sólo moves → diferido
     }
   }
-  const onZoom = () => cluster.recluster(bridge.map.getZoom()) && apply()
+  const onZoom = () => cluster.recluster(bridge.camera.zoom()) && apply()
   const unsubs = hosts.map(({ rec }) => rec.source.subscribe(onData))
-  bridge.map.on('zoomend', onZoom)
+  const offZoom = bridge.camera.on('zoomend', onZoom)
   doIndex()                                        // primer index inmediato (no esperar la ventana)
 
   // Callback que CristaeCluster instala para traducir interacciones a DOM events.
@@ -393,7 +394,7 @@ export function createClusterFold(bridge, targets, { radius, maxZoom, minPoints,
   // Colapsa TODO (re-forma los clusters). Una sola vía para el click-afuera, el zoom y el
   // setConfig(expandable=false) → emite el DOM event 'collapse' de forma consistente.
   const doCollapseAll = () => {
-    if (cluster.collapseAll() && cluster.recluster(bridge.map.getZoom())) { apply(); return true }   // apply() emite 'collapse' por transición
+    if (cluster.collapseAll() && cluster.recluster(bridge.camera.zoom())) { apply(); return true }   // apply() emite 'collapse' por transición
     return false
   }
 
@@ -401,7 +402,7 @@ export function createClusterFold(bridge, targets, { radius, maxZoom, minPoints,
   // ancla cae en ALGÚN cluster a cada zoom → auto-expandiría uno distinto). Limpiar en zoomstart
   // mantiene los bursts de zoom en el fast-path de recluster (zoom re-clusteriza, como en los wrappers de mapa).
   const onZoomStart = () => { dismissReason = 'zoom'; doCollapseAll(); dismissReason = 'collapse' }
-  bridge.map.on('zoomstart', onZoomStart)
+  const offZoomStart = bridge.camera.on('zoomstart', onZoomStart)
 
   // Click en burbuja → expande ESE cluster (modelo ancla). Se registra SIEMPRE; el toggle
   // `cfg.expandable` se evalúa en vivo. Guarda de generación: hit.ref debe existir en la fuente
@@ -426,10 +427,10 @@ export function createClusterFold(bridge, targets, { radius, maxZoom, minPoints,
     // si no → la expande. El click en la burbuja lo captura esta capa (el popup sólo abre en top-hit).
     if (cluster.isClusterExpanded(ref)) {
       const ids = cluster.collapseCluster(ref)
-      if (ids && cluster.recluster(bridge.map.getZoom())) apply()   // apply() emite 'collapse' por transición
+      if (ids && cluster.recluster(bridge.camera.zoom())) apply()   // apply() emite 'collapse' por transición
     } else {
       const res = cluster.expandCluster(ref)
-      if (res && cluster.recluster(bridge.map.getZoom())) apply()   // apply() es el ÚNICO emisor de 'cluster:expand'
+      if (res && cluster.recluster(bridge.camera.zoom())) apply()   // apply() es el ÚNICO emisor de 'cluster:expand'
     }
   })
 
@@ -440,7 +441,7 @@ export function createClusterFold(bridge, targets, { radius, maxZoom, minPoints,
     const subId = hits[0]?.ref
     if (subId == null) return
     cluster.expandInner(subId)
-    if (cluster.recluster(bridge.map.getZoom())) apply()
+    if (cluster.recluster(bridge.camera.zoom())) apply()
   })
 
   let disposed = false
@@ -467,7 +468,7 @@ export function createClusterFold(bridge, targets, { radius, maxZoom, minPoints,
         cfg.expandable = newExpandable
         if (!cfg.expandable) doCollapseAll()   // al deshabilitar, re-formar y limpiar estado
       }
-      if (cluster.recluster(bridge.map.getZoom())) apply()
+      if (cluster.recluster(bridge.camera.zoom())) apply()
       else if (geomChanged && cluster.expandedGroups.length) apply()   // geometría cambió con espiral abierta → re-layout
       else syncFocus()   // sin cambio de recluster, pero dim-rest pudo togglear en caliente → resincronizar el enfoque
     },
@@ -478,14 +479,12 @@ export function createClusterFold(bridge, targets, { radius, maxZoom, minPoints,
       offBubbleClick?.()
       offSubClick?.()
       if (reindexTimer != null) { clearTimeout(reindexTimer); reindexTimer = null }   // cancela re-index diferido pendiente
-      unsubs.forEach(u => u()); bridge.map.off('zoomend', onZoom); bridge.map.off('zoomstart', onZoomStart); sink.dispose()
-      // Sesión spider: capa (removeLayer NO borra su pane → lo borro a mano), líneas y su pane.
+      unsubs.forEach(u => u()); offZoom(); offZoomStart(); sink.dispose()
+      // Sesión spider: las capas se llevan su pane; las líneas y el suyo se sueltan acá.
       bridge.removeLayer(spiderId)
       bridge.removeLayer(spiderSubId)
       legGroup.remove()
-      bridge.map.getPane(legsPane)?.remove()
-      bridge.map.getPane('cristae-point-' + spiderId)?.remove()
-      bridge.map.getPane('cristae-point-' + spiderSubId)?.remove()
+      bridge.surface.unmount(legsPane)
       // Teardown del engine: TODO se está removiendo, así que des-suprimir el host y
       // refrescarlo (+ resyncear sus labels/overlays ligados) es trabajo inútil y peligroso
       // — rebuildearía glify sobre un canvas que se destruye.
@@ -505,12 +504,12 @@ export function createClusterFold(bridge, targets, { radius, maxZoom, minPoints,
     // los eventos del bus `map.on('cluster:expand'|'cluster:update'|'cluster:dismiss', cb)`.
     expand: id => {
       const res = cluster.expandCluster(id)
-      if (res && cluster.recluster(bridge.map.getZoom())) apply()   // apply() es el ÚNICO emisor de 'cluster:expand'
+      if (res && cluster.recluster(bridge.camera.zoom())) apply()   // apply() es el ÚNICO emisor de 'cluster:expand'
       return res ? res.ids : null
     },
     collapse: id => {
       const ids = cluster.collapseCluster(id)
-      if (ids && cluster.recluster(bridge.map.getZoom())) apply()   // apply() emite 'collapse' por transición
+      if (ids && cluster.recluster(bridge.camera.zoom())) apply()   // apply() emite 'collapse' por transición
     },
     collapseAll: () => doCollapseAll(),
     // Re-indexa el cluster con el snapshot actual (source ∧ where). Lo dispara setWhere cuando cambia
@@ -538,7 +537,7 @@ export function createClusterFold(bridge, targets, { radius, maxZoom, minPoints,
       markedSet.clear()
       for (const id of next) markedSet.add(id)
       cluster.marked = markedSet
-      if (cluster.recluster(bridge.map.getZoom())) apply()
+      if (cluster.recluster(bridge.camera.zoom())) apply()
     },
     // Lectura imperativa del eje marked (paridad con getSession): mismo payload que el evento.
     getMarked: () => buildMarked(cluster.markedHidden),

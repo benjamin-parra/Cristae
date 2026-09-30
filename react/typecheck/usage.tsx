@@ -181,6 +181,7 @@ export const ViaRef = () => {
   // Las señales del motor entregan su payload directo, el mismo que el detail del evento del DOM.
   const escuchar = () => map.current?.ready.then((engine) => {
     engine.on('viewportchange', (vista: CristaeViewportChangeDetail) => { void vista.bounds.south })
+    engine.on('move', () => {})
     engine.on('map:click', ({ latlng }) => { void latlng.lng })
     engine.on('interactionstart', () => {})
   })

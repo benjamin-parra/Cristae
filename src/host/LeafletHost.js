@@ -6,9 +6,10 @@ import { coordOf, hasPointShape } from '../geometry/polyline.js'
 // usa. Toda conversión entre Leaflet y esos valores vive acá: un punto entra con la forma de
 // cristae/geometry y lo que sale es un objeto plano.
 //
-// La faceta es `camera`: estado, comandos, proyección, política de animación del zoom y ciclo de
-// vista. `map` y `leaflet` —el mapa y el Leaflet que lo construyó— son para lo que no tiene faceta:
-// panes, tiles, entrada, los sustratos vectoriales, glify y `getLeafletMap()`.
+// Las facetas son `camera` —estado, comandos, proyección, política de animación del zoom y ciclo de
+// vista— y `surface`, los nodos donde dibujan las capas. `substrate` es el Leaflet y el mapa para lo
+// que todavía dibuja con Leaflet: los sustratos vectoriales y glify, y nada más. `map` y `leaflet` son
+// para lo que no tiene faceta: tiles, entrada y `getLeafletMap()`.
 
 // El ciclo de vista, con un solo emisor: cada tipo tiene un oyente en el mapa, y los suscriptores del
 // anfitrión se reparten ese lugar en el orden en que llegaron.
@@ -17,12 +18,20 @@ const VIEW_EVENTS = ['movestart', 'move', 'moveend', 'zoomstart', 'zoomanim', 'z
 const CONTAINER_ORIGIN = Object.freeze([0, 0])
 const NOOP             = () => {}
 
+// Lo que la superficie le escribe a un pane: lo que le devuelve a uno prestado.
+const PANE_STYLE = ['zIndex', 'pointerEvents', 'visibility', 'opacity']
+
 // Lo que envuelve cada método privado que un anfitrión le reemplaza a un mapa. Dos anfitriones vivos en
 // un mapa —el nuevo se adopta antes de soltar el viejo— encadenan sus envoltorios, y el que se suelta
 // sale de la cadena desde donde esté: arriba, el mapa recupera lo que envolvía; debajo de otro, ése pasa
 // a envolverlo. Así la cadena tiene sólo anfitriones vivos. Si encima quedó un envoltorio que no es de un
 // anfitrión, el suelto no puede salir y pasa de largo.
 const wrapped = new WeakMap()
+
+// Los panes que se sostienen en cada mapa, con cuántos los sostienen (ver `surface`). La cuenta es del
+// mapa y no del anfitrión: con dos anfitriones vivos en él, uno puede montar el nombre que ya montó el
+// otro, y el que se suelta primero no puede sacarle el nodo.
+const heldPanes = new WeakMap()
 
 const plainLatLng = ({ lat, lng }) => ({ lat, lng })
 const plainPoint  = ({ x, y }) => ({ x, y })
@@ -107,6 +116,9 @@ const hostOf = (map, leaflet, ownsMap, zoomPolicy) => {
   VIEW_EVENTS.forEach(type => map.on(type, relays[type]))
 
   const camera = {
+    // Un mapa adoptado puede llegar sin vista, y la toma con su primer `setView`. Mientras no la tenga,
+    // leer su caja o proyectar lanza.
+    hasView : () => !!map._loaded,
     center  : () => plainLatLng(map.getCenter()),
     zoom    : () => map.getZoom(),
     maxZoom : () => map.getMaxZoom(),
@@ -149,24 +161,83 @@ const hostOf = (map, leaflet, ownsMap, zoomPolicy) => {
     get zoomPolicy() { return zoomPolicy },
     set zoomPolicy(mode) { zoomPolicy = mode },
 
-    // Devuelve la baja.
-    on(type, fn) {
-      const entry     = { fn, live: true }
-      listeners[type] = [...listeners[type], entry]
+    // `types` son uno o varios tipos separados por espacios, como en Leaflet; devuelve una sola baja.
+    on(types, fn) {
+      const list  = types.split(' ')
+      const entry = { fn, live: true }
+      list.forEach(type => listeners[type] = [...listeners[type], entry])
       return () => {
-        entry.live      = false
-        listeners[type] = listeners[type].filter(e => e !== entry)
+        entry.live = false
+        list.forEach(type => listeners[type] = listeners[type].filter(e => e !== entry))
       }
     },
   }
 
-  // Un mapa adoptado puede llegar sin vista, y la toma con su primer `setView`, que dispara `load`. El
-  // oyente es del anfitrión y se va con él: un motor destruido no se entera de la vista que tome el mapa.
+  // Varias capas pueden montar el mismo nombre de pane, y lo sostienen todas. Uno que se creó se va con la
+  // última. Uno que el mapa ya tenía —los de Leaflet, o uno que creó el dueño de un mapa adoptado— se
+  // presta: queda en el mapa, y con la última vuelve al estilo con que se prestó, que guarda `lent`.
+  const held      = heldPanes.get(map) ?? heldPanes.set(map, new Map()).get(map)
+  const stylePane = (name, key, value) => {
+    const node = map.getPane(name)
+    node && (node.style[key] = value)
+  }
+  const surface = {
+    container: map.getContainer(),
+
+    // Un nodo en el marco que sigue al paneo, colgado del pane raíz del mapa. `z` y `pointer` se aplican
+    // si vienen: quien sólo necesita el nodo lo toma como lo dejó el que lo configuró.
+    mount(name, z, { pointer } = {}) {
+      const found = map.getPane(name)
+      const node  = found ?? map.createPane(name)
+      const entry = held.get(name)
+        ?? { count: 0, lent: found && Object.fromEntries(PANE_STYLE.map(key => [key, found.style[key]])) }
+      entry.count++
+      held.set(name, entry)
+      z != null && (node.style.zIndex = String(z))
+      pointer != null && (node.style.pointerEvents = pointer ? '' : 'none')
+      return node
+    },
+    // Con el último que lo sostiene, un pane prestado recupera su estilo y uno propio sale. Leaflet no
+    // quita panes: el nodo sale del documento, y su entrada de `_panes` y el renderer que cacheó para él
+    // en `_paneRenderers`, del mapa. Si quedaran, el próximo montaje con ese nombre recibiría el nodo
+    // desconectado, y un path nuevo se dibujaría en el lienzo viejo; el renderer, además, seguiría
+    // redibujándose en cada movimiento. El nodo puede no estar: el dueño de un mapa adoptado lo quitó, o
+    // removió el mapa entero.
+    unmount(name) {
+      const entry = held.get(name)
+      if (!entry || --entry.count) return
+      const node = map.getPane(name)
+      held.delete(name)
+      if (entry.lent) {
+        node && Object.assign(node.style, entry.lent)
+        return
+      }
+
+      const renderer = map._paneRenderers[name]
+      renderer && map.removeLayer(renderer)
+      delete map._paneRenderers[name]
+      node?.remove()
+      delete map._panes[name]
+    },
+    setZ       : (name, z) => stylePane(name, 'zIndex', String(z)),
+    setVisible : (name, visible) => stylePane(name, 'visibility', visible ? '' : 'hidden'),
+    setOpacity : (name, alpha) => stylePane(name, 'opacity', alpha >= 1 ? '' : String(alpha)),
+
+    // Que un nodo montado acompañe la transición del zoom animado: el transform que le da quien lo montó
+    // al oír `zoomanim` se interpola con el del mapa, desde la esquina del nodo. Lo hace la clase de
+    // Leaflet que se le suma.
+    followZoom: node => node.className += ' leaflet-zoom-animated',
+  }
+
+  // El `load` con que un mapa adoptado toma su primera vista lo oye el anfitrión, y el oyente se va con
+  // él: un motor destruido no se entera de la vista que tome el mapa después.
   let onLoad = NOOP
 
   return {
-    ready: new Promise(resolve => map._loaded ? resolve() : map.on('load', onLoad = () => resolve())),
+    ready: new Promise(resolve => camera.hasView() ? resolve() : map.on('load', onLoad = () => resolve())),
     camera,
+    surface,
+    substrate: Object.freeze({ L: leaflet, map }),
     map,
     leaflet,
     // Un mapa adoptado sigue vivo: el anfitrión sólo le devuelve lo que le tomó y le saca lo que le puso.

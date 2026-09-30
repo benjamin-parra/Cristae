@@ -161,7 +161,8 @@ interface CristaeLayerProps extends CristaeBaseProps {
  *  no mapearía a una sola capa. */
 interface CristaeLeafLayerProps extends CristaeLayerProps {
   /** Pane propio de la capa; por default el motor le crea uno (`cristae-<kind>-<id>`). Se lee en el
-   *  alta: cambiarlo después no muda la capa de pane. */
+   *  alta: cambiarlo después no muda la capa de pane. Con el mismo nombre, varias capas lo comparten
+   *  (SPECS §8). */
   pane? : string;
   /** z-index del pane, reactivo. Sin él el motor lo DERIVA del orden de declaración (`400 + orden·10`),
    *  así que las mismas capas montadas en otro orden apilan distinto. Panes nativos de Leaflet que

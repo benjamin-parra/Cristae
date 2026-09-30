@@ -89,8 +89,9 @@ export class CristaePopup extends LitElement {
 
   render() { return nothing }           // sin UI en el shadow: los nodos flotantes viven en light DOM
 
-  #map  = null
-  #lmap = null                      // L.Map crudo enganchado para el `move` continuo (paneo/inercia)
+  #map     = null
+  #engine  = null                   // el motor cuyo `move` se oye (paneo/inercia), y su baja
+  #offMove = null
   // Tarjetas abiertas por clave de dato (orden de inserción = antigüedad para el cupo `max-open`;
   // la más reciente queda arriba sola, por orden de append en el body). Cada una es un registro
   // plano — mismo patrón que Camera#follow: { key, item, binding, node, live, lat, lng, screenPt,
@@ -100,7 +101,7 @@ export class CristaePopup extends LitElement {
   #warned     = new Set()      // capas `for` no resolubles ya avisadas (un warning por capa)
   #onClick    = e => this.#openFromHit(e.detail.hits)
   #onViewport = () => this.#popups.forEach(p => this.#place(p))
-  #onReady    = () => this.#bindLeafletMove()
+  #onReady    = () => this.#bindMove()
   #onKey      = e => e.key === 'Escape' && this.close()
 
   connectedCallback() {
@@ -111,11 +112,11 @@ export class CristaePopup extends LitElement {
     this.#map.addEventListener('cristae:click', this.#onClick)
     this.#map.addEventListener('cristae:viewportchange', this.#onViewport)
     // El motor emite `viewportchange` al asentarse el movimiento, no durante (baja frecuencia, por contrato).
-    // Para que las tarjetas y su clip sigan el paneo/inercia EN CONTINUO enganchamos el `move` crudo del
-    // L.Map. Se (re)engancha por montaje vía cristae:ready (otro motor → otro mapa); intento inmediato
-    // por si el motor ya estaba listo cuando se conectó la tarjeta.
+    // Para que las tarjetas y su clip sigan el paneo/inercia EN CONTINUO se oye además su `move`. Se
+    // (re)engancha por montaje vía cristae:ready (otro motor); intento inmediato por si el motor ya estaba
+    // listo cuando se conectó la tarjeta.
     this.#map.addEventListener('cristae:ready', this.#onReady)
-    this.#bindLeafletMove()
+    this.#bindMove()
     addEventListener('scroll', this.#onViewport, true)
     addEventListener('resize', this.#onViewport)
     document.addEventListener('keydown', this.#onKey)
@@ -128,22 +129,22 @@ export class CristaePopup extends LitElement {
     this.#map?.removeEventListener('cristae:viewportchange', this.#onViewport)
     this.#map?.removeEventListener('cristae:ready', this.#onReady)
     this.#map = null
-    this.#lmap?.off('move', this.#onViewport)
-    this.#lmap = null
+    this.#offMove?.()
+    this.#engine = this.#offMove = null
     removeEventListener('scroll', this.#onViewport, true)
     removeEventListener('resize', this.#onViewport)
     document.removeEventListener('keydown', this.#onKey)
   }
 
-  // Engancha el `move` continuo del L.Map vivo (paneo/inercia/flyTo/panBy). Idempotente: si el mapa no
-  // cambió, no hace nada; si cambió (re-mount), suelta el anterior y engancha el nuevo. No cachear entre
-  // montajes es la regla para el consumidor; acá la tarjeta re-vincula sola en cada cristae:ready.
-  #bindLeafletMove() {
-    const lmap = this.#map?.engine?.getLeafletMap()
-    if (!lmap || lmap === this.#lmap) return
-    this.#lmap?.off('move', this.#onViewport)
-    this.#lmap = lmap
-    lmap.on('move', this.#onViewport)
+  // Oye el `move` del motor vivo (paneo/inercia/flyTo/panBy). Idempotente: si el motor no cambió, no hace
+  // nada; si cambió (re-mount), suelta el anterior y oye el nuevo. No cachear entre montajes es la regla
+  // para el consumidor; acá la tarjeta re-vincula sola en cada cristae:ready.
+  #bindMove() {
+    const engine = this.#map?.engine
+    if (!engine || engine === this.#engine) return
+    this.#offMove?.()
+    this.#engine  = engine
+    this.#offMove = engine.on('move', this.#onViewport)
   }
 
   // Abre la tarjeta de un item. Sin `latlng` el ancla es VIVA (la posición del item en su Source —
