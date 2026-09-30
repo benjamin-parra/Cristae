@@ -98,7 +98,6 @@ const _liveEngines = new Set()
 export class MapEngine {
 
   #host
-  #map                            // el mapa del anfitrión, para el registro de hits y `getLeafletMap()`
   #substrate                      // el Leaflet y el mapa de los sustratos vectoriales y de glify
   #glify
   #registry
@@ -131,7 +130,6 @@ export class MapEngine {
 
   constructor({ host, container, view, zoomControl, glify, insets, hoverThrottleMs = 0, zoomAnimation, cursor } = {}) {
     this.#host      = host ?? createLeafletHost({ container, view, zoomControl })
-    this.#map       = this.#host.map
     this.#substrate = this.#host.substrate
     this.#glify     = glify
     // Sin modo explícito queda el del anfitrión: no anima en un mapa propio, y en uno adoptado no se
@@ -146,7 +144,7 @@ export class MapEngine {
       center: this.camera.getCenter(), zoom: this.camera.getZoom(), bounds: this.camera.getBounds(),
     })
 
-    this.#registry    = new LayerRegistry(this.#map)
+    this.#registry    = new LayerRegistry()
     this.#bus         = new EventBus(layerId => this.#syncDemand(layerId))
     this.camera       = new Camera({
       host: this.#host,
@@ -801,7 +799,7 @@ export class MapEngine {
     return this
   }
 
-  getLeafletMap() { return this.#map }
+  getLeafletMap() { return this.#host.map }
   getUnsafeHandler() { return this }
 
   // Resize del contenedor: recalcula el tamaño con el ancla fija, reajusta el picking FBO y resetea las

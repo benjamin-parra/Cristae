@@ -1,5 +1,4 @@
 import { EVENT_CLICK, EVENT_HOVER, EVENT_SECONDARY } from '../events/events.js'
-import { HitResolver } from './HitResolver.js'
 
 // Ruteo del tipo de evento a sus PARTES de hit: cada canal se gatea por su propio bit de demanda
 // y se resuelve con su propio resolver. Los clicks discretos (primario y secundario) comparten el
@@ -27,70 +26,19 @@ const HIT_PART_ROUTE = {
 // para que el consumidor desambigüe sin recalcular geometría.
 export class LayerRegistry {
 
-  #hitResolver
-
-  // Índice de capas: la entrada por id (la fuente de verdad), el objeto de dominio por id (para
-  // getLayer) y el subconjunto de ids overlay (capture/presentAs, que ocluyen o proxan en
-  // resolveHits). Los tres comparten keyspace y ciclo de vida: toda alta pasa por upsertResolver
-  // y toda baja por #forget, para que ninguna operación deje un índice desincronizado.
+  // Índice de capas: la entrada por id (la fuente de verdad) y el subconjunto de ids overlay
+  // (capture/presentAs, que ocluyen o proxan en resolveHits). Los dos comparten keyspace y ciclo de
+  // vida: toda alta pasa por upsertResolver y toda baja por removeByLayerId, para que ninguna operación
+  // deje un índice desincronizado.
   #layers = {
-    entriesById: new Map(),
-    objectsById: new Map(),
-    overlays   : new Set(),
-  }
-  #nextDeclOrder = 0
-
-  // Acepta un HitResolver ya construido o un map para fabricar el por-defecto sobre Leaflet.
-  constructor(hitResolverOrMap) {
-    this.#hitResolver = hitResolverOrMap instanceof HitResolver
-      ? hitResolverOrMap
-      : new HitResolver(hitResolverOrMap)
-  }
-
-  getLayer(layerId) {
-    return this.#layers.objectsById.get(layerId) ?? null
-  }
-
-  // Vista ordenada (top-first) de las capas, para inspección/UI. No resuelve hits.
-  getLayers() {
-    return [...this.#layers.entriesById.values()]
-      .sort((a, b) => (b.zIndex - a.zIndex) || (a.declOrder - b.declOrder))
-      .map(e => ({ layerId: e.layerId, kind: e.kind, zIndex: e.zIndex, active: e.visible }))
-  }
-
-  // Registra una capa Leaflet derivando z-index y resolver del HitResolver. Los resolvers
-  // de click/hover comparten por defecto el resolver geométrico; se pueden sobreescribir.
-  registerLeafletLayer(layerId, layer, {
-    kind = 'leaflet',
-    zIndex,
-    resolveClick,
-    resolveHover,
-    ref,
-    declOrder,
-  } = {}) {
-    const targetRef = ref ?? layer
-    const resolver = this.#hitResolver.createResolver(layer, targetRef)
-
-    this.upsertResolver({
-      layerId,
-      kind,
-      zIndex         : zIndex ?? this.#hitResolver.zIndexOf(layer),
-      declOrder      : declOrder ?? this.#nextDeclOrder,
-      resolveClick   : resolveClick ?? resolver,
-      resolveHover   : resolveHover ?? resolver,
-      getLeafletLayer: () => layer,
-      visible        : true,
-    }, targetRef)
-
-    return targetRef
+    entriesById : new Map(),
+    overlays    : new Set(),
   }
 
   // Inserta o reemplaza la entrada de una capa. Preserva la máscara activa previa si la
-  // nueva no la trae (la demanda la recalcula el motor aparte). Avanza el contador de orden.
-  upsertResolver(entry, layerObject) {
-    if (entry.declOrder >= this.#nextDeclOrder) this.#nextDeclOrder = entry.declOrder + 1
-
-    const { entriesById, objectsById, overlays } = this.#layers
+  // nueva no la trae (la demanda la recalcula el motor aparte).
+  upsertResolver(entry) {
+    const { entriesById, overlays } = this.#layers
     const previous = entriesById.get(entry.layerId)
     entry.visible    ??= true
     entry.activeMask ??= previous?.activeMask ?? 0
@@ -98,7 +46,6 @@ export class LayerRegistry {
     entriesById.set(entry.layerId, entry)
     if (entry.capture || entry.presentAs) overlays.add(entry.layerId)
     else overlays.delete(entry.layerId)
-    if (layerObject !== undefined) objectsById.set(entry.layerId, layerObject)
   }
 
   setLayerVisibility(layerId, visible) {
@@ -185,32 +132,10 @@ export class LayerRegistry {
     return false
   }
 
-  // Quita todas las capas asociadas a un objeto Leaflet dado. Devuelve los layerIds removidos.
-  removeByLeafletLayer(leafletLayer) {
-    const removedIds = []
-    this.#layers.entriesById.forEach((entry, layerId) => {
-      if (entry.getLeafletLayer?.() !== leafletLayer) return
-      removedIds.push(layerId)
-      this.#forget(layerId)
-    })
-    return removedIds
-  }
-
   removeByLayerId(layerId) {
-    this.#forget(layerId)
-  }
-
-  // Baja de una capa: la borra de los tres índices de una vez. Único punto de limpieza (lo
-  // comparten removeByLayerId y removeByLeafletLayer) para que ninguna baja deje un índice colgado.
-  #forget(layerId) {
-    const { entriesById, objectsById, overlays } = this.#layers
+    const { entriesById, overlays } = this.#layers
     entriesById.delete(layerId)
-    objectsById.delete(layerId)
     overlays.delete(layerId)
-  }
-
-  nextDeclOrder() {
-    return this.#nextDeclOrder++
   }
 
   // Pide partes de hit al resolver del canal correspondiente, solo si ese canal tiene demanda

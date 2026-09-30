@@ -94,7 +94,7 @@ shared/external/Cristae/          # raiz del paquete (se sirve por GitHub: git i
    │  └─ IconSet.js              # ex IconBuilder (variante → canvas), sin dominio
    ├─ cluster/                   # Cluster.js (supercluster worldwide)
    ├─ events/                    # EventBus.js + events.js (máscaras de canal)
-   ├─ interaction/               # LayerRegistry.js + HitResolver.js
+   ├─ interaction/               # LayerRegistry.js (orden top-first y gating por demanda)
    ├─ geometry/                  # entry cristae/geometry (metros, cajas) + índices de picking
    ├─ tiles/                     # ZoomSnapshotStore + presets
    ├─ data/                      # ── NÚCLEO compartido (no depende de nada) ──

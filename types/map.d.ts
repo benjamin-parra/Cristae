@@ -137,8 +137,8 @@ export interface LineHandle<T = unknown> {
 
 // ── Hits de picking ─────────────────────────────────────────────────────────
 // El resolver de cada capa aporta su parte y el registro la completa con layerId/kind/zIndex/order
-// (ver HitResolver). La lista llega ordenada top-first (zIndex desc, order asc, distancePx asc), así
-// que `hits[0]` desambigua sin recalcular geometría.
+// (ver docs/interaction.md). La lista llega ordenada top-first (zIndex desc, order asc, distancePx
+// asc), así que `hits[0]` desambigua sin recalcular geometría.
 
 /** Lo que el registro pone en TODO hit, sea cual sea la capa. */
 export interface HitBase {

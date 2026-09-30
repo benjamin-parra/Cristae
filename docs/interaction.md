@@ -9,12 +9,13 @@ El pipeline tiene tres etapas, cada una en una pieza independiente y genérica (
 el dominio):
 
 ```
-puntero → HitResolver  → LayerRegistry        → EventBus
-          (geometría)    (orden + gating)        (ruteo + diffing de hover)
+puntero → resolver de cada capa → LayerRegistry        → EventBus
+          (geometría)             (orden + gating)       (ruteo + diffing de hover)
 ```
 
-1. **`HitResolver`** sabe geometría Leaflet: dado un layer, produce las **partes** de hit
-   (`{ ref, distancePx }`) eligiendo **una** estrategia según las capacidades del layer.
+1. **El resolver de cada capa** sabe su geometría: dada la muestra del puntero, produce las
+   **partes** de hit (`{ ref, distancePx }`) —el pase de picking en GPU para los puntos, la
+   geometría en CPU para polígonos, líneas, círculos y marcadores HTML—.
 2. **`LayerRegistry`** registra capas sobre esos resolvers, las ordena **top-first** y solo
    pide picking de los canales con **demanda activa**.
 3. **`EventBus`** rutea los hits ya resueltos hacia los handlers suscritos, deriva los eventos
@@ -52,56 +53,23 @@ comparten `EVENT_HOVER`; un tipo desconocido → `0`, sin demanda).
 
 ---
 
-## `HitResolver` — geometría, una estrategia exclusiva
-
-No conoce el dominio. Dado un `layer` y un `ref` estable, devuelve un resolver
-`(sample) => [{ ref, distancePx }]`. Construcción: `new HitResolver(map)`.
-
-| Método | Firma | Complejidad | Notas |
-|---|---|---|---|
-| `createResolver(layer, ref)` | `(layer, ref) → (sample) => parts[]` | O(1) build | capa agrupada (`eachLayer`) → resolver de grupo; capa simple → resolver de hoja |
-| `zIndexOf(layer)` | `(layer) → number` | O(1) | z-index leído del pane de la capa; sin pane → 0 |
-
-El resolver de **hoja** elige **una sola** estrategia, exclusiva y sin fallthrough, según las
-capacidades geométricas del layer:
-
-| # | Capacidad detectada | Estrategia | Capas típicas | `distancePx` |
-|---|---|---|---|---|
-| 1 | `_containsPoint` | basada en **trazo** (la más precisa) | Polygon, Polyline, Circle, CircleMarker, Rectangle | distancia al punto más cercano (`closestLayerPoint`) o 0 |
-| 2 | `getLatLng` | basada en **punto** (centro + tolerancia) | Marker | distancia euclídea al centro, si ≤ radio de impacto |
-| 3 | `getBounds` | basada en **área** | ImageOverlay, VideoOverlay, SVGOverlay | 0 si el latlng cae dentro de los bounds |
-
-La tolerancia de la estrategia 2 (`#hitRadiusOf`) es el radio del círculo
-(`getRadius`/`_radius`) o la media diagonal del icono (`iconSize`), o `DEFAULT_HIT_RADIUS`
-(10 px). Todo resolver corta temprano si la capa ya no está en el mapa (`map.hasLayer`).
-
-El resolver de **grupo** itera los hijos **en tiempo de resolución** (adds/removes dinámicos
-funcionan), cacheando el resolver de cada hijo de forma lazy en un `WeakMap` (se libera solo
-cuando el hijo se recolecta).
-
----
-
 ## `LayerRegistry` — orden top-first y gating por demanda
 
 Genérico sobre funciones resolver: no conoce capas de puntos ni de polígonos, solo entradas
 con un par de resolvers (click/hover), z-index, orden de declaración, visibilidad y máscara de
-canales activos. Construcción: `new LayerRegistry(hitResolverOrMap)` (acepta un `HitResolver`
-ya construido o un `map` para fabricar el por-defecto sobre Leaflet).
+canales activos. Construcción: `new LayerRegistry()`.
 
 | Método | Firma | Complejidad | Notas |
 |---|---|---|---|
-| `registerLeafletLayer(layerId, layer, opts?)` | `(string, layer, {kind?, zIndex?, resolveClick?, resolveHover?, ref?, declOrder?}) → ref` | O(1) | deriva z-index y resolver del `HitResolver`; click/hover comparten el resolver geométrico salvo override |
-| `upsertResolver(entry, layerObject?)` | `(entry, obj?) → void` | O(1) | inserta/reemplaza una entrada genérica; **preserva** la máscara activa previa si la nueva no la trae |
+| `upsertResolver(entry)` | `({layerId, kind, zIndex, declOrder, resolveClick?, resolveHover?, visible?, capture?, presentAs?}) → void` | O(1) | inserta/reemplaza la entrada de una capa; **preserva** la máscara activa previa si la nueva no la trae |
 | `resolveHits(eventType, sample)` | `(string, {lat, lng, x, y}) → Hit[]` | O(n log n) | recolecta hits de capas **visibles**, solo de resolvers cuyo canal tiene demanda, y los devuelve **ordenados top-first** |
 | `setLayerVisibility(layerId, visible)` | `(string, bool) → bool` | O(1) | gating por visibilidad; capa oculta no aporta hits |
 | `isLayerVisible(layerId)` | `(string) → bool\|null` | O(1) | — |
 | `setLayerDemandMask(layerId, mask)` | `(string, number) → bool` | O(1) | fija la máscara de canales activos de la capa (la calcula el motor desde el `EventBus`) |
 | `demandMaskOf(layerId)` | `(string) → number` | O(1) | máscara activa actual (0 si no hay) |
-| `getLayer(layerId)` | `(string) → obj\|null` | O(1) | el objeto de capa registrado |
-| `getLayers()` | `() → {layerId, kind, zIndex, active}[]` | O(n log n) | vista ordenada top-first para inspección/UI; no resuelve hits |
-| `removeByLeafletLayer(layer)` | `(layer) → string[]` | O(n) | quita todas las capas de ese objeto Leaflet; devuelve los layerIds removidos |
+| `hasHitForChannels(mask, sample)` | `(number, sample) → bool` | O(n) | ¿hay una feature bajo el puntero en alguna capa visible con demanda de esos canales? Corta al primer acierto; es la consulta del `pointer` del cursor |
 | `removeByLayerId(layerId)` | `(string) → void` | O(1) | — |
-| `layerIds()` / `nextDeclOrder()` | — | O(n) / O(1) | utilidades |
+| `layerIds()` | `() → string[]` | O(n) | — |
 
 El **gating doble** es la clave de eficiencia (`#resolveParts`): una capa solo se pickea si
 (a) está visible **y** (b) su `activeMask` incluye el canal del evento. Para `click` se
@@ -146,7 +114,7 @@ Cada `on(...)` con un tipo que mapea a un canal **incrementa** un contador; la b
 **decrementa**. Hay dos niveles: `#globalDemand` (handlers que escuchan todas las capas) y
 `#layerDemand` (por capa). `demandMaskFor(layerId)` combina ambos en una máscara de bits, que
 el motor empuja al registro vía `setLayerDemandMask`. El efecto: **si nadie suscribió un
-handler de hover, ningún hover se resuelve** — el `HitResolver` no se invoca para ese canal.
+handler de hover, ningún hover se resuelve** — el resolver de hover de la capa no se invoca.
 El picking de hover (que correría en cada `pointer:move`, lo más frecuente) solo se paga cuando
 alguien lo escucha. `onDemandChange` dispara el recálculo justo cuando un contador cruza de 0 a
 1 o de 1 a 0.
@@ -218,14 +186,12 @@ Ejemplo del patrón: un picker de selección múltiple pinta los hits una vez y,
 
 ## Invariantes
 
-1. **Una sola estrategia por capa simple** en `HitResolver`: exclusiva, sin fallthrough; la
-   capacidad geométrica del layer la determina.
-2. **Top-first determinista:** `resolveHits` siempre ordena `zIndex` desc, `order` asc,
+1. **Top-first determinista:** `resolveHits` siempre ordena `zIndex` desc, `order` asc,
    `distancePx` asc; sin `distancePx` → al fondo.
-3. **Gating doble en el registro:** capa invisible o sin la máscara del canal → no se pickea.
-4. **Sin picking de canal sin demanda:** el conteo del bus garantiza que un canal sin handlers
+2. **Gating doble en el registro:** capa invisible o sin la máscara del canal → no se pickea.
+3. **Sin picking de canal sin demanda:** el conteo del bus garantiza que un canal sin handlers
    tenga máscara 0 y por tanto no se evalúe.
-5. **Hover consistente al desaparecer una capa:** `clearLayer` fuerza `hover:end` para que el
+4. **Hover consistente al desaparecer una capa:** `clearLayer` fuerza `hover:end` para que el
    estado externo no sobreviva a la capa que lo originó.
 
 ---
@@ -233,11 +199,10 @@ Ejemplo del patrón: un picker de selección múltiple pinta los hits una vez y,
 ## Ejemplo de uso
 
 ```js
-import L from 'leaflet'
 import { LayerRegistry } from './src/interaction/LayerRegistry.js'
 import { EventBus } from './src/events/EventBus.js'
 
-const map = L.map('mapa').setView([-33.45, -70.66], 12)
+const registry = new LayerRegistry()
 
 // El motor recalcula la máscara activa de una capa cuando cambia su demanda.
 const bus = new EventBus(layerId => {
@@ -246,11 +211,14 @@ const bus = new EventBus(layerId => {
 })
 const refresh = id => registry.setLayerDemandMask(id, bus.demandMaskFor(id))
 
-const registry = new LayerRegistry(map)   // fabrica el HitResolver por defecto
-
-// Registrar una capa interactiva (un marcador).
-const marker = L.marker([-33.45, -70.66]).addTo(map)
-registry.registerLeafletLayer('flota', marker, { kind: 'point' })
+// Una capa interactiva aporta su resolver: acá, un punto en el píxel (400, 300) que se toca a 10 px
+// o menos.
+const flota = { id: 7 }
+const tocar = ({ x, y }) => {
+  const distancePx = Math.hypot(x - 400, y - 300)
+  return distancePx <= 10 ? [{ ref: flota, id: flota.id, distancePx }] : []
+}
+registry.upsertResolver({ layerId: 'flota', kind: 'point', zIndex: 400, declOrder: 0, resolveClick: tocar, resolveHover: tocar })
 
 // Suscribir un handler de click sobre esa capa → activa su demanda de click.
 const off = bus.on('click', 'flota', (hits) => {

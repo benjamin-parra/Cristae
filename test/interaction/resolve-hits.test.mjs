@@ -1,7 +1,7 @@
 // Contrato de LayerRegistry.resolveHits / #present / #resolveParts: el pipeline que corre por
-// frame de hover y desambigua qué feature está bajo el puntero. Se ejercita con resolvers FAKE
-// (sin Leaflet ni HitResolver real): cada entrada trae su par resolveClick/resolveHover, su
-// zIndex, orden de declaración y máscara de canales, igual que las entradas reales del registro.
+// frame de hover y desambigua qué feature está bajo el puntero. Se ejercita con resolvers FAKE:
+// cada entrada trae su par resolveClick/resolveHover, su zIndex, orden de declaración y máscara de
+// canales, igual que las entradas reales del registro.
 // Corre con: node --test test/interaction/resolve-hits.test.mjs
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -27,7 +27,7 @@ const entry = ({
 const parts = (...arr) => () => arr
 
 test('resolveHits ordena top-first: zIndex desc, luego declOrder asc, luego distancePx asc', () => {
-  const reg = new LayerRegistry({})
+  const reg = new LayerRegistry()
   reg.upsertResolver(entry({ layerId: 'A', zIndex: 10, declOrder: 0, resolveHover: parts({ ref: {}, distancePx: 5 }) }))
   reg.upsertResolver(entry({ layerId: 'B', zIndex: 20, declOrder: 1, resolveHover: parts({ ref: {}, distancePx: 1 }) }))
   reg.upsertResolver(entry({ layerId: 'C', zIndex: 10, declOrder: 1, resolveHover: parts({ ref: {}, distancePx: 2 }) }))
@@ -37,7 +37,7 @@ test('resolveHits ordena top-first: zIndex desc, luego declOrder asc, luego dist
 })
 
 test('distancePx desempata las partes de una misma capa; ausente cuenta como infinito (al fondo)', () => {
-  const reg = new LayerRegistry({})
+  const reg = new LayerRegistry()
   reg.upsertResolver(entry({
     layerId: 'multi', zIndex: 5, declOrder: 0,
     resolveHover: parts(
@@ -53,7 +53,7 @@ test('distancePx desempata las partes de una misma capa; ausente cuenta como inf
 })
 
 test('resolveHits omite las capas no visibles', () => {
-  const reg = new LayerRegistry({})
+  const reg = new LayerRegistry()
   reg.upsertResolver(entry({ layerId: 'hidden', visible: false, resolveHover: parts({ ref: {}, distancePx: 0 }) }))
   reg.upsertResolver(entry({ layerId: 'shown', declOrder: 1, resolveHover: parts({ ref: {}, distancePx: 0 }) }))
 
@@ -61,7 +61,7 @@ test('resolveHits omite las capas no visibles', () => {
 })
 
 test('#resolveParts: hover y click se gatean por su propio bit y usan su propio resolver', () => {
-  const reg = new LayerRegistry({})
+  const reg = new LayerRegistry()
   reg.upsertResolver(entry({
     layerId: 'L', activeMask: EVENT_CLICK | EVENT_HOVER,
     resolveClick: parts({ ref: {}, tag: 'click' }),
@@ -75,7 +75,7 @@ test('#resolveParts: hover y click se gatean por su propio bit y usan su propio 
 })
 
 test('#resolveParts: secondary-click comparte resolveClick y se gatea por EVENT_SECONDARY', () => {
-  const reg = new LayerRegistry({})
+  const reg = new LayerRegistry()
   reg.upsertResolver(entry({
     layerId: 'S', activeMask: EVENT_SECONDARY,
     resolveClick: parts({ ref: {}, tag: 'click' }),
@@ -89,7 +89,7 @@ test('#resolveParts: secondary-click comparte resolveClick y se gatea por EVENT_
 })
 
 test('#resolveParts: un tipo de evento desconocido cae en el canal de hover (default de la tabla)', () => {
-  const reg = new LayerRegistry({})
+  const reg = new LayerRegistry()
   reg.upsertResolver(entry({
     layerId: 'U', activeMask: EVENT_HOVER,
     resolveClick: parts({ ref: {}, tag: 'click' }),
@@ -103,7 +103,7 @@ test('#resolveParts: un tipo de evento desconocido cae en el canal de hover (def
 })
 
 test('#present: una capa capture ocluye todo lo que queda debajo de ella', () => {
-  const reg = new LayerRegistry({})
+  const reg = new LayerRegistry()
   const hit0 = parts({ ref: {}, distancePx: 0 })
   reg.upsertResolver(entry({ layerId: 'top', zIndex: 30, declOrder: 0, resolveHover: hit0 }))
   reg.upsertResolver(entry({ layerId: 'shield', zIndex: 20, declOrder: 1, resolveHover: hit0, capture: true }))
@@ -114,7 +114,7 @@ test('#present: una capa capture ocluye todo lo que queda debajo de ella', () =>
 })
 
 test('#present: una capa presentAs antepone su hit reetiquetado y ocluye lo de abajo', () => {
-  const reg = new LayerRegistry({})
+  const reg = new LayerRegistry()
   const hit0 = parts({ ref: {}, distancePx: 0 })
   const proxyHit = (hit) => ({ ...hit, layerId: 'proxy', proxied: true })
   reg.upsertResolver(entry({ layerId: 'top', zIndex: 30, declOrder: 0, resolveHover: hit0 }))
@@ -127,7 +127,7 @@ test('#present: una capa presentAs antepone su hit reetiquetado y ocluye lo de a
 })
 
 test('hasHitForChannels corta al primer acierto de una capa visible con demanda del canal pedido', () => {
-  const reg = new LayerRegistry({})
+  const reg = new LayerRegistry()
   reg.upsertResolver(entry({ layerId: 'a', activeMask: EVENT_HOVER, resolveHover: parts() }))
   reg.upsertResolver(entry({ layerId: 'b', declOrder: 1, activeMask: EVENT_CLICK, resolveHover: parts({ ref: {} }) }))
 
@@ -135,4 +135,27 @@ test('hasHitForChannels corta al primer acierto de una capa visible con demanda 
   assert.equal(reg.hasHitForChannels(EVENT_CLICK, {}), true)
   // Canal HOVER: 'a' demanda hover pero no da hit; 'b' no demanda hover → false.
   assert.equal(reg.hasHitForChannels(EVENT_HOVER, {}), false)
+})
+
+// La baja saca la capa de todo lo que el registro resuelve: una que ocluía deja de ocluir.
+test('removeByLayerId saca la capa de los hits y de los ids', () => {
+  const reg  = new LayerRegistry()
+  const hit0 = parts({ ref: {}, distancePx: 0 })
+  reg.upsertResolver(entry({ layerId: 'top', zIndex: 30, declOrder: 0, resolveHover: hit0 }))
+  reg.upsertResolver(entry({ layerId: 'shield', zIndex: 20, declOrder: 1, resolveHover: hit0, capture: true }))
+  reg.upsertResolver(entry({ layerId: 'bottom', zIndex: 10, declOrder: 2, resolveHover: hit0 }))
+
+  reg.removeByLayerId('shield')
+  assert.deepEqual({ hits: reg.resolveHits('hover', {}).map(h => h.layerId), ids: reg.layerIds() },
+    { hits: ['top', 'bottom'], ids: ['top', 'bottom'] })
+})
+
+// El motor vuelve a registrar una capa sin su máscara, que la demanda recalcula aparte: la entrada nueva
+// hereda la vigente.
+test('upsertResolver conserva la máscara activa si la entrada nueva no la trae', () => {
+  const reg = new LayerRegistry()
+  reg.upsertResolver({ layerId: 'a', kind: 'test', zIndex: 0, declOrder: 0 })
+  reg.setLayerDemandMask('a', EVENT_CLICK)
+  reg.upsertResolver({ layerId: 'a', kind: 'test', zIndex: 5, declOrder: 0 })
+  assert.equal(reg.demandMaskOf('a'), EVENT_CLICK)
 })
