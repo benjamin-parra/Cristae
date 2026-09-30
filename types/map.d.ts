@@ -772,8 +772,6 @@ export class MapEngine {
    *  frente al arrastre, el editor y el `pointer` automático: docs/interaction.md#el-cursor-del-contenedor. */
   setCursor(cursor: string | null): this;
   getLeafletMap(): unknown;
-  /** Escape genérico al handler subyacente (Leaflet map, hoy). Usar sólo si falta una capacidad. */
-  getUnsafeHandler(): unknown;
   syncSize(): void;
   invalidateCanvas(): void;
   /** Encuadra VARIAS capas a la vez (o todas las de datos si se omite `ids`) — multi-capa de camera.fitToLayer. */

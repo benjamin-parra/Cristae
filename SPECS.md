@@ -257,7 +257,6 @@ new MapEngine({ host: adoptLeafletHost(map, { leaflet? }), glify, … }) → eng
 | `createIcon(descriptor)` | acción | O(1) | |
 | `on(event, layerId?, cb) → off` | acción | O(1) | suscripción por capa |
 | `getLeafletMap()` | escape | O(1) | el `L.map` crudo |
-| `getUnsafeHandler()` | escape | O(1) | el `MapWidget` con sus métodos internos, **sin garantías de estabilidad** |
 | `destroy()` | acción | O(layers) | cancela rAF pendientes, quita listeners, libera bindings y suelta el mapa (abajo) |
 | `ready: Promise` | — | — | resuelve cuando el mapa tiene vista, y no si el motor se destruye antes; la señal `ready` sale en el mismo momento |
 
@@ -287,7 +286,7 @@ new MapEngine({ host: adoptLeafletHost(map, { leaflet? }), glify, … }) → eng
 
 ### 7.2 Métodos (acción → imperativo)
 
-`addPointLayer`, `addPolygonLayer`, `addLabelLayer`, `removeLayer`, `getLayer`, `attachSource`, cámara (§9), `createIcon`, `registerIconSet`, `syncSize()`, `invalidateCanvas()`, `getLeafletMap()`, `getUnsafeHandler()`, `destroy()`, `ready`.
+`addPointLayer`, `addPolygonLayer`, `addLabelLayer`, `removeLayer`, `getLayer`, `attachSource`, cámara (§9), `createIcon`, `registerIconSet`, `syncSize()`, `invalidateCanvas()`, `getLeafletMap()`, `destroy()`, `ready`.
 
 - **`syncSize()`**: resize del contenedor — `map.invalidateSize()` + reajuste del FBO de picking + **redibujo de las capas de puntos** (`invalidateSize()` solo emite `move`/`moveend` si el resize desplaza el centro, así que un resize simétrico limpiaría el canvas glify sin redibujarlo). Llamado por el `ResizeObserver` interno del elemento; el consumer raramente lo necesita.
 - **`invalidateCanvas()`**: reposiciona y redibuja todas las capas de puntos. Escape hatch manual: con `<cristae-map>`, resize y show-tras-`display:none` ya se auto-curan vía el observer → `syncSize()`; este método es para el motor headless (sin elemento, sin observer) o el raro show sin cambio de tamaño. **`destroy()` además notifica a los hermanos automáticamente** (multi-mapa).

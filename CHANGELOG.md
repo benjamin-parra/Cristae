@@ -150,6 +150,10 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   `{ lat, lng }`; la cámara acepta ahora `LatLngPoint` y devuelve `LatLng`.
   *Migración*: `LatLngPoint` para lo que entra, `LatLng` para lo que sale y `[number, number] | LatLng`
   para la forma exacta de antes.
+- **`engine.getUnsafeHandler()` sale.** Devolvía el propio motor, y los tipos lo daban por el mapa de
+  Leaflet y la doc, por un `MapWidget` que ya no existe: no daba nada que quien lo llamaba no tuviera.
+  *Migración*: `engine.getUnsafeHandler().x` pasa a `engine.x`; desde `<cristae-map>`, `el.engine.x`.
+  El mapa de Leaflet sigue en `getLeafletMap()`.
 
 ### Corregido
 - **Soltar un handle del editor ya no deja un click en el mapa.** En `mode: 'edit'` el editor consume en

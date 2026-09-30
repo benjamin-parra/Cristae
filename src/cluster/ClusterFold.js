@@ -497,7 +497,7 @@ export function createClusterFold(bridge, targets, { radius, maxZoom, minPoints,
         if (rec.cluster === control) rec.cluster = null
       }
     },
-    // API de expand/collapse: usada por CristaeCluster y como escape-hatch via getUnsafeHandler.
+    // API de expand/collapse: la usa CristaeCluster, y la tiene quien recibe el control de addCluster.
     // `id` es un cluster-id de Supercluster — sólo válido dentro del frame actual; el caller debe
     // pasarlo recién obtenido. El estado interno queda anclado por hoja, así que sobrevive a
     // reindex/zoom aunque el id ya no exista. Para reaccionar a la interacción del usuario, preferir

@@ -800,7 +800,6 @@ export class MapEngine {
   }
 
   getLeafletMap() { return this.#host.map }
-  getUnsafeHandler() { return this }
 
   // Resize del contenedor: recalcula el tamaño con el ancla fija, reajusta el picking FBO y resetea las
   // capas de puntos (un resize simétrico no desplaza el centro, así que el canvas glify no se redibuja solo).

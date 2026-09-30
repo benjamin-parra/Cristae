@@ -447,7 +447,7 @@ camera.getCenter() / getZoom() / getBounds()
 
 **Mapa (props reactivas / atributos):** `tile`, `theme` (vía CSS vars), `world-copies`, `viewport-insets`, `hover-throttle`, `cursor`, `stale-tolerance-px`. **No reactivas (solo al montar):** `initial-center`, `initial-zoom` — el viewport vivo es imperativo (§9).
 
-**Mapa (métodos):** `addPointLayer(cfg)→handle`, `addPolygonLayer(cfg)→handle`, `addLabelLayer(cfg)→handle`, `removeLayer(id)`, `getLayer(id)`, `attachSource(id, source)`, cámara (§9), `createIcon(descriptor)`, `registerIconSet(name, set)`, `getLeafletMap()` (escape hatch — el `L.map` crudo) / `getUnsafeHandler()` (escape hatch avanzado — el `MapWidget` con sus métodos internos, sin garantías de estabilidad), `destroy()`, `ready: Promise`.
+**Mapa (métodos):** `addPointLayer(cfg)→handle`, `addPolygonLayer(cfg)→handle`, `addLabelLayer(cfg)→handle`, `removeLayer(id)`, `getLayer(id)`, `attachSource(id, source)`, cámara (§9), `createIcon(descriptor)`, `registerIconSet(name, set)`, `getLeafletMap()` (escape hatch — el `L.map` crudo), `destroy()`, `ready: Promise`.
 
 **Capa (props/métodos):** `visible`, `opacity`, `interactive`, `data` / `source` (Source compartida) / `set`/`patch`/`move`/`remove`, `accessors`, `iconSet` (reactivo → reseed+rebuild), `preloadIcons(variants)`, `filters`/`addFilter`/`removeFilter`, `refresh()`; cluster/label como hijos o `attachCluster`/`attachLabel`.
 
