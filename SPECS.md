@@ -272,7 +272,7 @@ new MapEngine({ host: adoptLeafletHost(map, { leaflet? }), glify, … }) → eng
 | Nombre | Tipo | Atributo serializable | Reactivo a | Efecto |
 |---|---|---|---|---|
 | `tile` | `{url, attribution, maxZoom, className, updateWhenIdle?, keepBuffer?}` | sí (JSON) | cambio | re-provee tiles |
-| `theme` | CSS vars sobre `:host` | vía CSS | — | label-layers leen `--cristae-*` |
+| `theme` | CSS vars sobre `:host` o un ancestro | vía CSS | — | label-layers leen `--cristae-*`; `--cristae-map-background` y `--cristae-tile-filter` son, en vivo, el fondo del contenedor y el `filter` de los tiles y de la foto de la retención |
 | `initial-center` | `LatLng` | sí | **no** (solo al montar) | fija la vista inicial una vez (uncontrolled, como `defaultValue`). Recentrar vivo = cámara imperativa (§9) |
 | `initial-zoom` | number | sí | **no** (solo al montar) | idem |
 | `world-copies` | boolean | sí | cambio | `noWrap`: los tiles se repiten fuera de ±180; no limita la cámara (§9) |

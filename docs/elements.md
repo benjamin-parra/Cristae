@@ -72,6 +72,8 @@ Contenedor. Monta el `MapEngine`, expone cámara/engine y reenvía los eventos d
 | `max-bounds-viscosity` | 0 (default) a 1; cuánto resiste al arrastre el borde de `max-bounds` | atributo — **reactivo** |
 | `viewport-insets` | object | prop `viewportInsets` |
 | `tile` | `{ url, maxZoom?, attribution?, subdomains?, … }` | **prop** |
+| `--cristae-map-background` | valor CSS de `background`; default, el gris `#ddd` de Leaflet | custom property — **en vivo** |
+| `--cristae-tile-filter` | valor CSS de `filter`; default, ninguno | custom property — **en vivo** |
 
 > **`cursor`:** el del contenedor mientras el consumidor lo pida —una herramienta activa, por ejemplo—,
 > sin hojas de estilo propias dentro del shadow root. Cómo convive con el arrastre, el editor y el
@@ -80,6 +82,15 @@ Contenedor. Monta el `MapEngine`, expone cámara/engine y reenvía los eventos d
 > **Límites:** qué hace cada uno de `min-zoom`, `max-zoom`, `max-bounds` y `max-bounds-viscosity`, por
 > qué van juntos, cómo convive `max-bounds` con `world-copies` y cómo se arma un solo mundo:
 > [SPECS §9](../SPECS.md).
+
+> **Fondo y filtro de los tiles:** son custom properties porque cruzan el shadow root, que el CSS de la
+> página no cruza. Se ponen sobre el elemento o un ancestro —un tema oscuro:
+> `.dark cristae-map { --cristae-tile-filter: invert(1) hue-rotate(180deg) }`; `transparent` de fondo
+> deja ver lo que hay detrás— y el filtro alcanza también a la foto que la
+> [retención](./tiles.md#la-retención) deja durante el zoom. El filtro rige también con un motor fuera
+> del elemento, sobre un mapa propio o adoptado: el anfitrión lo pone en línea en la capa de tiles que
+> agrega y en el pane de la foto, y no toca los panes del mapa. El fondo sale de la hoja del elemento:
+> fuera de él, el contenedor es un nodo de la página, y lo estila ella.
 
 > **`no-zoom-control`:** quita el control +/− nativo de Leaflet. Para reemplazarlo con uno propio,
 > se usa un `<cristae-toolbar>` en un slot del overlay con items que llamen `camera.zoomIn()`/`camera.zoomOut()`.

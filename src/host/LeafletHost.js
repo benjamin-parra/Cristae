@@ -1,6 +1,7 @@
 import L from 'leaflet'
 import { coordOf, hasPointShape } from '../geometry/polyline.js'
 import { retainTileSnapshots } from './TileSnapshotRetention.js'
+import { TILE_FILTER } from './styles.js'
 
 // El anfitrión: Leaflet detrás de facetas con los valores de la API (SPECS §0). Se crea sobre un
 // contenedor o adopta un mapa que ya existe; es uno por mapa, y quien lo destruye es el motor que lo
@@ -283,11 +284,13 @@ const hostOf = (map, leaflet, ownsMap, zoomPolicy) => {
   let tileLayer        = null
   let releaseRetention = null
   const tiles          = {
-    // Las opciones, salvo `url`, van tal cual a la capa de Leaflet.
+    // Las opciones, salvo `url`, van tal cual a la capa de Leaflet. Su nodo nace cuando la capa entra al
+    // mapa, que en uno adoptado sin vista es en su primer `setView`: el filtro se le pone ahí.
     setProvider({ url, ...options } = {}) {
       releaseRetention?.()
       tileLayer?.remove()
       tileLayer        = new leaflet.TileLayer(url, options)
+        .on('add', ({ target }) => { target.getContainer().style.filter = TILE_FILTER })
       releaseRetention = retainTileSnapshots(map, surface, tileLayer)
       tileLayer.addTo(map)
     },

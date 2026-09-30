@@ -67,6 +67,15 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   cuando lo hay.
   *Migración*: ninguna; quien llamaba `setMinZoom`, `setMaxBounds` o escribía `maxBoundsViscosity` en
   el mapa de `getLeafletMap()` puede pasar a los atributos.
+- **El fondo del mapa y el filtro de los tiles se piden por CSS: `--cristae-map-background` y
+  `--cristae-tile-filter`.** Las custom properties cruzan el shadow root, así que se ponen sobre
+  `<cristae-map>` o un ancestro —un tema oscuro, por ejemplo— y rigen en vivo: la primera es el fondo
+  del contenedor, con el gris de Leaflet si falta; la segunda, el `filter` de los tiles y de la foto
+  que la retención deja durante el zoom ([`docs/elements.md`](docs/elements.md#cristae-map)). Hasta
+  ahora las dos pedían inyectar reglas en el shadow root, una por pane. La foto ya no copia el `filter`
+  del contenedor de la capa: la lleva su pane, como los tiles su capa. El filtro rige también con un
+  motor fuera de `<cristae-map>`; el fondo, no: ahí el contenedor es un nodo de la página.
+  *Migración*: quien inyectaba esas reglas pasa a las custom properties.
 - **`camera.fitBounds` acepta `maxZoom` y `animate`.** `maxZoom` topa el zoom del encuadre antes de
   centrar —si no es un número finito no topa, como un límite—, y `animate: false` encuadra sin animar;
   el zoom sigue obedeciendo la política de `zoom-animation` ([SPECS §9](SPECS.md)).

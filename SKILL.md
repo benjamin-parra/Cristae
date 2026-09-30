@@ -342,7 +342,9 @@ solo**, pero con un motor **nuevo**. De ahí dos reglas:
 - **Shadow DOM:** el mapa vive en un shadow root; el CSS/JS de la página **no cruza** el borde (popups de
   Leaflet sin estilar, FontAwesome-JS que escanea `document` no ve adentro). Los overlays HTML propios
   (tarjeta al click) se renderizan en **light DOM** y se posicionan con `camera.latLngToContainerPoint`. Los
-  `CustomEvent` `cristae:*` sí cruzan (son `composed`).
+  `CustomEvent` `cristae:*` sí cruzan (son `composed`), y también las custom properties: el fondo y el
+  filtro de los tiles se piden con `--cristae-map-background` y `--cristae-tile-filter`
+  ([`docs/elements.md`](./docs/elements.md#cristae-map)), sin inyectar reglas.
 - **`describe` del IconSet debe ser _total_:** para cualquier `variant` posible devuelve un descriptor
   completo; deriva props de la variante misma (hash), no de una lista con `indexOf` (una prop faltante
   no lanza, degrada a ícono mal pintado). Ver [`docs/icons.md`](./docs/icons.md).

@@ -39,7 +39,8 @@ Las opciones que acepta un proveedor están en [`elements.md`](./elements.md) (`
 Ni el elemento ni el motor tocan la capa de tiles: `map.tile` y `engine.setTileProvider(tile)` se la
 piden al anfitrión del mapa, que la crea y la agrega. Hay un proveedor a la vez: el nuevo suelta al
 anterior, con su capa y sus fotos. Al destruirse el motor, el anfitrión le saca a un mapa adoptado la
-capa y el pane de la retención que le puso.
+capa y el pane de la retención que le puso. El filtro de los tiles y el fondo del mapa no son opciones
+del proveedor: son custom properties, y dónde rige cada una está en [`<cristae-map>`](./elements.md#cristae-map).
 
 El resto de este documento es la **retención de snapshots** durante el zoom (interno; no hace falta tocarlo).
 
@@ -132,9 +133,8 @@ Ciclo de eventos que cablea (todos sobre el mapa):
 | `viewreset` | muestra la mejor combinación para la vista nueva |
 
 La foto cuelga del pane `tileZoomSnapshotPane` (z 150, `pointer-events: none`), que la superficie del
-anfitrión monta en el primer reset. Su clase, `leaflet-tileZoomSnapshot-pane`, es por donde una hoja de
-estilos alcanza la foto: el `filter` del contenedor de la capa se copia al canvas al fotografiar, pero
-uno puesto sobre el pane de tiles no, y hay que ponérselo también a éste.
+anfitrión monta en el primer reset. El canvas no lleva filtro propio: el pane lleva en línea el mismo
+`--cristae-tile-filter` que la capa del proveedor, y la foto se ve como los tiles que reemplaza.
 
 ---
 

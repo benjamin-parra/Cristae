@@ -4,11 +4,13 @@
 // anterior, y el anfitrión le saca a un mapa adoptado lo que le puso. Son también los tests de contrato
 // de lo que la retención lee de Leaflet: que avise el reset (`viewprereset`) antes de que la capa suelte
 // sus tiles y que un zoom animado no resetee, que `_tileZoom` y `_tiles` digan qué tiles cargados hay, y
-// que `_resetGrid` recalcule la grilla con que `_wrapCoords` y `getTileUrl` arman la URL de un tile.
+// que `_resetGrid` recalcule la grilla con que `_wrapCoords` y `getTileUrl` arman la URL de un tile. Y
+// de lo que la hoja de la superficie alcanza por la clase que Leaflet le da al contenedor.
 // Corre con: node --test test/host/tiles.test.mjs
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { contenedor, frame, prepararDom } from '../../test-helpers/leaflet-real.mjs'
+import { surfaceCss } from '../../src/host/styles.js'
 
 // Con transformaciones 3D, como en un navegador: sin ellas Leaflet no anima ningún zoom. jsdom no
 // rasteriza: el contexto 2D sólo anota lo que se le dibuja.
@@ -65,6 +67,44 @@ test('un zoom que Leaflet no anima deja la foto de los tiles que soltó, debajo 
   assert.equal(dibujos.length, tiles, 'con todos los tiles cargados')
   assert.match(pane.firstChild.style.transform, /scale\(0\.5\)$/, 'reproyectada al zoom nuevo')
   assert.deepEqual([pane.style.zIndex, pane.style.pointerEvents], ['150', 'none'])
+  host.destroy()
+})
+
+// En línea, y no en la hoja de la superficie: rige también con el mapa en la página, donde esa hoja no está.
+test('la capa del proveedor y el pane de la foto llevan en línea el filtro de su custom property', () => {
+  const { host, camera, map, capa } = montar('none')
+  cargar(capa)
+
+  camera.setZoom(9)
+
+  const pane = map.getPane(PANE)
+  assert.equal(capa.getContainer().style.filter, 'var(--cristae-tile-filter, none)')
+  assert.equal(pane.style.filter, 'var(--cristae-tile-filter, none)', 'el mismo que el de los tiles')
+  assert.equal(pane.firstChild.style.filter, '', 'la foto no lleva uno propio')
+  assert.equal(map.getPane('tilePane').style.filter, '', 'el pane de Leaflet no se toca')
+  host.destroy()
+})
+
+test('en un mapa adoptado sin vista, la capa recibe el filtro cuando entra, con la primera vista', () => {
+  const map  = new L.Map(contenedor())
+  const host = adoptLeafletHost(map)
+  host.tiles.setProvider({ url: URL_TILES })
+  map.setView([-33, -70], 10)
+  assert.equal(capaDe(map).getContainer().style.filter, 'var(--cristae-tile-filter, none)')
+  host.destroy()
+  map.remove()
+})
+
+// La hoja de la superficie, sin adoptar: sólo se le pregunta qué le declara al contenedor. Las reglas que
+// le declaran fondo son todas de una clase, así que gana la última.
+test('el fondo del contenedor sale de su custom property, que le gana al gris de Leaflet', () => {
+  const { host, map } = montar('none')
+  const hoja          = new window.CSSStyleSheet()
+  hoja.replaceSync(surfaceCss)
+  const fondo = [...hoja.cssRules]
+    .filter(regla => regla.style?.getPropertyValue('background') && map.getContainer().matches(regla.selectorText))
+    .at(-1)?.style.getPropertyValue('background')
+  assert.equal(fondo, 'var(--cristae-map-background, #ddd)')
   host.destroy()
 })
 

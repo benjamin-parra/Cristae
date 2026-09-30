@@ -10,19 +10,18 @@
 
 import { ZoomSnapshotStore } from '../tiles/ZoomSnapshotStore.js'
 import { frameTransform } from '../render/frame.js'
+import { TILE_FILTER } from './styles.js'
 
-// El nombre le da al pane la clase `leaflet-tileZoomSnapshot-pane`, por la que una hoja de estilos
-// alcanza la foto. El pane de tiles de Leaflet está en 200: la foto queda debajo.
+// El pane lleva el filtro de los tiles (styles.js): la foto no lleva uno propio. El pane de tiles de
+// Leaflet está en 200: la foto queda debajo.
 const PANE                    = 'tileZoomSnapshotPane'
 const PANE_Z                  = 150
 const SEED_ZOOM_OFFSETS       = [1, 2, 4, 8]
 const MAX_SEED_TILES_PER_ZOOM = 24
 
-const filterOf = layer => getComputedStyle(layer.getContainer()).filter || ''
-
 // Une en un canvas unos tiles de un mismo zoom, puesto en la esquina que tienen en común. Es lo que
 // guarda el almacén: el canvas, su zoom y su esquina en píxeles de ese zoom.
-const snapshotOf = (tiles, zoom, tileSize, filter) => {
+const snapshotOf = (tiles, zoom, tileSize) => {
   if (!tiles.length) return null
 
   let left   = Infinity
@@ -47,7 +46,6 @@ const snapshotOf = (tiles, zoom, tileSize, filter) => {
   canvas.style.height          = `${height}px`
   canvas.style.pointerEvents   = 'none'
   canvas.style.transformOrigin = '0 0'
-  canvas.style.filter          = filter
 
   const ctx = canvas.getContext('2d', { alpha: true })
   if (!ctx) return null
@@ -122,7 +120,7 @@ export const retainTileSnapshots = (map, surface, layer) => {
       if (!image || stale()) return null
       tiles.push({ image, left: tile.x * tileSize.x, top: tile.y * tileSize.y })
     }
-    return snapshotOf(tiles, zoom, tileSize, filterOf(layer))
+    return snapshotOf(tiles, zoom, tileSize)
   }
 
   // La foto sale del documento pero queda en el almacén: otro reset puede volver a elegirla.
@@ -142,12 +140,15 @@ export const retainTileSnapshots = (map, surface, layer) => {
     const tiles    = Object.values(layer._tiles)
       .filter(({ el, coords, loaded }) => loaded && coords.z === layer._tileZoom && el.complete && el.naturalWidth)
       .map(({ el, coords }) => ({ image: el, left: coords.x * tileSize.x, top: coords.y * tileSize.y }))
-    const snapshot = snapshotOf(tiles, layer._tileZoom, tileSize, filterOf(layer))
+    const snapshot = snapshotOf(tiles, layer._tileZoom, tileSize)
     snapshot && snapshotStore.add(snapshot)
   }
 
   const showSnapshots = () => {
-    pane ??= surface.mount(PANE, PANE_Z, { pointer: false })
+    if (!pane) {
+      pane              = surface.mount(PANE, PANE_Z, { pointer: false })
+      pane.style.filter = TILE_FILTER
+    }
     const placements = snapshotStore.select({
       targetZoom   : map.getZoom(),
       pixelOrigin  : map.getPixelOrigin(),
