@@ -421,7 +421,7 @@ camera.getCenter() / getZoom() / getBounds()
 ```
 
 - **El viewport vivo es 100% imperativo.** `initial-center`/`initial-zoom` (props, §5.4) fijan la vista *una vez* al montar; **toda** recolocación posterior —recentrar, seguir, encuadrar— es uno de estos métodos. No hay prop reactiva de centro (ver nota en §5.4). Esto elimina por construcción la trampa idempotencia↔gesto.
-- **`viewport-insets`** (prop `{ top,right,bottom,left }`): compensación por UI que ocluye el mapa. **Reemplaza** el `document.querySelector('.wl-left-scroll')` actual (deuda de acoplamiento al DOM de la app que **no** migra). `panTo`/`flyTo`/`fitBounds`/`fitToLayer`/`followPoint` aplican estos insets. (Animado = `flyTo`; inmediato = `panTo`. No hay `panToSmooth`: el easing es una opción de `flyTo`, no un método aparte; el ajuste por paneles es `viewport-insets`, no proyección manual.)
+- **`viewport-insets`** (prop `{ top,right,bottom,left }`): compensación por UI que ocluye el mapa. **Reemplaza** el `document.querySelector('.wl-left-scroll')` actual (deuda de acoplamiento al DOM de la app que **no** migra). `panTo`/`flyTo`/`fitBounds`/`fitToLayer`/`followPoint` aplican estos insets. (`flyTo` vuela cuando la política de animación del zoom lo anima, SPECS §9; `panTo` es inmediato. No hay `panToSmooth`: el easing es una opción de `flyTo`, no un método aparte; el ajuste por paneles es `viewport-insets`, no proyección manual.)
 - `followPoint` generaliza el "follow" sin UI: solo cámara siguiendo una posición que se actualiza por `move`/`patch` del Source, coalescido a rAF. Reemplaza el bombeo manual `onVehicleUpdate → panToSmooth` (que hoy proyecta/desproyecta y lee el DOM en cada update WS, `FollowManager.js:68-72`).
 
 ---

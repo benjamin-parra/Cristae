@@ -51,6 +51,7 @@ export class Camera {
     return this
   }
 
+  // Si vuela o salta lo decide la política de animación del zoom (SPECS §9).
   flyTo(latlng, zoom, options) {
     this.stopFollow()
     const z = zoom ?? this.#hostCamera.zoom()

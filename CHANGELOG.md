@@ -130,6 +130,14 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   el motor—, dibuja como aquél si se crea con `preferCanvas: true`, `fadeAnimation: false` y
   `markerZoomAnimation: false`, y se remueve con `map.remove()` después de `engine.destroy()`.
   `zoomControl` y `zoomAnimation` no cambian.
+- **La política de animación del zoom alcanza al cierre del pinch y a `flyTo`.** Los dos animaban con
+  cualquier `zoom-animation`: Leaflet cierra el pinch y vuela sin pasar por donde se filtraba cada zoom.
+  Ahora la política juzga cada zoom por sus dos extremos, lo pida quien lo pida: con `'none'` el cierre
+  del pinch salta al zoom ajustado y `flyTo` es un `setView` al destino, y con `'in-only'` los dos animan
+  sólo si no alejan ([SPECS §9](SPECS.md)).
+  *Migración*: con el default, `'none'`, `camera.flyTo` deja de volar; quien quiere el vuelo pone
+  `zoom-animation="on"` —en el motor, `zoomAnimation: 'on'` o `setZoomAnimation('on')`—, o `"in-only"` si
+  sólo vuela para acercar.
 
 ### Eliminado
 - **`LatLngLike` sale de los tipos.** Era el punto de la cámara con el contrato de Leaflet, un par o

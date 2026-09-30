@@ -17,10 +17,10 @@ const VIEW_EVENTS = ['movestart', 'move', 'moveend', 'zoomstart', 'zoomanim', 'z
 const CONTAINER_ORIGIN = Object.freeze([0, 0])
 const NOOP             = () => {}
 
-// Lo que envuelve cada `_tryAnimatedZoom` que un anfitrión le pone a un mapa. Dos anfitriones vivos en un
-// mapa —el nuevo se adopta antes de soltar el viejo— encadenan sus envoltorios, y el que se suelta sale
-// de la cadena desde donde esté: arriba, el mapa recupera lo que envolvía; debajo de otro, ése pasa a
-// envolverlo. Así la cadena tiene sólo anfitriones vivos. Si encima quedó un envoltorio que no es de un
+// Lo que envuelve cada método privado que un anfitrión le reemplaza a un mapa. Dos anfitriones vivos en
+// un mapa —el nuevo se adopta antes de soltar el viejo— encadenan sus envoltorios, y el que se suelta
+// sale de la cadena desde donde esté: arriba, el mapa recupera lo que envolvía; debajo de otro, ése pasa
+// a envolverlo. Así la cadena tiene sólo anfitriones vivos. Si encima quedó un envoltorio que no es de un
 // anfitrión, el suelto no puede salir y pasa de largo.
 const wrapped = new WeakMap()
 
@@ -52,24 +52,58 @@ const hostOf = (map, leaflet, ownsMap, zoomPolicy) => {
     ? e => fire(type, { center: plainLatLng(e.center), zoom: e.zoom })
     : () => fire(type)]))
 
-  // La política decide por los dos extremos de cada zoom: 'none' no anima ninguno, 'in-only' sólo los
-  // que no alejan y 'on' todos (el porqué de cada modo, en SPECS §9).
+  // La política decide por los dos extremos de cada zoom, lo pida quien lo pida: 'none' no anima
+  // ninguno, 'in-only' sólo los que no alejan y 'on' todos (el porqué de cada modo, en SPECS §9).
   const animates = (from, to) => zoomPolicy !== 'none' && (zoomPolicy !== 'in-only' || to >= from)
+
+  // Reemplaza un método privado del mapa por el suyo, y devuelve con qué soltarlo: al soltarse sale de la
+  // cadena de envoltorios del método (ver `wrapped`).
+  const intercept = (name, gate) => {
+    let active = true
+    const own  = function (...args) {
+      const original = wrapped.get(own)
+      return active ? gate.call(this, original, ...args) : original.apply(this, args)
+    }
+    wrapped.set(own, map[name])
+    map[name] = own
+    return () => {
+      const inner = wrapped.get(own)
+      let link    = map[name]
+
+      active = false
+      if (link === own) {
+        // Lo envuelto vuelve como estaba: heredado del prototipo, o propio del mapa.
+        delete map[name]
+        map[name] === inner || (map[name] = inner)
+      } else {
+        while (wrapped.has(link) && wrapped.get(link) !== own) link = wrapped.get(link)
+        wrapped.has(link) && wrapped.set(link, inner)
+      }
+    }
+  }
 
   // El latch `_zoomAnimated` del mapa no se toca: Leaflet se lo copia a cada capa al agregarla, y sólo
   // con él prendido la capa se suscribe a `zoomanim`. Apagarlo dejaría a las capas ya montadas sin
   // cablear para siempre; la política filtra cada zoom en cambio, y por eso se cambia en vivo.
-  // `_tryAnimatedZoom` es donde `setView` decide si anima un cambio de zoom: la rueda, el doble click,
-  // el teclado, los botones y los comandos de la cámara. Negarlo deja que Leaflet resetee. Con un zoom
-  // animado en curso no se juzga: Leaflet ignora el pedido, y un reset a mitad de la transición dejaría
-  // la vista pedida sólo hasta que la transición termina en su destino.
-  let active = true
-  const gate = function (center, zoom, options) {
-    return (!active || this._animatingZoom || animates(this.getZoom(), zoom))
-      && wrapped.get(gate).call(this, center, zoom, options)
-  }
-  wrapped.set(gate, map._tryAnimatedZoom)
-  map._tryAnimatedZoom = gate
+  // - `_tryAnimatedZoom` es donde `setView` decide si anima un cambio de zoom: la rueda, el doble
+  //   click, el teclado, los botones y los comandos de la cámara. Negarlo deja que Leaflet resetee. Con
+  //   un zoom animado en curso no se juzga: Leaflet ignora el pedido, y un reset a mitad de la
+  //   transición dejaría la vista pedida sólo hasta que la transición termina en su destino.
+  // - `_animateZoom` lo llama además el cierre del pinch, que lleva el zoom fraccionario del gesto al
+  //   ajustado sin pasar por `setView`. Negado, cierra como Leaflet sin animación: con `_resetView`.
+  //   Un cierre que deja el zoom donde está —dos dedos que se desplazan juntos— no es un zoom y no se
+  //   juzga: `_resetView` no emitiría el `zoomend` que cierra el `zoomstart` con que abrió el gesto.
+  const releases = [
+    intercept('_tryAnimatedZoom', function (original, center, zoom, options) {
+      return (this._animatingZoom || animates(this.getZoom(), zoom)) && original.call(this, center, zoom, options)
+    }),
+    intercept('_animateZoom', function (original, center, zoom, startAnim, noUpdate) {
+      const from = this.getZoom()
+      return from === zoom || animates(from, zoom)
+        ? original.call(this, center, zoom, startAnim, noUpdate)
+        : this._resetView(center, zoom)
+    }),
+  ]
   VIEW_EVENTS.forEach(type => map.on(type, relays[type]))
 
   const camera = {
@@ -85,7 +119,12 @@ const hostOf = (map, leaflet, ownsMap, zoomPolicy) => {
     setView(latlng, zoom, options) { map.setView(toLatLng(latlng), zoom, options) },
     panTo(latlng) { map.panTo(toLatLng(latlng)) },
     panBy(offset, options) { map.panBy(offset, options) },
-    flyTo(latlng, zoom, options) { map.flyTo(toLatLng(latlng), zoom, options) },
+    // Un vuelo es un zoom animado más: si la política no lo anima, es un `setView`, que es lo mismo que
+    // hace Leaflet cuando no puede volar.
+    flyTo(latlng, zoom, options) {
+      const target = toLatLng(latlng)
+      animates(map.getZoom(), zoom) ? map.flyTo(target, zoom, options) : map.setView(target, zoom, options)
+    },
     // `box` es una caja válida e `insets`, los cuatro lados en píxeles.
     fitBounds(box, { insets: { top, right, bottom, left } }) {
       map.fitBounds([[box.south, box.west], [box.north, box.east]], {
@@ -131,19 +170,8 @@ const hostOf = (map, leaflet, ownsMap, zoomPolicy) => {
     map,
     leaflet,
     // Un mapa adoptado sigue vivo: el anfitrión sólo le devuelve lo que le tomó y le saca lo que le puso.
-    // Lo envuelto vuelve como estaba, heredado o propio del mapa.
     destroy() {
-      const inner = wrapped.get(gate)
-      let link    = map._tryAnimatedZoom
-
-      active = false
-      if (link === gate) {
-        delete map._tryAnimatedZoom
-        map._tryAnimatedZoom === inner || (map._tryAnimatedZoom = inner)
-      } else {
-        while (wrapped.has(link) && wrapped.get(link) !== gate) link = wrapped.get(link)
-        wrapped.has(link) && wrapped.set(link, inner)
-      }
+      releases.forEach(release => release())
       VIEW_EVENTS.forEach(type => map.off(type, relays[type]))
       map.off('load', onLoad)
       ownsMap && map.remove()

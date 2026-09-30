@@ -1,15 +1,16 @@
 // El anfitrión sobre el Leaflet REAL, en jsdom: el ciclo de vista con su orden, la política de
-// animación del zoom en el `setView` de un cambio de zoom, lo que le devuelve a un mapa adoptado al
-// soltarlo y cómo lo suelta el motor. Es también el test de contrato del privado que el anfitrión
-// intercepta: si Leaflet deja de pasar por `_tryAnimatedZoom` al decidir un zoom, la política deja de
-// aplicarse en silencio y es acá donde se ve.
+// animación del zoom en los tres caminos que animan —el `setView` de un cambio de zoom, el cierre del
+// pinch y el vuelo—, lo que le devuelve a un mapa adoptado al soltarlo y cómo lo suelta el motor. Son
+// también los tests de contrato de los privados que el anfitrión intercepta: si Leaflet deja de pasar
+// por `_tryAnimatedZoom` al decidir un zoom, o por `_animateZoom` al cerrar el pinch —y por
+// `_resetView` para cerrarlo sin animar—, la política deja de aplicarse en silencio y es acá donde se ve.
 // Corre con: node --test test/host/leaflet-host.test.mjs
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { contenedor, prepararDom } from '../../test-helpers/leaflet-real.mjs'
 
-// Con transformaciones 3D, como en un navegador: sin ellas Leaflet no anima ningún zoom.
-prepararDom({ transformaciones3d: true })
+// Con transformaciones 3D, como en un navegador: sin ellas Leaflet no anima ningún zoom ni vuela.
+const window = prepararDom({ transformaciones3d: true })
 const { default: L }                          = await import('leaflet')
 const { createLeafletHost, adoptLeafletHost } = await import('../../src/host/LeafletHost.js')
 const { MapEngine }                           = await import('../../src/engine/MapEngine.js')
@@ -27,7 +28,7 @@ const montar = zoomPolicy => {
 }
 
 // Un zoom animado se asienta a los 250 ms; un frame alcanza para que arranque.
-const frame   = () => new Promise(resolve => requestAnimationFrame(resolve))
+const frame   = () => new Promise(resolve => window.requestAnimationFrame(resolve))
 const asiente = camera => new Promise(resolve => { const off = camera.on('zoomend', () => { off(); resolve() }) })
 
 // Un cambio de zoom por la cámara: si anima, `zoomanim` llega un frame después y la vista se asienta
@@ -121,6 +122,73 @@ test("con 'in-only', alejar durante un acercamiento animado se ignora como con '
   }
 })
 
+// Dos dedos que se abren o se cierran sobre el contenedor. El gesto deja el zoom fraccionario, y el
+// cierre lo lleva al entero más cercano: de 100 px a 170 px el zoom sube 0,77 y cierra en 11, y de
+// 100 px a 60 px baja 0,74 y cierra en 9, que desde 9,26 es alejar. jsdom tiene eventos de toque pero
+// no `Touch`: los dedos van como la lista `touches` que Leaflet lee.
+const tocar = (container, tipo, xs) => {
+  const e = new window.Event(tipo, { bubbles: true, cancelable: true })
+  Object.defineProperty(e, 'touches', { value: xs.map(clientX => ({ clientX, clientY: 300 })) })
+  container.dispatchEvent(e)
+}
+
+const pellizcar = async (host, separacion, centro = 400) => {
+  const container = host.map.getContainer()
+  tocar(container, 'touchstart', [350, 450])
+  tocar(container, 'touchmove', [centro - separacion / 2, centro + separacion / 2])
+  await frame()
+  tocar(container, 'touchend', [])
+}
+
+// El cierre del pinch no pasa por setView: Leaflet llama a `_animateZoom`, y sin animación a `_resetView`.
+const cierreAnima = async (modo, separacion) => {
+  const { host, camera, oido } = montar(modo)
+  await pellizcar(host, separacion)
+  const salto = !oido.includes('zoomanim')
+  salto || await asiente(camera)
+  const final = camera.zoom()
+  host.destroy()
+  return { anima: !salto, final }
+}
+
+test('el cierre del pinch sigue la política, con el mismo criterio que un zoom', async () => {
+  assert.deepEqual(await cierreAnima('on', 170), { anima: true, final: 11 }, 'on: acercar anima')
+  assert.deepEqual(await cierreAnima('on', 60), { anima: true, final: 9 }, 'on: alejar anima')
+  assert.deepEqual(await cierreAnima('in-only', 170), { anima: true, final: 11 }, 'in-only: acercar anima')
+  assert.deepEqual(await cierreAnima('in-only', 60), { anima: false, final: 9 }, 'in-only: alejar salta')
+  assert.deepEqual(await cierreAnima('none', 170), { anima: false, final: 11 }, 'none: salta al zoom ajustado')
+})
+
+// Dos dedos que se desplazan juntos pellizcan sin cambiar el zoom. El gesto abre con `zoomstart`, y su
+// cierre, que no es un zoom, tiene que emitir el `zoomend` que lo cierra: quien se esconde en el primero
+// y vuelve en el segundo quedaría escondido.
+test('el cierre de un pinch que no cambia el zoom cierra el zoomstart del gesto, con cualquier política', async () => {
+  for (const modo of ['none', 'in-only', 'on']) {
+    const { host, camera, oido } = montar(modo)
+    await pellizcar(host, 100, 430)
+    await new Promise(resolve => setTimeout(resolve, 300))
+    assert.deepEqual(oido.filter(tipo => tipo === 'zoomstart' || tipo === 'zoomend'), ['zoomstart', 'zoomend'], modo)
+    assert.equal(camera.zoom(), 10, modo)
+    host.destroy()
+  }
+})
+
+// Un vuelo empieza en la vista de partida y llega en varios frames; un setView ya está en el destino.
+test('flyTo vuela si la política anima el zoom de destino, y si no es un setView', () => {
+  const esperado = { none: [false, false], 'in-only': [true, false], on: [true, true] }
+  Object.entries(esperado).forEach(([modo, [acercar, alejar]]) => {
+    const vuela = zoom => {
+      const { host, camera } = montar(modo)
+      camera.flyTo([-33.2, -70.2], zoom)
+      const enDestino = camera.zoom() === zoom
+      host.destroy()
+      return !enDestino
+    }
+    assert.equal(vuela(12), acercar, `${modo}: hacia 12`)
+    assert.equal(vuela(8), alejar, `${modo}: hacia 8`)
+  })
+})
+
 test('un mapa propio no anima el zoom y uno adoptado conserva el de su dueño', () => {
   const propio = createLeafletHost({ container: contenedor(), view: VISTA })
   const map    = L.map(contenedor()).setView(VISTA.center, VISTA.zoom)
@@ -144,7 +212,9 @@ test('destruir un anfitrión adoptado devuelve el mapa como estaba', () => {
   assert.deepEqual(oido, [], 'ya no oye la vista')
   assert.equal(map.getZoom(), 12, 'y el mapa sigue vivo')
   assert.equal(map._tryAnimatedZoom, L.Map.prototype._tryAnimatedZoom)
-  assert.equal(Object.hasOwn(map, '_tryAnimatedZoom'), false, 'heredado del prototipo, como lo tenía')
+  assert.equal(map._animateZoom, L.Map.prototype._animateZoom)
+  assert.deepEqual(['_tryAnimatedZoom', '_animateZoom'].filter(name => Object.hasOwn(map, name)), [],
+    'heredados del prototipo, como los tenía')
   map.remove()
 })
 
@@ -198,7 +268,7 @@ test('con dos anfitriones sobre un mapa, soltar el de arriba deja la política d
 })
 
 // El relevo de un mapa longevo: el anfitrión nuevo se adopta antes de soltar el viejo. El que se suelta
-// sale de la cadena aunque tenga otro encima, así que al soltar el último el mapa recupera su método.
+// sale de la cadena aunque tenga otro encima, así que al soltar el último el mapa recupera sus métodos.
 test('los relevos solapados no dejan envoltorios muertos en el mapa', () => {
   const map = L.map(contenedor()).setView(VISTA.center, VISTA.zoom)
   let viejo = adoptLeafletHost(map)
@@ -209,7 +279,8 @@ test('los relevos solapados no dejan envoltorios muertos en el mapa', () => {
   }
   viejo.destroy()
   assert.equal(map._tryAnimatedZoom, L.Map.prototype._tryAnimatedZoom)
-  assert.equal(Object.hasOwn(map, '_tryAnimatedZoom'), false)
+  assert.equal(map._animateZoom, L.Map.prototype._animateZoom)
+  assert.deepEqual(['_tryAnimatedZoom', '_animateZoom'].filter(name => Object.hasOwn(map, name)), [])
   map.remove()
 })
 

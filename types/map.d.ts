@@ -646,6 +646,7 @@ export interface Point {
 export interface Camera {
   setView(latlng: LatLngPoint, zoom?: number): this;
   panTo(latlng: LatLngPoint): this;
+  /** Vuela si la política de animación del zoom anima el cambio; si no, es un `setView` (SPECS §9). */
   flyTo(latlng: LatLngPoint, zoom?: number, options?: Record<string, unknown>): this;
   /** Encuadra una caja o un par de esquinas opuestas; lo que no lo es, SPECS §9. */
   fitBounds(bounds: BoundsLike | null | undefined, options?: { insets?: Insets }): this;
