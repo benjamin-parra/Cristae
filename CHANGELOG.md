@@ -112,6 +112,24 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   anunciaba como ventaja.
   *Migración*: quien escuchaba los eventos del `L.polygon` o del `L.circle` —alcanzados por
   `getLeafletMap()`— los pide al mapa: `interactive` en la capa y `cristae:click` / `cristae:hover`.
+- **El motor crea su mapa o adopta uno: `MapEngineOptions` pierde `leaflet`, `map` y `mapOptions`.**
+  `new MapEngine({ container, view })` crea el mapa sobre el contenedor con la vista inicial de `view`
+  —`{ center, zoom }`, el centro en cualquier forma de punto— y `destroy()` lo remueve. Un mapa que ya
+  existe se adopta con `adoptLeafletHost(map, { leaflet })`, nuevo en `cristae/map`, y llega al motor
+  como `host`: el motor no lo destruye, y al destruirse le quita sus listeners y su política de zoom,
+  que antes quedaban puestos en el mapa prestado. `leaflet` es el Leaflet que construyó el mapa, y ahora
+  es opcional: por defecto, el de Cristae ([SPECS §6](SPECS.md)). La cámara del motor ya no toca Leaflet
+  directo: pasa por el anfitrión del mapa, que es donde viven la conversión de valores y la política de
+  zoom. La señal `ready` del motor sale junto con su promesa, en una microtarea: con un mapa propio salía
+  dentro del constructor, donde nadie alcanzaba a oírla.
+  *Migración*: `new MapEngine({ leaflet: L, glify, map })` pasa a
+  `new MapEngine({ host: adoptLeafletHost(map, { leaflet: L }), glify })`, y `mapOptions: { center, zoom }`
+  a `view: { center, zoom }`. Otra opción de Leaflet —`minZoom`, `maxBounds`, …— se pasa al crear un mapa
+  propio que después se adopta, y ese mapa es de quien lo creó: anima el zoom como lo configuró su dueño
+  hasta que el motor pida otra política —`zoomAnimation: 'none'` conserva el default del mapa que creaba
+  el motor—, dibuja como aquél si se crea con `preferCanvas: true`, `fadeAnimation: false` y
+  `markerZoomAnimation: false`, y se remueve con `map.remove()` después de `engine.destroy()`.
+  `zoomControl` y `zoomAnimation` no cambian.
 
 ### Eliminado
 - **`LatLngLike` sale de los tipos.** Era el punto de la cámara con el contrato de Leaflet, un par o
@@ -167,6 +185,11 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   puntero aparecía aunque la capa no fuera interactiva y tapaba el cursor del mapa. El círculo ya nacía
   con `interactive: false`, pero un `styleOf` que devolviera `interactive: true` lo pisaba. Ahora ninguno
   lo es para Leaflet, a costa de sus eventos nativos (en *Cambiado*).
+- **Con `'in-only'`, alejar durante un acercamiento animado ya no salta para después volver.** Mientras
+  dura un zoom animado, Leaflet ignora el pedido de otro, pero la política juzgaba el alejamiento antes
+  y lo negaba: el mapa saltaba al zoom pedido y, al terminar la transición, volvía al destino del
+  acercamiento. Ahora un zoom que llega durante otro animado no se juzga, y se ignora como con `'on'`
+  ([SPECS §9](SPECS.md)).
 - **Un encuadre por capa sin posiciones ya no cambia el zoom.** `camera.fitToLayer` y `followBounds`
   con `maxZoom`, sin ninguna posición válida que encuadrar, no encuadraban pero igual bajaban el zoom a
   `maxZoom`. Ahora no mueven la cámara, como `fitToLayers`.

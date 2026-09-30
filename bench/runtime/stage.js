@@ -9,7 +9,7 @@
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 
-import { MapEngine } from '../../src/index.js'
+import { MapEngine, adoptLeafletHost } from '../../src/index.js'
 import { crearMedidor } from './metrics.js'
 import { datosDe, mulberry32, VISTA } from './scenario.js'
 
@@ -84,7 +84,7 @@ export const crearStage = async (el, { modulo, n, semilla }) => {
 
   medidor.iniciar()                      // abre la fase de montaje: de acá en adelante se mide
 
-  const engine = new MapEngine({ leaflet: L, glify, map, zoomAnimation: 'none' })
+  const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: L }), glify, zoomAnimation: 'none' })
   await engine.ready
   CON_TILES && engine.setTileProvider(OSM)
 

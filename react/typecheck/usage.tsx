@@ -22,7 +22,7 @@ import {
   type CristaeTableElement,
   type CristaeViewportChangeDetail,
 } from '@cristae/react'
-import { createSource, defineSource, defineIconSet, distance, drawLabel, sphere, toParts, type Bounds, type CristaeSource, type LineAccessors, type MapEngine, type PointerSample } from 'cristae/map'
+import { MapEngine, adoptLeafletHost, createSource, defineSource, defineIconSet, distance, drawLabel, sphere, toParts, type Bounds, type CristaeSource, type LineAccessors, type PointerSample } from 'cristae/map'
 import { boundsOf, boundsPad } from 'cristae/geometry'
 
 interface Movil {
@@ -218,6 +218,10 @@ export const medidas: number[] = [
 export const partes = toParts([recorrido])
 export const porTramo: LineAccessors<{ id: number; puntos: number[][] }> = { idOf: t => t.id, pathOf: t => t.puntos }
 
+// ── El motor headless: un mapa propio sobre un contenedor, o uno de Leaflet adoptado ─────────
+export const propio   = (container: HTMLElement) => new MapEngine({ container, view: { center: [-33.45, -70.66], zoom: 12 }, glify: null })
+export const adoptado = (map: unknown) => new MapEngine({ host: adoptLeafletHost(map), glify: null, zoomAnimation: 'on' })
+
 // ── El mal uso NO compila ────────────────────────────────────────────────────
 
 // accessors con la forma equivocada (idOf ausente) → error.
@@ -247,6 +251,10 @@ export const BadBounds = (camera: NonNullable<CristaeMapElement['camera']>) => c
 // la vista de `viewportchange` en el motor también trae la caja plana.
 // @ts-expect-error Bounds no tiene pad
 export const BadSignal = (engine: MapEngine) => engine.on('viewportchange', (vista) => vista.bounds.pad(0.1))
+
+// un objeto cualquiera no es un mapa adoptado.
+// @ts-expect-error MapHost sale de adoptLeafletHost
+export const BadHost = () => new MapEngine({ host: {}, glify: null })
 
 // slot fuera de las zonas del overlay (un typo quedaría mudo en runtime).
 // @ts-expect-error "arriba" no es una zona del overlay 3×3

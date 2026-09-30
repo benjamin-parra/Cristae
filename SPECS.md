@@ -242,7 +242,8 @@ createIcon(descriptor) → IconHandle           // icono suelto, no toca el atla
 Framework-agnostic; sin Lit, sin React, sin dominio. `<cristae-map>` es una piel fina sobre esto.
 
 ```ts
-new MapEngine({ leaflet: L, container: HTMLElement, /* defaults neutros */ }) → engine
+new MapEngine({ container: HTMLElement, view?: { center, zoom }, glify, /* defaults neutros */ }) → engine
+new MapEngine({ host: adoptLeafletHost(map, { leaflet? }), glify, … }) → engine
 ```
 
 | Método | Tipo | Complejidad | Notas |
@@ -257,11 +258,11 @@ new MapEngine({ leaflet: L, container: HTMLElement, /* defaults neutros */ }) �
 | `on(event, layerId?, cb) → off` | acción | O(1) | suscripción por capa |
 | `getLeafletMap()` | escape | O(1) | el `L.map` crudo |
 | `getUnsafeHandler()` | escape | O(1) | el `MapWidget` con sus métodos internos, **sin garantías de estabilidad** |
-| `destroy()` | acción | O(layers) | cancela rAF pendientes, quita listeners, libera bindings |
-| `ready: Promise` | — | — | resuelve tras el primer render |
+| `destroy()` | acción | O(layers) | cancela rAF pendientes, quita listeners, libera bindings y suelta el mapa (abajo) |
+| `ready: Promise` | — | — | resuelve cuando el mapa tiene vista, y no si el motor se destruye antes; la señal `ready` sale en el mismo momento |
 
-- **Invariante de Leaflet:** una sola instancia de `L` en la página (provider en el constructor); guard en runtime si se detecta otra. glify vendorizado/re-exportado (MODELO §empaquetado).
-- **Borde eliminado:** `window.L.glify` global y orden de `<script>` → ya no aplican (L inyectado).
+- **El mapa:** sin `host`, el motor crea su propio mapa sobre `container` —con `preferCanvas` y sin el fundido de tiles ni la animación de marcadores de Leaflet—, con la vista inicial de `view` (default `[0, 0]`, zoom 2), y `destroy()` lo remueve. Con `host` trabaja sobre un mapa que ya existe, adoptado con `adoptLeafletHost(map, { leaflet })`: el mapa sigue siendo de quien lo creó, y `destroy()` le quita los listeners del ciclo de vista y la política de zoom de §9 y lo deja vivo. Un mapa adoptado es de un solo motor. `leaflet` es el Leaflet que construyó el mapa (default: el de Cristae): con dos copias en la página, las capas del motor tienen que salir de la del mapa.
+- **glify** llega por la opción `glify`; `<cristae-map>` lo carga y lo lee de `window.L.glify`, donde se registra al importarse.
 
 ---
 
@@ -279,6 +280,7 @@ new MapEngine({ leaflet: L, container: HTMLElement, /* defaults neutros */ }) �
 | `viewport-insets` | `{top,right,bottom,left}` | sí | cambio | compensa UI que ocluye; lo usan `panTo/flyTo/fitBounds/fitToLayer` |
 | `hover-throttle` | ms | sí | cambio | throttle de `pointermove`→picking |
 | `cursor` | valor CSS de `cursor` | sí | cambio | cursor del contenedor; precedencia en [`docs/interaction.md`](./docs/interaction.md#el-cursor-del-contenedor) |
+| `zoom-animation` | `'none'` \| `'in-only'` \| `'on'` | sí | cambio | política de animación del zoom (§9); default `'none'` |
 | `stale-tolerance-px` | px | sí | cambio | tolerancia de staleness del picking (avanzado) |
 
 - **`initial-center`/`initial-zoom` uncontrolled:** se aplican una vez al montar; el gesto del usuario y la API de cámara mueven el mapa libremente sin reescribir nada. El recentrado vivo (seguir/buscar/encuadrar) es **acción** (§9), no estado — ver MODELO §5.4 para el porqué (el híbrido controlado-una-vía hace que "volver a X" sea no-op por idempotencia). El gesto igual emite `cristae:viewportchange` por si el consumidor quiere observar. **Borde eliminado:** loop de feedback atributo↔gesto (no existe prop reactiva de centro).
@@ -293,7 +295,7 @@ new MapEngine({ leaflet: L, container: HTMLElement, /* defaults neutros */ }) �
 ### 7.3 Lifecycle
 
 - **Montaje:** `firstUpdated` monta el motor (`await` glify, async; guard `#mounted`). En **reconexión** tras un `disconnectedCallback`, `connectedCallback` **re-monta** (firstUpdated no re-dispara) con un motor **nuevo**; las capas hijas se re-encolan solas (su `connectedCallback` vuelve a pedir montaje y, como `#mount` es async, llegan a la cola antes de que exista el motor).
-- **Destrucción:** `disconnectedCallback` → `engine.destroy()` (con `ownsMap`: `L.Map.remove()` + contexto WebGL). Desconectar el elemento del DOM (`remove`/reparent/`innerHTML` en un ancestro) **destruye el mapa** — no es un `<div>` reposicionable.
+- **Destrucción:** `disconnectedCallback` → `engine.destroy()` (el mapa es propio del motor: `L.Map.remove()` + contexto WebGL). Desconectar el elemento del DOM (`remove`/reparent/`innerHTML` en un ancestro) **destruye el mapa** — no es un `<div>` reposicionable.
 - **No cachear handles:** `engine`/`camera`/`getLeafletMap()` son getters vivos sobre el motor **actual**; tras un re-mount son otra instancia. El consumidor lee siempre el getter, nunca una copia.
 - **Readiness:** `ready` es una promesa **one-shot por instancia** (creada en construcción → disponible síncrona; resuelve al primer motor listo). El evento `cristae:ready` se **re-emite en cada (re)montaje** — es la señal para reenganchar tras un reattach.
 - `ResizeObserver` sobre el host → `engine.syncSize()` (`invalidateSize` + `syncPickingSize`). El consumidor **no** llama resize a mano; crear oculto (`display:none`) y mostrar después se sincroniza solo.
@@ -438,6 +440,7 @@ Todo **acción** (no estado): es la **única** vía de movimiento de viewport tr
 
 - **Posiciones:** los encuadres, `revealPoint` y el follow leen `positionOf` con la regla de lugar de §18 —números finitos y la latitud en [-90, 90]—; una posición que no la cumple no entra a la caja ni mueve la cámara. Un encuadre sin ninguna posición válida no encuadra ni aplica `maxZoom`.
 - **Puntos:** `setView`, `panTo`, `flyTo` y `latLngToContainerPoint` leen `latlng` con la forma de punto de §18; lo que no la tiene, o no trae dos números, lanza. La latitud no se acota: la proyección la lleva al rango del mapa.
+- **Animación del zoom** (`zoom-animation` del elemento, `zoomAnimation`/`setZoomAnimation` del motor): la política juzga por sus dos extremos cada cambio de zoom que pasa por `setView` —la rueda, el doble click, el teclado, los botones y la cámara—. `'none'` no anima ninguno; `'in-only'` anima los que no alejan, porque al alejar los tiles viejos se encogen mientras el fondo más amplio entra de golpe; `'on'` anima todos. Un `setView` que no cambia el zoom no es un zoom: su paneo lo anima Leaflet. Sin modo, `'none'` en un mapa propio; en uno adoptado (§6) no se interviene, y anima como lo configuró su dueño. Se cambia en vivo y aplica desde el zoom siguiente. Un zoom que se pide mientras otro anima no se juzga: Leaflet lo ignora, con cualquier modo.
 - **`followPoint` (clave):** el motor re-centra cuando la posición del `id` seguido cambia en el Source, coalescido a rAF. Reemplaza el bombeo manual `onVehicleUpdate→panToSmooth` (MODELO §14.1-6).
 - **Test:** `followPoint('fleet', 7)`; luego `handle.move(7, lat, lng)` → la cámara re-centra **sin** llamadas del consumidor; un `move` de otro id no mueve la cámara.
 - **`revealPoint` / `reveal`:** el zoom mínimo de desclusterización lo calcula `Cluster.declusterZoomFor` (§8.3, puro) y el motor lo **inyecta** en la cámara (`declusterZoomOf(layerId,id)`) leyendo el fold de la capa. La cámara no conoce el cluster — misma inyección que `resolveSource`. Enfocar un elemento seleccionado y que no quede escondido en una burbuja es así un one-shot (`revealPoint`) o un follow que arranca visible (`followPoint({reveal})`).

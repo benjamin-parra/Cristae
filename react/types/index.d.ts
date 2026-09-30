@@ -222,8 +222,7 @@ export interface CristaeMapProps extends CristaeBaseProps {
   /** `[lat, lng]` o `"lat,lng"`. */
   initialCenter?  : [number, number] | string;
   initialZoom?    : number;
-  /** El elemento lo reenvía verbatim al motor: `"on"` es contrato de `MapEngineOptions`, la doc del
-   *  elemento sólo enumera `"none"` (default) y `"in-only"`. */
+  /** Política de animación del zoom, reactiva; default `'none'`. Qué anima cada modo: SPECS §9. */
   zoomAnimation?  : 'none' | 'in-only' | 'on';
   /** Cursor del contenedor (cualquier valor CSS), reactivo: ver `MapEngine.setCursor`. */
   cursor?         : string | null;

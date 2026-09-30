@@ -9,7 +9,7 @@
 
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
-import { MapEngine, shapePresetIconSet, createSource } from '../src/index.js'
+import { MapEngine, adoptLeafletHost, shapePresetIconSet, createSource } from '../src/index.js'
 import { EditSurface } from '../src/render/EditSurface.js'
 import { CASOS, crear, cuentaVertices, DEGENERADAS } from '../test/fixtures/polygons.mjs'
 
@@ -39,7 +39,7 @@ window.L = L
 await import('leaflet.glify')
 
 const map    = L.map('map', { center: CENTRO, zoom: 13, zoomControl: true })
-const engine = new MapEngine({ leaflet: L, glify: L.glify, map })
+const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: L }), glify: L.glify })
 await engine.ready
 engine.setTileProvider({ url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', maxZoom: 19, attribution: '© OpenStreetMap' })
 

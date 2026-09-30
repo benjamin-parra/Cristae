@@ -52,6 +52,7 @@ define('cristae-toolbar', CristaeToolbar)
 define('cristae-popup', CristaePopup)
 
 export { MapEngine } from './engine/MapEngine.js'
+export { adoptLeafletHost } from './host/LeafletHost.js'   // un L.Map existente, para el motor
 export { defineIconSet, defineClusterIconSet, IconSet, prerenderFonts } from './atlas/IconSet.js'
 export { shapePresetIconSet, RENDERERS as shapeRenderers } from './atlas/shape-presets.js'   // presets de forma agnósticos
 export { defineSource, createSource, makeFilter, makeListener } from './data/index.js'   // núcleo

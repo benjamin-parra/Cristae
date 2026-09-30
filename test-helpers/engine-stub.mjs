@@ -386,21 +386,21 @@ export const makeMap = ({ zoom = 3 } = {}) => {
   const panesRegistro = {}
   const handlers = new Map()   // evento → Set(cb); Leaflet acepta 'a b' (varios en un on)
   const container = makeContainer()
-  const mapPane = { style: {} }
 
   const each = (types, fn) => { for (const t of String(types).split(/\s+/)) fn(t) }
 
   const map = {
     _zoom: zoom,
-    // Latch de animación: Leaflet se lo COPIA a cada capa al agregarla, por eso el motor no lo apaga.
+    // Latch de animación: Leaflet se lo COPIA a cada capa al agregarla, por eso el anfitrión no lo apaga.
     _zoomAnimated: true,
-    // Fiel a Leaflet: la decisión es POR ZOOM. El motor lo envuelve con su gate de política.
+    // Fiel a Leaflet: la decisión es POR ZOOM. El anfitrión lo envuelve con su política.
     _tryAnimatedZoom: () => !!map._zoomAnimated,
     on(types, cb) { each(types, t => (handlers.get(t) ?? handlers.set(t, new Set()).get(t)).add(cb)); return map },
     off(types, cb) { each(types, t => handlers.get(t)?.delete(cb)); return map },
     // Helper del TEST: dispara un evento del mapa (zoomstart/zoomend/…) hacia los handlers cableados.
     fire(type, e = {}) { handlers.get(type)?.forEach(cb => cb(e)); return map },
-    whenReady(cb) { cb(); return map },
+    // Fiel a Leaflet: `_loaded` dice si el mapa ya tiene vista. El del harness nace con ella.
+    _loaded: true,
     // L.Layer.addTo(map) delega en map.addLayer. Se registra sin invocar onAdd: el harness no monta
     // canvas reales (la CanvasOverlay de labels exigiría panes y contexto 2D vivos).
     addLayer(layer) { map._added.push(layer); return map },
@@ -418,7 +418,6 @@ export const makeMap = ({ zoom = 3 } = {}) => {
     _panes: panesRegistro,
     getPane: (n) => panesRegistro[n] ?? null,
     createPane: (n) => (panesRegistro[n] = { style: {}, connected: true, appendChild() {}, remove() { panesRegistro[n].connected = false } }),
-    getPanes: () => ({ mapPane }),
     getZoom: () => map._zoom,
     // Helper del TEST: fija el zoom lógico (el que lee recluster). No dispara eventos por sí solo.
     setZoomForTest(z) { map._zoom = z; return map },
@@ -539,8 +538,8 @@ export const makeLeaflet = () => {
   return {
     log,
     marker,
-    // Fábrica del mapa: deja construir un motor DUEÑO de su mapa (el caso del custom element).
-    map: () => makeMap(),
+    // El constructor con que el anfitrión le pasa los puntos al mapa.
+    LatLng: class { constructor(lat, lng) { this.lat = lat; this.lng = lng } },
     DomUtil: {
       getPosition:  () => ({ x: 0, y: 0 }),
       // Lo que Leaflet le aplica a un elemento `leaflet-zoom-animated` en cada frame de zoom.
@@ -549,7 +548,6 @@ export const makeLeaflet = () => {
       setPosition:  (el, pt) => { el.style.transform = `translate3d(${pt.x}px, ${pt.y}px, 0)` },
     },
     point:   (x, y) => ({ x, y }),
-    latLng:  (lat, lng) => ({ lat, lng }),
     divIcon(opts = {}) {
       const icon = { isDivIcon: true, ...opts }
       log.icons.push(icon)

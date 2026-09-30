@@ -19,12 +19,14 @@ import { createClusterFold } from '../cluster/ClusterFold.js'
 import { defineClusterIconSet } from '../atlas/IconSet.js'
 import { createSource } from '../data/index.js'
 import { createTileSnapshotRetention } from '../tiles/TileSnapshotRetention.js'
+import { createLeafletHost } from '../host/LeafletHost.js'
 import { foldRuns, iterable } from '../geometry/polyline.js'
 import { emptyBounds, growBounds, growRun, readBounds } from '../geometry/bounds.js'
 
-// MapEngine — orquestador headless (SPECS §6). Framework-agnóstico, sin dominio. Crea el L.map,
-// deriva panes por orden de declaración (el consumidor no toca z-index),
-// y cablea las piezas: registry + bus + Interaction (picking) + Camera + retención de tiles.
+// MapEngine — orquestador headless (SPECS §6). Framework-agnóstico, sin dominio. Monta sobre un
+// anfitrión —el que recibe o el que crea sobre `container`—, deriva panes por orden de declaración (el
+// consumidor no toca z-index) y cablea las piezas: registry + bus + Interaction (picking) + Camera +
+// retención de tiles.
 // Cada capa de puntos posee un Source interno (ruta C) o adopta uno externo (ruta B).
 
 const BASE_Z = 400
@@ -93,16 +95,16 @@ const _liveEngines = new Set()
 
 export class MapEngine {
 
-  #L
-  #glify
+  #host
+  #L                              // el Leaflet y el mapa del anfitrión, para lo que no pasa por su cámara
   #map
-  #ownsMap
+  #glify
   #registry
   #bus
   #interaction
   #tiles      = null
   #tileLayer  = null
-  #loaded     = false             // el mapa ya tiene vista (whenReady): antes no hay centro ni caja que leer
+  #loaded     = false             // el anfitrión ya tiene vista (ready): antes no hay centro ni caja que leer
   #destroying = false             // teardown del engine en curso → no rebuildear glify (canvas muriendo)
 
   #layers             = new Map()      // id → record { kind, source, layer, controls, paneName, order }
@@ -120,7 +122,6 @@ export class MapEngine {
   #defaultClusters    = null           // cluster icon-set por defecto (lazy)
   #defaultSubClusters = null           // icon-set de sub-clusters de la espiral (jerarquía, lazy)
   #order              = 0
-  #zoomAnimation      = 'none'         // politica de animacion del zoom: 'none' | 'in-only' | 'on'
   #focused            = null           // enfoque: Set(id) de capas a opacidad plena (resto atenuado), o null
   #dimOpacity         = 0.3            // opacidad del resto mientras hay enfoque POR CAPA
   #focusKinds         = null           // kinds de capa que el enfoque por capa atenúa (null = todas)
@@ -129,29 +130,18 @@ export class MapEngine {
   camera
   ready
 
-  constructor({ leaflet, glify, container, mapOptions, insets, hoverThrottleMs = 0, map, zoomAnimation, zoomControl = true, cursor } = {}) {
-    this.#L       = leaflet
-    this.#glify   = glify
-    this.#ownsMap = !map
-    // `zoomAnimation` de Leaflet queda en su default (on) a propósito: es lo que cablea el proxy de
-    // animación y los `zoomanim` de tiles y glify en su onAdd. La política del motor NO se expresa
-    // apagando ese latch — ver #installZoomGate.
-    this.#map = map ?? leaflet.map(container, {
-      preferCanvas:        true,
-      fadeAnimation:       false,
-      markerZoomAnimation: false,
-      zoomControl,
-      center: [0, 0], zoom: 2,
-      ...mapOptions,
-    })
-
-    // Con mapa PRESTADO la política es del consumidor: sin modo explícito, no se interviene.
-    this.#zoomAnimation = zoomAnimation ?? (this.#ownsMap ? 'none' : 'on')
-    this.#installZoomGate()
+  constructor({ host, container, view, zoomControl, glify, insets, hoverThrottleMs = 0, zoomAnimation, cursor } = {}) {
+    this.#host  = host ?? createLeafletHost({ container, view, zoomControl })
+    this.#L     = this.#host.leaflet
+    this.#map   = this.#host.map
+    this.#glify = glify
+    // Sin modo explícito queda el del anfitrión: no anima en un mapa propio, y en uno adoptado no se
+    // interviene la política de su dueño.
+    if (zoomAnimation) this.#host.camera.zoomPolicy = zoomAnimation
 
     // La vista que viaja en `viewportchange`, la de la cámara. Sale cuando un movimiento se asienta y
     // cuando cambian los insets, que corren la región visible sin mover la vista; por los insets, sólo
-    // mientras haya una vista que leer: un mapa prestado puede llegar sin ella, y tras el teardown ya no
+    // mientras haya una vista que leer: un mapa adoptado puede llegar sin ella, y tras el teardown ya no
     // está. Fuera de ese tramo los insets sólo se guardan.
     const emitViewport = () => this.#emit('viewportchange', {
       center: this.camera.getCenter(), zoom: this.camera.getZoom(), bounds: this.camera.getBounds(),
@@ -160,8 +150,7 @@ export class MapEngine {
     this.#registry    = new LayerRegistry(this.#map)
     this.#bus         = new EventBus(layerId => this.#syncDemand(layerId))
     this.camera       = new Camera({
-      map: this.#map,
-      L:   leaflet,
+      host: this.#host,
       insets,
       resolveSource:   id => this.#layers.get(id)?.source ?? null,
       // Zoom mínimo de desclusterización por (capa, id): la cámara lo consulta para revealPoint /
@@ -171,7 +160,7 @@ export class MapEngine {
     })
     // La cámara va antes porque Interaction proyecta con ella la muestra del puntero.
     this.#interaction = new Interaction({
-      map:        this.#map,
+      host:       this.#host,
       camera:     this.camera,
       registry:   this.#registry,
       bus:        this.#bus,
@@ -183,15 +172,16 @@ export class MapEngine {
       onEmptyClick:       latlng => this.#emit('map:click', { latlng }),   // click en espacio vacío → latlng
     })
 
-    this.#map.on('moveend zoomend', emitViewport)
+    this.#host.camera.on('moveend', emitViewport)
+    this.#host.camera.on('zoomend', emitViewport)
     this.#wireRenderLifecycle()
     this.#wireZoomReproject()
 
-    this.ready = new Promise(resolve => this.#map.whenReady(() => {
+    this.ready = this.#host.ready.then(() => {
       this.#loaded = true
       this.#emit('ready', {})
-      resolve(this)
-    }))
+      return this
+    })
     _liveEngines.add(this)
   }
 
@@ -602,9 +592,10 @@ export class MapEngine {
       ? item => source.accessors.sizeOf(item)
       : () => iconSet?.defaultSize ?? 32
 
-    const map      = this.#map
-    const paneName = `cristae-highlight-${id ?? layerId}`
-    const pane     = map.getPane(paneName) ?? map.createPane(paneName)
+    const map        = this.#map
+    const hostCamera = this.#host.camera
+    const paneName   = `cristae-highlight-${id ?? layerId}`
+    const pane       = map.getPane(paneName) ?? map.createPane(paneName)
     pane.style.zIndex        = String(z ?? BASE_Z + 250)
     pane.style.pointerEvents = 'none'
 
@@ -631,7 +622,7 @@ export class MapEngine {
         canvas.style.height = `${cssH}px`
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
       }
-      const origin = map.containerPointToLayerPoint([0, 0])
+      const origin = hostCamera.frameOrigin()
       canvas.style.transform = `translate3d(${origin.x}px, ${origin.y}px, 0)`
     }
     reposition()
@@ -646,18 +637,22 @@ export class MapEngine {
       schedule: fn => requestAnimationFrame(fn),
     })
 
-    const onView = () => overlay.onViewportChange()
-    map.on('moveend zoomend resize', onView)             // pan y settle de zoom: reasienta a la vista viva
+    // Pan y settle de zoom: reasienta a la vista viva.
+    const onView  = () => overlay.onViewportChange()
+    const offView = ['moveend', 'zoomend', 'resize'].map(type => hostCamera.on(type, onView))
 
     const entry = {
       // Mismo cálculo que la matriz GL del sprite, para que el tratamiento caiga exacto sobre su punto.
       renderAtView: (z, c) => {
-        const half = map.getSize().divideBy(2)
-        const cPix = map.project(c, z)
-        overlay.renderAtView((lat, lng) => map.project(this.#L.latLng(lat, lng), z).subtract(cPix).add(half))
+        const size     = hostCamera.size()
+        const centerPx = hostCamera.project(c, z)
+        overlay.renderAtView((lat, lng) => {
+          const p = hostCamera.project([lat, lng], z)
+          return { x: p.x - centerPx.x + size.x / 2, y: p.y - centerPx.y + size.y / 2 }
+        })
       },
       dispose: () => {
-        map.off('moveend zoomend resize', onView)
+        offView.forEach(off => off())
         overlay.destroy()
         canvas.remove ? canvas.remove() : pane.removeChild?.(canvas)
         this.#highlightOverlays.delete(entry)
@@ -816,10 +811,10 @@ export class MapEngine {
     return this
   }
 
-  // Política de animación del zoom, en vivo: 'none' (sin transición), 'in-only' (sólo al acercar) u
-  // 'on' (ambos sentidos). Aplica desde el zoom siguiente; no reconstruye capas ni pierde su cableado.
+  // Política de animación del zoom, en vivo (SPECS §9). Aplica desde el zoom siguiente; no reconstruye
+  // capas ni pierde su cableado.
   setZoomAnimation(mode) {
-    this.#zoomAnimation = mode
+    this.#host.camera.zoomPolicy = mode
     return this
   }
 
@@ -833,11 +828,10 @@ export class MapEngine {
   getLeafletMap() { return this.#map }
   getUnsafeHandler() { return this }
 
-  // Resize del contenedor: recalcula tamaño con `pan:false` (ancla fija, NO recentra — sobre la capa
-  // GL el reencuadre se percibe como salto/parpadeo), reajusta el picking FBO y resetea las capas de
-  // puntos (un resize simétrico no desplaza el centro, así que el canvas glify no se redibuja solo).
+  // Resize del contenedor: recalcula el tamaño con el ancla fija, reajusta el picking FBO y resetea las
+  // capas de puntos (un resize simétrico no desplaza el centro, así que el canvas glify no se redibuja solo).
   syncSize() {
-    this.#map.invalidateSize({ pan: false })
+    this.#host.camera.invalidateSize()
     this.#pick.entries.forEach(({ layer }) => layer.syncPickingSize())
     this.#resetCanvases()
   }
@@ -881,8 +875,9 @@ export class MapEngine {
     })
     if (!readBounds(box)) return this
 
+    const hostCamera = this.#host.camera
     this.camera.fitBounds(box, { insets })
-    maxZoom != null && this.#map.getZoom() > maxZoom && this.#map.setZoom(maxZoom)
+    maxZoom != null && hostCamera.zoom() > maxZoom && hostCamera.setZoom(maxZoom)
     return this
   }
 
@@ -896,7 +891,7 @@ export class MapEngine {
     this.#tiles?.destroy()
     this.#layers.forEach((_, id) => this.removeLayer(id))
     this.#signals.clear()
-    if (this.#ownsMap) this.#map.remove()
+    this.#host.destroy()
     // Tras el teardown de glify, los engines hermanos pueden quedar con referencia de canvas
     // obsoleta (singleton window.L.glify compartido). Los notificamos para auto-sanar.
     _liveEngines.forEach(e => e.#resetCanvases())
@@ -904,43 +899,25 @@ export class MapEngine {
 
   /* ── Internos ── */
 
-  // Gate ÚNICO de la animación de zoom: se instala una vez y consulta el modo VIGENTE en CADA zoom,
-  // así la política se cambia en vivo (setZoomAnimation) sin reconstruir nada.
-  //
-  // El latch `_zoomAnimated` del mapa NO se toca. Leaflet se lo COPIA a cada capa al agregarla, y sólo
-  // con él en `true` la capa se suscribe a `zoomanim` y se marca `leaflet-zoom-animated`; apagarlo
-  // dejaría a las capas ya montadas sin cablear PARA SIEMPRE — encender la animación después no las
-  // revive, y los tiles saltan aunque el resto acompañe.
-  #installZoomGate() {
-    const map = this.#map, tryAnimatedZoom = map._tryAnimatedZoom.bind(map)
-    map._tryAnimatedZoom = (center, zoom, options) => {
-      if (this.#zoomAnimation === 'none') return false
-      // 'in-only': al alejar, los tiles viejos se encogen mientras el fondo más amplio entra de golpe.
-      // Quien prefiera esa transición a la ausencia de transición usa 'on', que anima en ambos sentidos.
-      if (this.#zoomAnimation === 'in-only' && zoom < map._zoom) return false
-      return tryAnimatedZoom(center, zoom, options)
-    }
-  }
-
   // Reposiciona/redibuja las capas de puntos en paneo y zoom (glify solo autoregistra moveend → _reset).
-  // En `move` solo si el pane se desplazó de verdad; durante el zoom lo gobierna el cierre del gesto.
+  // En `move` solo si el marco se desplazó de verdad; durante el zoom lo gobierna el cierre del gesto.
   #wireRenderLifecycle() {
-    const L     = this.#L
-    let zooming = false
-    let lastX   = NaN, lastY = NaN
-    this.#map.on('zoomstart', () => zooming = true)
-    this.#map.on('zoomend', () => {
+    const hostCamera = this.#host.camera
+    let zooming      = false
+    let lastX        = NaN, lastY = NaN
+    hostCamera.on('zoomstart', () => zooming = true)
+    hostCamera.on('zoomend', () => {
       zooming = false; lastX = NaN; lastY = NaN
       this.#forEachGlLayer(layer => layer.resetCanvasReference())
     })
-    this.#map.on('move', () => {
+    hostCamera.on('move', () => {
       if (zooming) return
-      const pos = L.DomUtil.getPosition(this.#map.getPanes().mapPane)
-      if (pos.x === lastX && pos.y === lastY) return
-      lastX = pos.x; lastY = pos.y
+      const { x, y } = hostCamera.frameOrigin()
+      if (x === lastX && y === lastY) return
+      lastX = x; lastY = y
       this.#forEachGlLayer(layer => layer.resetCanvasReference())
     })
-    this.#map.on('moveend', () => {
+    hostCamera.on('moveend', () => {
       lastX = NaN; lastY = NaN
       this.#forEachGlLayer(layer => layer.resetCanvasReference())
     })
@@ -949,22 +926,22 @@ export class MapEngine {
   // Zoom animado: reproyecta POR FRAME a la vista interpolada (tamaño de sprite/retículo fijo, alineado
   // con los tiles), en vez de dejar que el canvas escale con la transición CSS de Leaflet. Alcanza a las
   // capas GL (que apagan su `_animateZoom`, ver PointLayer) y a los overlays de interacción vía renderAtView.
-  // Sincronizado al easing del tile (~cubic-bezier(0,0,.25,1), 250ms). `zoomanim` trae la vista destino.
+  // Sincronizado al easing del tile (~cubic-bezier(0,0,.25,1), 250ms). `zoomanim` trae la vista destino
+  // y sale antes de que la vista cambie: la de la cámara es todavía la de partida.
   #wireZoomReproject() {
-    const ease = t => 1 - (1 - t) ** 3          // aprox. del cubic-bezier(0,0,.25,1) del tile de Leaflet
-    const DUR  = 250
-    let raf    = 0
-    this.#map.on('zoomanim', e => {
-      const z0 = this.#map.getZoom()
-      const c0 = this.#map.getCenter()
-      const z1 = e.zoom
-      const c1 = e.center ?? c0
+    const hostCamera = this.#host.camera
+    const ease       = t => 1 - (1 - t) ** 3          // aprox. del cubic-bezier(0,0,.25,1) del tile de Leaflet
+    const DUR        = 250
+    let raf          = 0
+    hostCamera.on('zoomanim', ({ center: c1, zoom: z1 }) => {
+      const z0 = hostCamera.zoom()
+      const c0 = hostCamera.center()
       const t0 = performance.now()
       cancelAnimationFrame(raf)
       const step = () => {
         const k = ease(Math.min((performance.now() - t0) / DUR, 1))
         const z = z0 + (z1 - z0) * k
-        const c = this.#L.latLng(c0.lat + (c1.lat - c0.lat) * k, c0.lng + (c1.lng - c0.lng) * k)
+        const c = { lat: c0.lat + (c1.lat - c0.lat) * k, lng: c0.lng + (c1.lng - c0.lng) * k }
         this.#forEachGlLayer(l => l.renderAtView?.(z, c))
         this.#highlightOverlays.forEach(o => o.renderAtView?.(z, c))   // el realce sigue a su sprite por frame
         if (k < 1) raf = requestAnimationFrame(step)
@@ -972,7 +949,7 @@ export class MapEngine {
       raf = requestAnimationFrame(step)
     })
     // Al asentar: corta la interpolación y deja que cada capa se re-proyecte nítida a la vista final.
-    this.#map.on('zoomend', () => { cancelAnimationFrame(raf); this.#forEachGlLayer(l => l.resetCanvasReference()) })
+    hostCamera.on('zoomend', () => { cancelAnimationFrame(raf); this.#forEachGlLayer(l => l.resetCanvasReference()) })
   }
 
   // Inscribe una capa GL (canvas glify propio que Leaflet NO reproyecta) en el set que el ciclo de

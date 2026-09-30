@@ -10,6 +10,7 @@ import { after, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { CristaeEditablePolyline } from '../../src/element/CristaeEditablePolyline.js'
 import { MapEngine } from '../../src/engine/MapEngine.js'
+import { adoptLeafletHost } from '../../src/host/LeafletHost.js'
 
 // `conGlDeEdicion` da el webgl2 del doble Y un 2D no-op: el atlas de handles rasteriza al montar.
 let currentGl = null
@@ -42,7 +43,7 @@ const makeMap = () => {
 const montarElemento = ({ mode = 'draw', value = [] } = {}) => {
   const map = makeMap()
   currentGl = makeEditGl(makePickSpy(), makeSurface())
-  const engine = new MapEngine({ leaflet: makeLeaflet(), glify: {}, map })
+  const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeLeaflet() }), glify: {} })
 
   const el = Object.create(CristaeEditablePolyline.prototype)
   el.id = 'ruta'

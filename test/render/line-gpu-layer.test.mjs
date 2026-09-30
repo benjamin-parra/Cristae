@@ -12,6 +12,7 @@ import { after, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { LineGpuLayer } from '../../src/render/LineGpuLayer.js'
 import { MapEngine } from '../../src/engine/MapEngine.js'
+import { adoptLeafletHost } from '../../src/host/LeafletHost.js'
 
 const WITH_STENCIL = () => ({ stencil: true })
 
@@ -152,7 +153,7 @@ test('addLineLayer({ backend: "gpu" }) monta el sustrato de quads, no el de glif
   const map    = makeMap()
   currentGl    = editGl(newSpy())
   // `glify: {}` no sabe montar nada: si el sustrato se resolviera al de siempre, esto reventaría.
-  const engine = new MapEngine({ leaflet: makeLeaflet(), glify: {}, map })
+  const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeLeaflet() }), glify: {} })
   const handle = engine.addLineLayer({
     id: 'ruta',
     backend: 'gpu',
@@ -165,7 +166,7 @@ test('addLineLayer({ backend: "gpu" }) monta el sustrato de quads, no el de glif
 test('pedir picking sobre el sustrato gpu falla RUIDOSO, no deja una capa muda', () => {
   const map    = makeMap()
   currentGl    = editGl(newSpy())
-  const engine = new MapEngine({ leaflet: makeLeaflet(), glify: {}, map })
+  const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeLeaflet() }), glify: {} })
   assert.throws(
     () => engine.addLineLayer({ id: 'x', backend: 'gpu', interactive: true, accessors: { idOf: r => r.id, pathOf: r => r.path } }),
     /no resuelve picking/,
@@ -174,7 +175,7 @@ test('pedir picking sobre el sustrato gpu falla RUIDOSO, no deja una capa muda',
 
 test('un backend desconocido se rechaza nombrando los válidos', () => {
   const map    = makeMap()
-  const engine = new MapEngine({ leaflet: makeLeaflet(), glify: {}, map })
+  const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeLeaflet() }), glify: {} })
   assert.throws(
     () => engine.addLineLayer({ id: 'x', backend: 'triangulos', accessors: { idOf: r => r.id, pathOf: r => r.path } }),
     /glify \| gpu \| leaflet/,

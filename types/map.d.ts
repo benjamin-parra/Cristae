@@ -675,25 +675,39 @@ export interface Camera {
 }
 
 // ── Motor y custom elements ──────────────────────────────────────────────────
+declare const MAP_HOST: unique symbol
+
+/** Un mapa de Leaflet adoptado para un `MapEngine`, que lo suelta en su `destroy()` (SPECS §6). */
+export interface MapHost {
+  readonly [MAP_HOST]: true;
+}
+
+/** Adopta un mapa de Leaflet que ya existe, construido por `leaflet`, para dárselo a un `MapEngine`
+ *  (SPECS §6). */
+export function adoptLeafletHost(map: unknown, options?: { leaflet?: unknown }): MapHost;
+
+/** Con `host`, el motor trabaja sobre ese mapa y no lee `container`, `view` ni `zoomControl`; sin él,
+ *  crea el suyo sobre `container` (SPECS §6). */
 export interface MapEngineOptions {
-  leaflet          : unknown;
-  glify            : unknown;
+  host?            : MapHost;
   container?       : HTMLElement;
-  /** Mapa Leaflet existente a adoptar (en vez de crear uno con `container`). */
-  map?             : unknown;
-  mapOptions?      : Record<string, unknown>;
+  /** Vista inicial del mapa propio. Default: `[0, 0]`, zoom 2. */
+  view?            : { center?: LatLngPoint; zoom?: number };
+  zoomControl?     : boolean;
+  glify            : unknown;
   insets?          : Insets;
   hoverThrottleMs? : number;
+  /** Política de animación del zoom (SPECS §9). Sin ella, `"none"` en un mapa propio y la del dueño en
+   *  uno adoptado. */
   zoomAnimation?   : "none" | "in-only" | "on";
-  zoomControl?     : boolean;
   /** Cursor inicial del contenedor, con las reglas de `setCursor`. */
   cursor?          : string | null;
 }
 
-// Orquestador headless: crea el L.map, deriva panes por orden de declaración (el consumidor no toca z)
-// y cablea registry + bus + Interaction (picking) + Camera. La superficie de INSTANCIA de las capas
-// (props por ref del custom element, sesión de cluster) sigue siendo rica; el consumidor la castea
-// según el eje que use (ver docs/ y SKILL.md).
+// Orquestador headless: monta sobre un mapa propio o adoptado, deriva panes por orden de declaración (el
+// consumidor no toca z) y cablea registry + bus + Interaction (picking) + Camera. La superficie de
+// INSTANCIA de las capas (props por ref del custom element, sesión de cluster) sigue siendo rica; el
+// consumidor la castea según el eje que use (ver docs/ y SKILL.md).
 export class MapEngine {
   constructor(options: MapEngineOptions);
   readonly ready  : Promise<MapEngine>;
@@ -749,7 +763,7 @@ export class MapEngine {
   createIcon(config: { size?: number; draw?: (ctx: CanvasRenderingContext2D, size: number) => void }): HTMLCanvasElement;
   setTileProvider(tile: { url: string; [k: string]: unknown }): this;
 
-  /** Política de animación del zoom, en vivo. Aplica desde el zoom siguiente. */
+  /** Política de animación del zoom, en vivo (SPECS §9). Aplica desde el zoom siguiente. */
   setZoomAnimation(mode: "none" | "in-only" | "on"): this;
   /** Cursor del contenedor, en vivo: `null`, `''` o un valor que el CSS rechace es ninguno. Su precedencia
    *  frente al arrastre, el editor y el `pointer` automático: docs/interaction.md#el-cursor-del-contenedor. */

@@ -356,20 +356,21 @@ solo**, pero con un motor **nuevo**. De ahí dos reglas:
 
 ## Si no se puede ir 100% declarativo
 
-- **Migración incremental — envolver el `L.Map`:** no se usa el web component; se usa el motor headless y
-  se le pasa el mapa. `new MapEngine({ leaflet: L, glify, map })` **no crea ni destruye** el `L.Map` (los
-  controles/capas Leaflet siguen vivos); se migra capa por capa. `engine.getLeafletMap()` devuelve el
-  `L.Map` crudo (también `map.engine.getLeafletMap()` desde el web component).
+- **Migración incremental — envolver el `L.Map`:** no se usa el web component; se usa el motor headless
+  sobre el mapa adoptado. `new MapEngine({ host: adoptLeafletHost(map, { leaflet: L }), glify })` **no crea
+  ni destruye** el `L.Map` (los controles/capas Leaflet siguen vivos; SPECS §6); se migra capa por capa.
+  `engine.getLeafletMap()` devuelve el `L.Map` crudo (también `map.engine.getLeafletMap()` desde el web
+  component).
 - **Headless puro** (otro framework, SSR): `MapEngine` es la API completa; `<cristae-map>` es ~200 LOC
   de piel encima. `engine.addPointLayer({ id, source, iconSet, interactive })`, `engine.on('click',
   'fleet', cb)`, `engine.setTileProvider({ url })`. El motor es framework-agnostic y testeable sin DOM.
 
 ```js
-import { MapEngine, defineIconSet, createSource } from 'cristae/map'
+import { MapEngine, adoptLeafletHost, defineIconSet, createSource } from 'cristae/map'
 import L from 'leaflet'; import glify from 'leaflet.glify'
 
-const map = L.map('map').setView([-35.5, -71.5], 6)   // el mapa propio + controles + capas Leaflet
-const engine = new MapEngine({ leaflet: L, glify, map })
+const map    = L.map('map').setView([-35.5, -71.5], 6)   // el mapa propio + controles + capas Leaflet
+const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: L }), glify })
 await engine.ready
 const fleet = createSource({ idOf: m => m.id, positionOf: m => ({ lat: m.lat, lng: m.lng }) })
 engine.addPointLayer({ id: 'fleet', source: fleet, iconSet, interactive: true })

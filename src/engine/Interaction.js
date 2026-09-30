@@ -1,6 +1,7 @@
 import { EVENT_HOVER, HANDLE_HELD, HANDLE_OVER, PICK_CHANNELS } from '../events/events.js'
 
-// Interaction — traduce los eventos del puntero del L.map en hits ruteados por el EventBus.
+// Interaction — traduce los eventos del puntero del L.map en hits ruteados por el EventBus. El ciclo de
+// vista lo oye por la cámara del anfitrión; el click y el arrastre, del mapa.
 // Cablea tres cosas y nada más: (1) pointer/click del DOM → registry.resolveHits → bus.dispatch;
 // (2) la sesión de hover con picking GPU no bloqueante (request → poll rAF → collect); (3) la
 // supresión de hover durante zoom/pan y el cursor del contenedor, del que es el ÚNICO escritor. No
@@ -34,6 +35,7 @@ const consumerCursor = cursor => cursor && (globalThis.CSS?.supports('cursor', c
 export class Interaction {
 
   #map
+  #hostCamera
   #camera
   #registry
   #bus
@@ -77,14 +79,15 @@ export class Interaction {
   }
 
   #domHandlers = new Map()
-  #mapHandlers = new Map()
+  #offs        = []             // bajas de lo que se oye del mapa y de la cámara del anfitrión
 
-  constructor({ map, camera, registry, bus, container, pickLayers, hoverThrottleMs = 0, cursor, onInteractionStart, onInteractionEnd, onEmptyClick } = {}) {
-    this.#map                = map
+  constructor({ host, camera, registry, bus, container, pickLayers, hoverThrottleMs = 0, cursor, onInteractionStart, onInteractionEnd, onEmptyClick } = {}) {
+    this.#map                = host.map
+    this.#hostCamera         = host.camera
     this.#camera             = camera
     this.#registry           = registry
     this.#bus                = bus
-    this.#container          = container ?? map.getContainer()
+    this.#container          = container ?? host.map.getContainer()
     this.#pickLayers         = pickLayers ?? (() => [])
     this.#throttleMs         = hoverThrottleMs
     this.#cursor.consumer    = consumerCursor(cursor)
@@ -140,9 +143,9 @@ export class Interaction {
     const c = this.#cursor
     this.#cancelRaf()
     this.#domHandlers.forEach((fn, type) => this.#container.removeEventListener(type, fn))
-    this.#mapHandlers.forEach((fn, type) => this.#map.off(type, fn))
+    this.#offs.forEach(off => off())
     this.#domHandlers.clear()
-    this.#mapHandlers.clear()
+    this.#offs = []
     this.#hover.session = null
     c.held.clear()
     c.over.clear()
@@ -166,17 +169,18 @@ export class Interaction {
     // listener DOM el default queda intacto y decide el consumidor. No-passive: el consumidor
     // puede llamar preventDefault() sobre el evento entregado.
     this.#onDom('contextmenu', e => this.#onSecondaryClick(e), { passive: false })
-    this.#onMap('movestart', () => this.#beginInteraction())
+    this.#onView('movestart', () => this.#beginInteraction())
     // El arrastre del USUARIO, no `movestart`: ése también lo dispara un flyTo, que no es un agarre.
     this.#onMap('dragstart', () => { this.#cursor.dragging = true; this.#paintCursor() })
     this.#onMap('dragend', () => this.#syncDragging())
-    this.#onMap('zoomstart', () => this.#beginInteraction())
-    this.#onMap('moveend', () => { this.#endInteraction(); this.#syncDragging() })
-    this.#onMap('zoomend', () => { this.#pickLayers().forEach(({ layer }) => layer.syncPickingSize()); this.#endInteraction() })
+    this.#onView('zoomstart', () => this.#beginInteraction())
+    this.#onView('moveend', () => { this.#endInteraction(); this.#syncDragging() })
+    this.#onView('zoomend', () => { this.#pickLayers().forEach(({ layer }) => layer.syncPickingSize()); this.#endInteraction() })
   }
 
   #onDom(type, fn, options = { passive: true }) { this.#container.addEventListener(type, fn, options); this.#domHandlers.set(type, fn) }
-  #onMap(type, fn) { this.#map.on(type, fn); this.#mapHandlers.set(type, fn) }
+  #onMap(type, fn) { this.#map.on(type, fn); this.#offs.push(() => this.#map.off(type, fn)) }
+  #onView(type, fn) { this.#offs.push(this.#hostCamera.on(type, fn)) }
 
   /* ── Puntero ── */
 

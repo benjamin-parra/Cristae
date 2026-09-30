@@ -6,12 +6,13 @@
 //
 // Importa el helper de stubs PRIMERO: instala el shim window/document que la carga del árbol de
 // Cristae toca por top-level. Se usan `makeMap` (contenedor + `on`/`fire` + proyección) y el `L` doble
-// con el que la cámara construye el LatLng que proyecta.
+// con el que el anfitrión construye el LatLng que proyecta.
 import { makeLeaflet, makeMap } from '../../test-helpers/engine-stub.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { Camera } from '../../src/engine/Camera.js'
 import { Interaction } from '../../src/engine/Interaction.js'
+import { adoptLeafletHost } from '../../src/host/LeafletHost.js'
 
 // Registro mínimo: resolveHits devuelve una lista fija (vacía = click al vacío; con un elemento = hit).
 // Registra el CANAL con que se lo consultó: el click al vacío debe resolverse por el canal 'click' (no
@@ -30,13 +31,14 @@ const makeBus = () => {
 }
 
 const mount = (hits) => {
-  const map = makeMap()
-  const bus = makeBus()
-  const registry = makeRegistry(hits)
-  const calls = []
+  const map         = makeMap()
+  const bus         = makeBus()
+  const registry    = makeRegistry(hits)
+  const calls       = []
+  const host        = adoptLeafletHost(map, { leaflet: makeLeaflet() })
   const interaction = new Interaction({
-    map,
-    camera: new Camera({ map, L: makeLeaflet() }),
+    host,
+    camera: new Camera({ host }),
     registry,
     bus,
     pickLayers: () => [],
@@ -71,9 +73,10 @@ test('click sobre una feature (con hit) → onEmptyClick NO se llama', () => {
 })
 
 test('onEmptyClick opcional: sin el callback un click al vacío no rompe', () => {
-  const map = makeMap()
-  const bus = makeBus()
-  const interaction = new Interaction({ map, camera: new Camera({ map, L: makeLeaflet() }), registry: makeRegistry([]), bus, pickLayers: () => [] })
+  const map  = makeMap()
+  const bus  = makeBus()
+  const host = adoptLeafletHost(map, { leaflet: makeLeaflet() })
+  new Interaction({ host, camera: new Camera({ host }), registry: makeRegistry([]), bus, pickLayers: () => [] })
 
   assert.doesNotThrow(() => map.fire('click', { latlng: { lat: 0, lng: 0 }, originalEvent: {} }))
   assert.ok(bus.dispatched.some(d => d.kind === 'click'), 'el click se despachó igual')

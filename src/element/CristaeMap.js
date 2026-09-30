@@ -285,10 +285,9 @@ export class CristaeMap extends LitElement {
     }
 
     this.#engine = new MapEngine({
-      leaflet: L,
       glify,
       container,
-      mapOptions: { center: resolveCenter(), zoom: this.initialZoom ?? 2 },
+      view: { center: resolveCenter(), zoom: this.initialZoom ?? 2 },
       insets: this.viewportInsets,
       hoverThrottleMs: this.hoverThrottle ?? 0,
       zoomAnimation: this.zoomAnimation ?? 'none',
@@ -301,8 +300,7 @@ export class CristaeMap extends LitElement {
     this.#pending.forEach(el => el.cristaeMount(this.#engine))
     this.#pending = []
 
-    // Por la promesa, no por el signal: el motor emite 'ready' síncrono al construir (mapa con
-    // center+zoom queda _loaded), antes de que #wireEvents suscriba. Un .then siempre llega.
+    // Por la promesa, no por el signal: un .then llega aunque el motor ya esté listo.
     // Resuelve `this.ready` (creada en construcción) una sola vez; en re-montajes ya está resuelta.
     this.#engine.ready.then(() => {
       this.#emit('ready', {})
@@ -327,7 +325,7 @@ export class CristaeMap extends LitElement {
     // tras un re-mount). Los listeners futuros los cabla addEventListener.
     this.#demandCount.forEach((count, type) =>
       count > 0 && !this.#demandUnsub.has(type) && this.#demandUnsub.set(type, this.#subscribeEngine(type)))
-    // 'ready' se entrega por la promesa en #mount (el signal del motor ya se disparó al construir).
+    // 'ready' se entrega por la promesa en #mount.
   }
 
   // Puenteo de un tipo cristae:* al canal del motor, como tabla const (eje 11) en vez de if-chain: cada

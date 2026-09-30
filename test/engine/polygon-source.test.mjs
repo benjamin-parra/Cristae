@@ -7,13 +7,14 @@ import { makeGlify, makeMap, makeLeaflet } from '../../test-helpers/engine-stub.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { MapEngine } from '../../src/engine/MapEngine.js'
+import { adoptLeafletHost } from '../../src/host/LeafletHost.js'
 import { createSource } from '../../src/data/Source.js'
 
 const accessors = { idOf: g => g.id, ringsOf: () => [[[0, 0], [0, 1], [1, 1]]] }
 // El contrato de propiedad de la Source no depende del sustrato, pero este harness no abre contextos
 // WebGL: se declara el de Leaflet, que es el que sabe montar.
 const LEAFLET = { backend: 'leaflet' }
-const newEngine = () => new MapEngine({ leaflet: makeLeaflet(), glify: makeGlify(), map: makeMap() })
+const newEngine = () => new MapEngine({ host: adoptLeafletHost(makeMap(), { leaflet: makeLeaflet() }), glify: makeGlify() })
 const ids = source => source.getSnapshot().map(g => g.id)
 
 test('con `source`, el motor expone la del consumidor y el handle no la muta', () => {

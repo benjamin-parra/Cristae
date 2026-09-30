@@ -17,6 +17,7 @@ import assert from 'node:assert/strict'
 import { Camera } from '../../src/engine/Camera.js'
 import { Interaction } from '../../src/engine/Interaction.js'
 import { MapEngine } from '../../src/engine/MapEngine.js'
+import { adoptLeafletHost } from '../../src/host/LeafletHost.js'
 import { EVENT_CLICK, EVENT_HOVER, HANDLE_HELD, HANDLE_NONE, HANDLE_OVER } from '../../src/events/events.js'
 
 /* ── Harness ── */
@@ -68,7 +69,8 @@ const montar = ({ demandas = { capa: EVENT_CLICK }, cursor, yaEncima = false } =
   const registry  = registro(demandas)
   const capas     = Object.keys(demandas).map(capaDePick)
   const bus       = { eventos: [], dispatch: tipo => bus.eventos.push(tipo) }
-  const it        = new Interaction({ map, camera: new Camera({ map }), registry, bus, container, cursor, pickLayers: () => capas })
+  const host      = adoptLeafletHost(map)
+  const it        = new Interaction({ host, camera: new Camera({ host }), registry, bus, container, cursor, pickLayers: () => capas })
   it.syncHoverDemand()
   yaEncima || container.emitir('pointerenter')
   return { it, map, container, registry, capas, bus }
@@ -332,7 +334,7 @@ test('el editor que monta el motor informa su handle al árbitro, y al irse lo s
   glVigente = makeEditGl(spy)
   const container = contenedor()
   const map       = { ...makeMap(), getContainer: () => container, dragging: makeDragging() }
-  const engine    = new MapEngine({ leaflet: makeLeaflet(), glify: makeGlify(), map, cursor: 'crosshair' })
+  const engine    = new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeLeaflet() }), glify: makeGlify(), cursor: 'crosshair' })
   engine.addEditableLayer({ id: 'geo', kind: 'polygon', value: [[0, 0], [0, 10], [10, 10], [10, 0]] })
   const path = engine.getLayer('geo').editor.paths[0]
   const v1   = path.nextVertex(path.firstVertex)          // [0, 10] → píxel (1000, 0)

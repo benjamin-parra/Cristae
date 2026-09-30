@@ -7,6 +7,7 @@ import { makeGlify, makeMap, makeLeaflet, makeIconSet } from '../../test-helpers
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { MapEngine } from '../../src/engine/MapEngine.js'
+import { adoptLeafletHost } from '../../src/host/LeafletHost.js'
 
 const flushRaf = () => new Promise(r => setTimeout(r, 5))
 const items = [
@@ -17,7 +18,7 @@ const items = [
 const accessors = { idOf: it => it.id, positionOf: it => ({ lat: it.lat, lng: it.lng }) }
 
 const montar = async where => {
-  const engine = new MapEngine({ leaflet: makeLeaflet(), glify: makeGlify(), map: makeMap() })
+  const engine = new MapEngine({ host: adoptLeafletHost(makeMap(), { leaflet: makeLeaflet() }), glify: makeGlify() })
   const flota  = engine.addPointLayer({ id: 'flota', accessors, iconSet: makeIconSet(), data: items, where })
   engine.addLabelLayer({ id: 'rotulos', bindTo: 'flota', textOf: it => `v${it.id}` })
   await flushRaf()
@@ -66,7 +67,7 @@ test('cambiar `where` en caliente resincroniza las labels ligadas', async () => 
 /* ── El overlay ligado (badge) hereda la membresía del host, sin espejarla el consumidor ── */
 
 test('el overlay compone la membresía del host con la propia', async () => {
-  const engine = new MapEngine({ leaflet: makeLeaflet(), glify: makeGlify(), map: makeMap() })
+  const engine = new MapEngine({ host: adoptLeafletHost(makeMap(), { leaflet: makeLeaflet() }), glify: makeGlify() })
   const flota = engine.addPointLayer({ id: 'flota', accessors, iconSet: makeIconSet(), data: items })
   const badge = engine.addOverlay({ id: 'badges', hostId: 'flota', iconSet: makeIconSet() })
   await flushRaf()

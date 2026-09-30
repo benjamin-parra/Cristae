@@ -7,22 +7,19 @@
 // Corre con: node --test test/engine/valores-propios.test.mjs
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { JSDOM, VirtualConsole } from 'jsdom'
+import { contenedor, prepararDom } from '../../test-helpers/leaflet-real.mjs'
 
-// Leaflet lee window y document al evaluarse: el DOM va antes que el import. El elemento, además,
-// escucha como un EventTarget —su addEventListener enciende el puente bajo demanda y delega en el de
-// la base—; lo demás que Lit toca lo pone el harness de elementos.
-const { window } = new JSDOM('<!doctype html><body></body>', { pretendToBeVisual: true, virtualConsole: new VirtualConsole() })
-globalThis.window                = window
-globalThis.document              = window.document
-globalThis.Element               = window.Element
-globalThis.requestAnimationFrame = window.requestAnimationFrame
-globalThis.cancelAnimationFrame  = window.cancelAnimationFrame
-globalThis.HTMLElement           = class extends EventTarget {}
+// El DOM va antes que Leaflet. El elemento, además, escucha como un EventTarget —su addEventListener
+// enciende el puente bajo demanda y delega en el de la base—; lo demás que Lit toca lo pone el harness
+// de elementos.
+const window           = prepararDom()
+globalThis.Element     = window.Element
+globalThis.HTMLElement = class extends EventTarget {}
 await import('../../test-helpers/element-stub.mjs')
-const { default: L } = await import('leaflet')
-const { MapEngine }  = await import('../../src/engine/MapEngine.js')
-const { CristaeMap } = await import('../../src/element/CristaeMap.js')
+const { default: L }       = await import('leaflet')
+const { MapEngine }        = await import('../../src/engine/MapEngine.js')
+const { adoptLeafletHost } = await import('../../src/host/LeafletHost.js')
+const { CristaeMap }       = await import('../../src/element/CristaeMap.js')
 
 const CLASES_LEAFLET = Object.values(L).filter(v => typeof v === 'function' && v.prototype)
 
@@ -46,20 +43,10 @@ const plano = (valor, claves, msg) => {
 // La proyección de Leaflet redondea el origen de píxeles: un píxel son ~1e-3 grados a este zoom.
 const cerca = (a, b, msg) => assert.ok(Math.abs(a - b) < 1e-2, `${msg}: ${a} vs ${b}`)
 
-// Un contenedor de 800×600: jsdom no mide, así que el tamaño se declara.
-const contenedor = () => {
-  const container = window.document.createElement('div')
-  window.document.body.appendChild(container)
-  Object.entries({ clientWidth: 800, clientHeight: 600, offsetWidth: 800, offsetHeight: 600 })
-    .forEach(([k, value]) => Object.defineProperty(container, k, { value }))
-  container.getBoundingClientRect = () => ({ left: 0, top: 0, right: 800, bottom: 600, width: 800, height: 600, x: 0, y: 0 })
-  return container
-}
-
 // Un motor con su mapa propio, ya con vista.
 const montar = async () => {
   const container = contenedor()
-  const engine    = new MapEngine({ leaflet: L, glify: null, container, mapOptions: { center: [-33, -70], zoom: 10 } })
+  const engine    = new MapEngine({ glify: null, container, view: { center: [-33, -70], zoom: 10 } })
   await engine.ready
   return { engine, container }
 }
@@ -262,11 +249,11 @@ test('el painter de etiquetas recibe un píxel plano, también el de una elevada
   }
 })
 
-// Un mapa prestado puede llegar sin vista: `ready` espera a que la tenga. Los insets se guardan igual
+// Un mapa adoptado puede llegar sin vista: `ready` espera a que la tenga. Los insets se guardan igual
 // —los encuadres los usan—, pero sin vista no hay centro ni caja que emitir.
-test('asignar insets a un mapa prestado sin vista no lanza ni emite: la vista sale desde ready', async () => {
+test('asignar insets a un mapa adoptado sin vista no lanza ni emite: la vista sale desde ready', async () => {
   const map    = L.map(contenedor())
-  const engine = new MapEngine({ leaflet: L, glify: null, map })
+  const engine = new MapEngine({ host: adoptLeafletHost(map), glify: null })
   const vistas = []
   engine.on('viewportchange', vista => vistas.push(vista))
 

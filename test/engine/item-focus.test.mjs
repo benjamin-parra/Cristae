@@ -10,6 +10,7 @@ import { makeGlify, makeMap, makeLeaflet, makeIconSet } from '../../test-helpers
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { MapEngine } from '../../src/engine/MapEngine.js'
+import { adoptLeafletHost } from '../../src/host/LeafletHost.js'
 import { POINT_VERTEX, POINT_PICKING_FRAGMENT } from '../../src/render/shaders.js'
 
 /* ── Harness ── */
@@ -90,7 +91,7 @@ const espiar = () => {
 
 const mount = async ({ data = FLOTA(), interactive = false, where = null, zonas = false, cluster = false } = {}) => {
   const glify  = espiar()
-  const engine = new MapEngine({ leaflet: makeLeaflet(), glify, map: makeMap() })
+  const engine = new MapEngine({ host: adoptLeafletHost(makeMap(), { leaflet: makeLeaflet() }), glify })
   const flota  = engine.addPointLayer({ id: 'flota', accessors, iconSet: makeIconSet(), data, interactive, where })
   engine.addPointLayer({ id: 'otra', accessors, iconSet: makeIconSet(), data: FLOTA() })
   zonas && engine.addPolygonLayer({ id: 'zonas', backend: 'leaflet', ...ZONAS })

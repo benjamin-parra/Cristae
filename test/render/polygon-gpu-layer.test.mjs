@@ -15,6 +15,7 @@ import { decorarElementos, makeGl, makeGlify, makeLeaflet, makeMap as makeMapStu
 import { after, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { MapEngine } from '../../src/engine/MapEngine.js'
+import { adoptLeafletHost } from '../../src/host/LeafletHost.js'
 import { PolygonGpuLayer } from '../../src/render/PolygonGpuLayer.js'
 import { areasOf, readGeoJson } from '../../src/geojson/geojson.js'
 import { projX0 } from '../../src/render/project.js'
@@ -84,14 +85,12 @@ const makeMap = () => {
   return map
 }
 
-// `position` es la del mapPane, que el motor consulta por frame de arrastre: mutarla es arrastrar.
-const makeL = (position = { x: 0, y: 0 }) => {
+const makeL = () => {
   const leaflet = makeLeaflet()
   return {
     ...leaflet,
     DomUtil : {
       ...leaflet.DomUtil,
-      getPosition : () => position,
       setPosition : (el, p) => { el.style.transform = `translate(${p.x}px, ${p.y}px)` },
     },
   }
@@ -167,7 +166,7 @@ test('una capa nueva tras destroy() abre SU contexto, sube SU textura y dibuja',
 
 test('el alta que reemplaza a una capa dada de baja cuelga su canvas de un pane VIVO', () => {
   const map    = makeMap()
-  const engine = new MapEngine({ leaflet: makeL(), glify: makeGlify(), map })
+  const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeL() }), glify: makeGlify() })
   const pane   = 'cristae-polygon-gpu-areas'
 
   currentGl = editGl(newSpy())
@@ -265,7 +264,7 @@ test('setVisible(false) deja de dibujar y setVisible(true) vuelve', () => {
 
 test('MapEngine.setLayerVisibility alcanza a la capa, no sólo al pane', () => {
   const map    = makeMap()
-  const engine = new MapEngine({ leaflet: makeL(), glify: makeGlify(), map })
+  const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeL() }), glify: makeGlify() })
   const spy    = newSpy()
   currentGl = editGl(spy)
   engine.addPolygonGpuLayer({ id: 'areas', geometry: ONE_RING() })
@@ -296,12 +295,14 @@ test('la vista asentada sí repinta: moveend, zoomend y resize', () => {
 })
 
 // El motor reproyecta por frame las capas GL inscritas en su ciclo de render, y en esta capa
-// `resetCanvasReference()` ES el repintado entero. El mapPane se desplaza en cada frame, así que no hay
+// `resetCanvasReference()` ES el repintado entero. El marco se desplaza en cada frame, así que no hay
 // `move` que el motor se saltee por posición repetida: si la capa estuviera inscrita, serían 30 stencils.
 test('el motor tampoco repinta la capa por frame de arrastre', () => {
   const position = { x: 0, y: 0 }
-  const map      = makeMap()
-  const engine   = new MapEngine({ leaflet: makeL(position), glify: makeGlify(), map })
+  const map      = Object.assign(makeMap(), {   // el marco del paneo: mover `position` es arrastrar
+    containerPointToLayerPoint: ([x, y]) => ({ x: x - position.x, y: y - position.y }),
+  })
+  const engine   = new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeL() }), glify: makeGlify() })
   const spy      = newSpy()
   currentGl = editGl(spy)
   engine.addPolygonGpuLayer({ id: 'areas', geometry: ONE_RING() })
@@ -647,7 +648,7 @@ test('sin `owner`, el sujeto sigue siendo la parte', () => {
 
 const conMotor = () => {
   const map = makeMap()
-  const engine = new MapEngine({ leaflet: makeL(), glify: makeGlify(), map })
+  const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeL() }), glify: makeGlify() })
   currentGl = editGl(newSpy())
   return { engine, map }
 }

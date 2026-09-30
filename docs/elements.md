@@ -65,7 +65,7 @@ Contenedor. Monta el `MapEngine`, expone cámara/engine y reenvía los eventos d
 | `hover-throttle` | number (ms) | atributo |
 | `world-copies` | boolean | atributo |
 | `no-zoom-control` | boolean | atributo |
-| `zoom-animation` | `"none"` (default) \| `"in-only"` \| `"on"` | atributo — **reactivo** |
+| `zoom-animation` | `"none"` (default) \| `"in-only"` \| `"on"`; qué anima cada uno, [SPECS §9](../SPECS.md) | atributo — **reactivo** |
 | `cursor` | valor CSS de `cursor` (`"crosshair"`, …); vacío o inválido = ninguno | atributo — **reactivo** |
 | `viewport-insets` | object | prop `viewportInsets` |
 | `tile` | `{ url, maxZoom?, attribution?, subdomains?, … }` | **prop** |

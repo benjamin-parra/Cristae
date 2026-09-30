@@ -7,6 +7,7 @@ import '../../test-helpers/engine-stub.mjs'
 import { makeMap, makeLeaflet } from '../../test-helpers/engine-stub.mjs'
 import { createSource } from '../../src/data/Source.js'
 import { Camera } from '../../src/engine/Camera.js'
+import { adoptLeafletHost } from '../../src/host/LeafletHost.js'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
@@ -27,7 +28,7 @@ const setup = ({ zoom = 5 } = {}) => {
     { id: 3, pos: { lat: 90, lng: 90 } },   // el "3ro" que NO debe entrar al encuadre de 2 ids
   ])
 
-  const camera = new Camera({ map, L, resolveSource: () => source })
+  const camera = new Camera({ host: adoptLeafletHost(map, { leaflet: L }), resolveSource: () => source })
   return { map, L, source, camera, calls }
 }
 
@@ -55,7 +56,7 @@ test('fitToLayer sin ninguna posición válida no mueve la cámara, tampoco el z
   const { map, L, calls } = setup({ zoom: 12 })
   const sinLugar = createSource({ idOf: o => o.id, positionOf: o => o.pos })
   sinLugar.set([{ id: 1, pos: { lat: 95, lng: 0 } }])
-  new Camera({ map, L, resolveSource: () => sinLugar }).fitToLayer('capa', { maxZoom: 8 })
+  new Camera({ host: adoptLeafletHost(map, { leaflet: L }), resolveSource: () => sinLugar }).fitToLayer('capa', { maxZoom: 8 })
   assert.equal(calls.fitBounds.length, 0)
   assert.deepEqual(calls.setZoom, [])
 })
@@ -68,7 +69,7 @@ test('followBounds con ids sin posición finita no encuadra', () => {
 
 test('followBounds sin capa resuelta es no-op', () => {
   const { map, L } = setup()
-  const camera = new Camera({ map, L, resolveSource: () => null })
+  const camera = new Camera({ host: adoptLeafletHost(map, { leaflet: L }), resolveSource: () => null })
   assert.equal(camera.followBounds('nope', [1, 2]), camera)   // devuelve this, no rompe
 })
 
@@ -121,7 +122,7 @@ const capaViva = pos => {
 test('lo que no es una caja no corta el seguimiento', () => {
   const { map, L, calls } = setup()
   const { source, mover } = capaViva({ lat: 10, lng: 10 })
-  const camera            = new Camera({ map, L, resolveSource: () => source })
+  const camera            = new Camera({ host: adoptLeafletHost(map, { leaflet: L }), resolveSource: () => source })
 
   camera.followPoint('flota', 1)
   camera.fitBounds(null)
@@ -135,7 +136,7 @@ test('lo que no es una caja no corta el seguimiento', () => {
 test('revealPoint y el seguimiento no enfocan una posición que no es un lugar', () => {
   const { map, L, calls } = setup()
   const { source, mover } = capaViva({ lat: 95, lng: 10 })
-  const camera            = new Camera({ map, L, resolveSource: () => source })
+  const camera            = new Camera({ host: adoptLeafletHost(map, { leaflet: L }), resolveSource: () => source })
 
   camera.revealPoint('flota', 1)
   camera.followPoint('flota', 1)

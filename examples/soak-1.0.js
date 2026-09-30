@@ -6,7 +6,7 @@
 
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
-import { MapEngine, shapePresetIconSet, createSource } from '../src/index.js'
+import { MapEngine, adoptLeafletHost, shapePresetIconSet, createSource } from '../src/index.js'
 
 window.L = L
 await import('leaflet.glify')            // side-effect: adjunta L.glify (mismo patrón que <cristae-map>)
@@ -15,7 +15,7 @@ const glify = L.glify
 /* ── Mapa + motor reales ─────────────────────────────────────────────────────────────────────── */
 const CENTER = [-33.441, -70.654]        // Santiago
 const map    = L.map('map', { center: CENTER, zoom: 13, preferCanvas: true, zoomControl: true })
-const engine = new MapEngine({ leaflet: L, glify, map })
+const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: L }), glify })
 await engine.ready
 // Tiles por el motor (no `L.tileLayer(...).addTo(map)`): así se activa la retención de bitmaps.
 engine.setTileProvider({ url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', maxZoom: 19, attribution: '© OpenStreetMap' })
@@ -92,12 +92,12 @@ $('focus').onclick = e => {
 setK(8)
 $('move').onclick = e => { moving = !moving; toggle(e.target, moving); log(moving ? 'flota en movimiento' : 'flota pausada') }
 
-// Sin zoomAnimation Leaflet no emite `zoomanim`: el motor no interpola y todo asienta en zoomend.
-let animatedZoom = map.options.zoomAnimation !== false
+// La política de animación del zoom, en vivo (SPECS §9). El mapa adoptado arranca con la de su dueño,
+// que anima; sin animación todo asienta en zoomend.
+let animatedZoom = true
 $('instant').onclick = e => {
   animatedZoom = !animatedZoom
-  map.options.zoomAnimation = animatedZoom
-  map._zoomAnimated         = animatedZoom          // Leaflet cachea la palanca; hay que moverla también
+  engine.setZoomAnimation(animatedZoom ? 'on' : 'none')
   e.target.setAttribute('aria-pressed', String(!animatedZoom))
   e.target.textContent = animatedZoom ? 'zoom instantáneo' : 'zoom animado'
   log(animatedZoom

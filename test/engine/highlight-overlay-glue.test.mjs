@@ -9,11 +9,12 @@ import { makeGlify, makeMap, makeLeaflet, makeIconSet, decorarElementos } from '
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { MapEngine } from '../../src/engine/MapEngine.js'
+import { adoptLeafletHost } from '../../src/host/LeafletHost.js'
 
 const flushRaf = () => new Promise(r => setTimeout(r, 5))
 const items = Array.from({ length: 10 }, (_, i) => ({ id: i + 1, lat: i * 0.1, lng: i * 0.2, size: 24 }))
 const accessors = { idOf: it => it.id, positionOf: it => ({ lat: it.lat, lng: it.lng }), sizeOf: it => it.size }
-const newEngine = () => new MapEngine({ leaflet: makeLeaflet(), glify: makeGlify(), map: makeMap() })
+const newEngine = () => new MapEngine({ host: adoptLeafletHost(makeMap(), { leaflet: makeLeaflet() }), glify: makeGlify() })
 
 test('addHighlightOverlay: cablea el pase separado end-to-end sobre MapEngine', async () => {
   const engine = newEngine()
@@ -63,6 +64,38 @@ test('addHighlightOverlay: el ViewAnimator lo reproyecta POR FRAME durante el zo
   engine.getLeafletMap().fire('zoomend')                // corta la interpolación
   ov.destroy()
   engine.destroy()
+})
+
+// El último frame de la animación reproyecta a la vista destino, y el realce cae donde la matriz del
+// sprite pone su punto: su píxel a ese zoom, menos el del centro, más medio contenedor. La proyección del
+// doble es px = coord·100·2^z; el contenedor, 800×600; el destino, zoom 3 con el centro en (1, 1), que
+// a ese zoom es el píxel (800, 800).
+test('addHighlightOverlay: en el zoom animado, cada realce cae sobre el punto de su sprite', async () => {
+  const origenes  = []
+  const restaurar = decorarElementos((el, tag) => {
+    if (tag === 'canvas') el.getContext = () => new Proxy({}, {
+      get: (_, p) => (p === 'translate' ? (x, y) => origenes.push([x, y]) : () => {}),
+      set: () => true,
+    })
+    return el
+  })
+  const engine = newEngine()
+  engine.addPointLayer({ id: 'flota', accessors, iconSet: makeIconSet(), data: items })
+  const ov = engine.addHighlightOverlay({ id: 'hl', layerId: 'flota', drawHighlight: () => {} })
+  ov.setHighlighted(new Map([[2, 'follow'], [5, 'select']]))
+  await flushRaf()
+
+  origenes.length = 0
+  engine.getLeafletMap().fire('zoomanim', { zoom: 3, center: { lat: 1, lng: 1 } })
+  await new Promise(r => setTimeout(r, 300))           // la animación dura 250 ms
+  assert.deepEqual(origenes.slice(-2), [
+    [0.2 * 800 - 800 + 400, 0.1 * 800 - 800 + 300],
+    [0.8 * 800 - 800 + 400, 0.4 * 800 - 800 + 300],
+  ])
+
+  engine.getLeafletMap().fire('zoomend')
+  engine.destroy()
+  restaurar()
 })
 
 // El canvas del pase declara DOS tamaños, y sólo el par correcto lo deja caer sobre su sprite: con la caja

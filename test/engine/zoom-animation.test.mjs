@@ -1,4 +1,6 @@
-// Política de animación del zoom: 'none' | 'in-only' | 'on', cambiable EN VIVO por setZoomAnimation.
+// Política de animación del zoom desde el motor: 'none' | 'in-only' | 'on', cambiable EN VIVO por
+// setZoomAnimation. La vive el anfitrión; sobre el Leaflet real, con el pinch y el vuelo, la prueba
+// test/host/leaflet-host.test.mjs.
 //
 // El último test es el que importa: si la política se aplicara apagando el latch `_zoomAnimated` del
 // mapa, Leaflet se lo copiaría a cada capa AL AGREGARLA y ninguna volvería a suscribirse a `zoomanim`.
@@ -9,11 +11,12 @@ import { makeGlify, makeMap, makeLeaflet } from '../../test-helpers/engine-stub.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { MapEngine } from '../../src/engine/MapEngine.js'
+import { adoptLeafletHost } from '../../src/host/LeafletHost.js'
 
 // `_tryAnimatedZoom` es lo que Leaflet consulta en CADA zoom: true = anima, false = salto instantáneo.
 const conModo = zoomAnimation => {
-  const map = makeMap({ zoom: 10 })
-  const engine = new MapEngine({ leaflet: makeLeaflet(), glify: makeGlify(), map, zoomAnimation })
+  const map    = makeMap({ zoom: 10 })
+  const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeLeaflet() }), glify: makeGlify(), zoomAnimation })
   return {
     engine, map,
     acercar: () => map._tryAnimatedZoom(map._center, map._zoom + 2),
@@ -59,17 +62,10 @@ test('devuelve el motor, para encadenar', () => {
   engine.destroy()
 })
 
-test('con mapa PRESTADO y sin modo, la política queda en manos del consumidor', () => {
-  const map = makeMap({ zoom: 10 })
-  const engine = new MapEngine({ leaflet: makeLeaflet(), glify: makeGlify(), map })
+test('con mapa ADOPTADO y sin modo, la política queda en manos del consumidor', () => {
+  const map    = makeMap({ zoom: 10 })
+  const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeLeaflet() }), glify: makeGlify() })
   assert.equal(map._tryAnimatedZoom(map._center, 8), true, 'no se interviene un mapa ajeno')
-  engine.destroy()
-})
-
-test('con mapa PROPIO y sin modo, el default es no animar', () => {
-  const engine = new MapEngine({ leaflet: makeLeaflet(), glify: makeGlify(), container: {} })
-  const map = engine.getLeafletMap()
-  assert.equal(map._tryAnimatedZoom(map._center, map._zoom + 2), false)
   engine.destroy()
 })
 

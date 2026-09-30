@@ -7,6 +7,7 @@ import { makeGlify, makeMap, makeLeaflet, makeIconSet } from '../../test-helpers
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { MapEngine } from '../../src/engine/MapEngine.js'
+import { adoptLeafletHost } from '../../src/host/LeafletHost.js'
 
 const PANE      = 'cristae-point-flota'
 const items     = [{ id: 1, lat: 0, lng: 0, size: 24 }]
@@ -16,7 +17,7 @@ const montar = engine => engine.addPointLayer({ id: 'flota', accessors, iconSet:
 
 test('quitar una capa saca su pane del registro, y el alta siguiente estrena uno conectado', () => {
   const map    = makeMap()
-  const engine = new MapEngine({ leaflet: makeLeaflet(), glify: makeGlify(), map })
+  const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeLeaflet() }), glify: makeGlify() })
 
   montar(engine)
   const primero = map.getPane(PANE)
@@ -33,7 +34,7 @@ test('quitar una capa saca su pane del registro, y el alta siguiente estrena uno
 
 test('un pane COMPARTIDO sobrevive mientras le quede una capa', () => {
   const map    = makeMap()
-  const engine = new MapEngine({ leaflet: makeLeaflet(), glify: makeGlify(), map })
+  const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeLeaflet() }), glify: makeGlify() })
   const comun  = 'compartido'
 
   engine.addPointLayer({ id: 'a', accessors, iconSet: makeIconSet(), data: items, pane: comun })

@@ -47,7 +47,7 @@
 └────────────────────────────────────────────────────────────────────────┘
         ▲ API JS pura (framework-agnostic)
 ┌─ Capa 1 · MapEngine (núcleo headless de Cristae) ────────────────────┐
-│  Posee map + MapWidget + layers + stores + atlas + picking + camera.   │
+│  Posee anfitrión + layers + stores + atlas + picking + camera.         │
 │  Cero Lit, cero React, cero dominio. Testeable sin DOM.                │
 └────────────────────────────────────────────────────────────────────────┘
 ```
@@ -81,6 +81,7 @@ shared/external/Cristae/          # raiz del paquete (se sirve por GitHub: git i
    │  ├─ MapEngine.js            # orquestador
    │  ├─ Camera.js               # setView/panTo/fitBounds/flyTo/followPoint
    │  └─ Interaction.js          # hover/click/pointermove → eventos genéricos
+   ├─ host/                      # anfitrión: Leaflet detrás de facetas con valores propios
    ├─ render/                    # render GL (sin cambios algorítmicos)
    │  ├─ PointLayer.js           # ex GlifyLayer
    │  ├─ Picking.js              # ex GlifyPicking (picking en GPU)
@@ -437,7 +438,7 @@ camera.getCenter() / getZoom() / getBounds()
 - **Shadow DOM** = superficie de render: `<div>` del `L.map`, panes, canvases GL, canvas de labels. CSS de Leaflet inyectado con `adoptedStyleSheets` (constructable stylesheet) → glify/panes encapsulados.
 - **Light DOM** = lo explícito: las **capas como elementos hijos** (`<cristae-point-layer>`, …) viven en light DOM, inspeccionables, y exponen su handle/props. (Su render real ocurre en el shadow; el hijo es solo declaración + canal de datos.)
 - **Slots** = UI del host por encima del mapa: `<slot name="overlay">` para sidebar/tooltip/controles. El host proyecta su chrome; el mapa va debajo.
-- `connectedCallback` → crea/monta el motor (idempotente, guard `#mounted`; reutiliza `L.map` entre re-mounts, como hoy con StrictMode). `disconnectedCallback` → `destroy()`. **`ResizeObserver`** sobre el host → `leaflet.invalidateSize()` + `syncPickingSize`. **`VisibilityGuard`** (ya incluido) pausa render en `display:none`.
+- `connectedCallback` → crea/monta el motor, que crea su mapa sobre el `<div>` del shadow (idempotente, guard `#mounted`; un re-montaje es un motor y un mapa nuevos). `disconnectedCallback` → `destroy()`, que remueve el mapa. **`ResizeObserver`** sobre el host → `engine.syncSize()` (`invalidateSize` + `syncPickingSize`). **`VisibilityGuard`** (ya incluido) pausa render en `display:none`.
 - **`iconSet` reactivo — independiente del orden de parseo y del loader (por diseño, no por instrucción de uso).** La capa reacciona al **valor** de `iconSet`, no al instante en que llega: asignarlo o reemplazarlo —desde el HTML, un `<script src type=module>` al final, `import()` dinámico, o en caliente— dispara **reseed automático + rebuild** coalescido a rAF (§7.2/§5.3). El mismo camino cubre el pack que ya existía, el que llega tarde y el swap; nada que el consumidor tenga que orquestar. Mientras un `icon-set="…"` **por nombre** no resuelve a un pack registrado, la capa pinta con un **IconSet por defecto** (marcador genérico — nunca en blanco ni icono equivocado) y se reconstruye sola al resolver. `ready: Promise` sigue disponible como gate para código imperativo que prefiera `await`, pero **no** es necesario para el orden correcto de iconos.
 
 ---

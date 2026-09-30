@@ -8,13 +8,14 @@ import { makeGlify, makeMap, makeLeaflet } from '../../test-helpers/engine-stub.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { MapEngine } from '../../src/engine/MapEngine.js'
+import { adoptLeafletHost } from '../../src/host/LeafletHost.js'
 
 const encuadre = alta => {
   const map   = makeMap()
   const cajas = []
   map.fitBounds = ([sw, ne]) => { cajas.push([...sw, ...ne]); return map }
 
-  const engine = new MapEngine({ leaflet: makeLeaflet(), glify: makeGlify(), map })
+  const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeLeaflet() }), glify: makeGlify() })
   alta(engine)
   engine.fitToLayers()
   engine.destroy()
