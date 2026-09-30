@@ -976,11 +976,20 @@ ninguna lectura fuera de rango, ningún camino sin terminación, ninguna excepci
 | `sphere` | `(radius = 6371008.8) → EarthModel` | O(1) | El modelo por defecto de `distance`. |
 | `ellipsoid` | `(semiMajorAxis, flattening) → EarthModel` | O(1) | Geodésica por el inverso de Karney. |
 | `WGS84` | `EarthModel` | — | `ellipsoid(6378137, 1 / 298.257223563)`. |
+| `boundsOf` | `(pointA, pointB, ...points)` · `(path) → Bounds \| null` | O(vértices), una pasada | Las formas de llamada de `distance`, sin modelo. |
+| `boundsPad` | `(bounds, ratio) → Bounds \| null` | O(1) | Cada lado crece `ratio` del alto o del ancho; la latitud se acota a [-90, 90]. |
+| `boundsContain` | `(bounds, point) → boolean` | O(1) | Bordes incluidos. |
+| `boundsCenter` | `(bounds) → LatLng \| null` | O(1) | Promedio de los lados. |
 
 Un **punto** es `[lat, lng]` —un array, donde lo que siga se ignora, o una vista tipada de dos o tres
 componentes—, `{ lat, lng }`, `{ lat, lon }` o `{ latitude, longitude }`, con componentes numéricos
-finitos y la latitud en [-90, 90]. Es la regla de los paths de líneas y del `value` de los editores;
-las salidas son pares.
+finitos y la latitud en [-90, 90]. Es la regla de los paths de líneas y del `value` de los editores,
+que emiten pares, como `toParts`.
+
+Una **caja** es una `Bounds` `{ south, west, north, east }` cuyas esquinas `(south, west)` y
+`(north, east)` son puntos, con `south ≤ north` y `west ≤ east`; o un par de esquinas opuestas
+`[p, q]`, dos puntos en cualquier forma y orden, que se lee como la caja de los dos. Es la regla de lo
+que reciben `boundsPad`, `boundsContain` y `boundsCenter`. Lo demás no es una caja: `null` o `false`.
 
 ### 18.1 Bordes
 
@@ -1008,10 +1017,18 @@ las salidas son pares.
 | el encoding de un path | lo decide su primer elemento que trae algo, un array por su lat y su lng; si nada decide, es anidado cuando trae un array |
 | un par casi antípoda | la esfera acota el término de la haversine a [0, 1]; el elipsoide converge |
 | un radio o un semieje no finito o ≤ 0, un achatamiento fuera de [0, 1) | `RangeError` al construir |
+| un vértice suelto entre dos cortes, en `boundsOf` | entra a la caja: es un lugar aunque no haga tramo |
+| `boundsOf` sin ningún punto válido | `null` |
+| una longitud fuera de [-180, 180] | no se envuelve: la caja la conserva, aunque pase de 360° de ancho, y `boundsContain` compara el punto tal cual, así que uno de otra copia del mundo cae afuera |
+| una caja que cruza el antimeridiano | lleva el este pasado de 180; con la longitud envuelta queda `west > east`, invertida, y no es una caja. `boundsOf` da la de los mínimos y máximos |
+| una `Bounds` invertida | no se reordena: nombra sus lados, así que no es una caja |
+| un `L.LatLngBounds` o cualquier objeto con métodos en vez de lados | no es una caja |
+| un ratio que invierte la caja, o no finito | `boundsPad` da `null` |
 
 ### 18.2 Test
 
 `sphere()` da exactamente lo mismo que el defecto; `sphere(r)` escala en la razón de los radios;
 WGS84 contra valores publicados (a·π/180, el cuadrante meridiano, Flinders Peak–Buninyong); la misma
-medida por puntos variádicos, por un path plano y por uno anidado, en las cuatro formas de punto; cada
-borde de §18.1; empaquetar sólo `distance` no trae la librería geodésica.
+medida y la misma caja por puntos variádicos, por un path plano y por uno anidado, en las cuatro formas
+de punto; un par de esquinas en cualquier orden; cada borde de §18.1; empaquetar sólo `distance` no
+trae la librería geodésica.

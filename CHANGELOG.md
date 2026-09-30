@@ -24,6 +24,17 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   [`docs/geometry.md`](docs/geometry.md).
   *Migración*: ninguna — `cristae/map` sigue exportando `toParts` y `sampleAlong`, y suma `distance`
   y `sphere`.
+- **`cristae/geometry` — cajas en grados sin Leaflet: `boundsOf`, `boundsPad`, `boundsContain` y
+  `boundsCenter`.** Una caja es un objeto plano `{ south, west, north, east }`. `boundsOf` la saca de
+  unos puntos con las formas de llamada y de punto de `distance` —variádicos, o un path plano o
+  anidado—, y a diferencia de `distance` cuenta el vértice suelto entre dos cortes, porque es un lugar
+  aunque no haga tramo; sin ningún punto válido da `null`. Las otras tres reciben esa caja o un par de
+  esquinas opuestas en cualquier forma de punto y orden, y lo que no es una caja —una invertida, un par
+  con una esquina inválida— da `null` o `false`. La longitud no se envuelve: una caja que cruza el
+  antimeridiano lleva el este pasado de 180, y `boundsContain` no lleva el punto a esa copia del mundo.
+  `boundsPad` acota la latitud a [-90, 90] para que el resultado siga siendo una caja. Ver
+  [`docs/geometry.md`](docs/geometry.md#cajas).
+  *Migración*: ninguna.
 - **El consumidor elige el cursor del mapa, en vivo: `<cristae-map cursor="…">`.** Una herramienta activa
   —dibujar, medir— pide `crosshair` con el atributo (`cursor` en `<CristaeMap>`; en el motor, la opción
   `cursor` al construirlo y `engine.setCursor` en vivo) y lo suelta con un valor vacío; uno que el CSS rechace cuenta como ninguno, porque el estilo lo

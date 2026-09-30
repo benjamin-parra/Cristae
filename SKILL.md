@@ -18,7 +18,7 @@ conecta lo que no serializa. Por dentro **es** un `L.Map`, así que el Leaflet d
 
 > Specifiers: `cristae/map` (mapa) · `cristae/core` (datos) · `cristae/table` (tabla) ·
 > `cristae/geojson` (lector) · `cristae/geometry` (distancias en metros, sobre la esfera o el
-> elipsoide WGS84).
+> elipsoide WGS84, y cajas en grados).
 > Detalle de cada elemento en [`docs/elements.md`](./docs/elements.md).
 
 ---

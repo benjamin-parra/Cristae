@@ -1,4 +1,4 @@
-# Geometría — `distance`, `sphere`, `ellipsoid`
+# Geometría — `distance`, los modelos y las cajas
 
 > Pieza de [Cristae](../MODELO.md). Entry propio (`cristae/geometry`), sin efectos: no importa el
 > motor, el [Source](./data.md) ni Leaflet, y sirve suelto en Node o en un worker. Trae también
@@ -10,6 +10,8 @@
 | `sphere(radius = 6371008.8)` | modelo esférico, con haversine; sin radio es el modelo por defecto |
 | `ellipsoid(semiMajorAxis, flattening)` | modelo elipsoidal: la geodésica por el problema inverso de Karney |
 | `WGS84` | `ellipsoid(6378137, 1 / 298.257223563)` |
+| `boundsOf(…)` | la caja `{ south, west, north, east }` de unos puntos, con las formas de llamada de `distance` |
+| `boundsPad(bounds, ratio)` · `boundsContain(bounds, point)` · `boundsCenter(bounds)` | agrandar, contener y centrar una caja |
 
 `ellipsoid` y `WGS84` traen la dependencia `geographiclib-geodesic`, que entra sólo al bundle de quien
 los importa. Por eso `cristae/map` re-exporta `distance`, `sphere`, `toParts` y `sampleAlong`, y no el
@@ -70,6 +72,22 @@ error del llamador, no un dato malo, y leerlo como un punto inválido mediría e
   finito mayor que 0, o si el achatamiento no está en [0, 1). Los modelos son inmutables.
 
 El picking de `addCircleLayer` mide con la esfera por defecto, sin opción de modelo.
+
+## Cajas
+
+```js
+import { boundsOf, boundsPad, boundsContain, boundsCenter } from 'cristae/geometry'
+
+const caja = boundsOf(recorrido.puntos)          // o boundsOf(origen, destino), como distance
+boundsPad(caja, 0.1)                             // un 10 % más por cada lado
+boundsContain(caja, { lat: -33.45, lng: -70.66 })
+boundsCenter(caja)                               // { lat, lng }
+```
+
+`boundsOf` lee con las formas de llamada y de punto de `distance`, y las otras tres reciben una
+`Bounds` o un par de esquinas opuestas `[[sur, oeste], [norte, este]]` en cualquier forma de punto y
+orden. Qué cuenta como caja y sus bordes —el vértice suelto entre dos cortes, la caja sin ningún punto
+válido, la longitud sin envolver, el acotado de la latitud— los fija [SPECS §18](../SPECS.md).
 
 ## Costo
 

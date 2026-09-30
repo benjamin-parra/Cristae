@@ -26,10 +26,31 @@ type PointOrHole = LatLngPoint | null | undefined;
  *  normaliza `toParts`. */
 export type LatLngPath = Iterable<PointOrHole> | Iterable<Iterable<PointOrHole> | null | undefined>;
 
+/** Una posición en grados, como la devuelve `boundsCenter`. */
+export interface LatLng {
+  lat : number;
+  lng : number;
+}
+
+/** Una caja en grados: sus lados, con el sur bajo el norte y el oeste al oeste del este. Sus dos
+ *  esquinas, `(south, west)` y `(north, east)`, siguen la regla de punto. La longitud no se envuelve
+ *  (SPECS §18.1). */
+export interface Bounds {
+  south : number;
+  west  : number;
+  north : number;
+  east  : number;
+}
+
+/** Lo que se acepta como caja: una `Bounds`, o un par de esquinas opuestas en cualquier forma de punto,
+ *  cuya caja es la de los dos puntos. */
+export type BoundsLike = Bounds | readonly [LatLngPoint, LatLngPoint];
+
 /** Un modelo de la Tierra para `distance`, hecho con `sphere` o `ellipsoid`: inmutable y opaco. */
 export type EarthModel = { readonly __earthModel: unique symbol };
 
-// El argumento de path de `distance`: un punto solo es un recorrido de un punto.
+// El argumento de path de las funciones de puntos variádicos, `distance` y `boundsOf`: un punto solo
+// cuenta como un path de un punto.
 type PathArgument = LatLngPath | PointOrHole;
 
 /** Normaliza un path a partes: corta el encoding plano en cada vértice que no es punto y aplana el
@@ -79,3 +100,20 @@ export function ellipsoid(semiMajorAxis: number, flattening: number): EarthModel
 
 /** El elipsoide WGS84: `ellipsoid(6378137, 1 / 298.257223563)`. */
 export const WGS84: EarthModel;
+
+/** La caja de los puntos, en las formas de llamada de `distance` sin el modelo: un vértice suelto entre
+ *  dos cortes también cuenta. `null` si ningún punto es válido. Ver docs/geometry.md. */
+export function boundsOf(pointA: PointOrHole, pointB: PointOrHole, ...points: PointOrHole[]): Bounds | null;
+/** La caja de un path, plano o anidado, o de un punto solo. */
+export function boundsOf(path: PathArgument): Bounds | null;
+
+/** La caja agrandada por cada lado en `ratio` de su alto y de su ancho; negativo la achica. La latitud
+ *  se acota a [-90, 90]. `null` si `bounds` no es una caja o si el ratio la invierte. */
+export function boundsPad(bounds: BoundsLike | null | undefined, ratio: number): Bounds | null;
+
+/** Si el punto cae en la caja, con los bordes adentro y sin envolver su longitud. `false` si alguno de
+ *  los dos no es válido. */
+export function boundsContain(bounds: BoundsLike | null | undefined, point: PointOrHole): boolean;
+
+/** El centro de la caja, por promedio de sus lados. `null` si `bounds` no es una caja. */
+export function boundsCenter(bounds: BoundsLike | null | undefined): LatLng | null;

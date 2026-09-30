@@ -3,7 +3,7 @@
 // dice docs/geometry.md. `sphere(radius)` existe para reproducir las cifras de un sistema que mide con
 // otro radio, y `ellipsoid` (ellipsoid.js) da la geodésica del elipsoide, a precisión geodésica.
 // Módulo puro: sin Leaflet, sin DOM, sin el elipsoide.
-import { coordOf, foldPart, foldRuns, isPoint, iterable } from './polyline.js'
+import { coordOf, foldArgs } from './polyline.js'
 
 const D = Math.PI / 180
 
@@ -72,22 +72,14 @@ const markCut = (walk, vertex) => {
 
 // El modelo, si viene, es el primer argumento, para que los puntos queden al final, variádicos. Se
 // reconoce por su marca, y null no la tiene: `distance(xs[0], xs[1])` sobre un array vacío son dos
-// puntos inválidos, no «el modelo por defecto y un punto». Un solo argumento es un path si es nulo, o
-// iterable y no es un punto; si no, es un punto, válido o no: un objeto inválido, o un string, da NaN
-// como un par inválido, y no el 0 de un path vacío. Con dos o más, cada uno es un punto. Un punto
-// inválido corta como en `toParts` y el hueco no suma. Si hubo datos y ninguno sirvió —algún inválido
-// y ningún tramo— la distancia es NaN, no un 0 que se sumaría después como si fuera un tramo real; un
-// modelo fuera de lugar, en cambio, lanza (`markCut`). Un array cuyo primer elemento es un objeto es
-// un path sin pasar por `isPoint`: leer un path como punto le enseña al lector un array de arrays, y
-// desde ahí V8 encajona cada double que lee de una vista tipada o de un objeto, en todos los
-// recorridos.
+// puntos inválidos, no «el modelo por defecto y un punto». Los demás se leen como dice `foldArgs`: un
+// objeto inválido solo, o un string, es un punto inválido y da NaN como un par inválido, no el 0 de un
+// path vacío. Un punto inválido corta como en `toParts` y el hueco no suma. Si hubo datos y ninguno
+// sirvió —algún inválido y ningún tramo— la distancia es NaN, no un 0 que se sumaría después como si
+// fuera un tramo real; un modelo fuera de lugar, en cambio, lanza (`markCut`).
 export const distance = (...args) => {
   const model = isModel(args[0]) ? args.shift() : byDefault
   const start = { arc: model[MODEL], meters: 0, measured: false, invalid: false }
-  const path  = args.length === 1 &&
-    (typeof args[0]?.[0] === 'object' || args[0] == null || !isPoint(args[0]) && iterable(args[0]))
-  const walk  = path
-    ? foldRuns(args[0], measureRun, start, markCut)
-    : foldPart(args, 0, measureRun, start, markCut)
+  const walk  = foldArgs(args, measureRun, start, markCut)
   return walk.invalid && !walk.measured ? NaN : walk.meters
 }

@@ -1,6 +1,8 @@
 // Álgebra de bounding-boxes / rectángulos, pura y sin dominio: min/max de coordenadas + intersección
 // de rectángulos. Reusable por quien indexe por extensión: la comparten el hit-test de polígonos
-// (anillos [lat,lng]), el de líneas (puntos {x,y} proyectados) y el scoring de snapshots de tiles.
+// (anillos [lat,lng]), el de líneas (puntos {x,y} proyectados), la medida de las tablas tipadas de
+// polígonos y el scoring de snapshots de tiles. Son cajas de trabajo, en el espacio y la forma de quien
+// indexa y sin regla de lugar; la caja en grados que entregan las capas y la API es la de bounds.js.
 
 // Lista plana de anillos de cualquiera de las tres formas de entrada: anillo simple `[[lat,lng],…]`,
 // polígono `[[[lat,lng],…],…]` (exterior + agujeros) y multipolígono.

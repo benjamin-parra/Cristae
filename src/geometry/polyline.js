@@ -1,8 +1,9 @@
 // Geometría de polilíneas genérica, sin dominio. Dos piezas:
 //   · el contrato de path, en grados: qué es un punto, los dos encodings y la regla de corte
-//     (`coordOf`, `isNested`, `foldRuns`, `toParts`). Lo comparten las capas de líneas, su encuadre y
-//     la medida en metros (geodesic.js); la edición comparte el lector de punto y la decisión de
-//     anidado. Los anillos de `ringsOf` y las posiciones de `positionOf` tienen su propio contrato.
+//     (`coordOf`, `isNested`, `foldRuns`, `toParts`). Lo comparten las capas de líneas, su encuadre,
+//     la medida en metros (geodesic.js) y las cajas (bounds.js); la edición comparte el lector de
+//     punto y la decisión de anidado. Los anillos de `ringsOf` y las posiciones de `positionOf` tienen
+//     su propio contrato.
 //   · el hit-testing nearest-segment de la line-layer —distancia punto→segmento + índice espacial
 //     (bbox ordenado por maxX, descarte por upper-bound binario), O(log n + k) por consulta— y el
 //     muestreo de `sampleAlong`.
@@ -40,6 +41,9 @@ const distSqToSegment = (px, py, ax, ay, bx, by) => {
 // se reconoce por `typeof` y no comparando con undefined, y el null lo descarta `isPoint` antes de
 // leer: mezclar el double con undefined o con un NaN constante también obliga a encajonarlo, una
 // asignación por vértice en los recorridos de volumen.
+//
+// `isPlace` es la regla sin la forma, sobre la latitud y la longitud ya leídas: la comparten las
+// esquinas de una caja, que no llegan como punto.
 const indexable = v => Array.isArray(v) || ArrayBuffer.isView(v)
 
 const objectCoord = (p, axis) =>
@@ -47,9 +51,9 @@ const objectCoord = (p, axis) =>
   : axis ? p.longitude : p.latitude
 
 export const coordOf = (p, axis) => (indexable(p) ? p[axis] : objectCoord(p, axis))
+export const isPlace = (lat, lng) => Number.isFinite(lat) && Math.abs(lat) <= 90 && Number.isFinite(lng)
 export const isPoint = p =>
-  p != null && !(ArrayBuffer.isView(p) && p.length > 3) &&
-  Number.isFinite(coordOf(p, 0)) && Math.abs(coordOf(p, 0)) <= 90 && Number.isFinite(coordOf(p, 1))
+  p != null && !(ArrayBuffer.isView(p) && p.length > 3) && isPlace(coordOf(p, 0), coordOf(p, 1))
 
 // Un iterable del path es un objeto: un string también se recorre, pero sus caracteres no son
 // vértices. Un array se lee en su lugar; otro iterable se materializa antes de leerlo, porque uno de
@@ -60,11 +64,12 @@ const listOf          = v => (Array.isArray(v) ? v : iterable(v) ? [...v] : [])
 /** Los tramos de `part` leída como un path plano, con `base` = la posición de la parte en la
  *  entrada. Un vértice que no es punto corta y, si hay `cut`, se le avisa con el vértice:
  *  `acc = cut(acc, vertex)`. Quien mide lo necesita, porque un dato que no sirve no es lo mismo que
- *  ningún dato. `i === part.length` cierra el último tramo como un corte más, sin aviso. */
-export const foldPart = (part, base, fn, acc, cut) => {
+ *  ningún dato. `i === part.length` cierra el último tramo como un corte más, sin aviso. Un tramo de
+ *  menos de `least` vértices no se pliega. */
+export const foldPart = (part, base, fn, acc, cut, least = 2) => {
   for (let i = 0, first = 0; i <= part.length; i++) {
     if (i < part.length && isPoint(part[i])) continue
-    if (i - first >= 2) acc = fn(acc, part, first, i - first, base + first)
+    if (i - first >= least) acc = fn(acc, part, first, i - first, base + first)
     if (cut && i < part.length) acc = cut(acc, part[i])
     first = i + 1
   }
@@ -97,21 +102,34 @@ export const isNested = top => {
  *     puenteado por una recta que no existe); el corte igual ocupa índice.
  *   · anidado `[[punto, …], …]` — partes explícitas, arrays o cualquier iterable; los índices
  *     corren concatenados.
- *  Omite los tramos de < 2 vértices: no hay segmento que dibujar, medir ni contra el cual pickear.
- *  `cut` es el de `foldPart`. Es un pliegue, y no un recorrido con callback, para que el bucle por
- *  vértice viva en funciones de módulo, estables entre llamadas: en una clausura nueva por llamada
- *  arranca cada vez sin optimizar y encajona los doubles que lee. */
-export const foldRuns = (input, fn, acc, cut) => {
+ *  Omite los tramos de menos de `least` vértices: por defecto 2, porque con menos no hay segmento que
+ *  dibujar, medir ni contra el cual pickear; la caja de unos puntos pide 1. `cut` es el de `foldPart`.
+ *  Es un pliegue, y no un recorrido con callback, para que el bucle por vértice viva en funciones de
+ *  módulo, estables entre llamadas: en una clausura nueva por llamada arranca cada vez sin optimizar y
+ *  encajona los doubles que lee. */
+export const foldRuns = (input, fn, acc, cut, least) => {
   const top = listOf(input)
-  if (!isNested(top)) return foldPart(top, 0, fn, acc, cut)
+  if (!isNested(top)) return foldPart(top, 0, fn, acc, cut, least)
   let base = 0
   top.forEach(v => {
     const part = listOf(v)
-    acc = foldPart(part, base, fn, acc, cut)
+    acc = foldPart(part, base, fn, acc, cut, least)
     base += part.length
   })
   return acc
 }
+
+/** Pliega, como `foldRuns`, los argumentos de una función de puntos variádicos, `distance` o
+ *  `boundsOf`. Un solo argumento es un path si es nulo, o iterable y no es un punto; si no, es un
+ *  punto, válido o no. Con dos o más, cada uno es un punto. Un array cuyo primer elemento es un
+ *  objeto es un path sin pasar por `isPoint`: leer un path como punto le enseña al lector un array de
+ *  arrays, y desde ahí V8 encajona cada double que lee de una vista tipada o de un objeto, en todos
+ *  los recorridos. */
+export const foldArgs = (args, fn, acc, cut, least) =>
+  args.length === 1 &&
+  (typeof args[0]?.[0] === 'object' || args[0] == null || !isPoint(args[0]) && iterable(args[0]))
+    ? foldRuns(args[0], fn, acc, cut, least)
+    : foldPart(args, 0, fn, acc, cut, least)
 
 // Un tramo de `foldRuns`, copiado como parte de pares. Vive en el módulo, estable entre llamadas, por
 // lo que dice `foldRuns`.

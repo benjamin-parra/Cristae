@@ -40,7 +40,7 @@ import { createSource, defineIconSet } from 'cristae/map'
 | `cristae/table`    | tabla virtual + núcleo (solo `lit`)     | `<cristae-table>`  |
 | `cristae/core`     | solo el núcleo de datos (sin DOM)       | —                  |
 | `cristae/geojson`  | lector de GeoJSON a arrays tipados      | —                  |
-| `cristae/geometry` | distancias en metros + contrato de path | —                  |
+| `cristae/geometry` | distancias, cajas y contrato de path    | —                  |
 
 `table` y `map` nunca se importan entre sí: una tabla no baja Leaflet.
 

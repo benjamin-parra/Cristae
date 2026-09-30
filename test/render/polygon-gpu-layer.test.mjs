@@ -677,6 +677,12 @@ test('`addPolygonGpuLayer` delega y conserva su pane y su `interactive` históri
   assert.equal(typeof handle.style, 'function')
 })
 
+// Sin Source, la capa le informa su caja al encuadre del motor, con la forma de toda caja en grados.
+test('la capa informa su caja en grados como una `Bounds`', () => {
+  const { layer } = mount(tables([square(10, 20, 1), square(12, 22, 0.5)]))
+  assert.deepEqual(layer.bounds, { south: 19, west: 9, north: 22.5, east: 12.5 })
+})
+
 /* ── 10. El descarte por viewport cuenta el ancho del trazo ── */
 
 // El trazo se expande en píxeles de PANTALLA: una figura con la caja apenas afuera todavía pinta

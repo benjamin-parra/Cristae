@@ -206,10 +206,11 @@ export class PolygonGpuLayer {
     })
   }
 
-  // Caja en grados de lo que la capa dibuja, o `null` mientras no haya vértices.
+  // Caja en grados de lo que la capa dibuja, en la forma de toda caja en grados (geometry/bounds.js), o
+  // `null` mientras no haya vértices.
   get bounds() {
     const b = this.#box
-    return Number.isFinite(b[0]) ? { minLng: b[0], minLat: b[1], maxLng: b[2], maxLat: b[3] } : null
+    return Number.isFinite(b[0]) ? { south: b[1], west: b[0], north: b[3], east: b[2] } : null
   }
 
   #measure({ xy, vertexAt, ringCount, rings }) {

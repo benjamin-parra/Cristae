@@ -36,6 +36,7 @@ const jLector = await import('../src/geojson/geojson.js')
 const gGeodesic = await import('../src/geometry/geodesic.js')
 const gEllipsoid = await import('../src/geometry/ellipsoid.js')
 const gPolyline = await import('../src/geometry/polyline.js')
+const gBounds = await import('../src/geometry/bounds.js')
 
 // `table/` SÍ registra el custom element al importarse: se stubea el registry para observar
 // la definición sin DOM. El stub va después de los imports de arriba, a propósito.
@@ -202,18 +203,23 @@ test('el lector no registra ningún custom element', () => {
 
 // ── geometry: la medida, los modelos y el contrato de path, sin la regla interna ──
 
-// Seis nombres. `foldRuns`, `foldPart`, `iterable`, `coordOf` e `isPoint` son la regla de corte y de
-// punto que comparten `toParts`, `distance` y `fitToLayers`, y los editores leen con los dos últimos;
-// `arcMeters`, `makeModel` y `checkLength`, el núcleo de la esfera y la fábrica de modelos que
-// comparten las medidas y el picking de círculos: si salen del entry, alguien los usa y ya no se
-// pueden mover.
+// Diez nombres. `foldRuns`, `foldPart`, `foldArgs`, `iterable`, `coordOf`, `isPlace` e `isPoint` son la
+// regla de corte y de punto que comparten `toParts`, `distance`, `boundsOf` y `fitToLayers`, y los
+// editores leen con `coordOf` e `isPoint`; `emptyBounds`, `growBounds`, `growRun` y `readBounds`, la
+// caja y su lector, que comparten las cajas y los encuadres del motor; `arcMeters`, `makeModel` y
+// `checkLength`, el núcleo de la esfera y la fábrica de modelos que comparten las medidas y el picking
+// de círculos: si salen del entry, alguien los usa y ya no se pueden mover.
 const GEOMETRY = {
-  WGS84       : 'object',
-  distance    : 'function',
-  ellipsoid   : 'function',
-  sampleAlong : 'function',
-  sphere      : 'function',
-  toParts     : 'function',
+  WGS84         : 'object',
+  boundsCenter  : 'function',
+  boundsContain : 'function',
+  boundsOf      : 'function',
+  boundsPad     : 'function',
+  distance      : 'function',
+  ellipsoid     : 'function',
+  sampleAlong   : 'function',
+  sphere        : 'function',
+  toParts       : 'function',
 }
 
 test('cristae/geometry expone la medida, los modelos y el contrato de path — nada de lo que comparten por dentro', () => {
@@ -226,6 +232,7 @@ test('cada export de cristae/geometry es el MISMO valor que define su módulo', 
     distance: gGeodesic, sphere: gGeodesic,
     ellipsoid: gEllipsoid, WGS84: gEllipsoid,
     toParts: gPolyline, sampleAlong: gPolyline,
+    boundsOf: gBounds, boundsPad: gBounds, boundsContain: gBounds, boundsCenter: gBounds,
   }
   assert.deepEqual(Object.keys(origen).sort(), Object.keys(GEOMETRY).sort())
   for (const [k, mod] of Object.entries(origen))
