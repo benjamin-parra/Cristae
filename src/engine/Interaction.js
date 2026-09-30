@@ -1,11 +1,13 @@
-import { EVENT_HOVER, HANDLE_HELD, HANDLE_OVER, PICK_CHANNELS } from '../events/events.js'
+import { CLICK_TOLERANCE, EVENT_HOVER, HANDLE_HELD, HANDLE_OVER, PICK_CHANNELS, topFirst } from '../events/events.js'
 
-// Interaction — traduce lo que oye del anfitrión en hits ruteados por el EventBus: el puntero, el click y
-// el arrastre, por su entrada, y el ciclo de vista, por su cámara.
-// Cablea tres cosas y nada más: (1) pointer/click del DOM → registry.resolveHits → bus.dispatch;
-// (2) la sesión de hover con picking GPU no bloqueante (request → poll rAF → collect); (3) la
-// supresión de hover durante zoom/pan y el cursor del contenedor, del que es el ÚNICO escritor. No
-// conoce capas ni dominio: pide los hits al registro y los puntos pickeables al motor.
+// Interaction — la puerta del puntero: oye la entrada cruda del anfitrión, decide de quién es cada
+// pulsación y traduce lo que queda en hits ruteados por el EventBus; el ciclo de vista lo oye por su
+// cámara. Cablea cuatro cosas y nada más: (1) la pulsación —su dueño, el click que sintetiza y el doble
+// click, en docs/interaction.md#la-puerta-del-puntero—; (2) pointer/click → registry.resolveHits →
+// bus.dispatch; (3) la sesión de hover con picking GPU no bloqueante (request → poll rAF → collect); (4) la
+// supresión de hover durante zoom/pan y el cursor del contenedor, del que es el ÚNICO escritor. No conoce
+// capas ni dominio: pide los hits al registro, los puntos pickeables al motor y los handles a cada
+// participante que se suma con `join`.
 //
 // Picking dirigido por demanda, con DOS motivos para correr la sesión de hover (ver PICK_CHANNELS):
 //   · entregar EVENTOS de hover  → demanda del canal HOVER (`#hover.hoverDemand`);
@@ -33,6 +35,15 @@ const now = () => performance.now()
 const consumerCursor = cursor => cursor && (globalThis.CSS?.supports('cursor', cursor) ?? true) ? cursor : ''
 
 const PASSIVE = Object.freeze({ passive: true })
+const CAPTURE = Object.freeze({ capture: true })
+
+// La pulsación de un participante es suya: el anfitrión, que oye en burbuja, no la ve.
+const consume = event => {
+  event.preventDefault()
+  event.stopPropagation()
+}
+
+const quiet = (point, from) => Math.abs(point.x - from.x) + Math.abs(point.y - from.y) < CLICK_TOLERANCE
 
 export class Interaction {
 
@@ -51,8 +62,20 @@ export class Interaction {
   // Estado del puntero, en píxeles del contenedor (muta-y-reusa). `inside` lo prenden el `pointerenter` o
   // cualquier muestra —un motor montado con el puntero ya encima no recibe `pointerenter`— y lo apaga el
   // `pointerleave` del contenedor.
-  #pointer       = { inside: false, x: 0, y: 0 }
-  #containerRect = null
+  #pointer = { inside: false, x: 0, y: 0 }
+
+  // La caja del contenedor, con su escala CSS y su borde: el píxel de cada evento sale de acá. Se cachea
+  // porque leerla fuerza un layout, y en `pointermove` es el costo que no se paga; `stale` la manda a
+  // releer al entrar el puntero, en cada pulsación y cuando el mapa cambia de tamaño.
+  #frame = { stale: true, left: 0, top: 0, scaleX: 1, scaleY: 1, borderX: 0, borderY: 0 }
+
+  // La pulsación en curso: su puntero (-1 sin pulsación), el píxel donde se apretó, su dueño —el
+  // participante que la tomó, o null si es del mapa— y si todavía puede ser un click. `down` cuenta los
+  // punteros apoyados en el contenedor, con pulsación o sin ella. Muta-y-reusa.
+  #press = { pointer: -1, x: 0, y: 0, owner: null, click: false, down: 0 }
+
+  // Los participantes, top-first como los hits: `{ participant, zIndex, order }`.
+  #participants = []
 
   #interacting = false          // gesto de zoom/pan en curso → suprime hover (ortogonal al subsistema)
 
@@ -138,6 +161,20 @@ export class Interaction {
     if (!h.pickDemand) this.#endHover()
   }
 
+  // Un participante de la pulsación, en su lugar del orden declarado. Devuelve con qué sacarlo: una
+  // pulsación suya en curso se queda sin dueño, y sigue sin click.
+  join(participant, zIndex, order) {
+    const entry = { participant, zIndex, order }
+    const list  = this.#participants
+    const at    = list.findIndex(other => topFirst(entry, other) < 0)
+    list.splice(at < 0 ? list.length : at, 0, entry)
+    return () => {
+      const i = list.indexOf(entry)
+      i >= 0 && list.splice(i, 1)
+      this.#press.owner === participant && (this.#press.owner = null)
+    }
+  }
+
   // Devuelve el cursor que escribió: un motor nuevo sobre el mismo contenedor arranca de ''. Las
   // entradas quedan en cero para que el aviso tardío de un editor que se destruye después no lo repinte.
   destroy() {
@@ -155,12 +192,16 @@ export class Interaction {
 
   /* ── Cableado ── */
 
+  // La pulsación y el doble click se oyen en captura, antes que el anfitrión: lo que toma un participante
+  // se le saca a él. El resto, en burbuja y pasivo.
   #wire() {
-    this.#onDom('pointerenter', () => { this.#pointer.inside = true; this.#containerRect = this.#container.getBoundingClientRect() })
+    this.#onDom('pointerenter', () => { this.#pointer.inside = true; this.#frame.stale = true })
+    this.#onDom('pointerdown', e => this.#onPointerDown(e), CAPTURE)
     this.#onDom('pointermove', e => this.#onPointerMove(e))
+    this.#onDom('pointerup', e => this.#onPointerUp(e), CAPTURE)
+    this.#onDom('pointercancel', e => this.#onPointerUp(e), CAPTURE)
     this.#onDom('pointerleave', () => this.#onPointerLeave())
-
-    this.#offs.push(this.#input.onRecognized('click', e => this.#onClick(e)))
+    this.#onDom('dblclick', e => this.#onDblClick(e), CAPTURE)
     // secondary-click va por el evento crudo del contenedor, no por el 'contextmenu' que reconoce
     // Leaflet: con un listener Leaflet el mapa ejecuta preventDefault en TODO click derecho
     // (haya o no feature debajo), matando el menú nativo del browser incondicionalmente. Con el
@@ -168,8 +209,14 @@ export class Interaction {
     // puede llamar preventDefault() sobre el evento entregado.
     this.#onDom('contextmenu', e => this.#onSecondaryClick(e), { passive: false })
     this.#onView('movestart', () => this.#beginInteraction())
-    // El arrastre del USUARIO, no `movestart`: ése también lo dispara un flyTo, que no es un agarre.
-    this.#offs.push(this.#input.onDrag(dragging => { this.#cursor.dragging = dragging; this.#paintCursor() }))
+    // El arrastre del USUARIO, no `movestart`: ése también lo dispara un flyTo, que no es un agarre. La
+    // pulsación que arrastra el mapa ya no es un click.
+    this.#offs.push(this.#input.onDrag(dragging => {
+      this.#press.click &&= !dragging
+      this.#cursor.dragging = dragging
+      this.#paintCursor()
+    }))
+    this.#onView('resize', () => { this.#frame.stale = true })
     this.#onView('zoomstart', () => this.#beginInteraction())
     this.#onView('moveend', () => this.#endInteraction())
     this.#onView('zoomend', () => { this.#pickLayers().forEach(({ layer }) => layer.syncPickingSize()); this.#endInteraction() })
@@ -183,26 +230,88 @@ export class Interaction {
 
   /* ── Puntero ── */
 
+  // El píxel del contenedor donde cayó el evento, descontados la escala CSS y el borde: el mismo que
+  // proyecta la cámara. La escala sale como la da Leaflet, 1 si el contenedor no mide.
   #updatePointer(event) {
-    const rect = this.#containerRect ??= this.#container.getBoundingClientRect()
+    const f = this.#frame
+    const c = this.#container
+    if (f.stale) {
+      const rect = c.getBoundingClientRect()
+      f.stale   = false
+      f.left    = rect.left
+      f.top     = rect.top
+      f.scaleX  = rect.width / c.offsetWidth || 1
+      f.scaleY  = rect.height / c.offsetHeight || 1
+      f.borderX = c.clientLeft
+      f.borderY = c.clientTop
+    }
     const p = this.#pointer
     p.inside = true
-    p.x      = event.clientX - rect.left
-    p.y      = event.clientY - rect.top
+    p.x      = (event.clientX - f.left) / f.scaleX - f.borderX
+    p.y      = (event.clientY - f.top) / f.scaleY - f.borderY
     return p
   }
 
-  // La muestra del puntero, `{ lat, lng, x, y }`: un píxel del contenedor y su posición, que la cámara
-  // proyecta si no llega. Es la misma que reciben los resolvers de cada capa, los canales `pointer:move`
-  // y `hover*` del bus y el `cristae:pointermove` del elemento. Una por evento y congelada: la comparten
-  // los handlers y el picking del mismo evento, y su identidad ata el pick de hover de una capa a la
-  // muestra que lo pidió.
-  #sampleOf(point, { lat, lng } = this.#camera.containerPointToLatLng(point)) {
+  // La muestra del puntero, `{ lat, lng, x, y }`: un píxel del contenedor y la posición que la cámara le
+  // da. Es la misma que reciben los resolvers de cada capa, los canales `pointer:move` y `hover*` del bus
+  // y el `cristae:pointermove` del elemento. Una por evento y congelada: la comparten los handlers y el
+  // picking del mismo evento, y su identidad ata el pick de hover de una capa a la muestra que lo pidió.
+  #sampleOf(point) {
+    const { lat, lng } = this.#camera.containerPointToLatLng(point)
     return Object.freeze({ lat, lng, x: point.x, y: point.y })
   }
 
+  // El dueño de la pulsación en `sample`: el primer participante que reconoce el píxel, salvo que el hit
+  // de click de una capa quede por encima de él. Los hits sólo se resuelven si alguno lo reconoció.
+  #ownerAt(sample) {
+    const entry = this.#participants.find(({ participant }) => participant.handleAt(sample.x, sample.y))
+    const top   = entry && this.#registry.resolveHits('click', sample)[0]
+    return !entry || top && topFirst(top, entry) < 0 ? null : entry.participant
+  }
+
+  // Sólo abre una pulsación el puntero que baja sin otro apoyado. El que se suma no toma un handle ni es un
+  // click, aunque el que se sumó antes ya se haya levantado: la pulsación de un participante sigue con su
+  // puntero, y la del mapa se vuelve un gesto de varios dedos y se suelta sin click. El primario
+  // (`isPrimary`) baja sin otro de su tipo, así que la cuenta vuelve a uno: descuenta al que se soltó fuera
+  // del contenedor sin avisar, y la pulsación que ése dejó abierta se reinicia. Lo que cae fuera de la
+  // superficie —la UI del anfitrión— no es una pulsación del mapa. La del participante le toma el puntero
+  // hasta que se levante.
+  #onPointerDown(event) {
+    const p = this.#press
+    p.down = event.isPrimary ? 1 : p.down + 1
+    if (p.down > 1) {
+      p.owner || (p.pointer = -1)
+      p.click = false
+      return
+    }
+    p.pointer = -1
+    p.owner   = null
+    if (!this.#input.onSurface(event.target)) return
+
+    this.#frame.stale = true
+    const point = this.#updatePointer(event)
+    p.pointer = event.pointerId
+    p.x       = point.x
+    p.y       = point.y
+    p.owner   = event.button ? null : this.#ownerAt(this.#sampleOf(point))
+    p.click   = !event.button && !p.owner
+    if (!p.owner) return
+
+    consume(event)
+    this.#container.setPointerCapture(event.pointerId)
+    p.owner.down(point.x, point.y)
+  }
+
+  // Sin pulsación de un participante, cada muestra es hover para todos.
   #onPointerMove(event) {
-    const sample = this.#sampleOf(this.#updatePointer(event))
+    const point = this.#updatePointer(event)
+    const p     = this.#press
+    const mine  = event.pointerId === p.pointer
+    p.click &&= !mine || quiet(point, p)
+    if (p.owner) mine && p.owner.move(point.x, point.y)
+    else for (const { participant } of this.#participants) participant.move(point.x, point.y)
+
+    const sample = this.#sampleOf(point)
     this.#bus.dispatch('pointer:move', null, sample)            // crudo: coordenadas, sin picking
 
     const h = this.#hover
@@ -214,23 +323,52 @@ export class Interaction {
     this.#startHover(sample)
   }
 
-  #onPointerLeave() {
-    this.#pointer.inside = false
-    this.#endHover()
-    this.#bus.dispatch('hover:out', null, null)
-  }
+  // La pulsación termina con el `pointerup` o el `pointercancel` de su puntero. La del mapa que se suelta
+  // quieta es un click: sale con el `pointerup`, que es su evento del DOM, a los hits del registro —o como
+  // click en el vacío— y a cada participante. El `click` del DOM no se mira.
+  #onPointerUp(event) {
+    const p = this.#press
+    p.down && p.down--
+    if (event.pointerId !== p.pointer) return
 
-  // El bus entrega el evento del DOM: un click que no lo trae —uno disparado por código— sale con `null`.
-  // La muestra toma la posición del click y su píxel; el que se dispara con sólo `latlng` no trae píxel,
-  // y lo proyecta la cámara.
-  #onClick({ latlng, point, event }) {
-    const sample = this.#sampleOf(point ?? this.#camera.latLngToContainerPoint(latlng), latlng)
+    const point = this.#updatePointer(event)
+    const owner = p.owner
+    const click = p.click && event.type === 'pointerup' && quiet(point, p)
+    p.pointer = -1
+    p.owner   = null
+    p.click   = false
+    if (owner) {
+      consume(event)
+      return owner.up(point.x, point.y)
+    }
+    if (!click) return
+
+    const sample = this.#sampleOf(point)
     const hits   = this.#registry.resolveHits('click', sample)
-    this.#bus.dispatch('click', hits, event ?? null)
+    this.#bus.dispatch('click', hits, event)
     // Click en ESPACIO VACÍO (ningún hit en ninguna capa): entrega la coordenada cruda. Es la
     // captura de latlng para colocar un punto / editar geometría — el consumidor la cablea con el
     // callback inyectado. Cuando SÍ hay hit, el click ya se enrutó por el bus y esto no corre.
     hits.length || this.#onEmptyClick?.({ lat: sample.lat, lng: sample.lng })
+    for (const { participant } of this.#participants) participant.click(sample)
+  }
+
+  // El doble click es del dueño del píxel, por el mismo orden que la pulsación, y los demás lo reciben
+  // como del mapa. El que algún participante consume no hace zoom.
+  #onDblClick(event) {
+    if (!this.#input.onSurface(event.target)) return
+    const sample   = this.#sampleOf(this.#updatePointer(event))
+    const owner    = this.#ownerAt(sample)
+    const consumed = this.#participants.reduce(
+      (done, { participant }) => participant.dblclick(sample, participant === owner) || done, false)
+    consumed && this.#input.suppressDoubleClickZoom(event)
+  }
+
+  #onPointerLeave() {
+    for (const { participant } of this.#participants) participant.leave()
+    this.#pointer.inside = false
+    this.#endHover()
+    this.#bus.dispatch('hover:out', null, null)
   }
 
   // Click contextual (botón secundario / long-press / tecla Menú), desde el MouseEvent del DOM. El
@@ -238,7 +376,7 @@ export class Interaction {
   // `resolveClick`). El menú nativo del browser queda INTACTO por default: lo suprime el
   // consumidor con `event.preventDefault()` sólo cuando resolvió un hit propio.
   #onSecondaryClick(event) {
-    const sample = this.#sampleOf(this.#input.containerPoint(event))
+    const sample = this.#sampleOf(this.#updatePointer(event))
     this.#bus.dispatch('secondary-click', this.#registry.resolveHits('secondary-click', sample), event)
   }
 

@@ -54,6 +54,10 @@ const montar = async () => {
 const puntero = (container, tipo, x, y) =>
   container.dispatchEvent(new window.MouseEvent(tipo, { clientX: x, clientY: y, bubbles: true, cancelable: true }))
 
+// Una pulsación quieta: el click que sintetiza la puerta del puntero.
+const clickear = (container, x, y) => ['pointerdown', 'pointerup'].forEach(tipo =>
+  container.dispatchEvent(new window.PointerEvent(tipo, { clientX: x, clientY: y, bubbles: true, cancelable: true })))
+
 // Un marcador en el centro, con picking propio: da hits al click, al secundario y al hover.
 const marcar = async engine => {
   engine.addHtmlLayer({
@@ -124,9 +128,9 @@ test('los canales del motor entregan la muestra, el evento del DOM y cajas plana
   await marcar(engine)
 
   puntero(container, 'pointermove', 400, 300)
-  puntero(container, 'click', 400, 300)
+  clickear(container, 400, 300)
   puntero(container, 'contextmenu', 400, 300)
-  puntero(container, 'click', 50, 50)
+  clickear(container, 50, 50)
   puntero(container, 'pointerleave', 50, 50)
   engine.camera.setView([-33.1, -70.1], 11)
 
@@ -140,7 +144,7 @@ test('los canales del motor entregan la muestra, el evento del DOM y cajas plana
   assert.equal(recibido.hover[0][1], muestra, 'el hover entrega la misma muestra')
   assert.equal(recibido['hover:start'][0][1], muestra)
   assert.equal(recibido['hover:end'][0][1], null, 'salir del mapa no tiene muestra')
-  assert.ok(recibido.click[0][1] instanceof window.MouseEvent, 'el click entrega el evento del DOM')
+  assert.ok(recibido.click[0][1] instanceof window.PointerEvent, 'el click entrega el pointerup que lo cerró')
   assert.ok(recibido['secondary-click'][0][1] instanceof window.MouseEvent)
 
   const [[clickVacio]] = recibido['map:click']
@@ -174,15 +178,15 @@ test('los eventos del elemento llevan en el detail los mismos valores planos', a
   await marcar(el.engine)
 
   puntero(container, 'pointermove', 400, 300)
-  puntero(container, 'click', 400, 300)
-  puntero(container, 'click', 50, 50)
+  clickear(container, 400, 300)
+  clickear(container, 50, 50)
   el.camera.setView([-33.1, -70.1], 11)
 
   const [clic] = recibido.click
   plano(recibido.pointermove[0], ['lat', 'lng', 'x', 'y'], 'cristae:pointermove')
   plano(clic, ['hits', 'originalEvent'], 'cristae:click')
   assert.equal(clic.hits.length, 1, 'el click sobre el marcador trae su hit')
-  assert.ok(clic.originalEvent instanceof window.MouseEvent, 'y el evento del DOM')
+  assert.ok(clic.originalEvent instanceof window.PointerEvent, 'y el pointerup que cerró la pulsación')
   plano(recibido.mapclick[0], ['latlng'], 'cristae:mapclick')
   plano(recibido.mapclick[0].latlng, ['lat', 'lng'], 'cristae:mapclick.latlng')
   plano(recibido.viewportchange.at(-1), ['center', 'zoom', 'bounds'], 'cristae:viewportchange')
@@ -190,21 +194,25 @@ test('los eventos del elemento llevan en el detail los mismos valores planos', a
   el.disconnectedCallback()
 })
 
-// Un click disparado por código —`map.fire('click', { latlng })`, la forma habitual de simularlo en
-// Leaflet— trae sólo `latlng`: ni el píxel ni el evento del DOM.
-test('un click disparado con sólo latlng sale por click y por map:click', async () => {
-  const { engine } = await montar()
-  const recibido   = { click: [], vacio: [] }
-  engine.on('click', 'marcas', (hits, ev) => recibido.click.push([hits.length, ev]))
+// El click lo sintetiza la puerta del puntero con la pulsación quieta: el `click` que Leaflet dispara —el
+// de `map.fire('click', { latlng })`, la forma habitual de simularlo— ya no es un click de Cristae.
+test('una pulsación quieta sale por click con su hit, y en el vacío por map:click con su posición plana', async () => {
+  const { engine, container } = await montar()
+  const recibido              = { click: [], vacio: [] }
+  engine.on('click', 'marcas', (hits, ev) => recibido.click.push([hits.length, ev.type]))
   engine.on('map:click', detalle => recibido.vacio.push(detalle))
   await marcar(engine)
 
-  const map = engine.getLeafletMap()
-  map.fire('click', { latlng: L.latLng(-33, -70) })
-  map.fire('click', { latlng: L.latLng(-33.1, -70.1) })
+  const vacio = engine.camera.latLngToContainerPoint([-33.1, -70.1])
+  engine.getLeafletMap().fire('click', { latlng: L.latLng(-33, -70) })
+  clickear(container, 400, 300)
+  clickear(container, vacio.x, vacio.y)
 
-  assert.deepEqual(recibido.click, [[1, null]], 'sobre el marcador: su hit, sin evento del DOM')
-  assert.deepEqual(recibido.vacio, [{ latlng: { lat: -33.1, lng: -70.1 } }], 'en el vacío: su posición, plana y exacta')
+  assert.deepEqual(recibido.click, [[1, 'pointerup']], 'sobre el marcador: su hit y su pointerup; el de Leaflet no cuenta')
+  assert.equal(recibido.vacio.length, 1, 'en el vacío, uno')
+  plano(recibido.vacio[0].latlng, ['lat', 'lng'], 'map:click.latlng')
+  cerca(recibido.vacio[0].latlng.lat, -33.1, 'la latitud del píxel')
+  cerca(recibido.vacio[0].latlng.lng, -70.1, 'la longitud del píxel')
   engine.destroy()
 })
 

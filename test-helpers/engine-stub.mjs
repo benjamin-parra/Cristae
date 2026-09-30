@@ -333,9 +333,11 @@ export const installCanvasStub = () => {}
 // cuelga y descuelga). Reparte los eventos como el DOM, para que un test emita lo que despacharía el
 // navegador con `emitir(tipo, campos)`: un oyente es tipo, función y captura, y cada fase reparte sobre
 // la lista de ese momento, así que un oyente quitado a mitad ya no oye y uno agregado recién oye el
-// próximo. `target` es el nodo bajo el puntero, y null el contenedor mismo, donde oyen las dos fases;
-// desde un descendiente la burbuja llega salvo que alguien corte la propagación o que el tipo no burbujee.
-// El evento anota si alguien lo consumió (`consumido`) y si cortó su propagación (`cortado`).
+// próximo. `target` es el nodo bajo el puntero, por omisión el contenedor mismo, donde oyen las dos
+// fases; desde un descendiente la burbuja llega salvo que alguien corte la propagación o que el tipo no
+// burbujee. El puntero 1 es el primario —el mouse, o el primer dedo—, y otro sólo si el evento lo dice
+// (`isPrimary`). El evento anota si alguien lo consumió (`consumido`) y si cortó su propagación
+// (`cortado`). La caja mide lo que el contenedor, sin escala ni borde.
 const NO_BURBUJEAN = new Set(['pointerenter', 'pointerleave'])
 const enCaptura    = opciones => opciones === true || !!opciones?.capture
 
@@ -346,9 +348,13 @@ export const makeContainer = () => {
   const repartir = (e, captura) => oyentes
     .filter(o => o.tipo === e.type && o.captura === captura)
     .forEach(o => o.quitado || o.fn(e))
-  return {
+  const c = {
     oyentes,
-    style: {},
+    style        : {},
+    offsetWidth  : 800,
+    offsetHeight : 600,
+    clientLeft   : 0,
+    clientTop    : 0,
     addEventListener(tipo, fn, opciones) {
       buscar(tipo, fn, opciones) < 0 && oyentes.push({ tipo, fn, captura: enCaptura(opciones), quitado: false })
     },
@@ -361,15 +367,17 @@ export const makeContainer = () => {
     getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 600 }),
     emitir(type, campos) {
       const e = {
-        type, clientX: 0, clientY: 0, button: 0, detail: 1, pointerId: 1, target: null, ...campos,
+        type, clientX: 0, clientY: 0, button: 0, detail: 1, pointerId: 1, isPrimary: (campos?.pointerId ?? 1) === 1,
+        target: c, ...campos,
         consumido: false, cortado: false,
         preventDefault() { e.consumido = true }, stopPropagation() { e.consumido = e.cortado = true },
       }
       repartir(e, true)
-      if (!e.target || !NO_BURBUJEAN.has(type) && !e.cortado) repartir(e, false)
+      if (e.target === c || !NO_BURBUJEAN.has(type) && !e.cortado) repartir(e, false)
       return e
     },
   }
+  return c
 }
 
 // Proyección determinista e INVERTIBLE (px = coord·100): el fold la usa para el layout de la espiral
@@ -388,6 +396,15 @@ export const makeMap = ({ zoom = 3 } = {}) => {
   const panesRegistro = {}
   const handlers = new Map()   // evento → Set(cb); Leaflet acepta 'a b' (varios en un on)
   const container = makeContainer()
+  // Fiel a Leaflet: `mapPane` cuelga del contenedor y de él, los demás panes. Es la superficie del mapa:
+  // un nodo de un test está en ella si llega a este pane por `parentNode`.
+  const mapPane = {
+    parentNode: container,
+    contains(el) {
+      for (; el; el = el.parentNode) if (el === mapPane) return true
+      return false
+    },
+  }
 
   const each = (types, fn) => { for (const t of String(types).split(/\s+/)) fn(t) }
 
@@ -406,18 +423,12 @@ export const makeMap = ({ zoom = 3 } = {}) => {
     // Fiel a Leaflet: el handler del arrastre existe siempre, prendido o no.
     dragging: makeDragging(),
     getContainer: () => container,
-    // Fiel a Leaflet: lo que `DomEvent.disableClickPropagation` marcó —un control, un popup— no es del
-    // mapa. Sube desde el destino hasta el contenedor, el que el mapa tenga montado.
-    _isClickDisabled(el) {
-      for (const c = this.getContainer(); el && el !== c; el = el.parentNode)
-        if (el._leaflet_disable_click) return true
-    },
     // Fiel a Leaflet: `getPane` lee el registro `_panes`, y sacar el pane del DOM NO lo saca de ahí —
     // quien lo desmonte tiene que borrar la entrada o el alta siguiente reusa un nodo desconectado.
     _panes: panesRegistro,
     // Fiel a Leaflet: el renderer de los paths de cada pane, que el mapa cachea por nombre.
     _paneRenderers: {},
-    getPane: (n) => panesRegistro[n] ?? null,
+    getPane: (n) => n === 'mapPane' ? mapPane : panesRegistro[n] ?? null,
     createPane: (n) => (panesRegistro[n] = { style: {}, connected: true, appendChild() {}, remove() { panesRegistro[n].connected = false } }),
     getZoom: () => map._zoom,
     // Helper del TEST: fija el zoom lógico (el que lee recluster). No dispara eventos por sí solo.

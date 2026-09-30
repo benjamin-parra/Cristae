@@ -24,6 +24,16 @@ export const HANDLE_NONE = 0
 export const HANDLE_OVER = 1   // un handle bajo el puntero
 export const HANDLE_HELD = 2   // el gesto tiene uno tomado
 
+// Recorrido en px, medido como |dx| + |dy| desde donde se apretó, desde el que una pulsación ya no es
+// quieta: la del mapa deja de ser un click y la de un handle empieza a arrastrarlo. Es la tolerancia de
+// click de Leaflet, para que el click que sintetiza la puerta del puntero caiga donde caía el suyo.
+export const CLICK_TOLERANCE = 3
+
+// El orden de apilado: más `zIndex` arriba y, con el mismo, el de menor `order`. Negativo si `a` queda por
+// encima de `b`, así que ordena top-first. Lo comparten los hits del registro y los participantes de la
+// puerta del puntero, que se disputan la misma pulsación.
+export const topFirst = (a, b) => b.zIndex - a.zIndex || a.order - b.order
+
 // Tipo de evento → bit de canal (dispatch por tabla en vez de if/else). Los tres sabores de hover
 // comparten el canal EVENT_HOVER: 'hover' (estado actual), 'hover:start' y 'hover:end' (deltas).
 // Tabla CONSTANTE de módulo (no se reconstruye por llamada) con prototipo nulo: un tipo desconocido

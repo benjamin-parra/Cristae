@@ -330,7 +330,8 @@ test('destroy da de baja lo que oía del anfitrión', () => {
 
   esc.map.fire('movestart').fire('dragstart')
   esc.container.emitir('pointermove')
-  esc.map.fire('click', { latlng: { lat: 0, lng: 0 } })
+  esc.container.emitir('pointerdown')
+  esc.container.emitir('pointerup')
   assert.deepEqual({ escritas: esc.container.escritas.length, eventos: esc.bus.eventos }, { escritas, eventos: [] })
 })
 

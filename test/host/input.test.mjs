@@ -1,10 +1,9 @@
 // La entrada del anfitrión sobre el Leaflet REAL, en jsdom: el arrastre del usuario de punta a punta,
-// incluido el que Leaflet corta sin `dragend`; el préstamo del arrastre; el píxel de un evento; los
-// eventos crudos del contenedor frente a los que oye el anfitrión, y lo que Leaflet todavía reconoce: el
-// click del mapa y los controles. Son los tests de contrato de los dos privados que la entrada lee: si
-// `dragging.moving()` deja de dar el arrastre en curso, o `_isClickDisabled` deja de reconocer un
-// control, el cursor del arrastre o la pulsación sobre un control se rompen en silencio y es acá donde se
-// ve. Corre con: node --test test/host/input.test.mjs
+// incluido el que Leaflet corta sin `dragend`; el préstamo del arrastre; los eventos crudos del contenedor
+// frente a los que oye el anfitrión, con el zoom por doble click que se le saca, y qué es superficie del
+// mapa. Es el test de contrato del privado que la entrada lee: si `dragging.moving()` deja de dar el
+// arrastre en curso, el cursor del arrastre se rompe en silencio y es acá donde se ve. Corre con:
+// node --test test/host/input.test.mjs
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { contenedor, prepararDom } from '../../test-helpers/leaflet-real.mjs'
@@ -128,87 +127,45 @@ test('lendDrag presta el arrastre y lo devuelve; uno que su dueño apagó sigue 
   esc.map.remove()
 })
 
-/* ── El píxel ── */
+/* ── Los eventos del contenedor ── */
 
-// La caja en pantalla mide la mitad que el contenedor: está escalada a 0,5 por CSS.
-test('containerPoint da el píxel del contenedor, plano, descontados la escala CSS y el borde', () => {
-  const esc   = montar({ caja: { left: 10, top: 20, width: 400, height: 300 }, borde: 3 })
-  const punto = esc.input.containerPoint({ clientX: 110, clientY: 120 })
-  assert.deepEqual(punto, { x: 197, y: 197 })
-  assert.equal(Object.getPrototypeOf(punto), Object.prototype)
-  esc.map.remove()
-})
+// Un doble click del DOM en el centro del contenedor, sobre el pane de tiles.
+const doble = esc => esc.map.getPane('tilePane').dispatchEvent(
+  new window.MouseEvent('dblclick', { bubbles: true, cancelable: true, clientX: 400, clientY: 300 }))
 
-/* ── Los eventos del contenedor y lo que reconoce Leaflet ── */
-
-// Un click del DOM en el centro del contenedor, sobre el pane de tiles, y el evento despachado.
-const clickear = (esc, { target = esc.map.getPane('tilePane'), tipo = 'click' } = {}) => {
-  const e = new window.MouseEvent(tipo, { bubbles: true, cancelable: true, clientX: 400, clientY: 300 })
-  target.dispatchEvent(e)
-  return e
-}
-
-test('onRecognized entrega el click del mapa con valores planos, y no el de un control ni el que cierra un arrastre', () => {
-  const esc      = montar()
-  const clicks   = []
-  const dobles   = []
-  const offClick = esc.input.onRecognized('click', click => clicks.push(click))
-  esc.input.onRecognized('dblclick', doble => dobles.push(doble))
-
-  const centro = { latlng: esc.host.camera.fromContainer({ x: 400, y: 300 }), point: { x: 400, y: 300 } }
-  const click  = clickear(esc)
-  const doble  = clickear(esc, { tipo: 'dblclick' })
-  assert.deepEqual([clicks, dobles], [[{ ...centro, event: click }], [{ ...centro, event: doble }]])
-  assert.deepEqual([clicks[0].latlng, clicks[0].point].map(Object.getPrototypeOf), [Object.prototype, Object.prototype])
-
-  clickear(esc, { target: esc.map.zoomControl.getContainer().firstChild })
-  arrastre(esc.container)
-  soltar(esc.container)
-  clickear(esc)
-  assert.equal(clicks.length, 1, 'ni el del control ni el que sigue al arrastre')
-
-  esc.map.fire('click', { latlng: L.latLng(1, 2) })
-  esc.map.fire('click')
-  assert.deepEqual(clicks.slice(1), [
-    { latlng: { lat: 1, lng: 2 }, point: undefined, event: undefined },
-    { latlng: undefined, point: undefined, event: undefined },
-  ], 'uno disparado por código trae sólo lo que se le pasó')
-
-  offClick()
-  esc.map.fire('click', { latlng: L.latLng(1, 2) })
-  assert.equal(clicks.length, 3, 'dado de baja, no oye más')
-  esc.map.remove()
-})
-
-// El anfitrión oye en burbuja: quien oye en captura lo ve antes, y si corta ahí, el anfitrión no lo ve.
-test('on y off son los del contenedor, y en captura se oye antes que el anfitrión', () => {
+// El anfitrión oye en burbuja: quien oye en captura lo ve antes, y si corta ahí, el anfitrión no lo ve. Es
+// el contrato con que la puerta del puntero le saca el zoom a un doble click que consumió.
+test('on y off son los del contenedor; en captura se oye antes, y suppressDoubleClickZoom le saca el zoom', () => {
   const esc    = montar()
   const orden  = []
   const cortar = e => {
     orden.push('captura')
-    e.stopPropagation()
+    esc.input.suppressDoubleClickZoom(e)
   }
-  esc.input.onRecognized('click', () => orden.push('anfitrión'))
+  esc.map.on('dblclick', () => orden.push('anfitrión'))
 
-  esc.input.on('click', cortar, { capture: true })
-  clickear(esc)
-  esc.input.off('click', cortar, { capture: true })
-  clickear(esc)
-  assert.deepEqual(orden, ['captura', 'anfitrión'], 'cortado en captura no llega; dado de baja, sí')
+  esc.input.on('dblclick', cortar, { capture: true })
+  doble(esc)
+  const cortado = esc.map.getZoom()
+  esc.input.off('dblclick', cortar, { capture: true })
+  doble(esc)
+
+  assert.deepEqual(
+    { orden, cortado, dadoDeBaja: esc.map.getZoom() },
+    { orden: ['captura', 'anfitrión'], cortado: 10, dadoDeBaja: 11 },
+    'cortado en captura no llega ni hace zoom; dado de baja, sí',
+  )
   esc.map.remove()
 })
 
-test('withinControl reconoce un control o un popup, y no la superficie del mapa', () => {
+test('onSurface reconoce la superficie del mapa, y no la UI que el anfitrión pone en el contenedor', () => {
   const esc   = montar()
-  const popup = L.popup().setLatLng([-33, -70]).setContent('<b>hola</b>').openOn(esc.map)
   const casos = [
-    ['un botón del zoom', esc.map.zoomControl.getContainer().firstChild, true],
-    ['la atribución', esc.map.attributionControl.getContainer(), true],
-    ['el contenido de un popup', popup.getElement().querySelector('b'), true],
-    ['un pane', esc.map.getPane('tilePane'), false],
-    ['el contenedor', esc.container, false],
-    ['nada', null, false],
+    ['el contenedor', esc.container, true],
+    ['un pane', esc.map.getPane('tilePane'), true],
+    ['un botón del zoom', esc.map.zoomControl.getContainer().firstChild, false],
+    ['la atribución', esc.map.attributionControl.getContainer(), false],
   ]
-  assert.deepEqual(casos.map(([caso, nodo]) => [caso, esc.input.withinControl(nodo)]), casos.map(([caso, , es]) => [caso, es]))
+  assert.deepEqual(casos.map(([caso, nodo]) => [caso, esc.input.onSurface(nodo)]), casos.map(([caso, , es]) => [caso, es]))
   esc.map.remove()
 })

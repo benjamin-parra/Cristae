@@ -66,7 +66,7 @@ export const ViaData = () => (
       void d.zoom
       void d.bounds.south
     }}
-    onClick={(e) => { void e.detail.hits[0]?.layerId; void e.detail.originalEvent?.button }}
+    onClick={(e) => { void e.detail.hits[0]?.layerId; void e.detail.originalEvent.button }}
     onMapClick={(e) => { void e.detail.latlng.lng }}
     onPointerMove={(e) => { void e.detail.lat; void e.detail.x }}
     // Canales del bus (no hay CustomEvent): hits directos, sin `detail`; el hover trae la muestra.
@@ -86,7 +86,7 @@ export const ViaData = () => (
         const top = hits[0]
         if (top?.kind === 'line') void top.vertexIndex
         void top?.presentedFrom
-        void ev?.type
+        void ev.pointerType
       }}
       onSecondaryClick={(hits) => { void hits.length }}
     />

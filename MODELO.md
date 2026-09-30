@@ -80,7 +80,7 @@ shared/external/Cristae/          # raiz del paquete (se sirve por GitHub: git i
    ├─ engine/                    # motor headless (framework-agnostic)
    │  ├─ MapEngine.js            # orquestador
    │  ├─ Camera.js               # setView/panTo/fitBounds/flyTo/followPoint
-   │  └─ Interaction.js          # hover/click/pointermove → eventos genéricos
+   │  └─ Interaction.js          # la puerta del puntero → eventos genéricos
    ├─ host/                      # anfitrión: Leaflet detrás de facetas con valores propios
    ├─ render/                    # render GL (sin cambios algorítmicos)
    │  ├─ PointLayer.js           # ex GlifyLayer

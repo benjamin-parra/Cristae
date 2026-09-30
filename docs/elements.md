@@ -128,7 +128,7 @@ instancia** (resuelve al primer montaje, con su propio tiempo si hay varios mapa
 | Evento | `detail` |
 |---|---|
 | `cristae:ready` | `{}` — el motor existe; aquí ya se pueden leer `controls` e items del toolbar |
-| `cristae:click` | `{ hits, originalEvent }` — `hits` ordenados top-first (ver `interaction.md`); `originalEvent` es el evento del DOM, `null` en un click disparado por código |
+| `cristae:click` | `{ hits, originalEvent }` — `hits` ordenados top-first (ver `interaction.md`); `originalEvent` es el `pointerup` de la pulsación con que el motor sintetizó el click, un `PointerEvent` ([`interaction.md`](./interaction.md#la-puerta-del-puntero)) |
 | `cristae:mapclick` | `{ latlng: { lat, lng } }` — click en el vacío, sin ningún hit |
 | `cristae:hover` | `{ hits }` |
 | `cristae:pointermove` | la muestra del puntero, `{ lat, lng, x, y }`: su posición y su píxel del contenedor. Llega congelada ([SPECS §10](../SPECS.md)) |
@@ -210,7 +210,8 @@ Toda capa hoja (`point` / `line` / `polygon` / `html` / `label`) los hereda de l
 | `pane` | string | atributo — pane propio (default `cristae-<kind>-<id>`). Se lee en el alta; con el mismo nombre, varias capas lo comparten ([SPECS §8](../SPECS.md)) |
 
 Sin `z`, el motor lo deriva del orden de declaración (`400 + orden·10`): las mismas capas montadas en
-otro orden apilan distinto.
+otro orden apilan distinto. Las de `html` y `label` y el editor suman `200`: quedan sobre las demás
+aunque se declaren antes, y la puerta del puntero les da la pulsación por el mismo orden.
 
 ```html
 <cristae-line-layer z="378"></cristae-line-layer>   <!-- recorrido: debajo de los marcadores -->

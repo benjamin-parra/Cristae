@@ -24,7 +24,6 @@ const makeMap = () => {
   const listeners = new Map()
   const panes     = {}
   const each      = (types, fn) => String(types).split(/\s+/).forEach(fn)
-  const container = { style: {}, getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 600 }), addEventListener() {}, removeEventListener() {} }
   const map = Object.assign(makeMapStub(), {
     listeners,
     _panes     : panes,
@@ -33,8 +32,6 @@ const makeMap = () => {
     fire(type, e = {}) { listeners.get(type)?.forEach(cb => cb(e)); return map },
     getPane    : name => panes[name] ?? null,
     createPane : name => (panes[name] = makePane()),
-    getContainer: () => container,
-    dragging   : { enabled: () => true, enable() {}, disable() {} },
   })
   return map
 }
@@ -60,12 +57,16 @@ const montarElemento = ({ mode = 'draw', value = [] } = {}) => {
   return { el, map, engine }
 }
 
+// El click del mapa: una pulsación quieta en el píxel de la posición, que el doble proyecta a coord·100.
+const clickMapa = (map, lat, lng) => ['pointerdown', 'pointerup'].forEach(tipo =>
+  map.getContainer().emitir(tipo, { clientX: lng * 100, clientY: lat * 100 }))
+
 const ultimo = (el, tipo) => el.eventos.filter(e => e.type === tipo).at(-1)
 
 test('draw: un click de mapa llega hasta cristae:commit con el punto', () => {
   const { el, map } = montarElemento()
 
-  map.fire('click', { latlng: { lat: 1, lng: 2 } })
+  clickMapa(map, 1, 2)
 
   const commit = ultimo(el, 'cristae:commit')
   assert.ok(commit, 'el click no produjo ningún cristae:commit')
@@ -75,8 +76,8 @@ test('draw: un click de mapa llega hasta cristae:commit con el punto', () => {
 test('draw: los clicks sucesivos acumulan, arrancando de un valor VACÍO', () => {
   const { el, map } = montarElemento({ value: [] })
 
-  map.fire('click', { latlng: { lat: 1, lng: 2 } })
-  map.fire('click', { latlng: { lat: 3, lng: 4 } })
+  clickMapa(map, 1, 2)
+  clickMapa(map, 3, 4)
 
   assert.deepEqual(ultimo(el, 'cristae:commit').detail.value, [[1, 2], [3, 4]])
 })
@@ -84,7 +85,7 @@ test('draw: los clicks sucesivos acumulan, arrancando de un valor VACÍO', () =>
 test('draw: el eco queda fijado por la LECTURA del host, no por la emisión', () => {
   const { el, map } = montarElemento()
 
-  map.fire('click', { latlng: { lat: 1, lng: 2 } })
+  clickMapa(map, 1, 2)
   const leido = ultimo(el, 'cristae:commit').detail.value
   assert.equal(el._eco, leido, 'devolver ese mismo array como `value` no debe reingerir')
 })

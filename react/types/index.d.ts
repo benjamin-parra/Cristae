@@ -111,8 +111,8 @@ export type CristaeHit        = Hit
 export type CristaeLatLng               = LatLng
 export type CristaeViewportChangeDetail = ViewportChangeDetail
 export type CristaeMapClickDetail       = MapClickDetail
-/** `originalEvent` es el evento del DOM, `null` en un click disparado por código. */
-export interface CristaeClickDetail { hits: CristaeHit[]; originalEvent: MouseEvent | null }
+/** `originalEvent` es el `pointerup` de la pulsación con que el motor sintetizó el click (SPECS §10). */
+export interface CristaeClickDetail { hits: CristaeHit[]; originalEvent: PointerEvent }
 export interface CristaeHoverDetail { hits: CristaeHit[] }
 export type CristaePointerMoveDetail = PointerSample
 
@@ -121,8 +121,8 @@ export type CristaeEventHandler<D> = (event: CustomEvent<D>) => void
 
 /** Handler de un canal de picking del BUS del motor (`map.on('click' | 'hover' | …)`): NO es un
  *  CustomEvent — recibe los hits directos (filtrados por la capa que lo declara) y lo que los originó:
- *  el evento del DOM en los clicks, que es el tipo por defecto, y la muestra del puntero en el hover
- *  (`null` en un `hover:end` que cierra sin muestra, SPECS §10). */
+ *  el `pointerup` en el click, el evento del DOM en el click secundario —el tipo por defecto— y la
+ *  muestra del puntero en el hover (`null` en un `hover:end` que cierra sin muestra, SPECS §10). */
 export type CristaeHitsHandler<E = MouseEvent | null> = (hits: CristaeHit[], event: E) => void
 
 // ── Props base ──────────────────────────────────────────────────────────────
@@ -177,7 +177,7 @@ interface CristaeLeafLayerProps extends CristaeLayerProps {
  *  antes de montar, del `id` declarado; una capa sin `id` queda a la espera y se cabla sola en el
  *  `cristae:ready` (el mapa monta las pendientes antes de emitirlo). */
 interface CristaeDataLayerProps extends CristaeLeafLayerProps {
-  onClick?          : CristaeHitsHandler;
+  onClick?          : CristaeHitsHandler<PointerEvent>;
   /** Botón secundario / long-press (canal discreto del motor, sin CustomEvent). */
   onSecondaryClick? : CristaeHitsHandler;
   onHover?          : CristaeHitsHandler<PointerSample>;

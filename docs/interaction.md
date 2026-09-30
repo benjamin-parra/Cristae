@@ -13,6 +13,9 @@ puntero → resolver de cada capa → LayerRegistry        → EventBus
           (geometría)             (orden + gating)       (ruteo + diffing de hover)
 ```
 
+Antes, la [puerta del puntero](#la-puerta-del-puntero) decide de quién es cada pulsación: lo que le
+queda al mapa entra al pipeline.
+
 1. **El resolver de cada capa** sabe su geometría: dada la muestra del puntero, produce las
    **partes** de hit (`{ ref, distancePx }`) —el pase de picking en GPU para los puntos, la
    geometría en CPU para polígonos, líneas, círculos y marcadores HTML—.
@@ -121,6 +124,44 @@ alguien lo escucha. `onDemandChange` dispara el recálculo justo cuando un conta
 
 ---
 
+## La puerta del puntero
+
+`engine/Interaction.js` es lo único que oye el puntero del contenedor: los eventos crudos del anfitrión
+—`pointerdown`/`move`/`up`/`cancel`/`enter`/`leave`, `dblclick` y `contextmenu`—, nunca el click que
+reconoce Leaflet. La pulsación y el doble click se oyen en captura, antes que el anfitrión; el resto, en
+burbuja.
+
+Un **participante** —el editor de geometría— se suma con `join(participant, zIndex, order)`, que
+devuelve su baja, y reconoce sus handles con un resolver síncrono, `handleAt(x, y)`. El `pointerdown`
+del botón primario es del primero que reconoce el píxel en el orden de los hits (`zIndex` desc, `order`
+asc), salvo que el hit de click de una capa quede por encima: entonces es del mapa. Los hits se
+resuelven sólo si algún participante reconoció el píxel.
+
+| La pulsación es | El participante recibe | El mapa |
+|---|---|---|
+| de un participante | `down`, cada `move` de su puntero y `up`, también por `pointercancel`; el puntero queda capturado | no la ve: el `pointerdown` y el `pointerup` se consumen, y no hay click |
+| del mapa | cada `move` como hover, y `click(sample)` si fue un click | la arrastra, o rutea su click |
+
+- **El click lo sintetiza la puerta:** es la pulsación del mapa con el botón primario que se suelta sin
+  haber recorrido `CLICK_TOLERANCE` px (|dx| + |dy|, la tolerancia de Leaflet), sin arrastrar el mapa
+  y sin un segundo puntero. Sale con su `pointerup` por el canal `click` del bus —o como `map:click` sin
+  hits— y después a cada participante. El `click` del DOM no se mira.
+- **Un puntero que baja con otro apoyado no abre pulsación:** no toma un handle ni es un click, aunque el
+  que se sumó antes ya se haya levantado. La pulsación del mapa en curso se suelta sin click; la de un
+  participante sigue con su puntero. La puerta cuenta los apoyados en el contenedor, y el primario
+  (`isPrimary`) vuelve la cuenta a uno: un `pointerdown` sintetizado sin `isPrimary` abre pulsación
+  mientras cada uno tenga su `pointerup`.
+- **El doble click** llega como propio al dueño del píxel, por el mismo orden (`dblclick(sample,
+  true)`), y como del mapa a los demás. Si alguno devuelve `true`, la puerta llama a
+  `host.input.suppressDoubleClickZoom` y el mapa no hace zoom.
+- **Fuera de la superficie** (`host.input.onSurface`), en la UI que el anfitrión pone en el contenedor,
+  una pulsación no toma handles ni es un click, y el doble click no llega a nadie.
+- **Salir del contenedor** les llega a todos como `leave()`.
+- **El píxel** de cada evento sale de la caja del contenedor, cacheada con su escala CSS y su borde; se
+  relee al entrar el puntero, en cada pulsación y cuando el mapa cambia de tamaño.
+
+---
+
 ## El cursor del contenedor
 
 `engine/Interaction.js` es el **único** que escribe `container.style.cursor`, y sólo cuando el valor
@@ -191,7 +232,9 @@ Ejemplo del patrón: un picker de selección múltiple pinta los hits una vez y,
 2. **Gating doble en el registro:** capa invisible o sin la máscara del canal → no se pickea.
 3. **Sin picking de canal sin demanda:** el conteo del bus garantiza que un canal sin handlers
    tenga máscara 0 y por tanto no se evalúe.
-4. **Hover consistente al desaparecer una capa:** `clearLayer` fuerza `hover:end` para que el
+4. **Una pulsación, un dueño:** la de un participante no llega al mapa ni es un click; la del mapa no
+   llega a ningún participante más que como hover y click.
+5. **Hover consistente al desaparecer una capa:** `clearLayer` fuerza `hover:end` para que el
    estado externo no sobreviva a la capa que lo originó.
 
 ---

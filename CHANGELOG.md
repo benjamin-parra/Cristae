@@ -108,13 +108,11 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   `sample.latlng` o `sample.containerPoint` en `pointer:move` o en el hover lee `sample.lat`,
   `sample.lng`, `sample.x` y `sample.y`; `layerPoint` no tiene reemplazo, porque es un píxel de Leaflet.
   Quien modificaba la muestra, o el detail de `cristae:pointermove`, trabaja sobre una copia. Un
-  `paint` de etiquetas que usaba los métodos de `L.Point` sobre su `point` opera con `x` e `y`. El
-  `originalEvent` de un click disparado por código pasa a `null`, donde antes llegaba el evento de
-  Leaflet. En TypeScript, `getBounds()` y el `bounds` de `viewportchange` pasan de `unknown` a `Bounds`;
-  el segundo argumento del hover, de `MouseEvent` a `PointerSample`, de sólo lectura, y en React los
-  `onHover*` lo tipan así (`onHoverEnd`, con `null`) porque `CristaeHitsHandler` toma ese argumento como
-  parámetro, `MouseEvent | null` por defecto; `CristaeClickDetail.originalEvent` pasa de `Event`
-  opcional a `MouseEvent | null`, `CristaePointerMoveDetail` deja de admitir `null` y `undefined`, y los
+  `paint` de etiquetas que usaba los métodos de `L.Point` sobre su `point` opera con `x` e `y`. En
+  TypeScript, `getBounds()` y el `bounds` de `viewportchange` pasan de `unknown` a `Bounds`; el segundo
+  argumento del hover, de `MouseEvent` a `PointerSample`, de sólo lectura, y en React los `onHover*` lo
+  tipan así (`onHoverEnd`, con `null`) porque `CristaeHitsHandler` toma ese argumento como parámetro,
+  `MouseEvent | null` por defecto; `CristaePointerMoveDetail` deja de admitir `null` y `undefined`, y los
   hits de `pointer:move` en `BusChannels`, de `null` a `[]`.
 - **Los paths de líneas y el `value` de los editores aceptan las cuatro formas de punto.** Un punto
   es `[lat, lng]` —array, o vista tipada de dos o tres componentes—, `{ lat, lng }`, `{ lat, lon }` o
@@ -168,6 +166,23 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   `zoom-animation="on"` —en el motor, `zoomAnimation: 'on'` o `setZoomAnimation('on')`—, o `"in-only"` si
   sólo vuela para acercar.
 
+- **El puntero del mapa pasa por una sola puerta, que decide de quién es cada pulsación por el orden
+  declarado y sintetiza el click.** El editor se quedaba siempre con la pulsación sobre uno de sus
+  handles, aunque una capa interactiva declarada después tuviera una feature encima, y el click del mapa
+  era el que reconocía Leaflet. Ahora la pulsación es del primero que la reconoce en el orden de los hits
+  —`zIndex` desc, `order` asc—, sea el handle o la feature, y el click es la pulsación quieta del botón
+  primario —dentro de la tolerancia de click de Leaflet, sin arrastrar el mapa ni apoyar otro dedo— que
+  no tomó un handle: sale con el `pointerup` que la cierra. El doble click que cierra un trazo en
+  `mode: 'draw'` ya no hace zoom ([`docs/interaction.md`](docs/interaction.md#la-puerta-del-puntero)).
+  *Migración*: una capa interactiva declarada después de un editor —o con más `z`— se queda con la
+  pulsación sobre el handle que tape; para que gane el editor, se lo declara después o se le da más `z`.
+  El `originalEvent` de `click` / `cristae:click` es el `pointerup` (un `PointerEvent`, que es un
+  `MouseEvent`) y ya no llega `null`: así lo tipan `CristaeClickDetail.originalEvent`, que era `Event`
+  opcional, y en React el `onClick` de las capas. Un click simulado con `map.fire('click', { latlng })`
+  ya no llega a Cristae: se despachan `pointerdown` y `pointerup` sobre el contenedor del mapa. En un
+  mapa adoptado, lo que su dueño cuelga de los panes con Leaflet —un `L.popup`, un marcador— ya no le
+  saca el click a Cristae; un control sí.
+
 ### Eliminado
 - **`LatLngLike` sale de los tipos.** Era el punto de la cámara con el contrato de Leaflet, un par o
   `{ lat, lng }`; la cámara acepta ahora `LatLngPoint` y devuelve `LatLng`.
@@ -184,26 +199,21 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   alejaban hasta el tope conservando el centro: con `viewport-insets` desiguales la caja quedaba
   corrida hacia el lado del panel, y con el zoom animado el tope se leía antes de que el encuadre
   terminara. Ahora el tope va en el mismo encuadre, que es un solo movimiento.
-- **Soltar un handle del editor ya no deja un click en el mapa.** En `mode: 'edit'` el editor consume en
-  captura el `pointerdown` que reconoce un handle, y eso suprime los eventos de compatibilidad del
-  mouse, pero no el `click` que el navegador despacha al soltar: llegaba al mapa como un click más
-  —`map:click` / `cristae:mapclick` en el vacío, el `click` de la capa si había una interactiva
-  debajo—. Quien agrega vértices con el click del mapa recibía uno donde terminaba el arrastre, y lo
-  mismo al pulsar un vértice sin moverlo, al insertar por un midpoint y en los dos clicks previos al
-  doble click que borra. Ahora ese click se consume con el resto del gesto; el de teclado, que no cierra
-  ninguna pulsación, sigue su camino, y el de puntero es del gesto aunque un `onCommit` a mitad de la
-  pulsación pase a `mode: 'draw'` o destruya el editor. Un click en el vacío sigue siendo del mapa, y
-  `mode: 'draw'` no cambia ([`docs/editing.md`](docs/editing.md)).
-  *Migración*: el click que cierra un gesto sobre un handle se corta en captura sobre el contenedor del
-  mapa, así que no llega ni a su destino ni a la burbuja: no lo ve un listener de `click` en `document`
-  o en un ancestro del mapa —como ya no veía su `pointerdown`—, ni un control propio dentro del mapa que
-  tape el handle sin `L.DomEvent.disableClickPropagation`. Esa marca, que Leaflet ya pide para que el
-  click del control no sea del mapa, lo deja fuera del gesto. Un filtro propio que descartaba el click
-  posterior a un arrastre sobra.
+- **Soltar un handle del editor ya no deja un click en el mapa.** En `mode: 'edit'` el editor consumía
+  el `pointerdown` que reconoce un handle, pero no el `click` que el navegador despacha al soltar:
+  llegaba al mapa como un click más —`map:click` / `cristae:mapclick` en el vacío, el `click` de la capa
+  si había una interactiva debajo—. Quien agrega vértices con el click del mapa recibía uno donde
+  terminaba el arrastre, y lo mismo al pulsar un vértice sin moverlo, al insertar por un midpoint y en
+  los dos clicks previos al doble click que borra. Ahora la pulsación que toma un handle no es un click
+  —el click lo sintetiza el motor, ver «Cambiado»—, aunque un `onCommit` a mitad de ella pase a
+  `mode: 'draw'` o destruya el editor. Un click en el vacío sigue siendo del mapa
+  ([`docs/editing.md`](docs/editing.md#el-gesto-y-el-click-del-mapa)).
+  *Migración*: un filtro propio que descartaba el click posterior a un arrastre sobra.
 - **Un control del mapa que tapa un handle se queda con su pulsación.** El editor elegía el handle por
-  píxel sin mirar qué nodo recibía el evento: pulsar el zoom o un popup encima de un vértice lo tomaba
-  —y lo arrastraba si el puntero se movía—, y un doble click ahí lo borraba. Ahora lo que cae sobre un
-  subárbol que Leaflet marca con `disableClickPropagation` es del control, como lo es para el mapa.
+  píxel sin mirar qué nodo recibía el evento: pulsar el zoom encima de un vértice lo tomaba —y lo
+  arrastraba si el puntero se movía—, y un doble click ahí lo borraba. Ahora lo que cae fuera de la
+  superficie del mapa, en la UI que Leaflet pone en su contenedor, no es una pulsación del mapa: no toma
+  handles, no es un click y su doble click no borra.
 - **Un `onCommit` que corta la inserción por midpoint ya no deja el mapa sin arrastre.** Insertar
   asienta en el `pointerdown`, y el editor tomaba el gesto después igual: si ese `onCommit` había pasado
   a `mode: 'draw'` o destruido el editor, nadie oía el `pointerup` que devuelve el arrastre del mapa, y

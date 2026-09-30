@@ -76,24 +76,27 @@ En `polygon`, la salida **espeja la entrada**: si entró un anillo simple, sale 
 
 ## El gesto y el click del mapa
 
-En `mode: 'edit'`, la pulsación sobre un handle es del editor: el mapa no se arrastra con ella, y el
-`click` con que el navegador la cierra se corta en captura sobre el contenedor del mapa, antes de que lo
-vean su destino o la burbuja. No sale como click del mapa (`map:click` en el motor,
-`cristae:mapclick` en el elemento) ni como el `click` de una capa debajo, y un listener de `click` en
-`document` o en un ancestro del mapa tampoco lo ve, salvo que escuche en captura. El click de teclado
-no cierra ningún gesto y sigue su camino.
+El editor no oye el contenedor del mapa: el puntero le llega por la
+[puerta del puntero](./interaction.md#la-puerta-del-puntero), que lo pone en el lugar de su capa en el
+orden declarado.
 
+En `mode: 'edit'`, la pulsación sobre un handle es del editor salvo que el hit de click de una capa
+quede por encima: el mapa no se arrastra con ella y no es un click —ni `map:click` / `cristae:mapclick`,
+ni el `click` de una capa debajo—, se mueva o no. Su `pointerdown` y su `pointerup` no siguen a la
+burbuja; el `click` que el navegador despacha después sí, y Cristae no lo mira.
+
+- Una capa interactiva por encima del editor con una feature sobre el handle se queda con la pulsación:
+  es su click, y el mapa se arrastra con ella. Declararla después no alcanza, porque el editor se apila
+  200 sobre su lugar del orden ([apilado](./elements.md#apilado--z--pane)): la sube su `z`.
 - Un click en el vacío sigue siendo del mapa y sale como `map:click` / `cristae:mapclick`.
-- Lo que cae sobre un control o un popup —lo que Leaflet marca con `disableClickPropagation`— es suyo
-  aunque tape un handle: la pulsación no toma el handle, y el doble click no lo borra. Un control sin
-  esa marca es superficie del mapa, como lo es para Leaflet: si tapa un handle, su click es del gesto y
-  no le llega.
-- El doble click que no borra —en `rectangle`, en `point` o en un trazo que ya está en su mínimo— sigue
-  siendo del mapa, que hace zoom, donde el navegador despacha `dblclick`. Donde no lo despacha para el
-  toque, Leaflet lo arma con los dos clicks, que ya son del gesto: ahí un doble tap sobre un handle no
-  hace nada.
-- El click sigue siendo del gesto aunque un `onCommit` a mitad de la pulsación pase a `mode: 'draw'` o
-  destruya el editor: en `draw` no agrega un vértice donde se soltó.
+- Lo que cae fuera de la superficie del mapa —el zoom, la atribución o la UI de una zona— es suyo
+  aunque tape un handle: la pulsación no toma el handle ni es un click, y el doble click no lo borra.
+- El doble click que borra un vértice es del gesto, y el mapa no hace zoom. El que no borra —en
+  `rectangle`, en `point` o en un trazo que ya está en su mínimo— sigue siendo del mapa, que hace zoom.
+  Donde el navegador no despacha `dblclick` para el toque, Leaflet lo arma con los dos clicks y no pasa
+  por la puerta: ahí un doble tap no borra un vértice ni cierra un trazo, y hace zoom.
+- La pulsación sigue siendo del gesto aunque un `onCommit` a mitad de ella pase a `mode: 'draw'` o
+  destruya el editor: no es un click, y en `draw` no agrega un vértice donde se soltó.
 - El gesto es del puntero que lo tomó: otro dedo que se apoya mientras dura no toma otro handle, ni
   mueve o suelta el vértice tomado.
 
@@ -103,7 +106,8 @@ El pase que reconoce el handle no bloquea, así que el cursor sigue a la última
 resuelta: con el puntero quieto justo al entrar o salir de un handle, lo corrige el próximo movimiento o
 la pulsación.
 
-En `mode: 'draw'` no hay gesto sobre handles: el click del mapa **es** la edición.
+En `mode: 'draw'` no hay gesto sobre handles: el click del mapa **es** la edición, y el doble click cierra
+el trazo de un polígono o una polilínea con dos vértices o más, sin zoom.
 
 ---
 
@@ -168,9 +172,9 @@ const handle = engine.addEditableLayer({
 
 `EditableHandle`: `{ id, setValue, setMode, setStyle, getValue, handleMapClick, destroy }`.
 
-`handleMapClick(latlng)` es la sub-pieza de captura de punto: en `mode: 'draw'` el editor ya se
-suscribe al click del mapa, pero el consumidor que rutea su propia captura —porque el click también
-alimenta otra cosa— lo llama a mano en vez de pelearse con la suscripción nativa.
+`handleMapClick(latlng)` es la sub-pieza de captura de punto: en `mode: 'draw'` el editor ya recibe el
+click del mapa, pero el consumidor que rutea su propia captura —porque el click también alimenta otra
+cosa— lo llama a mano en vez de pelearse con el que le llega.
 
 ---
 

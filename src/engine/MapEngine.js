@@ -424,6 +424,7 @@ export class MapEngine {
     const zIndex   = z ?? (BASE_Z + order * Z_STEP + LABEL_Z_OFFSET)   // handles por encima de las capas
     const editor = this.#build(paneName, zIndex, () => new EditableGeometry({
       host: this.#host, pane: paneName, kind, value, mode, style, onChange, onCommit,
+      join: participant => this.#interaction.join(participant, zIndex, order),   // los handles, en su lugar del orden
       onHandleLevel: level => this.#interaction.setHandleLevel(id, level),   // el árbitro del cursor lo traduce
     }), true)
     const record = { kind: 'editable', editor, paneName, zIndex, order, visible: true, enabled: true }

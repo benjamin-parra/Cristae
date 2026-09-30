@@ -71,9 +71,10 @@ let glVigente = null
 
 after(conGlDeEdicion(() => glVigente))
 
+// Sin puerta del puntero: lo que se mide no depende de él.
 const editor = cfg => {
   glVigente = makeEditGl()
-  return new EditableGeometry({ host: adoptLeafletHost(makeMap()), pane: 'edit', ...cfg })
+  return new EditableGeometry({ host: adoptLeafletHost(makeMap()), join: () => () => {}, pane: 'edit', ...cfg })
 }
 
 // La Source real emite en rAF (defer:'raf' → setTimeout(0) bajo el shim); un macrotask lo vacía, así

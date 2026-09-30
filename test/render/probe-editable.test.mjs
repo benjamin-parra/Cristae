@@ -11,7 +11,10 @@ import { conGlDeEdicion, contadorNodos, makeDragging, makeEditGl, makeMap, makeP
 import { after, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { EditableGeometry } from '../../src/render/EditableGeometry.js'
+import { Camera } from '../../src/engine/Camera.js'
+import { Interaction } from '../../src/engine/Interaction.js'
 import { adoptLeafletHost } from '../../src/host/LeafletHost.js'
+import { LayerRegistry } from '../../src/interaction/LayerRegistry.js'
 
 const P = 100
 
@@ -19,40 +22,28 @@ let glVigente = null
 
 after(conGlDeEdicion(() => glVigente))
 
-const contenedor = () => {
-  const oyentes = new Map()
-  return {
-    oyentes,
-    style                 : {},
-    addEventListener      : (tipo, fn) => oyentes.set(tipo, fn),
-    removeEventListener   : tipo => oyentes.delete(tipo),
-    setPointerCapture     : () => {},
-    getBoundingClientRect : () => ({ left: 0, top: 0, width: 800, height: 600 }),
-  }
-}
-
 // `panePrevio`: el pane de edición ya existe en el mapa antes de montar el editor — el caso en que el
 // pane es del consumidor y el editor sólo lo usa prestado. `sobre`: un editor ya montado cuyo MAPA se
-// comparte (dos editores sobre el mismo mapa comparten también su anfitrión, su contenedor y su arrastre).
+// comparte (dos editores sobre el mismo mapa comparten también su anfitrión, su contenedor, su arrastre y
+// la puerta del puntero que les entrega los eventos).
 const montar = ({ kind = 'polygon', value = null, mode = 'edit', panePrevio = false, sobre = null } = {}) => {
   const spy = makePickSpy()
   glVigente = makeEditGl(spy)
-  const container = sobre?.container ?? contenedor()
-  const dragging  = sobre?.dragging  ?? makeDragging()
-  const map       = sobre?.map       ?? { ...makeMap(), getContainer: () => container, dragging }
+  const dragging  = sobre?.dragging ?? makeDragging()
+  const map       = sobre?.map      ?? { ...makeMap(), dragging }
+  const container = map.getContainer()
   panePrevio && map.createPane('edit')
-  const host      = sobre?.host      ?? adoptLeafletHost(map)
+  const host      = sobre?.host     ?? adoptLeafletHost(map)
+  const puerta    = sobre?.puerta   ?? new Interaction({ host, camera: new Camera({ host }), registry: new LayerRegistry(), bus: { dispatch() {} } })
   const changes   = [], commits = []
   const ed = new EditableGeometry({
-    host, pane: 'edit', kind, value, mode,
+    host, join: participante => puerta.join(participante, 0, 0), pane: 'edit', kind, value, mode,
     onChange: leer => changes.push(leer()), onCommit: leer => commits.push(leer()),
   })
-  return { ed, map, host, container, dragging, spy, changes, commits, pixel: 0 }
+  return { ed, map, host, puerta, container, dragging, spy, changes, commits, pixel: 0 }
 }
 
-const emitir = (esc, tipo, x, y) => esc.container.oyentes.get(tipo)?.({
-  clientX: x, clientY: y, button: 0, pointerId: 1, preventDefault() {}, stopPropagation() {},
-})
+const emitir = (esc, tipo, x, y) => esc.container.emitir(tipo, { clientX: x, clientY: y })
 
 // Qué HAY bajo el puntero, no qué contesta el pase: se declara la entrada del arena y el doble sólo la
 // devuelve si algún draw del trazo la cubrió (ver `componer` en el harness). point y rectangle no exponen

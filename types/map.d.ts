@@ -222,16 +222,17 @@ export interface ClusterMarked {
 }
 
 // ── Canales del bus ─────────────────────────────────────────────────────────
-// Un canal por entrada; la firma es la que el bus invoca: los hits y lo que los originó. Los clicks
-// entregan el evento del DOM; el hover y `pointer:move`, la muestra del puntero. En `pointer:move` no
-// hay picking: los hits llegan vacíos, una lista por handler.
+// Un canal por entrada; la firma es la que el bus invoca: los hits y lo que los originó. El click entrega
+// el `pointerup` de la pulsación que lo sintetizó (SPECS §10) y el secundario, su evento del DOM; el hover
+// y `pointer:move`, la muestra del puntero. En `pointer:move` no hay picking: los hits llegan vacíos, una
+// lista por handler.
 
 /** La muestra del puntero: su posición en grados y su píxel del contenedor. Es también el detail de
  *  `cristae:pointermove`, y llega congelada: la comparten los handlers y el picking del mismo evento. */
 export interface PointerSample extends Readonly<LatLng>, Readonly<Point> {}
 
 export interface BusChannels {
-  'click'           : (hits: Hit[], event: MouseEvent | null) => void;
+  'click'           : (hits: Hit[], event: PointerEvent) => void;
   'secondary-click' : (hits: Hit[], event: MouseEvent | null) => void;
   'hover'           : (hits: Hit[], sample: PointerSample) => void;
   'hover:start'     : (hits: Hit[], sample: PointerSample) => void;

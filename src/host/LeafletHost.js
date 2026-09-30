@@ -316,16 +316,22 @@ const hostOf = (map, leaflet, ownsMap, zoomPolicy) => {
     DRAG_SYNC.forEach(type => container[onContainer](type, syncDrag, PASSIVE))
   }
 
+  // Lo que no cuelga de `mapPane` es la UI que Leaflet pone en el contenedor: los controles.
+  const mapPane = map.getPane('mapPane')
+
   const input = {
     // El evento tal como llega al contenedor: `on` y `off` son su `addEventListener` y su
     // `removeEventListener`, con las mismas opciones. El anfitrión oye en burbuja sobre ese mismo nodo
-    // —su arrastre, su zoom por doble click, su click—, así que un oyente en captura oye cada evento antes
-    // que él, y cortar ahí su propagación se lo saca.
+    // —su arrastre, su zoom por doble click—, así que un oyente en captura oye cada evento antes que él, y
+    // cortar ahí su propagación se lo saca.
     on  : (type, fn, options) => container.addEventListener(type, fn, options),
     off : (type, fn, options) => container.removeEventListener(type, fn, options),
 
-    // El píxel del contenedor donde cayó un evento del puntero, descontados la escala CSS y el borde.
-    containerPoint: event => plainPoint(map.mouseEventToContainerPoint(event)),
+    // Si el destino de un evento es la superficie del mapa —el contenedor o lo que cuelga de sus panes— y
+    // no la UI del anfitrión.
+    onSurface: target => target === container || mapPane.contains(target),
+    // Un doble click que Cristae consumió no hace zoom. Se llama desde un oyente en captura (ver `on`).
+    suppressDoubleClickZoom: event => event.stopPropagation(),
 
     onDrag(fn) {
       dragHeard || hearDrag('on', 'addEventListener')
@@ -340,21 +346,6 @@ const hostOf = (map, leaflet, ownsMap, zoomPolicy) => {
       handler.disable()
       return () => handler.enable()
     },
-
-    // Lo que todavía reconoce Leaflet. `onRecognized` entrega el `click` o el `dblclick` que Leaflet da
-    // por del mapa —no el que cierra un arrastre ni el que cae en un control— con su posición plana, su
-    // píxel y el evento del DOM; uno disparado por código trae sólo lo que se le pasó. `withinControl`
-    // dice si un nodo cae en un subárbol que Leaflet declara fuera del mapa: un control o un popup.
-    onRecognized(type, fn) {
-      const relay = e => fn({
-        latlng : e.latlng && plainLatLng(e.latlng),
-        point  : e.containerPoint && plainPoint(e.containerPoint),
-        event  : e.originalEvent,
-      })
-      map.on(type, relay)
-      return () => map.off(type, relay)
-    },
-    withinControl: target => !!map._isClickDisabled(target),
   }
 
   // El `load` con que un mapa adoptado toma su primera vista lo oye el anfitrión, y el oyente se va con

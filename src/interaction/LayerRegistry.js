@@ -1,4 +1,4 @@
-import { EVENT_CLICK, EVENT_HOVER, EVENT_SECONDARY } from '../events/events.js'
+import { EVENT_CLICK, EVENT_HOVER, EVENT_SECONDARY, topFirst } from '../events/events.js'
 
 // Ruteo del tipo de evento a sus PARTES de hit: cada canal se gatea por su propio bit de demanda
 // y se resuelve con su propio resolver. Los clicks discretos (primario y secundario) comparten el
@@ -94,11 +94,7 @@ export class LayerRegistry {
         }))
     })
 
-    hits.sort((a, b) =>
-      (b.zIndex - a.zIndex)
-      || (a.order - b.order)
-      || (a.distancePx - b.distancePx)
-    )
+    hits.sort((a, b) => topFirst(a, b) || a.distancePx - b.distancePx)
     return this.#present(hits)
   }
 
