@@ -12,6 +12,19 @@ import { emptyBounds, growBounds, readBounds } from '../geometry/bounds.js'
 
 const ZERO_INSETS = { top: 0, right: 0, bottom: 0, left: 0 }
 
+// Un zoom o una viscosidad que no es un número finito no limita: ni como límite de la cámara, ni como
+// tope de un encuadre.
+const finite = value => Number.isFinite(value) ? value : null
+
+// Los límites de la cámara como los lee el anfitrión (SPECS §9); una caja que no lo es (SPECS §18) no
+// limita. Los pone el motor, al crear su mapa y en `setLimits`.
+export const limitsOf = ({ minZoom, maxZoom, maxBounds, maxBoundsViscosity } = {}) => ({
+  minZoom   : finite(minZoom),
+  maxZoom   : finite(maxZoom),
+  maxBounds : readBounds(maxBounds),
+  viscosity : finite(maxBoundsViscosity),
+})
+
 export class Camera {
 
   #hostCamera
@@ -59,12 +72,13 @@ export class Camera {
     return this
   }
 
-  // Sin caja no hay encuadre: lo que no es una caja no mueve la cámara ni corta el follow.
-  fitBounds(bounds, { insets } = {}) {
+  // Sin caja no hay encuadre: lo que no es una caja no mueve la cámara, ni corta el follow, ni aplica
+  // `maxZoom`, que acotaría un zoom que nadie movió.
+  fitBounds(bounds, { insets, maxZoom, animate } = {}) {
     const box = readBounds(bounds)
     if (!box) return this
     this.stopFollow()
-    this.#hostCamera.fitBounds(box, { insets: { ...this.#insets, ...insets } })
+    this.#hostCamera.fitBounds(box, { insets: { ...this.#insets, ...insets }, maxZoom: finite(maxZoom), animate })
     return this
   }
 
@@ -78,7 +92,7 @@ export class Camera {
       const p = positionOf(item)
       p && growBounds(box, p.lat, p.lng)
     })
-    return this.#fitBox(box, insets, maxZoom)
+    return this.fitBounds(box, { insets, maxZoom })
   }
 
   // Encuadra (one-shot) el SUBCONJUNTO `ids` de una capa por la caja de sus posiciones válidas. Es a
@@ -95,7 +109,7 @@ export class Camera {
       const p = item && positionOf(item)
       p && growBounds(box, p.lat, p.lng)
     })
-    return this.#fitBox(box, insets, maxZoom)
+    return this.fitBounds(box, { insets, maxZoom })
   }
 
   // Enfoca un punto (one-shot) dejándolo VISIBLE individualmente: si su capa clusteriza, sube el zoom
@@ -158,8 +172,8 @@ export class Camera {
   getCenter() { return this.#hostCamera.center() }
   getZoom() { return this.#hostCamera.zoom() }
   getBounds() { return this.#hostCamera.bounds() }
-  // Zoom máximo EFECTIVO (capacidad del tile: el mínimo maxZoom entre las capas). Cierra el motivo de
-  // bajar a getLeafletMap() para saber hasta dónde se puede acercar (p. ej. limitar un fitToLayer).
+  // Zoom máximo EFECTIVO: el límite `maxZoom` si lo hay y, si no, la capacidad del tile (el mínimo maxZoom
+  // entre las capas). Cierra el motivo de bajar a getLeafletMap() para saber hasta dónde se puede acercar.
   getMaxZoom() { return this.#hostCamera.maxZoom() }
 
   /* ── Zoom (ortogonal al follow: cambiar de nivel NO cancela el seguimiento de un punto, a
@@ -184,15 +198,6 @@ export class Camera {
   destroy() { this.stopFollow() }
 
   /* ── Internos ── */
-
-  // Encuadra la caja que acumuló un encuadre por capa. Sin caja no hay encuadre, y tampoco se aplica
-  // `maxZoom`: acotaría un zoom que nadie movió.
-  #fitBox(box, insets, maxZoom) {
-    if (!readBounds(box)) return this
-    this.fitBounds(box, { insets })
-    maxZoom != null && this.#hostCamera.zoom() > maxZoom && this.#hostCamera.setZoom(maxZoom)
-    return this
-  }
 
   // Re-centra solo si la posición del id seguido CAMBIÓ (un move de otro id no mueve la cámara).
   #recenterFollow() {

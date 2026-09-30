@@ -67,12 +67,19 @@ Contenedor. Monta el `MapEngine`, expone cámara/engine y reenvía los eventos d
 | `no-zoom-control` | boolean | atributo |
 | `zoom-animation` | `"none"` (default) \| `"in-only"` \| `"on"`; qué anima cada uno, [SPECS §9](../SPECS.md) | atributo — **reactivo** |
 | `cursor` | valor CSS de `cursor` (`"crosshair"`, …); vacío o inválido = ninguno | atributo — **reactivo** |
+| `min-zoom` · `max-zoom` | number; topes del zoom | atributo — **reactivo** |
+| `max-bounds` | JSON de `{ south, west, north, east }` o de un par de esquinas; la caja de la que la cámara no sale | atributo (o prop `maxBounds`) — **reactivo** |
+| `max-bounds-viscosity` | 0 (default) a 1; cuánto resiste al arrastre el borde de `max-bounds` | atributo — **reactivo** |
 | `viewport-insets` | object | prop `viewportInsets` |
 | `tile` | `{ url, maxZoom?, attribution?, subdomains?, … }` | **prop** |
 
 > **`cursor`:** el del contenedor mientras el consumidor lo pida —una herramienta activa, por ejemplo—,
 > sin hojas de estilo propias dentro del shadow root. Cómo convive con el arrastre, el editor y el
 > `pointer` de las features: [precedencia](./interaction.md#el-cursor-del-contenedor).
+
+> **Límites:** qué hace cada uno de `min-zoom`, `max-zoom`, `max-bounds` y `max-bounds-viscosity`, por
+> qué van juntos, cómo convive `max-bounds` con `world-copies` y cómo se arma un solo mundo:
+> [SPECS §9](../SPECS.md).
 
 > **`no-zoom-control`:** quita el control +/− nativo de Leaflet. Para reemplazarlo con uno propio,
 > se usa un `<cristae-toolbar>` en un slot del overlay con items que llamen `camera.zoomIn()`/`camera.zoomOut()`.
@@ -81,9 +88,9 @@ Contenedor. Monta el `MapEngine`, expone cámara/engine y reenvía los eventos d
 > ([`tiles.md`](./tiles.md#el-proveedor-lo-pone-el-anfitrión)). Las opciones extra van tal cual a
 > `L.tileLayer` (`maxZoom`, `attribution`, `subdomains` para `{s}`, …). **`world-copies`** controla
 > `noWrap`: por defecto el mundo **no** se repite en horizontal (`noWrap:true`); se activa
-> `world-copies` para permitir las copias. (El setter es `setTileProvider`; con el web component no se
-> llama directamente.) Presets públicos listos en `tilePresets` (`map.tile = tilePresets.osm`) — ver
-> [`tiles.md`](./tiles.md).
+> `world-copies` para permitir las copias. No limita la cámara: eso es `max-bounds`. (El setter es
+> `setTileProvider`; con el web component no se llama directamente.) Presets públicos listos en
+> `tilePresets` (`map.tile = tilePresets.osm`) — ver [`tiles.md`](./tiles.md).
 
 Acceso (getters/métodos): `el.engine`, `el.camera` (ver *Cámara* abajo), `el.ready`, `el.on(event,
 [layerId], cb)`, `el.getLayer(id)`, `el.invalidateCanvas()`. `el.engine` es la **escotilla de bajo
@@ -152,7 +159,7 @@ solo fijan la vista inicial). Es la **única** vía recomendada de viewport — 
 | Método | Notas |
 |---|---|
 | `setView(latlng, zoom)` · `panTo(latlng)` · `flyTo(latlng, zoom, opts?)` | un gesto imperativo **cancela** un `followPoint` en curso |
-| `fitBounds(bounds, {insets?})` · `fitToLayer(layerId, {insets?, maxZoom?})` | encuadre de una caja `{ south, west, north, east }` o de un par de esquinas opuestas (lo que no lo es: SPECS §9); `fitToLayer` usa la caja de las posiciones válidas de la capa |
+| `fitBounds(bounds, {insets?, maxZoom?, animate?})` · `fitToLayer(layerId, {insets?, maxZoom?})` | encuadre de una caja `{ south, west, north, east }` o de un par de esquinas opuestas (lo que no lo es, `maxZoom` y `animate`: SPECS §9); `fitToLayer` usa la caja de las posiciones válidas de la capa |
 | `zoomIn(delta?)` · `zoomOut(delta?)` · `setZoom(zoom)` | el zoom es **ortogonal al follow**: no lo cancela (ajusta escala, no reposiciona) |
 | `followPoint(layerId, id, {zoom?})` · `stopFollow()` | sigue la posición **viva** del id (se actualiza con `move`/`patch` del Source), sin que el consumidor bombee |
 | `getCenter()` · `getZoom()` · `getBounds()` | lectura: `{ lat, lng }`, número y `{ south, west, north, east }`, con la longitud sin envolver (SPECS §9) |

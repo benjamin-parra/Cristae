@@ -445,7 +445,7 @@ camera.getCenter() / getZoom() / getBounds()
 
 ## 12. Superficie pública (resumen)
 
-**Mapa (props reactivas / atributos):** `tile`, `theme` (vía CSS vars), `world-copies`, `viewport-insets`, `hover-throttle`, `cursor`, `stale-tolerance-px`. **No reactivas (solo al montar):** `initial-center`, `initial-zoom` — el viewport vivo es imperativo (§9).
+**Mapa (props reactivas / atributos):** `tile`, `theme` (vía CSS vars), `world-copies`, `viewport-insets`, `hover-throttle`, `cursor`, `zoom-animation`, los límites de la cámara (`min-zoom`, `max-zoom`, `max-bounds`, `max-bounds-viscosity`), `stale-tolerance-px`. **No reactivas (solo al montar):** `initial-center`, `initial-zoom` — el viewport vivo es imperativo (§9).
 
 **Mapa (métodos):** `addPointLayer(cfg)→handle`, `addPolygonLayer(cfg)→handle`, `addLabelLayer(cfg)→handle`, `removeLayer(id)`, `getLayer(id)`, `attachSource(id, source)`, cámara (§9), `createIcon(descriptor)`, `registerIconSet(name, set)`, `getLeafletMap()` (escape hatch — el `L.map` crudo), `destroy()`, `ready: Promise`.
 

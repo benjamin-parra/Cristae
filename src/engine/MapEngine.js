@@ -1,7 +1,7 @@
 import { LayerRegistry } from '../interaction/LayerRegistry.js'
 import { EventBus } from '../events/EventBus.js'
 import { Interaction } from './Interaction.js'
-import { Camera } from './Camera.js'
+import { Camera, limitsOf } from './Camera.js'
 import { PointLayer } from '../render/PointLayer.js'
 import { OBJ_BITS } from '../render/Picking.js'
 import { LineLayer } from '../render/LineLayer.js'
@@ -21,7 +21,7 @@ import { defineClusterIconSet } from '../atlas/IconSet.js'
 import { createSource } from '../data/index.js'
 import { createLeafletHost } from '../host/LeafletHost.js'
 import { foldRuns, iterable } from '../geometry/polyline.js'
-import { emptyBounds, growBounds, growRun, readBounds } from '../geometry/bounds.js'
+import { emptyBounds, growBounds, growRun } from '../geometry/bounds.js'
 
 // MapEngine — orquestador headless (SPECS §6). Framework-agnóstico, sin dominio. Monta sobre un
 // anfitrión —el que recibe o el que crea sobre `container`—, deriva panes por orden de declaración (el
@@ -128,8 +128,10 @@ export class MapEngine {
   camera
   ready
 
-  constructor({ host, container, view, zoomControl, glify, insets, hoverThrottleMs = 0, zoomAnimation, cursor } = {}) {
-    this.#host      = host ?? createLeafletHost({ container, view, zoomControl })
+  // Lo que queda en `limits` son los límites de la cámara. Como la vista inicial, son del mapa propio: uno
+  // adoptado trae los de su dueño.
+  constructor({ host, container, view, zoomControl, glify, insets, hoverThrottleMs = 0, zoomAnimation, cursor, ...limits } = {}) {
+    this.#host      = host ?? createLeafletHost({ container, view, zoomControl, limits: limitsOf(limits) })
     this.#substrate = this.#host.substrate
     this.#glify     = glify
     // Sin modo explícito queda el del anfitrión: no anima en un mapa propio, y en uno adoptado no se
@@ -792,6 +794,12 @@ export class MapEngine {
     return this
   }
 
+  // Límites de la cámara, en vivo (SPECS §9): fija los cuatro, y el que no viene no limita.
+  setLimits(limits) {
+    this.#host.camera.setLimits(limitsOf(limits))
+    return this
+  }
+
   // Cursor del contenedor que pide el consumidor, en vivo. Interaction lo normaliza y lo arbitra: qué
   // cuenta como ninguno y su precedencia, en docs/interaction.md#el-cursor-del-contenedor.
   setCursor(cursor) {
@@ -818,7 +826,7 @@ export class MapEngine {
   // Encuadra por los bounds de VARIAS capas a la vez (`ids`, o TODAS si se omite) — la contraparte
   // multi-capa de camera.fitToLayer (una sola). Une la geometría de cada Source según su tipo
   // (positionOf | pathOf | ringsOf), y la caja propia de la capa que no tenga Source. One-shot;
-  // respeta insets/maxZoom.
+  // respeta insets/maxZoom, y sin ninguna posición no encuadra.
   fitToLayers(ids = null, { insets, maxZoom } = {}) {
     const box       = emptyBounds()
     const growTyped = v => {                     // tipado plano, intercalado [lat, lng, …]
@@ -846,11 +854,7 @@ export class MapEngine {
         : a.pathOf   ? foldRuns(a.pathOf(it), growRun, box)
         : walk(a.ringsOf(it)))
     })
-    if (!readBounds(box)) return this
-
-    const hostCamera = this.#host.camera
-    this.camera.fitBounds(box, { insets })
-    maxZoom != null && hostCamera.zoom() > maxZoom && hostCamera.setZoom(maxZoom)
+    this.camera.fitBounds(box, { insets, maxZoom })
     return this
   }
 

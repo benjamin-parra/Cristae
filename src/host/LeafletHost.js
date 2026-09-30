@@ -41,6 +41,17 @@ const heldPanes = new WeakMap()
 
 const plainLatLng = ({ lat, lng }) => ({ lat, lng })
 const plainPoint  = ({ x, y }) => ({ x, y })
+// Una caja de la API como el par de esquinas que Leaflet lee; sin caja, nada.
+const cornersOf   = box => box && [[box.south, box.west], [box.north, box.east]]
+
+// Los límites de la cámara en las opciones de Leaflet. Uno nulo no limita, que es su default: sin
+// `maxZoom` rige el tope de los tiles.
+const leafletLimits = ({ minZoom, maxZoom, maxBounds, viscosity } = {}) => ({
+  minZoom            : minZoom ?? undefined,
+  maxZoom            : maxZoom ?? undefined,
+  maxBounds          : cornersOf(maxBounds),
+  maxBoundsViscosity : viscosity ?? 0,
+})
 
 // Un punto en cualquier forma de cristae/geometry, como el LatLng que Leaflet recibe. Lo que no tiene la
 // forma de un punto lanza, y Leaflet rechaza lo que no trae dos números. La latitud no se acota acá:
@@ -139,6 +150,17 @@ const hostOf = (map, leaflet, ownsMap, zoomPolicy) => {
   ]
   VIEW_EVENTS.forEach(type => map.on(type, relays[type]))
 
+  // Los cuatro límites en las opciones de Leaflet: la viscosidad la lee cada arrastre al empezar. Los de
+  // un mapa adoptado son de su dueño: se guardan la primera vez que el motor pone los suyos y vuelven al
+  // soltarlo, ya sin los listeners del ciclo de vista, porque lo que el mapa se mueva entonces es del dueño.
+  const applyLimits = ({ minZoom, maxZoom, maxBounds, maxBoundsViscosity }) => {
+    map.options.maxBoundsViscosity = maxBoundsViscosity
+    map.setMinZoom(minZoom)
+    map.setMaxZoom(maxZoom)
+    map.setMaxBounds(maxBounds)
+  }
+  let ownerLimits
+
   const camera = {
     // Un mapa adoptado puede llegar sin vista, y la toma con su primer `setView`. Mientras no la tenga,
     // leer su caja o proyectar lanza.
@@ -156,21 +178,33 @@ const hostOf = (map, leaflet, ownsMap, zoomPolicy) => {
     panTo(latlng) { map.panTo(toLatLng(latlng)) },
     panBy(offset, options) { map.panBy(offset, options) },
     // Un vuelo es un zoom animado más: si la política no lo anima, es un `setView`, que es lo mismo que
-    // hace Leaflet cuando no puede volar.
+    // hace Leaflet cuando no puede volar. El vuelo de Leaflet no pasa por los topes, como sí `setView`: el
+    // zoom se topa antes, y la política juzga el zoom en que queda la vista.
     flyTo(latlng, zoom, options) {
       const target = toLatLng(latlng)
-      animates(map.getZoom(), zoom) ? map.flyTo(target, zoom, options) : map.setView(target, zoom, options)
+      const to     = Math.min(Math.max(zoom, map.getMinZoom()), map.getMaxZoom())
+      animates(map.getZoom(), to) ? map.flyTo(target, to, options) : map.setView(target, to, options)
     },
-    // `box` es una caja válida e `insets`, los cuatro lados en píxeles.
-    fitBounds(box, { insets: { top, right, bottom, left } }) {
-      map.fitBounds([[box.south, box.west], [box.north, box.east]], {
+    // `box` es una caja válida e `insets`, los cuatro lados en píxeles. `maxZoom`, si no es nulo, topa el
+    // zoom antes de centrar, así que la caja queda en el medio de la región visible también cuando corta.
+    // `animate` es el de `setView`: con `false` no anima nada.
+    fitBounds(box, { insets: { top, right, bottom, left }, maxZoom, animate }) {
+      map.fitBounds(cornersOf(box), {
         paddingTopLeft     : [left, top],
         paddingBottomRight : [right, bottom],
+        maxZoom,
+        animate,
       })
     },
     setZoom(zoom) { map.setZoom(zoom) },
     zoomIn(delta) { map.zoomIn(delta) },
     zoomOut(delta) { map.zoomOut(delta) },
+    // Fija los cuatro. Una vista que queda fuera la trae Leaflet adentro con un movimiento.
+    setLimits(limits) {
+      const { minZoom, maxZoom, maxBounds, maxBoundsViscosity } = map.options
+      ownsMap || (ownerLimits ??= { minZoom, maxZoom, maxBounds, maxBoundsViscosity })
+      applyLimits(leafletLimits(limits))
+    },
     // El ancla queda fija: recentrar tras un resize se percibe como un salto.
     invalidateSize() { map.invalidateSize({ pan: false }) },
 
@@ -338,6 +372,7 @@ const hostOf = (map, leaflet, ownsMap, zoomPolicy) => {
       releaseRetention?.()
       tileLayer?.remove()
       VIEW_EVENTS.forEach(type => map.off(type, relays[type]))
+      ownerLimits && applyLimits(ownerLimits)
       map.off('load', onLoad)
       dragHeard && hearDrag('off', 'removeEventListener')
       ownsMap && map.remove()
@@ -345,9 +380,11 @@ const hostOf = (map, leaflet, ownsMap, zoomPolicy) => {
   }
 }
 
-// Un mapa propio sobre `container`, con la vista inicial de `view`. `zoomAnimation` de Leaflet queda en
-// su default a propósito: ver el latch, arriba. Sin otra política, el zoom no anima.
-export const createLeafletHost = ({ container, view: { center = [0, 0], zoom = 2 } = {}, zoomControl = true }) =>
+// Un mapa propio sobre `container`, con la vista inicial de `view` y los límites de `limits`, que van en
+// la construcción para que esa vista ya los cumpla: puestos después, la corregirían con un movimiento.
+// `zoomAnimation` de Leaflet queda en su default a propósito: ver el latch, arriba. Sin otra política,
+// el zoom no anima.
+export const createLeafletHost = ({ container, view: { center = [0, 0], zoom = 2 } = {}, zoomControl = true, limits }) =>
   hostOf(new L.Map(container, {
     preferCanvas        : true,
     fadeAnimation       : false,
@@ -355,6 +392,7 @@ export const createLeafletHost = ({ container, view: { center = [0, 0], zoom = 2
     center              : latLngOf(L.LatLng, center),
     zoom,
     zoomControl,
+    ...leafletLimits(limits),
   }), L, true, 'none')
 
 // Un mapa que ya existe, con el Leaflet que lo construyó (el porqué, en SPECS §6). El mapa es de quien

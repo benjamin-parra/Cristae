@@ -650,8 +650,8 @@ export interface Camera {
   panTo(latlng: LatLngPoint): this;
   /** Vuela si la política de animación del zoom anima el cambio; si no, es un `setView` (SPECS §9). */
   flyTo(latlng: LatLngPoint, zoom?: number, options?: Record<string, unknown>): this;
-  /** Encuadra una caja o un par de esquinas opuestas; lo que no lo es, SPECS §9. */
-  fitBounds(bounds: BoundsLike | null | undefined, options?: { insets?: Insets }): this;
+  /** Encuadra una caja o un par de esquinas opuestas; lo que no lo es, `maxZoom` y `animate`: SPECS §9. */
+  fitBounds(bounds: BoundsLike | null | undefined, options?: { insets?: Insets; maxZoom?: number; animate?: boolean }): this;
   fitToLayer(layerId: string, options?: { insets?: Insets; maxZoom?: number }): this;
   /** Enfoca un punto dejándolo visible (des-clusteriza subiendo el zoom si hace falta). */
   revealPoint(layerId: string, id: string | number, options?: { zoom?: number }): this;
@@ -666,7 +666,7 @@ export interface Camera {
   getCenter(): LatLng;
   getZoom(): number;
   getBounds(): Bounds;
-  /** Zoom máximo efectivo (capacidad del tile). */
+  /** Zoom máximo efectivo: el límite `maxZoom` si lo hay y, si no, la capacidad del tile. */
   getMaxZoom(): number;
   zoomIn(delta?: number): this;
   zoomOut(delta?: number): this;
@@ -689,22 +689,28 @@ export interface MapHost {
  *  (SPECS §6). */
 export function adoptLeafletHost(map: unknown, options?: { leaflet?: unknown }): MapHost;
 
-/** Con `host`, el motor trabaja sobre ese mapa y no lee `container`, `view` ni `zoomControl`; sin él,
- *  crea el suyo sobre `container` (SPECS §6). */
+/** Con `host`, el motor trabaja sobre ese mapa y no lee `container`, `view`, `zoomControl` ni los
+ *  límites; sin él, crea el suyo sobre `container` (SPECS §6). */
 export interface MapEngineOptions {
-  host?            : MapHost;
-  container?       : HTMLElement;
+  host?               : MapHost;
+  container?          : HTMLElement;
   /** Vista inicial del mapa propio. Default: `[0, 0]`, zoom 2. */
-  view?            : { center?: LatLngPoint; zoom?: number };
-  zoomControl?     : boolean;
-  glify            : unknown;
-  insets?          : Insets;
-  hoverThrottleMs? : number;
+  view?               : { center?: LatLngPoint; zoom?: number };
+  zoomControl?        : boolean;
+  glify               : unknown;
+  insets?             : Insets;
+  hoverThrottleMs?    : number;
   /** Política de animación del zoom (SPECS §9). Sin ella, `"none"` en un mapa propio y la del dueño en
    *  uno adoptado. */
-  zoomAnimation?   : "none" | "in-only" | "on";
+  zoomAnimation?      : "none" | "in-only" | "on";
   /** Cursor inicial del contenedor, con las reglas de `setCursor`. */
-  cursor?          : string | null;
+  cursor?             : string | null;
+  /** Límites de la cámara del mapa propio, con las reglas de `setLimits`. */
+  minZoom?            : number | null;
+  maxZoom?            : number | null;
+  maxBounds?          : BoundsLike | null;
+  /** Cuánto resiste el borde de `maxBounds` al arrastre, de 0 (default) a 1. */
+  maxBoundsViscosity? : number | null;
 }
 
 // Orquestador headless: monta sobre un mapa propio o adoptado, deriva panes por orden de declaración (el
@@ -768,6 +774,8 @@ export class MapEngine {
 
   /** Política de animación del zoom, en vivo (SPECS §9). Aplica desde el zoom siguiente. */
   setZoomAnimation(mode: "none" | "in-only" | "on"): this;
+  /** Límites de la cámara, en vivo: fija los cuatro, y el que falta o no es válido no limita (SPECS §9). */
+  setLimits(limits: Pick<MapEngineOptions, "minZoom" | "maxZoom" | "maxBounds" | "maxBoundsViscosity">): this;
   /** Cursor del contenedor, en vivo: `null`, `''` o un valor que el CSS rechace es ninguno. Su precedencia
    *  frente al arrastre, el editor y el `pointer` automático: docs/interaction.md#el-cursor-del-contenedor. */
   setCursor(cursor: string | null): this;

@@ -21,6 +21,9 @@ const glifyReady = (typeof window !== 'undefined')
 // baratos y de baja frecuencia → se cablean siempre en #wireEvents.
 const ON_DEMAND_EVENTS = new Set(['cristae:click', 'cristae:hover', 'cristae:pointermove'])
 
+// Los límites de la cámara, que viajan juntos al motor (SPECS §9).
+const LIMITS = ['minZoom', 'maxZoom', 'maxBounds', 'maxBoundsViscosity']
+
 // ¿Todas las capas de datos vacías? (predicado del estado "sin datos" del mapa). Vacío ⇔ hay al menos
 // una capa de datos observable y NINGUNA tiene features. Sin capas de datos no hay estado vacío que
 // anunciar (un mapa de sólo tiles no está "vacío de datos", y evita el flash mientras aún no montó
@@ -53,23 +56,27 @@ function createResizeSync(target, sync) {
 export class CristaeMap extends LitElement {
 
   static properties = {
-    tile: { type: Object },
-    worldCopies: { type: Boolean, attribute: 'world-copies' },
-    noZoomControl: { type: Boolean, attribute: 'no-zoom-control' },
-    viewportInsets: { type: Object, attribute: 'viewport-insets' },
-    hoverThrottle: { type: Number, attribute: 'hover-throttle' },
-    initialCenter: { attribute: 'initial-center' },
-    initialZoom: { type: Number, attribute: 'initial-zoom' },
-    zoomAnimation: { type: String, attribute: 'zoom-animation' },
+    tile               : { type: Object },
+    worldCopies        : { type: Boolean, attribute: 'world-copies' },
+    noZoomControl      : { type: Boolean, attribute: 'no-zoom-control' },
+    viewportInsets     : { type: Object, attribute: 'viewport-insets' },
+    hoverThrottle      : { type: Number, attribute: 'hover-throttle' },
+    initialCenter      : { attribute: 'initial-center' },
+    initialZoom        : { type: Number, attribute: 'initial-zoom' },
+    zoomAnimation      : { type: String, attribute: 'zoom-animation' },
+    minZoom            : { type: Number, attribute: 'min-zoom' },
+    maxZoom            : { type: Number, attribute: 'max-zoom' },
+    maxBounds          : { type: Object, attribute: 'max-bounds' },
+    maxBoundsViscosity : { type: Number, attribute: 'max-bounds-viscosity' },
     // Cursor del contenedor: cualquier valor CSS; vacío o inválido = ninguno
     // (docs/interaction.md#el-cursor-del-contenedor).
-    cursor: { type: String },
+    cursor             : { type: String },
     // Mensaje del estado "sin datos": se muestra cuando todas las capas de datos están vacías (0
     // features) y se oculta al llegar datos. Alternativa: un hijo `slot="empty"` con contenido libre.
-    emptyMessage: { attribute: 'empty-message' },
+    emptyMessage       : { attribute: 'empty-message' },
     // Estado reactivo interno (no atributo): ¿mostrar el estado vacío? Lo computa el mapa desde sus
     // capas de datos; dispara re-render del overlay del mensaje.
-    _empty: { state: true },
+    _empty             : { state: true },
   }
 
   // La superficie del mapa se posiciona con la hoja del anfitrión (tiles absolutos, z de los panes,
@@ -256,13 +263,17 @@ export class CristaeMap extends LitElement {
   // (paneles/sidebars internos) cambian en runtime al abrir/cerrar un panel. Se re-aplican a la
   // cámara y el motor emite `viewportchange` — la región visible cambió aunque la cámara no se movió —
   // para que los overlays anclados (popup, botón central del cluster) se re-encuadren al instante.
-  // `zoom-animation` y `cursor` también son reactivos: se cambian en vivo sin remontar el mapa.
+  // `zoom-animation`, `cursor` y los límites también son reactivos: se cambian en vivo sin remontar el
+  // mapa. Los límites van juntos, así que cambiar uno los vuelve a fijar todos.
   updated(changed) {
     if (!this.#engine) return
     if (changed.has('zoomAnimation')) this.#engine.setZoomAnimation(this.zoomAnimation ?? 'none')
     if (changed.has('cursor')) this.#engine.setCursor(this.cursor)
     if (changed.has('viewportInsets')) this.#engine.camera.insets = this.viewportInsets
+    if (LIMITS.some(key => changed.has(key))) this.#engine.setLimits(this.#limits())
   }
+
+  #limits() { return Object.fromEntries(LIMITS.map(key => [key, this[key]])) }
 
   async #mount() {
     if (this.#mounted) return
@@ -290,6 +301,7 @@ export class CristaeMap extends LitElement {
       zoomAnimation: this.zoomAnimation ?? 'none',
       zoomControl: !this.noZoomControl,
       cursor: this.cursor,
+      ...this.#limits(),
     })
     if (this.tile) this.#engine.setTileProvider({ noWrap: !this.worldCopies, ...this.tile })
 

@@ -22,6 +22,7 @@ import type {
   HtmlAccessors,
   IconSet,
   Insets,
+  BoundsLike,
   Camera,
   MapEngine,
   PointHandle,
@@ -150,8 +151,8 @@ interface CristaeBaseProps {
 interface CristaeLayerProps extends CristaeBaseProps {
   /** Eje `focus` por ítem. Ids enfocados → esos quedan plenos y TODO lo demás (esta capa y las otras)
    *  se atenúa; el basemap no. `[]` = participa sin ninguno → todo atenuado; omitir la prop = la capa
-   *  no participa. No acepta `null`: un valor nulo se aplica como baja de ATRIBUTO y nunca llegaría al
-   *  setter, dejando vivos los ids anteriores — para atenuar todo va `[]`.
+   *  no participa. No acepta `null`: es una ausencia, que sale por donde entró el valor anterior, y en
+   *  el primer render no llega al setter — para atenuar todo va `[]`.
    *  Se llama `focusIds` y no `focus` porque una prop `focus` pisaría `HTMLElement.focus()`. */
   focusIds?: Iterable<string | number>;
 }
@@ -214,21 +215,26 @@ export interface CristaeMapElement extends HTMLElement {
 
 export interface CristaeMapProps extends CristaeBaseProps {
   /** Proveedor de tiles (capa base). Objeto → propiedad; el shell suele derivarlo del tema. */
-  tile?           : CristaeTileProvider;
-  worldCopies?    : boolean;
-  noZoomControl?  : boolean;
+  tile?               : CristaeTileProvider;
+  worldCopies?        : boolean;
+  noZoomControl?      : boolean;
   /** Franjas del contenedor ocluidas por UI del consumidor (paneles) — reactivo. */
-  viewportInsets? : Insets;
-  hoverThrottle?  : number;
+  viewportInsets?     : Insets;
+  hoverThrottle?      : number;
   /** `[lat, lng]` o `"lat,lng"`. */
-  initialCenter?  : [number, number] | string;
-  initialZoom?    : number;
+  initialCenter?      : [number, number] | string;
+  initialZoom?        : number;
   /** Política de animación del zoom, reactiva; default `'none'`. Qué anima cada modo: SPECS §9. */
-  zoomAnimation?  : 'none' | 'in-only' | 'on';
+  zoomAnimation?      : 'none' | 'in-only' | 'on';
+  /** Límites de la cámara, reactivos: ver `MapEngine.setLimits`. */
+  minZoom?            : number | null;
+  maxZoom?            : number | null;
+  maxBounds?          : BoundsLike | null;
+  maxBoundsViscosity? : number | null;
   /** Cursor del contenedor (cualquier valor CSS), reactivo: ver `MapEngine.setCursor`. */
-  cursor?         : string | null;
+  cursor?             : string | null;
   /** Mensaje del estado "sin datos" (o usar un hijo `slot="empty"`). */
-  emptyMessage?   : string;
+  emptyMessage?       : string;
 
   onReady?            : CristaeEventHandler<Record<string, never>>;
   onViewportChange?   : CristaeEventHandler<CristaeViewportChangeDetail>;
@@ -435,7 +441,7 @@ export interface CristaeClusterProps<T = unknown> extends CristaeLayerProps {
   lineColor?        : string;
   /** Ids de dato marcados (eje `marked`): las burbujas que los contengan usan la variante `marked`.
    *  El setter del elemento acepta cualquier iterable — un `Set` es lo natural en React. `[]` limpia
-   *  las marcas; `null` no, por la misma razón que `focusIds` (se aplicaría como baja de atributo). */
+   *  las marcas. */
   markedIds?        : Iterable<string | number>;
   /** Sesión de expansión, por el BUS del motor (`cluster:*`): nueva sesión / cambio estructural
    *  (drill de sub-burbuja, poda o crecimiento) / cierre por colapso o zoom. */

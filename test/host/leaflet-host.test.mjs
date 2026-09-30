@@ -221,6 +221,31 @@ test('flyTo vuela si la política anima el zoom de destino, y si no es un setVie
   })
 })
 
+// El vuelo de Leaflet no pasa por los topes: sin los del anfitrión, la vista queda más allá de
+// `max-zoom` hasta el zoom siguiente. La caja la repone Leaflet en el `moveend` del vuelo, y desde tan
+// lejos sin animar.
+test('flyTo llega a un zoom entre los topes, y la caja lo trae de vuelta', async () => {
+  const caja = { south: -34, west: -71, north: -32, east: -69 }
+  const host = createLeafletHost({
+    container : contenedor(),
+    view      : VISTA,
+    limits    : { minZoom: 8, maxZoom: 11, maxBounds: caja, viscosity: null },
+  })
+  const { camera } = host
+  camera.zoomPolicy = 'on'
+  const vuela = (latlng, zoom) => {
+    camera.flyTo(latlng, zoom, { duration: 0.05 })
+    return asiente(camera).then(() => camera.zoom())
+  }
+  assert.equal(await vuela({ lat: -33.2, lng: -70.2 }, 14), 11, 'el tope de arriba')
+  assert.equal(await vuela({ lat: -33, lng: -70 }, 3), 8, 'el de abajo')
+
+  await vuela({ lat: 0, lng: 0 }, 11)
+  const { lat, lng } = camera.center()
+  assert.ok(lat >= caja.south && lat <= caja.north && lng >= caja.west && lng <= caja.east, 'la vista vuelve a la caja')
+  host.destroy()
+})
+
 test('un mapa propio no anima el zoom y uno adoptado conserva el de su dueño', () => {
   const propio = createLeafletHost({ container: contenedor(), view: VISTA })
   const map    = L.map(contenedor()).setView(VISTA.center, VISTA.zoom)

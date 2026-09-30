@@ -38,6 +38,21 @@ test('encuadra una línea en cualquiera de las formas de punto', () => {
     assert.deepEqual(deLinea([[10, 20], [11, 21]].map(forma)), [[10, 20, 11, 21]], nombre)
 })
 
+test('el tope de maxZoom va en el mismo encuadre, sin un zoom aparte', () => {
+  const map     = makeMap({ zoom: 12 })
+  const pedidos = []
+  map.fitBounds = (corners, { maxZoom }) => { pedidos.push(maxZoom); return map }
+  map.setZoom   = zoom => { pedidos.push(`setZoom ${zoom}`); return map }
+
+  const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeLeaflet() }), glify: makeGlify() })
+  engine.addLineLayer({
+    id: 'ruta', backend: 'leaflet', accessors: { idOf: r => r.id, pathOf: r => r.path }, data: [{ id: 1, path: [[10, 20], [11, 21]] }],
+  })
+  engine.fitToLayers(null, { maxZoom: 9 })
+  engine.destroy()
+  assert.deepEqual(pedidos, [9])
+})
+
 test('lo que la regla de corte deja fuera no entra al encuadre', () => {
   const cruzada = [[10, 20], [11, 21], [-122.4, 37.8], [12, 22], [13, 23]]
   assert.deepEqual(deLinea(cruzada), [[10, 20, 13, 23]], 'una latitud fuera de rango corta')

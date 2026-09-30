@@ -39,10 +39,12 @@ test('followBounds encuadra SÓLO los ids pedidos (no el resto de la capa)', () 
   assert.deepEqual(calls.fitBounds[0].bounds, [[10, 10], [20, 20]])
 })
 
-test('followBounds respeta maxZoom cuando el zoom actual lo excede', () => {
+test('followBounds y fitToLayer topan el zoom con maxZoom en el mismo encuadre, sin un zoom aparte', () => {
   const { camera, calls } = setup({ zoom: 12 })
   camera.followBounds('flota', [1, 2], { maxZoom: 8 })
-  assert.deepEqual(calls.setZoom, [8])
+  camera.fitToLayer('flota', { maxZoom: 9 })
+  assert.deepEqual(calls.fitBounds.map(({ padding }) => padding.maxZoom), [8, 9])
+  assert.deepEqual(calls.setZoom, [])
 })
 
 test('followBounds con ids vacíos no rompe ni mueve la cámara, tampoco el zoom de maxZoom', () => {

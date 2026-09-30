@@ -297,6 +297,7 @@ const latlng   = map.camera.containerPointToLatLng([x, y])
 | `map.setView/panTo/flyTo` · zoom `+/−` | `map.camera.setView/panTo/flyTo/zoomIn/zoomOut` (qué anima, `zoom-animation`: SPECS §9) |
 | seguir un punto con `panTo` por update | `map.camera.followPoint(layerId, id)` (una vez) |
 | `fitBounds` a mano tras cargar datos | `auto-fit="once"` en la capa (o `map.camera.fitToLayer('fleet')`) |
+| `map.setMinZoom/setMaxZoom/setMaxBounds` · `maxBoundsViscosity` | `min-zoom` / `max-zoom` / `max-bounds` / `max-bounds-viscosity` en el mapa (SPECS §9) |
 | `map.latLngToContainerPoint` para un overlay | `map.camera.latLngToContainerPoint(latlng)` |
 | popup/tarjeta al click sobre un punto | `<cristae-popup for="fleet">` + `contentOf(item)` (HTML en light DOM) |
 | labels/tooltips a mano | `<cristae-label-layer bind-to="fleet">` |

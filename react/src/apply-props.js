@@ -7,6 +7,7 @@
 //     accessors/iconSet) entra por ACÁ, por PROPIEDAD: el core reactivo del elemento maneja los updates
 //     (move/patch coalescido a rAF) FUERA de React → cero reconciliación por tick en el hot-path.
 //   • atributo  (string/number, o null/undefined = ausencia) → setAttribute / removeAttribute (kebab-case).
+//     La ausencia sale por el canal por el que entró el valor que reemplaza (ver `isAttr`).
 //
 // Los BOOLEANOS van por PROPIEDAD, no por atributo: un atributo booleano de Lit no puede expresar
 // `false` sobre una propiedad que nace `true` (p. ej. `visible`/`enabled`/`expandable`, default true en
@@ -22,9 +23,11 @@ const isEvent = key => /^on[A-Z]/.test(key)
 // declara `attribute: false`: detrás del atributo no hay setter reactivo, así que el valor nunca llega
 // (p. ej. `template` de <cristae-table>, que es un string). Se le pregunta al elemento en vez de
 // mantener una tabla por tag: vale para toda propiedad presente y futura. Un elemento sin definir
-// todavía no expone el mapa y cae a la clasificación por valor.
-const isAttr = (el, key, v) =>
-  (v == null || typeof v === 'string' || typeof v === 'number') &&
+// todavía no expone el mapa y cae a la clasificación por valor. La ausencia sigue al valor `old` que
+// reemplaza: si entró por propiedad —una caja, un objeto—, el atributo nunca se puso, y quitarlo no
+// notifica, como con los booleanos; el setter sólo ve el `null` por propiedad.
+const isAttr = (el, key, v, old) =>
+  (v == null ? old == null || isAttr(el, key, old) : typeof v === 'string' || typeof v === 'number') &&
   el.constructor?.elementProperties?.get(key)?.attribute !== false
 const defaultEventName = key => key.slice(2).toLowerCase()
 
@@ -51,7 +54,7 @@ export function applyElementProps(el, prev, next, eventNameOf = defaultEventName
       const ev = eventNameOf(key)
       if (typeof old === 'function') el.removeEventListener(ev, old)
       if (typeof value === 'function') el.addEventListener(ev, value)
-    } else if (isAttr(el, key, value)) {
+    } else if (isAttr(el, key, value, old)) {
       if (value == null) el.removeAttribute(attrName(key))
       else el.setAttribute(attrName(key), String(value))
     } else {

@@ -56,6 +56,20 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   y la inercia— oía el `move` del mapa de Leaflet con `getLeafletMap()`. La señal sale sin carga y no
   tiene evento `cristae:` ([SPECS §10](SPECS.md)). `<cristae-popup>` y `<cristae-cluster>` la usan.
   *Migración*: ninguna; quien oía `getLeafletMap().on('move')` puede pasar a la señal.
+- **Límites de la cámara en `<cristae-map>` y en el motor.** `min-zoom` y `max-zoom` topan el zoom,
+  `max-bounds` (JSON, como `viewport-insets`) es la caja de la que la cámara no sale y
+  `max-bounds-viscosity` dice cuánto resiste su borde al arrastre; los cuatro son reactivos. En el motor
+  son opciones del mapa propio y `setLimits({ minZoom, maxZoom, maxBounds, maxBoundsViscosity })`, que
+  los fija juntos: el que falta no limita. El mapa nace con ellos, así que la vista inicial ya los
+  cumple; uno adoptado conserva los de su dueño, que `destroy()` le devuelve si el motor le puso los
+  suyos. `world-copies` sigue decidiendo sólo si los tiles se repiten; un solo mundo es `max-bounds` con
+  la caja del mundo y viscosidad 1 ([SPECS §9](SPECS.md)). `camera.getMaxZoom()` da el `max-zoom`
+  cuando lo hay.
+  *Migración*: ninguna; quien llamaba `setMinZoom`, `setMaxBounds` o escribía `maxBoundsViscosity` en
+  el mapa de `getLeafletMap()` puede pasar a los atributos.
+- **`camera.fitBounds` acepta `maxZoom` y `animate`.** `maxZoom` topa el zoom del encuadre antes de
+  centrar —si no es un número finito no topa, como un límite—, y `animate: false` encuadra sin animar;
+  el zoom sigue obedeciendo la política de `zoom-animation` ([SPECS §9](SPECS.md)).
 
 ### Cambiado
 - **La cámara y los eventos entregan objetos planos, no los de Leaflet.** `camera.getCenter()` y
@@ -156,6 +170,11 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   El mapa de Leaflet sigue en `getLeafletMap()`.
 
 ### Corregido
+- **Un encuadre con `maxZoom` deja la caja en el medio de la región visible.** `fitToLayer`,
+  `followBounds`, `followPoints({ mode: 'fit' })` y `fitToLayers` encuadraban al zoom que cabe y después
+  alejaban hasta el tope conservando el centro: con `viewport-insets` desiguales la caja quedaba
+  corrida hacia el lado del panel, y con el zoom animado el tope se leía antes de que el encuadre
+  terminara. Ahora el tope va en el mismo encuadre, que es un solo movimiento.
 - **Soltar un handle del editor ya no deja un click en el mapa.** En `mode: 'edit'` el editor consume en
   captura el `pointerdown` que reconoce un handle, y eso suprime los eventos de compatibilidad del
   mouse, pero no el `click` que el navegador despacha al soltar: llegaba al mapa como un click más
@@ -232,6 +251,11 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   a la transición. Las semillas piden el tile que Leaflet pediría a su zoom: se armaban con la vuelta
   al mundo y el rango de la y del zoom actual, así que con `world-copies`, o con un proveedor `tms` o
   con `{-y}`, casi todas traían la imagen de otro lugar ([`docs/tiles.md`](docs/tiles.md)).
+- **En React, `null` en una prop que llegó como objeto ya no deja el objeto puesto.** Una prop que el
+  elemento declara con atributo, como `viewportInsets` o `maxBounds` de `<cristae-map>`, entra por
+  propiedad cuando es un objeto; su `null` iba a quitar el atributo, que nunca se había puesto, y
+  quitar un atributo ausente no avisa al elemento. Ahora la ausencia sale por el mismo canal por el
+  que entró el valor que reemplaza.
 
 ## [0.35.0] - 2026-10-01
 

@@ -73,6 +73,21 @@ test('propiedad nueva referencia → re-asigna (así entra el dato nuevo por pro
   assert.equal(el._props.source, s2)
 })
 
+// Como `maxBounds` de <cristae-map>: un objeto con atributo JSON declarado, que entra por los dos canales.
+test('la ausencia sale por donde entró el valor: tras una propiedad, por propiedad; tras un atributo, lo quita', () => {
+  const declaradas = new Map([['maxBounds', { type: Object, attribute: 'max-bounds' }]])
+  const porProp    = makeEl(declaradas)
+  const p1         = applyElementProps(porProp, {}, { maxBounds: { south: -10, west: -20, north: 10, east: 20 } })
+  applyElementProps(porProp, p1, { maxBounds: null })
+  assert.equal(porProp._props.maxBounds, null, 'quitar un atributo que nunca se puso no notifica: el setter no vería el null')
+
+  const porAttr = makeEl(declaradas)
+  const p2      = applyElementProps(porAttr, {}, { maxBounds: '[[-1,-1],[1,1]]' })
+  applyElementProps(porAttr, p2, { maxBounds: null })
+  assert.equal('max-bounds' in porAttr._attrs, false, 'quita el atributo')
+  assert.equal('maxBounds' in porAttr._props, false, 'y no toca la propiedad')
+})
+
 test('booleano por propiedad: apaga, re-enciende y se limpia al removerse', () => {
   const el = makeEl()
   const p1 = applyElementProps(el, {}, { visible: true })

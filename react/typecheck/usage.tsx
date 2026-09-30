@@ -55,6 +55,9 @@ export const ViaData = () => (
     initialZoom={5}
     initialCenter={[-33.4, -70.6]}
     zoomAnimation="none"
+    minZoom={3}
+    maxBounds={{ south: -85, west: -180, north: 85, east: 180 }}
+    maxBoundsViscosity={1}
     cursor="crosshair"
     tile={{ url: 'https://tiles/{z}/{x}/{y}.png', maxZoom: 19 }}
     onViewportChange={(e) => {
@@ -173,6 +176,7 @@ export const ViaRef = () => {
     const vista: Bounds = camera.getBounds()
     camera.fitBounds(boundsPad(vista, 0.1))
     camera.fitBounds([{ latitude: -33, longitude: -70 }, [-34, -71]])
+    camera.fitBounds(vista, { insets: { top: 40 }, maxZoom: 15, animate: false })
     camera.setView({ lat: -33, lon: -70 }, 10)
     void camera.latLngToContainerPoint(camera.getCenter()).x
     void camera.containerPointToLatLng([10, 20]).lng
@@ -222,6 +226,7 @@ export const porTramo: LineAccessors<{ id: number; puntos: number[][] }> = { idO
 // ── El motor headless: un mapa propio sobre un contenedor, o uno de Leaflet adoptado ─────────
 export const propio   = (container: HTMLElement) => new MapEngine({ container, view: { center: [-33.45, -70.66], zoom: 12 }, glify: null })
 export const adoptado = (map: unknown) => new MapEngine({ host: adoptLeafletHost(map), glify: null, zoomAnimation: 'on' })
+export const limitado = (engine: MapEngine) => engine.setLimits({ minZoom: 3, maxZoom: null, maxBounds: [[-85, -180], [85, 180]] })
 
 // ── El mal uso NO compila ────────────────────────────────────────────────────
 
@@ -236,6 +241,10 @@ export const BadScalar = () => <CristaeMap initialZoom="cinco" />
 // zoomAnimation fuera del union.
 // @ts-expect-error "fast" no es un valor válido de zoomAnimation
 export const BadUnion = () => <CristaeMap zoomAnimation="fast" />
+
+// una caja de límites que no es una caja.
+// @ts-expect-error maxBounds es una caja o un par de esquinas
+export const BadBounds = () => <CristaeMap maxBounds={[-85, -180, 85, 180]} />
 
 // un número suelto no es un punto ni un path.
 // @ts-expect-error distance no mide un número
