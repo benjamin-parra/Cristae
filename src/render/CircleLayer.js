@@ -60,15 +60,15 @@ export class CircleLayer {
   }
 
   /* ── Picking CPU point-in-circle (kind 'circle'); el registro ordena y envuelve con layerId/z/order ── */
-  resolveClick(baseEvent) { return this.#hitsAt(baseEvent) }
-  resolveHover(baseEvent) { return this.#hitsAt(baseEvent) }
+  resolveClick(sample) { return this.#hitsAt(sample) }
+  resolveHover(sample) { return this.#hitsAt(sample) }
 
   // `L.circle` se dibuja una sola vez, en la copia del mundo de su centro, y el latlng del puntero no
   // se envuelve. La haversine sí es periódica en longitud: sin el corte a media vuelta del centro, el
   // círculo se picaría en las copias vecinas, donde no hay nada dibujado.
-  #hitsAt(baseEvent) {
-    if (!this.#interactive || !baseEvent?.latlng || !this.#byId.size) return []
-    const { lat, lng } = baseEvent.latlng
+  #hitsAt(sample) {
+    if (!this.#interactive || !this.#byId.size) return []
+    const { lat, lng } = sample
     return [...this.#byId]
       .filter(([, rec]) =>
         Math.abs(lng - rec.lng) <= 180 && arcMeters(lat, lng, rec.lat, rec.lng) <= rec.radius)

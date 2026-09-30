@@ -5,7 +5,8 @@
 // bbox.js. Módulo puro, como geodesic.js: sin Leaflet, sin DOM.
 import { coordOf, foldArgs, isPlace, isPoint } from './polyline.js'
 
-// La caja vacía, que el primer par finito que se le suma vuelve la caja de un punto.
+// La caja vacía, que el primer lugar que se le suma vuelve la caja de un punto. Hasta entonces no es una
+// caja: `readBounds` la rechaza, y con él decide todo el que acumula si le quedó alguna.
 export const emptyBounds = () => ({ south: Infinity, west: Infinity, north: -Infinity, east: -Infinity })
 
 // Estira `box` hasta (lat, lng), que ya pasaron su regla, y la devuelve.
@@ -17,10 +18,9 @@ const stretch = (box, lat, lng) => {
   return box
 }
 
-// Estira `box` hasta (lat, lng) si los dos son finitos. Los encuadres del motor y de la cámara leen
-// posiciones sueltas con esa regla, sin la de punto.
-export const growBounds = (box, lat, lng) =>
-  Number.isFinite(lat) && Number.isFinite(lng) ? stretch(box, lat, lng) : box
+// Estira `box` hasta (lat, lng) si son un lugar: fuera de ahí no hay caja que encuadrar. Los encuadres
+// del motor y de la cámara leen posiciones sueltas, sin la regla de forma del punto.
+export const growBounds = (box, lat, lng) => (isPlace(lat, lng) ? stretch(box, lat, lng) : box)
 
 // Un tramo de `foldRuns`, sumado a la caja sin volver a validarlo: sus vértices ya pasaron la regla de
 // punto. Vive en el módulo, estable entre llamadas, por lo que dice `foldRuns`.

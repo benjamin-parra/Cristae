@@ -1,28 +1,15 @@
 // El atributo `cursor` de <cristae-map> llega al motor por el mismo camino que `zoom-animation`: como
-// opción al montar y, en vivo, por `updated()`. Sin DOM real: el elemento se construye sobre el shim del
-// harness, y el `L` real que le inyecta al motor fabrica el mapa doble —`L.map` se cambia mientras dura
-// el montaje—, cuyo contenedor es el que el árbitro del cursor escribe. Corre con:
+// opción al montar y, en vivo, por `updated()`. Sin DOM real: el elemento se monta con `montarMapa` del
+// harness, sobre el mapa doble, cuyo contenedor es el que el árbitro del cursor escribe. Corre con:
 //   node --test test/element/map-cursor.test.mjs
-import '../../test-helpers/element-stub.mjs'   // window/document y lo que Lit toca al evaluar: PRIMERO
-import { makeMap } from '../../test-helpers/engine-stub.mjs'
+// El harness va PRIMERO: window/document y lo que Lit toca al evaluar.
+import { montarMapa } from '../../test-helpers/element-stub.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import L from 'leaflet'
 import { CristaeMap } from '../../src/element/CristaeMap.js'
 
-// Monta el elemento como lo haría su primer render, sin conectarlo: el render root sólo tiene que
-// devolver el contenedor que se le pasa al motor.
 const montar = async props => {
-  const map     = makeMap()
-  const fabrica = L.map
-  const el      = Object.assign(new CristaeMap(), props, {
-    renderRoot    : { querySelector: () => ({}) },
-    dispatchEvent : () => true,
-  })
-  L.map = () => map
-  el.firstUpdated()
-  await el.ready
-  L.map = fabrica
+  const { el, map } = await montarMapa(props)
   return { el, cursor: () => map.getContainer().style.cursor }
 }
 

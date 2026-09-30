@@ -1,9 +1,9 @@
 // Stubs para montar un MapEngine o una capa headless en node:test. No es un jsdom ni un Leaflet real:
 // existe lo que las capas y el motor tocan —construcción + addPointLayer + addClusterFold + control.*,
 // más las factories nativas de Leaflet (marker / divIcon / polyline / polygon / rectangle / circle /
-// latLngBounds / layerGroup) bajo UNA convención de log, ver makeLeaflet—. El GL/glify reusa el mismo
-// enfoque que test/pointlayer.test.mjs (la capa no lee nada de vuelta salvo el buffer). Los iconSets
-// de burbuja/sub-cluster que arma el fold son los REALES (defineClusterIconSet); rasterizan a un canvas
+// layerGroup) bajo UNA convención de log, ver makeLeaflet—. El GL/glify reusa el mismo enfoque que
+// test/pointlayer.test.mjs (la capa no lee nada de vuelta salvo el buffer). Los iconSets de
+// burbuja/sub-cluster que arma el fold son los REALES (defineClusterIconSet); rasterizan a un canvas
 // stub cuyo ctx es no-op y cuyos píxeles nunca se leen en CPU (Atlas.tileAt guarda el canvas; sólo se
 // entrega a gl.texImage2D, no-op). Así el harness ejerce el camino real de iconos, no uno paralelo.
 //
@@ -434,7 +434,9 @@ export const makeMap = ({ zoom = 3 } = {}) => {
       map._center = center
       return map
     },
-    getBounds: () => ({}),
+    // Fiel a Leaflet: un LatLngBounds, que se lee por sus getters. Es la caja del contenedor de 800×600
+    // en la proyección de abajo.
+    getBounds: () => ({ getSouth: () => 0, getWest: () => 0, getNorth: () => 600 / P, getEast: () => 800 / P }),
     getSize: () => makePoint(800, 600),
     // Proyección a píxeles dependiente del zoom (px = coord·P·2^z), para el reproyectado de vista.
     project: (ll, z = map._zoom) => {
@@ -569,27 +571,6 @@ export const makeLeaflet = () => {
         remove: vaciar,
       }
       return g
-    },
-    latLngBounds: (pts = []) => {
-      let minLat = Infinity, minLng = Infinity, maxLat = -Infinity, maxLng = -Infinity
-      const bounds = {
-        extend(ll) {
-          const { lat, lng } = toLatLng(ll)
-          minLat = Math.min(minLat, lat); maxLat = Math.max(maxLat, lat)
-          minLng = Math.min(minLng, lng); maxLng = Math.max(maxLng, lng)
-          return bounds
-        },
-        contains(ll) {
-          const { lat, lng } = toLatLng(ll)
-          return lat >= minLat && lat <= maxLat && lng >= minLng && lng <= maxLng
-        },
-        isValid:   () => minLat <= maxLat,
-        getCenter: () => ({ lat: (minLat + maxLat) / 2, lng: (minLng + maxLng) / 2 }),
-        // Caja acumulada: deja asertar el encuadre sin depender de la aritmética interna de Leaflet.
-        get box() { return { minLat, minLng, maxLat, maxLng } },
-      }
-      pts.forEach(pt => bounds.extend(pt))
-      return bounds
     },
   }
 }

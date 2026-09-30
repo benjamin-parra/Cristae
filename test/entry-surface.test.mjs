@@ -203,10 +203,11 @@ test('el lector no registra ningún custom element', () => {
 
 // ── geometry: la medida, los modelos y el contrato de path, sin la regla interna ──
 
-// Diez nombres. `foldRuns`, `foldPart`, `foldArgs`, `iterable`, `coordOf`, `isPlace` e `isPoint` son la
-// regla de corte y de punto que comparten `toParts`, `distance`, `boundsOf` y `fitToLayers`, y los
-// editores leen con `coordOf` e `isPoint`; `emptyBounds`, `growBounds`, `growRun` y `readBounds`, la
-// caja y su lector, que comparten las cajas y los encuadres del motor; `arcMeters`, `makeModel` y
+// Diez nombres. `foldRuns`, `foldPart`, `foldArgs`, `iterable`, `coordOf`, `isPlace`, `hasPointShape` e
+// `isPoint` son la regla de corte y de punto que comparten `toParts`, `distance`, `boundsOf` y
+// `fitToLayers`, y los editores leen con `coordOf` e `isPoint`, y la cámara con `coordOf`,
+// `hasPointShape` e `isPlace`; `emptyBounds`, `growBounds`, `growRun` y `readBounds`, la caja y su
+// lector, que comparten las cajas, los encuadres del motor y la cámara; `arcMeters`, `makeModel` y
 // `checkLength`, el núcleo de la esfera y la fábrica de modelos que comparten las medidas y el picking
 // de círculos: si salen del entry, alguien los usa y ya no se pueden mover.
 const GEOMETRY = {

@@ -23,7 +23,7 @@ const entry = ({
   presentAs,
 }) => ({ layerId, kind, zIndex, declOrder, activeMask, visible, resolveClick, resolveHover, capture, presentAs })
 
-// Resolver fake: devuelve siempre las partes dadas, ignorando el baseEvent.
+// Resolver fake: devuelve siempre las partes dadas, ignorando la muestra.
 const parts = (...arr) => () => arr
 
 test('resolveHits ordena top-first: zIndex desc, luego declOrder asc, luego distancePx asc', () => {

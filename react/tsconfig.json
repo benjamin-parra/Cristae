@@ -11,6 +11,7 @@
     "paths": {
       "cristae/map": ["../types/map"],
       "cristae/core": ["../types/core"],
+      "cristae/geometry": ["../types/geometry"],
       "@cristae/react": ["./types/index"]
     }
   },

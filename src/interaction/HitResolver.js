@@ -1,5 +1,5 @@
 // Resolutor de hits sobre capas Leaflet. No conoce el dominio: dado un layer y un ref
-// estable, produce un resolver `(baseEvent) => [{ ref, distancePx }]` eligiendo UNA
+// estable, produce un resolver `(sample) => [{ ref, distancePx }]` eligiendo UNA
 // estrategia según las capacidades geométricas del layer. El registro envuelve estas
 // partes con layerId/kind/zIndex/order para formar el Hit completo.
 
@@ -34,12 +34,12 @@ export class HitResolver {
 
   #groupResolver(layer, ref) {
     const cache = new WeakMap()
-    return baseEvent => {
+    return sample => {
       const hits = []
       layer.eachLayer(child => {
         let resolve = cache.get(child)
         if (!resolve) cache.set(child, resolve = this.createResolver(child, ref))
-        resolve(baseEvent).forEach(hit => hits.push(hit))
+        resolve(sample).forEach(hit => hits.push(hit))
       })
       return hits
     }
@@ -58,10 +58,10 @@ export class HitResolver {
       ? this.#hitRadiusOf(layer)
       : DEFAULT_HIT_RADIUS
 
-    return baseEvent => {
-      if (!baseEvent?.latlng || !this.#map.hasLayer(layer)) return []
+    return sample => {
+      if (!this.#map.hasLayer(layer)) return []
 
-      const layerPoint = baseEvent.layerPoint ?? this.#map.latLngToLayerPoint(baseEvent.latlng)
+      const layerPoint = this.#map.latLngToLayerPoint(sample)
 
       // 1. Basada en trazo (la más precisa — renderers SVG y Canvas).
       if (hasContainsPoint) {
@@ -78,7 +78,7 @@ export class HitResolver {
       }
 
       // 3. Basada en área (overlays).
-      return hasBounds && layer.getBounds().contains(baseEvent.latlng)
+      return hasBounds && layer.getBounds().contains(sample)
         ? [{ ref, distancePx: 0 }]
         : []
     }

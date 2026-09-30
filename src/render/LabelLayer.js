@@ -1,11 +1,13 @@
 import L from 'leaflet'
 import { withAlpha } from './color.js'
 import { focusFactor } from './focus.js'
+import { boundsContain, boundsPad } from '../geometry/bounds.js'
 
 // LabelLayer — etiquetas de texto sobre un canvas overlay.
 // Genérico: una sola capa, sin variantes de dominio.
 // El glifo lo pinta un `paint(ctx, point, label, hovered)` inyectable; se incluye `drawLabel` por
 // defecto. El label es opaco salvo {id, lat, lng, text}; el resto de campos los interpreta el painter.
+// El painter es API: la caja del culling y el píxel `point` salen de la cámara, planos.
 //
 // El overlay redibuja en moveend/zoomend/resize y se OCULTA durante el zoom-anim (si no, las
 // etiquetas se deslizan desfasadas del mapa). Culling por bounds + los hovered se dibujan encima.
@@ -67,7 +69,7 @@ class CanvasOverlay extends L.Layer {
   requestRedraw() {
     if (!this._map || !this.#enabled) return
     this.#resize()
-    this.#paint(this.#ctx, this._map)
+    this.#paint(this.#ctx)
   }
 
   // Habilita/deshabilita el pintado. En false, requestRedraw() es no-op (todos los callers:
@@ -102,6 +104,7 @@ class CanvasOverlay extends L.Layer {
 export class LabelLayer {
 
   #map
+  #camera
   #overlay
   #pane
   #labels        = []
@@ -112,8 +115,9 @@ export class LabelLayer {
   #boundsPad
   #style
 
-  constructor({ map, pane, paint = drawLabel, boundsPad = 0.08, style = DEFAULT_STYLE } = {}) {
+  constructor({ map, camera, pane, paint = drawLabel, boundsPad = 0.08, style = DEFAULT_STYLE } = {}) {
     this.#map       = map
+    this.#camera    = camera
     this.#pane      = pane.name
     this.#paint     = paint
     this.#boundsPad = boundsPad
@@ -122,7 +126,7 @@ export class LabelLayer {
     const labelPane = this.#map.getPane(pane.name) ?? this.#map.createPane(pane.name)
     labelPane.style.zIndex        = String(pane.zIndex)
     labelPane.style.pointerEvents = 'none'
-    this.#overlay              = new CanvasOverlay((ctx, leaflet) => this.#render(ctx, leaflet))
+    this.#overlay              = new CanvasOverlay(ctx => this.#render(ctx))
     this.#overlay.options.pane = pane.name
     this.#overlay.addTo(map)
   }
@@ -177,9 +181,9 @@ export class LabelLayer {
     return true
   }
 
-  #render(ctx, leaflet) {
+  #render(ctx) {
     prepareContext(ctx)
-    const bounds   = leaflet.getBounds().pad(this.#boundsPad)
+    const box      = boundsPad(this.#camera.getBounds(), this.#boundsPad)
     const elevated = []
     const paint    = (point, label, hovered) => {
       ctx.globalAlpha = focusFactor(this.#focus, label.id)
@@ -187,8 +191,8 @@ export class LabelLayer {
     }
 
     this.#labels.forEach(label => {
-      if (!bounds.contains([label.lat, label.lng])) return
-      const point = leaflet.latLngToContainerPoint([label.lat, label.lng])
+      if (!boundsContain(box, label)) return
+      const point = this.#camera.latLngToContainerPoint(label)
       if (this.#hovered.has(label.id)) elevated.push({ point, label })
       else paint(point, label, false)
     })

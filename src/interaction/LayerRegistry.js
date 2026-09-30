@@ -7,15 +7,15 @@ import { HitResolver } from './HitResolver.js'
 // se gatea por su bit. Tabla CONSTANTE de módulo (no se reconstruye por llamada) con prototipo nulo:
 // un tipo desconocido —incluido el nombre de un método heredado como 'toString'— no matchea y cae
 // al default de hover. Sin demanda del canal, el resolver ni se llama → cero picking ocioso.
-const resolveHoverParts = (entry, baseEvent) =>
-  (entry.activeMask & EVENT_HOVER) ? (entry.resolveHover?.(baseEvent) ?? []) : []
+const resolveHoverParts = (entry, sample) =>
+  (entry.activeMask & EVENT_HOVER) ? (entry.resolveHover?.(sample) ?? []) : []
 
 const HIT_PART_ROUTE = {
   __proto__        : null,
-  'click'          : (entry, baseEvent) =>
-    (entry.activeMask & EVENT_CLICK) ? (entry.resolveClick?.(baseEvent) ?? []) : [],
-  'secondary-click': (entry, baseEvent) =>
-    (entry.activeMask & EVENT_SECONDARY) ? (entry.resolveClick?.(baseEvent) ?? []) : [],
+  'click'          : (entry, sample) =>
+    (entry.activeMask & EVENT_CLICK) ? (entry.resolveClick?.(sample) ?? []) : [],
+  'secondary-click': (entry, sample) =>
+    (entry.activeMask & EVENT_SECONDARY) ? (entry.resolveClick?.(sample) ?? []) : [],
 }
 
 // Registro de capas interactivas. Genérico sobre funciones resolver: no conoce capas de
@@ -129,12 +129,12 @@ export class LayerRegistry {
 
   // Recolecta los hits de todas las capas visibles para un tipo de evento, ya ordenados
   // top-first. distancePx ausente cuenta como infinito (queda al fondo del desempate).
-  resolveHits(eventType, baseEvent) {
+  resolveHits(eventType, sample) {
     const hits = []
 
     this.#layers.entriesById.forEach(entry => {
       if (!entry.visible) return
-      this.#resolveParts(entry, eventType, baseEvent).forEach(part =>
+      this.#resolveParts(entry, eventType, sample).forEach(part =>
         // El detalle propio del resolver pasa (una línea aporta `partIndex`/`segmentIndex`); las
         // claves del registro van DESPUÉS del spread: la identidad de la capa no es negociable.
         hits.push({
@@ -170,16 +170,16 @@ export class LayerRegistry {
     return hits
   }
 
-  // ¿El puntero (en `baseEvent`) cae sobre una feature de ALGUNA capa visible cuya demanda
+  // ¿El puntero (en `sample`) cae sobre una feature de ALGUNA capa visible cuya demanda
   // intersecta `channelMask`? Usa el resolver de hover (proximidad geométrica para polígonos; pick
   // GPU ya recogido por la sesión para puntos). Es la consulta del CURSOR de affordance: una capa
   // con demanda de CLICK debe marcar el puntero aunque nadie escuche el canal de hover (ver
   // Interaction). No ordena ni materializa hits: corta al primer acierto (O(L) en el peor caso).
-  hasHitForChannels(channelMask, baseEvent) {
+  hasHitForChannels(channelMask, sample) {
     for (const entry of this.#layers.entriesById.values()) {
       if (!entry.visible) continue
       if (!(entry.activeMask & channelMask)) continue
-      const parts = entry.resolveHover?.(baseEvent)
+      const parts = entry.resolveHover?.(sample)
       if (parts?.length) return true
     }
     return false
@@ -217,7 +217,7 @@ export class LayerRegistry {
   // activa en la capa → sin demanda de hover, no se hace picking de hover. El ruteo (bit + resolver)
   // sale de HIT_PART_ROUTE; un tipo desconocido cae al canal de hover. Se llama una vez por capa
   // dentro del recorrido de resolveHits: queda como método para no recrear el closure por iteración.
-  #resolveParts(entry, eventType, baseEvent) {
-    return (HIT_PART_ROUTE[eventType] ?? resolveHoverParts)(entry, baseEvent)
+  #resolveParts(entry, eventType, sample) {
+    return (HIT_PART_ROUTE[eventType] ?? resolveHoverParts)(entry, sample)
   }
 }

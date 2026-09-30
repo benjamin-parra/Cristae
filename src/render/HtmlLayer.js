@@ -48,17 +48,16 @@ export class HtmlLayer {
   }
 
   /* ── Picking: marcadores dentro de tolerancia (kind 'html'); el registro los ordena por distancePx ── */
-  resolveClick(baseEvent) { return this.#hitsAt(baseEvent) }
-  resolveHover(baseEvent) { return this.#hitsAt(baseEvent) }
+  resolveClick(sample) { return this.#hitsAt(sample) }
+  resolveHover(sample) { return this.#hitsAt(sample) }
 
-  #hitsAt(baseEvent) {
-    if (!this.#interactive || !baseEvent?.latlng || !this.#byId.size) return []
-    const cp = baseEvent.containerPoint ?? this.#map.latLngToContainerPoint(baseEvent.latlng)
+  #hitsAt(sample) {
+    if (!this.#interactive || !this.#byId.size) return []
     const tol = this.#hitTol                      // deriva del sizeOf mayor: un badge grande pica en toda su caja
     const out = []
     this.#byId.forEach((marker, id) => {
       const mp = this.#map.latLngToContainerPoint(marker.getLatLng())
-      const d = Math.hypot(mp.x - cp.x, mp.y - cp.y)
+      const d = Math.hypot(mp.x - sample.x, mp.y - sample.y)
       if (d <= tol) out.push({ ref: id, id, distancePx: d })
     })
     return out

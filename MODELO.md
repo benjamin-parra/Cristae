@@ -391,17 +391,18 @@ Hit = {
 |---|---|---|
 | `cristae:ready` | `{}` | motor montado (tras primer render) |
 | `cristae:pointermove` | `{ lat, lng, x, y }` | cada movimiento (throttled). **Barato**, para UI que sigue el cursor (tooltip). No requiere picking. |
-| `cristae:hover` | `{ hits, added, removed, x, y }` | cuando **cambia el conjunto** de hits bajo el cursor. Trae deltas → el consumidor agrega nombres/ids sin ref-count manual. |
-| `cristae:click` | `{ hits, lat, lng, x, y, originalEvent }` | click. `hits` vacío = click en vacío. **El consumidor decide** single vs múltiple (la desambiguación es de dominio, no del core). |
-| `cristae:viewportchange` | `{ center, zoom, bounds }` | moveend/zoomend |
+| `cristae:hover` | `{ hits }` | el conjunto vigente de hits bajo el cursor, en cada resolución que da alguno (SPECS §10). Los cambios del conjunto son los canales `hover:start`/`hover:end` del motor → el consumidor agrega nombres/ids sin ref-count manual. |
+| `cristae:click` | `{ hits, originalEvent }` | click sobre alguna feature. **El consumidor decide** single vs múltiple (la desambiguación es de dominio, no del core). |
+| `cristae:mapclick` | `{ latlng }` | click en vacío, sin ningún hit |
+| `cristae:viewportchange` | `{ center, zoom, bounds }` | moveend/zoomend y cambio de `viewport-insets` (SPECS §10). Centro y caja son objetos planos (SPECS §0) |
 | `cristae:interactionstart` / `cristae:interactionend` | `{}` | pan/zoom inicio/fin (para que el consumidor frene su emitter si quiere; el motor ya coalesce su propio redraw). |
 
 ### 8.3 Decisiones de diseño de eventos
-1. **`pointermove` separado de `hover`.** `pointermove` es continuo y barato (posición para tooltip). `hover` solo se emite cuando cambia el set de hits (tras el picking GPU async). Esto preserva el throttle (`hoverThrottle`) y la tolerancia a stale (`staleTolerancePx`) actuales, expuestos como config a nivel mapa.
-2. **`hover` reporta `added`/`removed`.** Generaliza el ref-counting actual (solapamiento polígono+marcador): el motor entrega deltas; el consumidor decide cómo agregar (ref-count por nombre, mostrar todos, etc.). El core **no** conoce "nombres de geocerca".
+1. **`pointermove` separado de `hover`.** `pointermove` es continuo y barato (posición para tooltip). `hover` sale tras el picking GPU async, con el set vigente; sus cambios salen por `hover:start`/`hover:end`. Esto preserva el throttle (`hoverThrottle`) y la tolerancia a stale (`staleTolerancePx`) actuales, expuestos como config a nivel mapa.
+2. **Los cambios del set salen aparte: `hover:start`/`hover:end`.** Generaliza el ref-counting actual (solapamiento polígono+marcador): el motor entrega deltas; el consumidor decide cómo agregar (ref-count por nombre, mostrar todos, etc.). El core **no** conoce "nombres de geocerca".
 3. **Sin `onDisambiguate` en el core.** `click` entrega **todos** los hits ordenados; abrir un popup de desambiguación o tomar el top es decisión del consumidor.
 4. **Suscripción por capa (API imperativa).** `engine.on('click', 'fleet', cb)`, `engine.on('hover', ['places','zones'], cb)`. A nivel `CustomEvent` (global), el consumidor filtra por `detail.hits[].layerId`.
-5. **Lifecycle de hover** (igual que hoy, generalizado): enter contenedor → sesión; `pointermove` throttled → picking async → diff de set → `hover`; leave → `hover` con `hits:[]`; suprimido durante zoom/pan.
+5. **Lifecycle de hover** (igual que hoy, generalizado): enter contenedor → sesión; `pointermove` throttled → picking async → diff de set → `hover`, `hover:start`, `hover:end`; leave → `hover:end` de lo abierto; suprimido durante zoom/pan.
 6. **Cursor automático.** El motor ya conoce el set de hits → si ese set incluye una capa `interactive`, pone el cursor `pointer` y lo restaura al vaciarse. Reemplaza el `container.style.cursor='pointer'` que la página escribe hoy a mano. El consumidor no escribe el contenedor (vive en el shadow DOM): pide su cursor —el de una herramienta activa— con el atributo `cursor`, que gana sobre el `pointer`, y un solo escritor arbitra los dos con el arrastre y el editor ([precedencia](./docs/interaction.md#el-cursor-del-contenedor)).
 
 ---

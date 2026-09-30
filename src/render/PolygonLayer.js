@@ -71,12 +71,12 @@ export class PolygonLayer {
   }
 
   /* ── Picking CPU point-in-poly (idsFor): kind 'polygon', sin distancia (dentro/fuera) ── */
-  resolveClick(baseEvent) { return this.#hitsAt(baseEvent) }
-  resolveHover(baseEvent) { return this.#hitsAt(baseEvent) }
+  resolveClick(sample) { return this.#hitsAt(sample) }
+  resolveHover(sample) { return this.#hitsAt(sample) }
 
-  #hitsAt(baseEvent) {
-    return this.#interactive && baseEvent?.latlng && this.#index.sorted.length
-      ? idsFor(baseEvent.latlng.lat, baseEvent.latlng.lng, this.#index)
+  #hitsAt(sample) {
+    return this.#interactive && this.#index.sorted.length
+      ? idsFor(sample.lat, sample.lng, this.#index)
         .map(id => ({ ref: id, id, distancePx: 0 }))
       : []
   }

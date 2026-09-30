@@ -257,17 +257,14 @@ export class CristaeMap extends LitElement {
 
   // `viewport-insets` es reactivo: las franjas del contenedor ocluidas por UI del consumidor
   // (paneles/sidebars internos) cambian en runtime al abrir/cerrar un panel. Se re-aplican a la
-  // cámara y se emite `viewportchange` — la región visible cambió aunque la cámara no se movió —
+  // cámara y el motor emite `viewportchange` — la región visible cambió aunque la cámara no se movió —
   // para que los overlays anclados (popup, botón central del cluster) se re-encuadren al instante.
   // `zoom-animation` y `cursor` también son reactivos: se cambian en vivo sin remontar el mapa.
   updated(changed) {
     if (!this.#engine) return
     if (changed.has('zoomAnimation')) this.#engine.setZoomAnimation(this.zoomAnimation ?? 'none')
     if (changed.has('cursor')) this.#engine.setCursor(this.cursor)
-    if (!changed.has('viewportInsets')) return
-    this.#engine.camera.insets = this.viewportInsets
-    const m = this.#engine.getLeafletMap()
-    this.#emit('viewportchange', { center: m.getCenter(), zoom: m.getZoom(), bounds: m.getBounds() })
+    if (changed.has('viewportInsets')) this.#engine.camera.insets = this.viewportInsets
   }
 
   async #mount() {
@@ -340,7 +337,7 @@ export class CristaeMap extends LitElement {
   static #ENGINE_BRIDGE = {
     'cristae:click':       el => el.#engine.on('click', (hits, ev) => el.#emit('click', { hits, originalEvent: ev })),
     'cristae:hover':       el => el.#engine.on('hover', hits => el.#emit('hover', { hits })),
-    'cristae:pointermove': el => el.#engine.on('pointer:move', (_, s) => el.#emit('pointermove', s && { lat: s.latlng?.lat, lng: s.latlng?.lng, x: s.containerPoint?.x, y: s.containerPoint?.y })),
+    'cristae:pointermove': el => el.#engine.on('pointer:move', (_, sample) => el.#emit('pointermove', sample)),
   }
 
   // Suscribe el canal del motor para un tipo cristae:* bajo demanda y devuelve su unsub (o null si el

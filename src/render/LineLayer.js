@@ -115,14 +115,14 @@ export class LineLayer {
 
   /* ── Picking CPU (nearest-segment); el registro envuelve las partes con layerId/kind/z/order ── */
 
-  resolveClick(baseEvent) { return this.#hitsAt(baseEvent) }
-  resolveHover(baseEvent) { return this.#hitsAt(baseEvent) }
+  resolveClick(sample) { return this.#hitsAt(sample) }
+  resolveHover(sample) { return this.#hitsAt(sample) }
 
-  #hitsAt(baseEvent) {
-    if (!this.#interactive || !baseEvent?.latlng || !this.#index.sorted.length) return []
+  #hitsAt(sample) {
+    if (!this.#interactive || !this.#index.sorted.length) return []
     const scale = 2 ** this.#map.getZoom()          // world0 px · 2^zoom = screen px
     const tolPx = HIT_TOL_PX + this.#maxWeight / 2   // el trazo grueso capta desde su borde, no su eje
-    const hits = nearest(baseEvent.latlng.lat, baseEvent.latlng.lng, this.#index, tolPx / scale)
+    const hits = nearest(sample.lat, sample.lng, this.#index, tolPx / scale)
     return hits.map(h => ({
       ref: h.id, id: h.id, distancePx: h.dist * scale,
       partIndex: h.partIndex, vertexIndex: h.vertexIndex,

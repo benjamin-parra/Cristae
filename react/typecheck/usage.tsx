@@ -22,7 +22,8 @@ import {
   type CristaeTableElement,
   type CristaeViewportChangeDetail,
 } from '@cristae/react'
-import { createSource, defineSource, defineIconSet, distance, drawLabel, sphere, toParts, type CristaeSource, type LineAccessors } from 'cristae/map'
+import { createSource, defineSource, defineIconSet, distance, drawLabel, sphere, toParts, type Bounds, type CristaeSource, type LineAccessors, type MapEngine, type PointerSample } from 'cristae/map'
+import { boundsOf, boundsPad } from 'cristae/geometry'
 
 interface Movil {
   id: number
@@ -60,10 +61,14 @@ export const ViaData = () => (
       const d: CristaeViewportChangeDetail = e.detail
       void d.center.lat
       void d.zoom
+      void d.bounds.south
     }}
-    onClick={(e) => { void e.detail.hits[0]?.layerId }}
-    // Canales del bus (no hay CustomEvent): hits directos, sin `detail`.
-    onHoverStart={(hits) => { void hits[0]?.id }}
+    onClick={(e) => { void e.detail.hits[0]?.layerId; void e.detail.originalEvent?.button }}
+    onMapClick={(e) => { void e.detail.latlng.lng }}
+    onPointerMove={(e) => { void e.detail.lat; void e.detail.x }}
+    // Canales del bus (no hay CustomEvent): hits directos, sin `detail`; el hover trae la muestra.
+    onHoverStart={(hits, muestra) => { void hits[0]?.id; void muestra.y }}
+    onHoverEnd={(hits, muestra) => { void muestra?.lat }}
   >
     <CristaePointLayer<Movil>
       id="fleet"
@@ -161,8 +166,27 @@ export const ViaRef = () => {
     popup.current?.open(m)
   }
 
+  // La cámara devuelve objetos planos y acepta cualquier forma de punto y de caja.
+  const encuadrar = () => {
+    const camera = map.current?.camera
+    if (!camera) return
+    const vista: Bounds = camera.getBounds()
+    camera.fitBounds(boundsPad(vista, 0.1))
+    camera.fitBounds([{ latitude: -33, longitude: -70 }, [-34, -71]])
+    camera.setView({ lat: -33, lon: -70 }, 10)
+    void camera.latLngToContainerPoint(camera.getCenter()).x
+    void camera.containerPointToLatLng([10, 20]).lng
+  }
+
+  // Las señales del motor entregan su payload directo, el mismo que el detail del evento del DOM.
+  const escuchar = () => map.current?.ready.then((engine) => {
+    engine.on('viewportchange', (vista: CristaeViewportChangeDetail) => { void vista.bounds.south })
+    engine.on('map:click', ({ latlng }) => { void latlng.lng })
+    engine.on('interactionstart', () => {})
+  })
+
   return (
-    <CristaeMap ref={map} onSecondaryClick={(hits) => { void hits[0]?.layerId }}>
+    <CristaeMap ref={map} onSecondaryClick={(hits, ev) => { void hits[0]?.layerId; void ev?.button }}>
       <CristaeCluster<Movil>
         ref={cluster}
         dimMarked
@@ -176,12 +200,15 @@ export const ViaRef = () => {
       </CristaeCluster>
       <CristaePopup<Movil> ref={popup} for="fleet" contentOf={(m) => (m.estado === 'mov' ? `<b>${m.patente}</b>` : null)} />
       <button slot="top-right" onClick={() => seguir(moviles[0]!)}>seguir</button>
+      <button slot="top-left" onClick={encuadrar}>encuadrar</button>
+      <button slot="bottom-left" onClick={escuchar}>escuchar</button>
     </CristaeMap>
   )
 }
 
 // ── Geometría: un path de arrays numéricos, como llega de un JSON, entra sin castear ─────────
 const recorrido: number[][] = [[-33.45, -70.66], [-33.05, -71.62]]
+export const caja: Bounds | null = boundsOf(recorrido)
 export const medidas: number[] = [
   distance(recorrido),
   distance(sphere(6378137), recorrido),
@@ -208,6 +235,18 @@ export const BadUnion = () => <CristaeMap zoomAnimation="fast" />
 // un número suelto no es un punto ni un path.
 // @ts-expect-error distance no mide un número
 export const BadDistance = distance(3)
+
+// la muestra del puntero llega congelada: se lee, no se escribe.
+// @ts-expect-error lat es de sólo lectura
+export const BadSample = (muestra: PointerSample) => { muestra.lat = 0 }
+
+// la caja de la cámara es plana: no trae los métodos de Leaflet.
+// @ts-expect-error Bounds no tiene pad
+export const BadBounds = (camera: NonNullable<CristaeMapElement['camera']>) => camera.getBounds().pad(0.1)
+
+// la vista de `viewportchange` en el motor también trae la caja plana.
+// @ts-expect-error Bounds no tiene pad
+export const BadSignal = (engine: MapEngine) => engine.on('viewportchange', (vista) => vista.bounds.pad(0.1))
 
 // slot fuera de las zonas del overlay (un typo quedaría mudo en runtime).
 // @ts-expect-error "arriba" no es una zona del overlay 3×3

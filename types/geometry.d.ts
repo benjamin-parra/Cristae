@@ -26,7 +26,7 @@ type PointOrHole = LatLngPoint | null | undefined;
  *  normaliza `toParts`. */
 export type LatLngPath = Iterable<PointOrHole> | Iterable<Iterable<PointOrHole> | null | undefined>;
 
-/** Una posición en grados, como la devuelve `boundsCenter`. */
+/** Una posición en grados, como la devuelven la cámara, los eventos y `boundsCenter`. */
 export interface LatLng {
   lat : number;
   lng : number;

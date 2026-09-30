@@ -52,6 +52,10 @@ import type {
   ClusterMarked,
   CristaeReadSource,
   CristaeFilter,
+  LatLng,
+  PointerSample,
+  ViewportChangeDetail,
+  MapClickDetail,
 } from '../../types/map'
 import type { PagedTable } from '../../types/table'
 
@@ -103,27 +107,22 @@ export type CristaeHit        = Hit
 // Los handlers `onX` de esta familia se cablean con addEventListener → reciben el CustomEvent del
 // DOM; el dato útil viaja en `event.detail`.
 
-export type CristaeLatLng = { lat: number; lng: number }
-
-export interface CristaeViewportChangeDetail {
-  center : CristaeLatLng;
-  zoom   : number;
-  /** `L.LatLngBounds` (opaco — la lib no lo tipa hacia afuera). */
-  bounds : unknown;
-}
-export interface CristaeMapClickDetail { latlng: CristaeLatLng }
-export interface CristaeClickDetail { hits: CristaeHit[]; originalEvent?: Event }
+export type CristaeLatLng               = LatLng
+export type CristaeViewportChangeDetail = ViewportChangeDetail
+export type CristaeMapClickDetail       = MapClickDetail
+/** `originalEvent` es el evento del DOM, `null` en un click disparado por código. */
+export interface CristaeClickDetail { hits: CristaeHit[]; originalEvent: MouseEvent | null }
 export interface CristaeHoverDetail { hits: CristaeHit[] }
-/** El elemento emite el evento con detail falsy si el motor no entrega estado. */
-export type CristaePointerMoveDetail = { lat: number; lng: number; x: number; y: number } | null | undefined
+export type CristaePointerMoveDetail = PointerSample
 
 /** Handler de un evento cristae:* — recibe el CustomEvent del DOM; leer `event.detail`. */
 export type CristaeEventHandler<D> = (event: CustomEvent<D>) => void
 
 /** Handler de un canal de picking del BUS del motor (`map.on('click' | 'hover' | …)`): NO es un
- *  CustomEvent — recibe los hits directos (filtrados por la capa que lo declara) y el evento del
- *  puntero que los originó (`null` en un `hover:end` derivado de una capa que dejó de resolver). */
-export type CristaeHitsHandler = (hits: CristaeHit[], event: Event | null) => void
+ *  CustomEvent — recibe los hits directos (filtrados por la capa que lo declara) y lo que los originó:
+ *  el evento del DOM en los clicks, que es el tipo por defecto, y la muestra del puntero en el hover
+ *  (`null` en un `hover:end` que cierra sin muestra, SPECS §10). */
+export type CristaeHitsHandler<E = MouseEvent | null> = (hits: CristaeHit[], event: E) => void
 
 // ── Props base ──────────────────────────────────────────────────────────────
 // `className`/`style` NO se exponen a propósito: el aplicador imperativo los mapearía mal
@@ -179,10 +178,10 @@ interface CristaeDataLayerProps extends CristaeLeafLayerProps {
   onClick?          : CristaeHitsHandler;
   /** Botón secundario / long-press (canal discreto del motor, sin CustomEvent). */
   onSecondaryClick? : CristaeHitsHandler;
-  onHover?          : CristaeHitsHandler;
+  onHover?          : CristaeHitsHandler<PointerSample>;
   /** Entrada/salida del set de hover (deltas que deriva el EventBus). */
-  onHoverStart?     : CristaeHitsHandler;
-  onHoverEnd?       : CristaeHitsHandler;
+  onHoverStart?     : CristaeHitsHandler<PointerSample>;
+  onHoverEnd?       : CristaeHitsHandler<PointerSample | null>;
 }
 
 export interface CristaeTileProvider {
@@ -242,8 +241,8 @@ export interface CristaeMapProps extends CristaeBaseProps {
   onInteractionEnd?   : CristaeEventHandler<Record<string, never>>;
   /** Canales del BUS (todas las capas, sin filtro): el motor no los puentea a CustomEvent. */
   onSecondaryClick?   : CristaeHitsHandler;
-  onHoverStart?       : CristaeHitsHandler;
-  onHoverEnd?         : CristaeHitsHandler;
+  onHoverStart?       : CristaeHitsHandler<PointerSample>;
+  onHoverEnd?         : CristaeHitsHandler<PointerSample | null>;
 }
 export declare const CristaeMap: ForwardRefExoticComponent<CristaeMapProps & RefAttributes<CristaeMapElement>>;
 

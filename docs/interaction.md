@@ -55,11 +55,11 @@ comparten `EVENT_HOVER`; un tipo desconocido → `0`, sin demanda).
 ## `HitResolver` — geometría, una estrategia exclusiva
 
 No conoce el dominio. Dado un `layer` y un `ref` estable, devuelve un resolver
-`(baseEvent) => [{ ref, distancePx }]`. Construcción: `new HitResolver(map)`.
+`(sample) => [{ ref, distancePx }]`. Construcción: `new HitResolver(map)`.
 
 | Método | Firma | Complejidad | Notas |
 |---|---|---|---|
-| `createResolver(layer, ref)` | `(layer, ref) → (baseEvent) => parts[]` | O(1) build | capa agrupada (`eachLayer`) → resolver de grupo; capa simple → resolver de hoja |
+| `createResolver(layer, ref)` | `(layer, ref) → (sample) => parts[]` | O(1) build | capa agrupada (`eachLayer`) → resolver de grupo; capa simple → resolver de hoja |
 | `zIndexOf(layer)` | `(layer) → number` | O(1) | z-index leído del pane de la capa; sin pane → 0 |
 
 El resolver de **hoja** elige **una sola** estrategia, exclusiva y sin fallthrough, según las
@@ -73,8 +73,7 @@ capacidades geométricas del layer:
 
 La tolerancia de la estrategia 2 (`#hitRadiusOf`) es el radio del círculo
 (`getRadius`/`_radius`) o la media diagonal del icono (`iconSize`), o `DEFAULT_HIT_RADIUS`
-(10 px). Todo resolver corta temprano si el evento no trae `latlng` o si la capa ya no está en
-el mapa (`map.hasLayer`).
+(10 px). Todo resolver corta temprano si la capa ya no está en el mapa (`map.hasLayer`).
 
 El resolver de **grupo** itera los hijos **en tiempo de resolución** (adds/removes dinámicos
 funcionan), cacheando el resolver de cada hijo de forma lazy en un `WeakMap` (se libera solo
@@ -93,7 +92,7 @@ ya construido o un `map` para fabricar el por-defecto sobre Leaflet).
 |---|---|---|---|
 | `registerLeafletLayer(layerId, layer, opts?)` | `(string, layer, {kind?, zIndex?, resolveClick?, resolveHover?, ref?, declOrder?}) → ref` | O(1) | deriva z-index y resolver del `HitResolver`; click/hover comparten el resolver geométrico salvo override |
 | `upsertResolver(entry, layerObject?)` | `(entry, obj?) → void` | O(1) | inserta/reemplaza una entrada genérica; **preserva** la máscara activa previa si la nueva no la trae |
-| `resolveHits(eventType, baseEvent)` | `(string, evt) → Hit[]` | O(n log n) | recolecta hits de capas **visibles**, solo de resolvers cuyo canal tiene demanda, y los devuelve **ordenados top-first** |
+| `resolveHits(eventType, sample)` | `(string, {lat, lng, x, y}) → Hit[]` | O(n log n) | recolecta hits de capas **visibles**, solo de resolvers cuyo canal tiene demanda, y los devuelve **ordenados top-first** |
 | `setLayerVisibility(layerId, visible)` | `(string, bool) → bool` | O(1) | gating por visibilidad; capa oculta no aporta hits |
 | `isLayerVisible(layerId)` | `(string) → bool\|null` | O(1) | — |
 | `setLayerDemandMask(layerId, mask)` | `(string, number) → bool` | O(1) | fija la máscara de canales activos de la capa (la calcula el motor desde el `EventBus`) |
@@ -259,11 +258,9 @@ const off = bus.on('click', 'flota', (hits) => {
 })
 refresh('flota')                            // máscara: EVENT_CLICK
 
-// Al recibir un clic del mapa, resolver y despachar.
-map.on('click', (ev) => {
-  const hits = registry.resolveHits('click', ev)
-  bus.dispatch('click', hits, ev.originalEvent)
-})
+// El motor resuelve cada clic con su muestra —la `PointerSample` de SPECS §10, que arma con la
+// cámara— y lo despacha con el evento del DOM:
+const onClick = (sample, originalEvent) => bus.dispatch('click', registry.resolveHits('click', sample), originalEvent)
 
 // Baja del handler (idempotente):
 off()

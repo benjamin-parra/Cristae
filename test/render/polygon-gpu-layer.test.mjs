@@ -331,7 +331,7 @@ const MIXED = new TextEncoder().encode(JSON.stringify({
 const IN_LINE    = { lat: -0.25, lng: 0.45 }        // dentro de la CLAUSURA de la LineString, de ningún área
 const IN_POLYGON = { lat: 0, lng: 0 }
 
-const hits = (layer, latlng) => layer.resolveClick({ latlng })
+const hits = (layer, latlng) => layer.resolveClick(latlng)
 
 test('con la selección de áreas, la capa sube sólo anillos de área y sólo ellos pickean', () => {
   const geo = readGeoJson(MIXED)
@@ -537,7 +537,7 @@ test('styleOf e idOf reciben la ENTIDAD, no el índice de parte', () => {
 test('el picking contesta con el id de la entidad, y por TODAS las que contienen el punto', () => {
   const src = fuente([{ id: 'a', rings: ANILLO_A }, { id: 'b', rings: ANILLO_B }])
   const { layer } = conFuente(src, { interactive: true })
-  const golpes = layer.resolveClick({ latlng: { lat: 0.01, lng: 0.03 } })
+  const golpes = layer.resolveClick({ lat: 0.01, lng: 0.03 })
   assert.deepEqual(golpes.map(h => h.id).sort(), ['a', 'b'], 'las dos se superponen ahí')
   assert.equal(golpes.every(h => h.distancePx === 0), true)
 })
@@ -592,7 +592,7 @@ test('un multipolígono con piezas solapadas contesta UNA vez, como el sustrato 
   const partida = [[ANILLO_A], [ANILLO_B]]                 // una entidad, dos piezas que se pisan
   const src = fuente([{ id: 'zona-partida', rings: partida }])
   const { layer } = conFuente(src, { interactive: true })
-  const golpes = layer.resolveClick({ latlng: { lat: 0.01, lng: 0.03 } })
+  const golpes = layer.resolveClick({ lat: 0.01, lng: 0.03 })
   assert.equal(layer.drawnPartCount, 2, 'son dos partes')
   assert.deepEqual(golpes.map(h => h.id), ['zona-partida'], 'pero una sola entidad')
 })
@@ -681,6 +681,16 @@ test('`addPolygonGpuLayer` delega y conserva su pane y su `interactive` históri
 test('la capa informa su caja en grados como una `Bounds`', () => {
   const { layer } = mount(tables([square(10, 20, 1), square(12, 22, 0.5)]))
   assert.deepEqual(layer.bounds, { south: 19, west: 9, north: 22.5, east: 12.5 })
+})
+
+test('fitToLayers encuadra la capa por la caja que informa', () => {
+  const { engine, map } = conMotor()
+  const cajas = []
+  map.fitBounds = ([sw, ne]) => { cajas.push([...sw, ...ne]); return map }
+  engine.addPolygonLayer({ id: 'areas', geometry: tables([square(10, 20, 1), square(12, 22, 0.5)]) })
+
+  engine.fitToLayers()
+  assert.deepEqual(cajas, [[19, 9, 22.5, 12.5]], 'sur, oeste, norte y este: cada lado en su esquina')
 })
 
 /* ── 10. El descarte por viewport cuenta el ancho del trazo ── */

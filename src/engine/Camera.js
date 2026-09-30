@@ -1,10 +1,19 @@
+import { coordOf, hasPointShape, isPlace } from '../geometry/polyline.js'
+import { emptyBounds, growBounds, readBounds } from '../geometry/bounds.js'
+
 // Camera — la ÚNICA vía de movimiento del viewport tras el montaje (SPECS §9, MODELO §5.4).
 // Todo es acción (imperativo), no estado: no hay prop reactiva de centro. Aplica viewport-insets
 // (UI que ocluye) corriendo el centro para que el objetivo caiga en la región visible, no detrás
 // del panel. followPoint: la cámara sigue la posición VIVA de un id leyéndola
 // del Source en cada flush (ya coalescido a rAF), sin que el consumidor bombee.
+//
+// Sus valores son los de la API, no los de Leaflet (SPECS §0): un punto entra en cualquier forma de
+// cristae/geometry y una caja por su lector, y lo que Leaflet devuelve sale como objeto plano
+// (`{ lat, lng }`, `{ x, y }`, `{ south, west, north, east }`).
 
 const ZERO_INSETS = { top: 0, right: 0, bottom: 0, left: 0 }
+
+const plainLatLng = ({ lat, lng }) => ({ lat, lng })
 
 export class Camera {
 
@@ -13,17 +22,23 @@ export class Camera {
   #insets
   #resolveSource
   #declusterZoomOf            // (layerId, id) → zoom mínimo desclusterizado | null (inyectado por el motor)
+  #onInsetsChange             // () → void: el motor re-emite su vista (inyectado)
   #follow = null              // { id, zoom, source, unsub, lastKey }
 
-  constructor({ map, L, insets, resolveSource, declusterZoomOf } = {}) {
+  constructor({ map, L, insets, resolveSource, declusterZoomOf, onInsetsChange } = {}) {
     this.#map             = map
     this.#L               = L
     this.#insets          = { ...ZERO_INSETS, ...insets }
     this.#resolveSource   = resolveSource ?? (() => null)
     this.#declusterZoomOf = declusterZoomOf ?? (() => null)
+    this.#onInsetsChange  = onInsetsChange ?? (() => {})
   }
 
-  set insets(insets) { this.#insets = { ...ZERO_INSETS, ...insets } }
+  // Otros insets cambian la región visible aunque la vista no se mueva: se avisa como un movimiento más.
+  set insets(insets) {
+    this.#insets = { ...ZERO_INSETS, ...insets }
+    this.#onInsetsChange()
+  }
   get insets() { return this.#insets }
 
   /* ── Movimiento puntual (un gesto del consumidor cancela el follow) ── */
@@ -47,49 +62,48 @@ export class Camera {
     return this
   }
 
+  // Sin caja no hay encuadre: lo que no es una caja no mueve la cámara ni corta el follow.
   fitBounds(bounds, { insets } = {}) {
+    const box = readBounds(bounds)
+    if (!box) return this
     this.stopFollow()
     const { top, right, bottom, left } = { ...this.#insets, ...insets }
     const padding = {
       paddingTopLeft: this.#L.point(left, top),
       paddingBottomRight: this.#L.point(right, bottom),
     }
-    this.#map.fitBounds(bounds, padding)
+    this.#map.fitBounds([[box.south, box.west], [box.north, box.east]], padding)
     return this
   }
 
-  // Encuadra una capa por los bounds de sus puntos finitos. O(n) sobre el snapshot del Source.
+  // Encuadra una capa por la caja de sus posiciones válidas. O(n) sobre el snapshot del Source.
   fitToLayer(layerId, { insets, maxZoom } = {}) {
     const source = this.#resolveSource(layerId)
     if (!source) return this
     const positionOf = source.accessors.positionOf
-    const bounds = this.#L.latLngBounds([])
+    const box        = emptyBounds()
     source.getSnapshot().forEach(item => {
       const p = positionOf(item)
-      p && Number.isFinite(p.lat) && Number.isFinite(p.lng) && bounds.extend([p.lat, p.lng])
+      p && growBounds(box, p.lat, p.lng)
     })
-    bounds.isValid() && this.fitBounds(bounds, { insets: insets ?? this.#insets })
-    maxZoom != null && this.#map.getZoom() > maxZoom && this.#map.setZoom(maxZoom)
-    return this
+    return this.#fitBox(box, insets, maxZoom)
   }
 
-  // Encuadra (one-shot) el SUBCONJUNTO `ids` de una capa por los bounds de sus puntos finitos. Es a
+  // Encuadra (one-shot) el SUBCONJUNTO `ids` de una capa por la caja de sus posiciones válidas. Es a
   // fitToLayer lo que revealPoint es a fitBounds: acota a un set explícito en vez de toda la capa,
   // leyendo cada id por itemById. Cancela el follow (fitBounds ya lo hace) — es un reposicionamiento.
-  // ids vacíos o sin ninguna posición finita → bounds inválidos → no-op (no rompe ni mueve la cámara).
+  // ids vacíos o sin ninguna posición válida → caja vacía → no-op (no rompe ni mueve la cámara).
   followBounds(layerId, ids, { insets, maxZoom } = {}) {
     const source = this.#resolveSource(layerId)
     if (!source) return this
     const positionOf = source.accessors.positionOf
-    const bounds     = this.#L.latLngBounds([]);
+    const box        = emptyBounds();
     (ids ?? []).forEach(id => {
       const item = source.itemById?.(id)
       const p = item && positionOf(item)
-      p && Number.isFinite(p.lat) && Number.isFinite(p.lng) && bounds.extend([p.lat, p.lng])
+      p && growBounds(box, p.lat, p.lng)
     })
-    bounds.isValid() && this.fitBounds(bounds, { insets: insets ?? this.#insets })
-    maxZoom != null && this.#map.getZoom() > maxZoom && this.#map.setZoom(maxZoom)
-    return this
+    return this.#fitBox(box, insets, maxZoom)
   }
 
   // Enfoca un punto (one-shot) dejándolo VISIBLE individualmente: si su capa clusteriza, sube el zoom
@@ -101,11 +115,11 @@ export class Camera {
     const source = this.#resolveSource(layerId)
     const item = source?.itemById?.(id)
     const p = item && source.accessors.positionOf(item)
-    if (!p || !Number.isFinite(p.lat) || !Number.isFinite(p.lng)) return this
+    if (!p || !isPlace(p.lat, p.lng)) return this
     const want = zoom ?? this.#map.getZoom()
     const dz = this.#declusterZoomOf(layerId, id)
     const z = dz != null && dz > want ? dz : want
-    this.#map.setView(this.#centeredFor([p.lat, p.lng], z), z)
+    this.#map.setView(this.#centeredFor(p, z), z)
     return this
   }
 
@@ -149,9 +163,12 @@ export class Camera {
     return this
   }
 
-  getCenter() { return this.#map.getCenter() }
+  getCenter() { return plainLatLng(this.#map.getCenter()) }
   getZoom() { return this.#map.getZoom() }
-  getBounds() { return this.#map.getBounds() }
+  getBounds() {
+    const b = this.#map.getBounds()
+    return { south: b.getSouth(), west: b.getWest(), north: b.getNorth(), east: b.getEast() }
+  }
   // Zoom máximo EFECTIVO (capacidad del tile: el mínimo maxZoom entre las capas). Cierra el motivo de
   // bajar a getLeafletMap() para saber hasta dónde se puede acercar (p. ej. limitar un fitToLayer).
   getMaxZoom() { return this.#map.getMaxZoom() }
@@ -172,12 +189,24 @@ export class Camera {
   /* ── Proyección píxel ↔ geográfica relativa al contenedor. Cierra el motivo más común para bajar
        a getLeafletMap(): posicionar overlays HTML (popups, tarjetas) en light DOM sobre el mapa. ── */
 
-  latLngToContainerPoint(latlng) { return this.#map.latLngToContainerPoint(latlng) }
-  containerPointToLatLng(point) { return this.#map.containerPointToLatLng(point) }
+  latLngToContainerPoint(latlng) {
+    const { x, y } = this.#map.latLngToContainerPoint(this.#leafletLatLng(latlng))
+    return { x, y }
+  }
+  containerPointToLatLng(point) { return plainLatLng(this.#map.containerPointToLatLng(point)) }
 
   destroy() { this.stopFollow() }
 
   /* ── Internos ── */
+
+  // Encuadra la caja que acumuló un encuadre por capa. Sin caja no hay encuadre, y tampoco se aplica
+  // `maxZoom`: acotaría un zoom que nadie movió.
+  #fitBox(box, insets, maxZoom) {
+    if (!readBounds(box)) return this
+    this.fitBounds(box, { insets })
+    maxZoom != null && this.#map.getZoom() > maxZoom && this.#map.setZoom(maxZoom)
+    return this
+  }
 
   // Re-centra solo si la posición del id seguido CAMBIÓ (un move de otro id no mueve la cámara).
   #recenterFollow() {
@@ -186,19 +215,28 @@ export class Camera {
     const item = f.source.itemById?.(f.id)
     if (item == null) return
     const p = f.source.accessors.positionOf(item)
-    if (!p || !Number.isFinite(p.lat) || !Number.isFinite(p.lng)) return
+    if (!p || !isPlace(p.lat, p.lng)) return
 
     const key = `${p.lat},${p.lng}`
     if (key === f.lastKey) return               // sin cambio → no re-centrar (idempotente)
     f.lastKey = key
 
     const zoom = f.zoom ?? this.#map.getZoom()
-    this.#map.setView(this.#centeredFor(this.#L.latLng(p.lat, p.lng), zoom), zoom, { animate: false })
+    this.#map.setView(this.#centeredFor(p, zoom), zoom, { animate: false })
+  }
+
+  // Un punto en cualquier forma de cristae/geometry, como el LatLng que Leaflet recibe. Lo que no tiene la
+  // forma de un punto lanza, y Leaflet rechaza lo que no trae dos números: no hay LatLng que construir.
+  // La latitud no se acota acá: la proyección la lleva al rango del mapa.
+  #leafletLatLng(point) {
+    if (!hasPointShape(point)) throw new TypeError('[cristae] la cámara espera un punto')
+    return this.#L.latLng(coordOf(point, 0), coordOf(point, 1))
   }
 
   // Corre el centro según los insets: el objetivo queda en el centro de la región VISIBLE.
-  // Sin insets, es el latlng tal cual (offset 0 → sin proyección extra).
-  #centeredFor(latlng, zoom) {
+  // Sin insets, es el punto tal cual (offset 0 → sin proyección extra).
+  #centeredFor(point, zoom) {
+    const latlng = this.#leafletLatLng(point)
     const { top, right, bottom, left } = this.#insets
     if (!top && !right && !bottom && !left) return latlng
     const offset = this.#L.point((left - right) / 2, (top - bottom) / 2)

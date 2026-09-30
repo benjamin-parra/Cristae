@@ -1,7 +1,7 @@
 // fitToLayers: `pathOf` se lee con el contrato de path de las líneas, así que el encuadre cubre lo que la
 // capa dibuja —cualquier forma de punto, sin lo que la regla de corte deja fuera—, y lo que no es punto
-// en un anillo no lo rompe. El harness no abre contextos WebGL: se declara el backend de Leaflet, y
-// `latLngBounds` devuelve las esquinas tal cual llegan, para asertar la caja sin la aritmética de Leaflet.
+// en un anillo no lo rompe. El harness no abre contextos WebGL: se declara el backend de Leaflet. La
+// cámara le entrega a Leaflet la caja como par de esquinas, que se aplana para asertarla.
 
 import '../../test-helpers/engine-stub.mjs'
 import { makeGlify, makeMap, makeLeaflet } from '../../test-helpers/engine-stub.mjs'
@@ -11,12 +11,10 @@ import { MapEngine } from '../../src/engine/MapEngine.js'
 
 const encuadre = alta => {
   const map   = makeMap()
-  const L     = makeLeaflet()
   const cajas = []
-  L.latLngBounds = (sw, ne) => [...sw, ...ne]
-  map.fitBounds  = caja => { cajas.push(caja); return map }
+  map.fitBounds = ([sw, ne]) => { cajas.push([...sw, ...ne]); return map }
 
-  const engine = new MapEngine({ leaflet: L, glify: makeGlify(), map })
+  const engine = new MapEngine({ leaflet: makeLeaflet(), glify: makeGlify(), map })
   alta(engine)
   engine.fitToLayers()
   engine.destroy()
@@ -51,6 +49,15 @@ test('lo que la regla de corte deja fuera no entra al encuadre', () => {
 // Un string también se recorre, pero no es un iterable de coordenadas: abrirlo da otro string, sin fondo.
 test('un vértice string en un anillo no rompe el encuadre del polígono', () => {
   const rings = [[[10, 20], 'N/A', [11, 21], [12, 20]]]
+  const cajas = encuadre(engine => engine.addPolygonLayer({
+    id: 'zona', backend: 'leaflet', accessors: { idOf: z => z.id, ringsOf: z => z.rings }, data: [{ id: 1, rings }],
+  }))
+  assert.deepEqual(cajas, [[10, 20, 12, 21]])
+})
+
+// Una latitud fuera de [-90, 90] no es un lugar: encuadrarla sería encuadrar el borde del mundo.
+test('un vértice sin lugar en un anillo no entra al encuadre del polígono', () => {
+  const rings = [[[10, 20], [95, 21], [11, 21], [12, 20]]]
   const cajas = encuadre(engine => engine.addPolygonLayer({
     id: 'zona', backend: 'leaflet', accessors: { idOf: z => z.id, ringsOf: z => z.rings }, data: [{ id: 1, rings }],
   }))

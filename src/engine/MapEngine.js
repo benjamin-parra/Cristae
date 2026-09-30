@@ -20,7 +20,7 @@ import { defineClusterIconSet } from '../atlas/IconSet.js'
 import { createSource } from '../data/index.js'
 import { createTileSnapshotRetention } from '../tiles/TileSnapshotRetention.js'
 import { foldRuns, iterable } from '../geometry/polyline.js'
-import { emptyBounds, growBounds, growRun } from '../geometry/bounds.js'
+import { emptyBounds, growBounds, growRun, readBounds } from '../geometry/bounds.js'
 
 // MapEngine — orquestador headless (SPECS §6). Framework-agnóstico, sin dominio. Crea el L.map,
 // deriva panes por orden de declaración (el consumidor no toca z-index),
@@ -102,6 +102,7 @@ export class MapEngine {
   #interaction
   #tiles      = null
   #tileLayer  = null
+  #loaded     = false             // el mapa ya tiene vista (whenReady): antes no hay centro ni caja que leer
   #destroying = false             // teardown del engine en curso → no rebuildear glify (canvas muriendo)
 
   #layers             = new Map()      // id → record { kind, source, layer, controls, paneName, order }
@@ -148,10 +149,30 @@ export class MapEngine {
     this.#zoomAnimation = zoomAnimation ?? (this.#ownsMap ? 'none' : 'on')
     this.#installZoomGate()
 
+    // La vista que viaja en `viewportchange`, la de la cámara. Sale cuando un movimiento se asienta y
+    // cuando cambian los insets, que corren la región visible sin mover la vista; por los insets, sólo
+    // mientras haya una vista que leer: un mapa prestado puede llegar sin ella, y tras el teardown ya no
+    // está. Fuera de ese tramo los insets sólo se guardan.
+    const emitViewport = () => this.#emit('viewportchange', {
+      center: this.camera.getCenter(), zoom: this.camera.getZoom(), bounds: this.camera.getBounds(),
+    })
+
     this.#registry    = new LayerRegistry(this.#map)
     this.#bus         = new EventBus(layerId => this.#syncDemand(layerId))
+    this.camera       = new Camera({
+      map: this.#map,
+      L:   leaflet,
+      insets,
+      resolveSource:   id => this.#layers.get(id)?.source ?? null,
+      // Zoom mínimo de desclusterización por (capa, id): la cámara lo consulta para revealPoint /
+      // followPoint({reveal}) sin conocer el cluster. El fold ata rec.cluster = control (ver addClusterFold).
+      declusterZoomOf: (layerId, id) => this.#layers.get(layerId)?.cluster?.declusterZoomFor(id) ?? null,
+      onInsetsChange:  () => this.#loaded && !this.#destroying && emitViewport(),
+    })
+    // La cámara va antes porque Interaction proyecta con ella la muestra del puntero.
     this.#interaction = new Interaction({
       map:        this.#map,
+      camera:     this.camera,
       registry:   this.#registry,
       bus:        this.#bus,
       pickLayers: () => this.#pick.entries,
@@ -161,23 +182,16 @@ export class MapEngine {
       onInteractionEnd:   () => this.#emit('interactionend', {}),
       onEmptyClick:       latlng => this.#emit('map:click', { latlng }),   // click en espacio vacío → latlng
     })
-    this.camera       = new Camera({
-      map: this.#map,
-      L:   leaflet,
-      insets,
-      resolveSource: id => this.#layers.get(id)?.source ?? null,
-      // Zoom mínimo de desclusterización por (capa, id): la cámara lo consulta para revealPoint /
-      // followPoint({reveal}) sin conocer el cluster. El fold ata rec.cluster = control (ver addClusterFold).
-      declusterZoomOf: (layerId, id) => this.#layers.get(layerId)?.cluster?.declusterZoomFor(id) ?? null,
-    })
 
-    this.#map.on('moveend zoomend', () => this.#emit('viewportchange', {
-      center: this.#map.getCenter(), zoom: this.#map.getZoom(), bounds: this.#map.getBounds(),
-    }))
+    this.#map.on('moveend zoomend', emitViewport)
     this.#wireRenderLifecycle()
     this.#wireZoomReproject()
 
-    this.ready = new Promise(resolve => this.#map.whenReady(() => { this.#emit('ready', {}); resolve(this) }))
+    this.ready = new Promise(resolve => this.#map.whenReady(() => {
+      this.#loaded = true
+      this.#emit('ready', {})
+      resolve(this)
+    }))
     _liveEngines.add(this)
   }
 
@@ -211,7 +225,7 @@ export class MapEngine {
     if (interactive) {
       this.#addPickLayer(id, layer)
       // Los resolvers leen record.layer (no capturan): attachSource puede swapear la capa.
-      this.#registerResolver(id, 'point', zIndex, order, e => record.layer.resolveClick(e), e => record.layer.resolveHover(e), { capture, presentAs })
+      this.#registerResolver(id, 'point', zIndex, order, sample => record.layer.resolveClick(sample), sample => record.layer.resolveHover(sample), { capture, presentAs })
     }
     this.#applyVisibility(id, paneName, visible && enabled)
 
@@ -261,7 +275,7 @@ export class MapEngine {
     this.#layers.set(id, record)
 
     if (interactive)   // resolvers leen record.layer (no capturan). Síncrono, no va a #pickLayers (como línea).
-      this.#registerResolver(id, 'polygon', zIndex, order, e => record.layer.resolveClick(e), e => record.layer.resolveHover(e))
+      this.#registerResolver(id, 'polygon', zIndex, order, sample => record.layer.resolveClick(sample), sample => record.layer.resolveHover(sample))
     this.#applyVisibility(id, paneName, visible)
 
     if (data && controls) controls.set(data)
@@ -313,7 +327,7 @@ export class MapEngine {
 
     if (interactive) {
       // Los resolvers leen record.layer (no capturan). Picking síncrono (no va a #pickLayers, como polígono).
-      this.#registerResolver(id, 'line', zIndex, order, e => record.layer.resolveClick(e), e => record.layer.resolveHover(e))
+      this.#registerResolver(id, 'line', zIndex, order, sample => record.layer.resolveClick(sample), sample => record.layer.resolveHover(sample))
     }
     this.#applyVisibility(id, paneName, visible)
 
@@ -346,7 +360,7 @@ export class MapEngine {
     const record = { kind: 'html', source, layer, controls, paneName, zIndex, order, interactive, visible, enabled: true }
     this.#layers.set(id, record)
     if (interactive) {
-      this.#registerResolver(id, 'html', zIndex, order, e => record.layer.resolveClick(e), e => record.layer.resolveHover(e))
+      this.#registerResolver(id, 'html', zIndex, order, sample => record.layer.resolveClick(sample), sample => record.layer.resolveHover(sample))
     }
     this.#applyVisibility(id, paneName, visible)
 
@@ -375,7 +389,7 @@ export class MapEngine {
     const record = { kind: 'circle', source, layer, controls, paneName, zIndex, order, interactive, visible, enabled: true }
     this.#layers.set(id, record)
     if (interactive)
-      this.#registerResolver(id, 'circle', zIndex, order, e => record.layer.resolveClick(e), e => record.layer.resolveHover(e))
+      this.#registerResolver(id, 'circle', zIndex, order, sample => record.layer.resolveClick(sample), sample => record.layer.resolveHover(sample))
     this.#applyVisibility(id, paneName, visible)
 
     if (data && controls) controls.set(data)
@@ -447,7 +461,7 @@ export class MapEngine {
     const order      = this.#order++
     const paneName   = pane ?? `cristae-label-${id}`
     const zIndex     = z ?? (BASE_Z + order * Z_STEP + LABEL_Z_OFFSET)        // labels por encima de las capas
-    const labelLayer = new LabelLayer({ map: this.#map, pane: { name: paneName, zIndex }, paint, style })
+    const labelLayer = new LabelLayer({ map: this.#map, camera: this.camera, pane: { name: paneName, zIndex }, paint, style })
     // `visible` en record: controla si sync() (la suscripción a la Source) corre el reduce O(n) +
     // setLabels. Con setVisible(false) el sync es no-op → cero CPU por cada emit del WS.
     const record = { kind: 'label', layer: labelLayer, paneName, zIndex, order, bindTo, visible: true, enabled: true }
@@ -624,7 +638,7 @@ export class MapEngine {
 
     const overlay = createHighlightOverlay({
       source,
-      project: (lat, lng) => this.camera.latLngToContainerPoint(this.#L.latLng(lat, lng)),
+      project: (lat, lng) => this.camera.latLngToContainerPoint([lat, lng]),
       ctx,
       clear: () => { reposition(); ctx.clearRect(0, 0, cssW, cssH) },   // reasienta el pane antes de dibujar
       drawHighlight,
@@ -865,9 +879,9 @@ export class MapEngine {
         : a.pathOf   ? foldRuns(a.pathOf(it), growRun, box)
         : walk(a.ringsOf(it)))
     })
-    if (!Number.isFinite(box.south)) return this
+    if (!readBounds(box)) return this
 
-    this.camera.fitBounds(this.#L.latLngBounds([box.south, box.west], [box.north, box.east]), { insets })
+    this.camera.fitBounds(box, { insets })
     maxZoom != null && this.#map.getZoom() > maxZoom && this.#map.setZoom(maxZoom)
     return this
   }
@@ -1177,7 +1191,7 @@ export class MapEngine {
     const spec      = bubble ?? { kind: 'point' }
 
     if (spec.kind === 'label') {
-      const layer  = new LabelLayer({ map: this.#map, pane: { name: bubblePane, zIndex }, paint: spec.paint, style: spec.style })
+      const layer  = new LabelLayer({ map: this.#map, camera: this.camera, pane: { name: bubblePane, zIndex }, paint: spec.paint, style: spec.style })
       const textOf = spec.textOf ?? (count => String(count))
       this.#layers.set(siblingId, { kind: 'label', layer, paneName: bubblePane, order, visible: true, enabled: true })
       return {
@@ -1215,7 +1229,7 @@ export class MapEngine {
       // La burbuja ocluye lo que tiene debajo (capa overlay): su click no se filtra a geocercas/puntos.
       // Hover real (demand-gated: sólo computa si alguien se suscribe) → la burbuja es una entidad
       // consultable como cualquier otra: hits por el bus + contentsOf del control.
-      this.#registerResolver(siblingId, 'point', zIndex, order, e => layer.resolveClick(e), e => layer.resolveHover(e), { capture: true })
+      this.#registerResolver(siblingId, 'point', zIndex, order, sample => layer.resolveClick(sample), sample => layer.resolveHover(sample), { capture: true })
     }
     return {
       // feed SINCRÓNICO con el recluster: set() deja el Store al día ya, y refresh() reconstruye

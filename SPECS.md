@@ -12,7 +12,7 @@
 
 - **Complejidad:** `n` = nº de ítems de una capa; `k` = nº de ítems sucios (`dirtyIds`); `f` = nº de filtros activos; `L` = nº de listeners; `C` = capacidad del atlas (celdas); `v` = nº de variantes vivas; `H` = nº de hits bajo el cursor. "amort." = amortizado.
 - **`[0-alloc]`** marca una ruta que **no debe asignar** en estado estable (ni array, ni objeto, ni clausura). Es un requisito, no una sugerencia: a miles de updates/seg una sola asignación por elemento colapsa el GC en segundos (MODELO §17).
-- **Tipos:** notación TypeScript-like, ilustrativa. El código es JS (sin tipos en runtime). `LatLng = { lat: number, lng: number }`.
+- **Tipos:** notación TypeScript-like, ilustrativa. El código es JS (sin tipos en runtime). `LatLng = { lat: number, lng: number }`, `Point = { x: number, y: number }` (píxel del contenedor) y `Bounds = { south, west, north, east }` (caja en grados, §18): objetos planos, los únicos valores de posición que cruzan la API. Ninguno es un objeto de Leaflet.
 - **Reactivo vs imperativo:** una **entrada de estado** es reactiva (atributo/prop; el motor reacciona al valor, coalescido a rAF — MODELO §5.4). Una **acción** es un método (efecto puntual en el tiempo). La firma lo indica.
 - **Coalescing a rAF:** "coalescido" = múltiples cambios en el mismo tick colapsan en **un** efecto en el próximo `requestAnimationFrame`. Es el mecanismo único de batching; no hay otro scheduler.
 
@@ -410,7 +410,7 @@ root del mapa. Hijo de `<cristae-map>`.
   un `contentOf` que lance no corta el fan-out del Emitter al resto de los suscriptores. Un `latlng`
   explícito en `open` congela el ancla (colocaciones presentadas por overlay/spider). El nodo
   `.cristae-popup` se crea por apertura y se remueve al cerrar (con `max-open` puede haber N nodos).
-- **Reposición continua:** `viewportchange` solo llega en moveend/zoomend (baja frecuencia por contrato), así que para seguir el paneo/inercia EN CONTINUO la tarjeta engancha además el `move` crudo del `L.Map` (vía `engine.getLeafletMap()`); se re-vincula por montaje en `cristae:ready`. Sin esto, la tarjeta y su clip saltaban recién al detenerse el mapa.
+- **Reposición continua:** `viewportchange` llega al asentarse el movimiento, no durante (baja frecuencia por contrato, §10), así que para seguir el paneo/inercia EN CONTINUO la tarjeta engancha además el `move` crudo del `L.Map` (vía `engine.getLeafletMap()`); se re-vincula por montaje en `cristae:ready`. Sin esto, la tarjeta y su clip saltaban recién al detenerse el mapa.
 - Escucha los eventos de la lib en el **elemento mapa** (no en el engine) → sobrevive a un re-mount y lee la cámara viva.
 - **`pinned` (default ON):** re-proyecta el ancla en cada reposición → la tarjeta sigue el pan/zoom. `pinned="false"` congela el punto de contenedor inicial (por tarjeta) → fija en pantalla, ajena a pan/zoom y al ancla viva (acompaña solo el scroll del widget).
 - **`clip` (default ON):** `#applyClip` setea `clip-path: inset(...)` con la fracción que sobresale de la **región visible = rect del mapa − `viewport-insets`** (los mismos insets que usa auto-pan; así la tarjeta no se monta sobre los widgets/paneles). Geometría derivada del **tamaño cacheado al renderizar** (open/re-render; re-medido por `ResizeObserver` si el contenido cambia) + transform base-centro → **cero `getBoundingClientRect` del nodo por frame** (el único rect leído por reposición es el del mapa, que ya se leía). Recorte de compositor, sin relayout.
@@ -424,18 +424,20 @@ Todo **acción** (no estado): es la **única** vía de movimiento de viewport tr
 
 | Método | Complejidad | Notas |
 |---|---|---|
-| `setView(latlng, zoom)` / `panTo(latlng)` | O(1) | inmediato |
+| `setView(latlng, zoom)` / `panTo(latlng)` | O(1) | inmediato; `latlng` en cualquier forma de punto (§18) |
 | `flyTo(latlng, zoom)` | O(1) | animado (easing es opción de `flyTo`, no un método aparte) |
-| `fitBounds(bounds, {insets})` | O(1) | |
-| `fitToLayer(layerId, {insets, maxZoom})` | O(n) (bounds de n puntos) | encuadra una capa |
+| `fitBounds(bounds, {insets})` | O(1) | `bounds` es una caja (§18); lo que no lo es no mueve la cámara ni corta el follow |
+| `fitToLayer(layerId, {insets, maxZoom})` | O(n) (caja de n puntos) | encuadra una capa por sus posiciones |
 | `revealPoint(layerId, id, {zoom})` | O(results·log maxZoom) si clusteriza | enfoca un punto (one-shot) dejándolo **visible individualmente**: si su capa clusteriza, sube el zoom al mínimo que lo desclusteriza. Sin cluster (o si ya está solo) = `setView` |
 | `zoomIn(delta?)` / `zoomOut(delta?)` / `setZoom(zoom)` | O(1) | **ortogonal al follow**: el zoom no cancela un `followPoint` (ajusta escala, no reposiciona) |
 | `panBy(offset, options?)` | O(1) | desplaza por delta en **px** de contenedor; **ortogonal al follow** (ajuste fino). Lo usa el auto-pan del popup (§8.5) |
 | `followPoint(layerId, id, {zoom, reveal})` | O(1) por update | la cámara sigue la posición **viva** (se actualiza con `move`/`patch` del Source); **sin que el consumidor bombee**. `reveal:true` arranca al zoom mínimo desclusterizado |
 | `stopFollow()` | O(1) | |
-| `getCenter()/getZoom()/getBounds()` | O(1) | |
-| `latLngToContainerPoint(latlng)` / `containerPointToLatLng(point)` | O(1) | proyección píxel ↔ geo **relativa al contenedor**; ancla overlays HTML en light DOM sin bajar a `getLeafletMap()` |
+| `getCenter()/getZoom()/getBounds()` | O(1) | `LatLng`, número y `Bounds`, con la longitud de la vista sin envolver: pasa de ±180 cerca del antimeridiano y con copias del mundo (§18.1) |
+| `latLngToContainerPoint(latlng)` / `containerPointToLatLng(point)` | O(1) | proyección píxel ↔ geo **relativa al contenedor** → `Point` / `LatLng`; ancla overlays HTML en light DOM sin bajar a `getLeafletMap()` |
 
+- **Posiciones:** los encuadres, `revealPoint` y el follow leen `positionOf` con la regla de lugar de §18 —números finitos y la latitud en [-90, 90]—; una posición que no la cumple no entra a la caja ni mueve la cámara. Un encuadre sin ninguna posición válida no encuadra ni aplica `maxZoom`.
+- **Puntos:** `setView`, `panTo`, `flyTo` y `latLngToContainerPoint` leen `latlng` con la forma de punto de §18; lo que no la tiene, o no trae dos números, lanza. La latitud no se acota: la proyección la lleva al rango del mapa.
 - **`followPoint` (clave):** el motor re-centra cuando la posición del `id` seguido cambia en el Source, coalescido a rAF. Reemplaza el bombeo manual `onVehicleUpdate→panToSmooth` (MODELO §14.1-6).
 - **Test:** `followPoint('fleet', 7)`; luego `handle.move(7, lat, lng)` → la cámara re-centra **sin** llamadas del consumidor; un `move` de otro id no mueve la cámara.
 - **`revealPoint` / `reveal`:** el zoom mínimo de desclusterización lo calcula `Cluster.declusterZoomFor` (§8.3, puro) y el motor lo **inyecta** en la cámara (`declusterZoomOf(layerId,id)`) leyendo el fold de la capa. La cámara no conoce el cluster — misma inyección que `resolveSource`. Enfocar un elemento seleccionado y que no quede escondido en una burbuja es así un one-shot (`revealPoint`) o un follow que arranca visible (`followPoint({reveal})`).
@@ -454,14 +456,17 @@ Hit = { layerId, kind: 'point'|'polygon', ref, id, distancePx, zIndex, order }
 | Evento | `detail` | Complejidad de emisión |
 |---|---|---|
 | `cristae:ready` | `{}` | — |
-| `cristae:pointermove` | `{lat,lng,x,y}` | O(1), throttled — **barato** (sin picking) |
-| `cristae:hover` | `{hits, added, removed, x, y}` | O(H) — solo cuando **cambia** el set; trae deltas |
-| `cristae:click` | `{hits, lat, lng, x, y, originalEvent}` | O(H) — todos los hits ordenados; el consumidor desambigua |
-| `cristae:viewportchange` | `{center, zoom, bounds}` | O(1) — moveend/zoomend |
+| `cristae:pointermove` | `PointerSample = {lat,lng,x,y}` | O(1), throttled — **barato** (sin picking) |
+| `cristae:hover` | `{hits}` | O(H) — el set vigente, en cada resolución que da hits; los cambios del set son los canales `hover:start`/`hover:end` del motor |
+| `cristae:click` | `{hits, originalEvent}` | O(H) — todos los hits ordenados; el consumidor desambigua. `originalEvent` es el `MouseEvent` del DOM, `null` en un click disparado por código |
+| `cristae:mapclick` | `{latlng: LatLng}` | O(1) — click en el vacío, sin ningún hit |
+| `cristae:viewportchange` | `{center: LatLng, zoom, bounds: Bounds}` | O(1) — moveend/zoomend, y al cambiar `viewport-insets` entre `ready` y el teardown (antes y después, los insets sólo se guardan) |
 | `cristae:interactionstart` / `…end` | `{}` | O(1) — para que el consumidor frene su emitter |
 
 - **Cursor automático (affordance de interactividad):** el motor pone `cursor:pointer` cuando el puntero cae sobre una feature de una capa interactiva con demanda de **click _u_ hover**, y lo restaura. **No requiere suscribir `cristae:hover`:** una capa clickeable (listener de `cristae:click`) ya muestra el puntero, igual que `.leaflet-interactive` en Leaflet. Para conseguirlo, la sesión de picking de hover (la que sabe si el puntero cae sobre una feature) corre también bajo demanda de click — aunque los EVENTOS `cristae:hover` se sigan emitiendo solo si hay demanda de hover. Implica que un mapa solo-click paga el picking de hover (throttled por `hover-throttle`) por el cursor. El consumidor pide el suyo con `cursor` (§7.1), que gana sobre este y apaga ese picking.
-- **Sin `onDisambiguate` en el core:** `click` entrega todos los hits; el popup de desambiguación lo arma el consumidor con los `x,y` provistos.
+- **Sin `onDisambiguate` en el core:** `click` entrega todos los hits; el popup de desambiguación lo arma el consumidor con el `originalEvent` provisto.
+- **La muestra del puntero es una:** `PointerSample` es el detail de `cristae:pointermove`, el segundo argumento de los canales `pointer:move`, `hover`, `hover:start` y `hover:end` del motor y la entrada de los resolvers de cada capa. Llega congelada: la comparten los handlers y el picking del mismo evento. Un click trae su propia posición; si no trae el píxel —uno disparado por código con sólo `latlng`—, la cámara lo proyecta. Los canales `click` y `secondary-click` entregan el evento del DOM, nunca el de Leaflet.
+- **`hover:end` sin muestra:** cierra con `null` cuando no hay un puntero que lo explique: al salir del mapa, al empezar un gesto de zoom o pan, y al quitar, ocultar o deshabilitar la capa. Cuando un hit deja de estar bajo el puntero, cierra con la muestra que lo sacó.
 - **Borde que requiere manejo:** hover suprimido durante zoom/pan (sesión de hover se reinicia en `leave`).
 
 ---
@@ -530,8 +535,8 @@ La **ley** (MODELO §5.4) formalizada como contrato que un implementador debe cu
 | buffer incremental | `move`/recolor escribe el slot correcto del `typedVertices` (leer de vuelta el buffer GL); assert de layout falla si `bytes ≠ 7`; tras `setData` el mirror se resetea desde `data` |
 | reactividad | N asignaciones/tick ⇒ 1 rebuild con el valor final |
 | filtros | mismo `id` + `deps` distinto ⇒ predicado reemplazado y re-evaluado; `deps` igual ⇒ 0 rebuild aunque el predicado sea otra instancia |
-| cámara | `followPoint` re-centra sin bombeo; insets aplicados |
-| eventos | `hover` solo emite al cambiar el set; `click` entrega hits ordenados; cursor automático |
+| cámara | `followPoint` re-centra sin bombeo, y lo que no es una caja no lo corta; insets aplicados; sobre el Leaflet real, ningún retorno lleva una instancia de Leaflet |
+| eventos | `hover` emite el set vigente de cada resolución y `hover:start`/`hover:end` sus cambios; `click` entrega hits ordenados; un click disparado con sólo `latlng` sale por `click` y por `map:click`; cursor automático; sobre el Leaflet real, ningún payload lleva una instancia de Leaflet |
 | lifecycle | StrictMode doble-mount ⇒ 1 motor; `destroy()` cancela rAF y quita listeners (sin leak) |
 | lector GeoJSON (§17) | corpus de conformidad contra un **oráculo diferencial** sobre `JSON.parse`, nunca contra la implementación; las cuatro formas de entrada dan salidas idénticas byte a byte; fuzzer de mutación sin lectura fuera de rango ni excepción cruda; ausencia de grafo (conteo de asignaciones, no milisegundos) |
 | geometría (§18) | referencias independientes (radios a mano, fórmulas distintas, valores publicados del elipsoide), nunca la misma haversine; las formas de llamada y de punto miden lo mismo; los bordes de §18.1; el tree-shaking del elipsoide, empaquetando |
@@ -989,7 +994,8 @@ que emiten pares, como `toParts`.
 Una **caja** es una `Bounds` `{ south, west, north, east }` cuyas esquinas `(south, west)` y
 `(north, east)` son puntos, con `south ≤ north` y `west ≤ east`; o un par de esquinas opuestas
 `[p, q]`, dos puntos en cualquier forma y orden, que se lee como la caja de los dos. Es la regla de lo
-que reciben `boundsPad`, `boundsContain` y `boundsCenter`. Lo demás no es una caja: `null` o `false`.
+que reciben `boundsPad`, `boundsContain`, `boundsCenter` y `camera.fitBounds` (§9). Con lo demás, las
+tres primeras dan `null` o `false`.
 
 ### 18.1 Bordes
 

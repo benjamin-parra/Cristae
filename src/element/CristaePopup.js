@@ -110,7 +110,7 @@ export class CristaePopup extends LitElement {
     // Eventos en el ELEMENTO mapa (no en el engine): sobreviven a un re-mount, y la cámara se lee viva.
     this.#map.addEventListener('cristae:click', this.#onClick)
     this.#map.addEventListener('cristae:viewportchange', this.#onViewport)
-    // El motor solo emite `viewportchange` en moveend/zoomend (señal de baja frecuencia, por contrato).
+    // El motor emite `viewportchange` al asentarse el movimiento, no durante (baja frecuencia, por contrato).
     // Para que las tarjetas y su clip sigan el paneo/inercia EN CONTINUO enganchamos el `move` crudo del
     // L.Map. Se (re)engancha por montaje vía cristae:ready (otro motor → otro mapa); intento inmediato
     // por si el motor ya estaba listo cuando se conectó la tarjeta.

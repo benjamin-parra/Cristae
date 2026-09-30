@@ -109,11 +109,15 @@ instancia** (resuelve al primer montaje, con su propio tiempo si hay varios mapa
 | Evento | `detail` |
 |---|---|
 | `cristae:ready` | `{}` — el motor existe; aquí ya se pueden leer `controls` e items del toolbar |
-| `cristae:click` | `{ hits, originalEvent }` — `hits` ordenados top-first (ver `interaction.md`) |
+| `cristae:click` | `{ hits, originalEvent }` — `hits` ordenados top-first (ver `interaction.md`); `originalEvent` es el evento del DOM, `null` en un click disparado por código |
+| `cristae:mapclick` | `{ latlng: { lat, lng } }` — click en el vacío, sin ningún hit |
 | `cristae:hover` | `{ hits }` |
-| `cristae:pointermove` | `{ lat, lng, x, y }` |
-| `cristae:viewportchange` | `{ … }` |
+| `cristae:pointermove` | la muestra del puntero, `{ lat, lng, x, y }`: su posición y su píxel del contenedor. Llega congelada ([SPECS §10](../SPECS.md)) |
+| `cristae:viewportchange` | `{ center: { lat, lng }, zoom, bounds: { south, west, north, east } }` |
 | `cristae:interactionstart` / `cristae:interactionend` | `{}` |
+
+Ningún `detail` lleva valores de Leaflet: posiciones, píxeles y cajas son objetos planos. Una caja se
+agranda, se consulta y se centra con las funciones de [`cristae/geometry`](./geometry.md#cajas).
 
 ```js
 mapEl.addEventListener('cristae:ready', () => { /* engine listo */ })
@@ -129,6 +133,10 @@ el.on('click', 'fleet', (hits, ev) => abrir(hits[0]))   // solo capa 'fleet'
 el.on('hover', ['fleet', 'alertas'], hits => resaltar(hits))   // varias capas
 ```
 
+Con los hits llega lo que los originó: el evento del DOM en `click` y `secondary-click`, y la muestra del
+puntero `{ lat, lng, x, y }` en `hover`, `hover:start` y `hover:end` (`null` si cierra sin muestra, SPECS
+§10). En `pointer:move` los hits llegan vacíos y la muestra es la misma de `cristae:pointermove`.
+
 Regla: `addEventListener` por defecto; `el.on` cuando solo importa una (o pocas) capas y se prefiere el
 filtro hecho. Solo eventos de picking (`click`/`hover`/`hover:start`/`hover:end`/`pointer:move`) aceptan
 filtro por capa; el resto (`viewportchange`, `interaction*`) son del mapa.
@@ -143,14 +151,16 @@ solo fijan la vista inicial). Es la **única** vía recomendada de viewport — 
 | Método | Notas |
 |---|---|
 | `setView(latlng, zoom)` · `panTo(latlng)` · `flyTo(latlng, zoom, opts?)` | un gesto imperativo **cancela** un `followPoint` en curso |
-| `fitBounds(bounds, {insets?})` · `fitToLayer(layerId, {insets?, maxZoom?})` | encuadre; `fitToLayer` usa los bounds de los puntos finitos de la capa |
+| `fitBounds(bounds, {insets?})` · `fitToLayer(layerId, {insets?, maxZoom?})` | encuadre de una caja `{ south, west, north, east }` o de un par de esquinas opuestas (lo que no lo es: SPECS §9); `fitToLayer` usa la caja de las posiciones válidas de la capa |
 | `zoomIn(delta?)` · `zoomOut(delta?)` · `setZoom(zoom)` | el zoom es **ortogonal al follow**: no lo cancela (ajusta escala, no reposiciona) |
 | `followPoint(layerId, id, {zoom?})` · `stopFollow()` | sigue la posición **viva** del id (se actualiza con `move`/`patch` del Source), sin que el consumidor bombee |
-| `getCenter()` · `getZoom()` · `getBounds()` | lectura |
-| `latLngToContainerPoint(latlng)` · `containerPointToLatLng(point)` | proyección píxel ↔ geo **relativa al contenedor**, para anclar overlays HTML propios en light DOM |
+| `getCenter()` · `getZoom()` · `getBounds()` | lectura: `{ lat, lng }`, número y `{ south, west, north, east }`, con la longitud sin envolver (SPECS §9) |
+| `latLngToContainerPoint(latlng)` · `containerPointToLatLng(point)` | proyección píxel ↔ geo **relativa al contenedor**, para anclar overlays HTML propios en light DOM: `{ x, y }` y `{ lat, lng }` |
 
 Los métodos de movimiento devuelven `this` (encadenables). Aplican `viewport-insets`: el objetivo cae en
-el centro de la región **visible**, no detrás de un panel.
+el centro de la región **visible**, no detrás de un panel. Un `latlng` va en cualquier forma de punto de
+[`cristae/geometry`](./geometry.md#formas-de-punto) (lo que no lo es: SPECS §9), y lo que la cámara
+devuelve son objetos planos; qué cuenta como caja lo fija [SPECS §18](../SPECS.md).
 
 ---
 

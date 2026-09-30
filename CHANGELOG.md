@@ -53,6 +53,41 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   regla forzada tapa también el `grab`/`grabbing` del editor y del arrastre.
 
 ### Cambiado
+- **La cámara y los eventos entregan objetos planos, no los de Leaflet.** `camera.getCenter()` y
+  `containerPointToLatLng` devuelven `{ lat, lng }`, `getBounds()` `{ south, west, north, east }` —con
+  la longitud de la vista sin envolver, como la daba Leaflet— y `latLngToContainerPoint` `{ x, y }`;
+  `cristae:viewportchange` trae el centro y la caja así, y `cristae:mapclick` su `latlng`. `setView`,
+  `panTo`, `flyTo` y `latLngToContainerPoint` aceptan las cuatro formas de punto, y lo que no tiene
+  forma de punto lanza; `fitBounds` recibe una caja plana o un par de esquinas opuestas en cualquier
+  forma y orden, y lo que no es una caja no encuadra ni corta el seguimiento. La muestra del puntero es
+  una sola, `{ lat, lng, x, y }`, y llega congelada, porque la comparten los handlers y el picking del
+  mismo evento: la de `cristae:pointermove`, la de los canales `pointer:move`, `hover`, `hover:start` y
+  `hover:end` del motor y la que reciben los resolvers de cada capa. El canal `pointer:move` se tipaba
+  así pero entregaba `{ seq, containerPoint, latlng, layerPoint }` con objetos de Leaflet, y el hover,
+  tipado como un evento del DOM, entregaba esa misma muestra. El canal `click` entrega el evento del
+  DOM, o `null` en un click disparado por código, y no el de Leaflet. Los encuadres —`fitToLayer`,
+  `followBounds`, `fitToLayers`—, `revealPoint` y el seguimiento dejan fuera una posición con la latitud
+  fuera de [-90, 90], que no es un lugar. El `paint` de una label-layer recibe el píxel `{ x, y }` de la
+  cámara, no un `L.Point`: ningún valor de Leaflet cruza la API ([SPECS §0](SPECS.md)). En el motor,
+  `viewportchange` sale también al asignar `camera.insets`, como el del elemento con `viewport-insets`,
+  entre `ready` y el teardown; y `engine.on` tipa las señales `ready`, `viewportchange`, `map:click` e
+  `interaction*` con los mismos payloads que el elemento.
+  *Migración*: quien usaba los métodos de `L.LatLngBounds` o `L.LatLng` sobre lo que devuelven la
+  cámara o los eventos pasa a los campos y a las funciones de `cristae/geometry`: `getSouth()` y sus
+  hermanos → `.south`, `.west`, `.north`, `.east`; `pad(r)` → `boundsPad(b, r)`; `contains(p)` →
+  `boundsContain(b, p)`; `getCenter()` → `boundsCenter(b)`; `L.latLngBounds(puntos)` → `boundsOf(puntos)`.
+  `fitBounds` ya no encuadra un `L.LatLngBounds`: recibe `boundsOf(…)` o el par de esquinas. Quien leía
+  `sample.latlng` o `sample.containerPoint` en `pointer:move` o en el hover lee `sample.lat`,
+  `sample.lng`, `sample.x` y `sample.y`; `layerPoint` no tiene reemplazo, porque es un píxel de Leaflet.
+  Quien modificaba la muestra, o el detail de `cristae:pointermove`, trabaja sobre una copia. Un
+  `paint` de etiquetas que usaba los métodos de `L.Point` sobre su `point` opera con `x` e `y`. El
+  `originalEvent` de un click disparado por código pasa a `null`, donde antes llegaba el evento de
+  Leaflet. En TypeScript, `getBounds()` y el `bounds` de `viewportchange` pasan de `unknown` a `Bounds`;
+  el segundo argumento del hover, de `MouseEvent` a `PointerSample`, de sólo lectura, y en React los
+  `onHover*` lo tipan así (`onHoverEnd`, con `null`) porque `CristaeHitsHandler` toma ese argumento como
+  parámetro, `MouseEvent | null` por defecto; `CristaeClickDetail.originalEvent` pasa de `Event`
+  opcional a `MouseEvent | null`, `CristaePointerMoveDetail` deja de admitir `null` y `undefined`, y los
+  hits de `pointer:move` en `BusChannels`, de `null` a `[]`.
 - **Los paths de líneas y el `value` de los editores aceptan las cuatro formas de punto.** Un punto
   es `[lat, lng]` —array, o vista tipada de dos o tres componentes—, `{ lat, lng }`, `{ lat, lon }` o
   `{ latitude, longitude }`, con componentes numéricos finitos y la latitud en [-90, 90]. Lo leen
@@ -69,7 +104,7 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   no entran a la caja. En TypeScript, `accessors.pathOf` devuelve `LatLngPath`, y quien lo lee como
   pares tiene que estrechar el tipo; los `Editable*Value` tipan lo que entra y toman el tipo de punto
   como parámetro, así que quien guarda lo emitido y lo lee lo tipa con
-  `Editable*Value<[number, number]>`, o con `<LatLngLike>` para la forma de antes.
+  `Editable*Value<[number, number]>`, o con `<[number, number] | LatLng>` para la forma de antes.
 - **Polígonos y círculos del sustrato `leaflet` pierden los eventos nativos de su path.** Son
   `interactive: false` para Leaflet, como las líneas, al nacer y en cada restilo del patch y del foco, y
   el `interactive` de un `styleOf` se ignora. Su picking es por índice, así que `cristae:click` y
@@ -77,6 +112,12 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   anunciaba como ventaja.
   *Migración*: quien escuchaba los eventos del `L.polygon` o del `L.circle` —alcanzados por
   `getLeafletMap()`— los pide al mapa: `interactive` en la capa y `cristae:click` / `cristae:hover`.
+
+### Eliminado
+- **`LatLngLike` sale de los tipos.** Era el punto de la cámara con el contrato de Leaflet, un par o
+  `{ lat, lng }`; la cámara acepta ahora `LatLngPoint` y devuelve `LatLng`.
+  *Migración*: `LatLngPoint` para lo que entra, `LatLng` para lo que sale y `[number, number] | LatLng`
+  para la forma exacta de antes.
 
 ### Corregido
 - **Soltar un handle del editor ya no deja un click en el mapa.** En `mode: 'edit'` el editor consume en
@@ -126,6 +167,9 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   puntero aparecía aunque la capa no fuera interactiva y tapaba el cursor del mapa. El círculo ya nacía
   con `interactive: false`, pero un `styleOf` que devolviera `interactive: true` lo pisaba. Ahora ninguno
   lo es para Leaflet, a costa de sus eventos nativos (en *Cambiado*).
+- **Un encuadre por capa sin posiciones ya no cambia el zoom.** `camera.fitToLayer` y `followBounds`
+  con `maxZoom`, sin ninguna posición válida que encuadrar, no encuadraban pero igual bajaban el zoom a
+  `maxZoom`. Ahora no mueven la cámara, como `fitToLayers`.
 
 ## [0.35.0] - 2026-10-01
 

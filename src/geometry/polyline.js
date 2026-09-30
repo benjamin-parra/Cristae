@@ -43,17 +43,18 @@ const distSqToSegment = (px, py, ax, ay, bx, by) => {
 // asignación por vértice en los recorridos de volumen.
 //
 // `isPlace` es la regla sin la forma, sobre la latitud y la longitud ya leídas: la comparten las
-// esquinas de una caja, que no llegan como punto.
+// esquinas de una caja, que no llegan como punto. `hasPointShape` es la forma sin la regla: la usa la
+// cámara, que no acota la latitud.
 const indexable = v => Array.isArray(v) || ArrayBuffer.isView(v)
 
 const objectCoord = (p, axis) =>
   typeof p.lat === 'number' ? (axis ? (typeof p.lng === 'number' ? p.lng : p.lon) : p.lat)
   : axis ? p.longitude : p.latitude
 
-export const coordOf = (p, axis) => (indexable(p) ? p[axis] : objectCoord(p, axis))
-export const isPlace = (lat, lng) => Number.isFinite(lat) && Math.abs(lat) <= 90 && Number.isFinite(lng)
-export const isPoint = p =>
-  p != null && !(ArrayBuffer.isView(p) && p.length > 3) && isPlace(coordOf(p, 0), coordOf(p, 1))
+export const coordOf       = (p, axis) => (indexable(p) ? p[axis] : objectCoord(p, axis))
+export const isPlace       = (lat, lng) => Number.isFinite(lat) && Math.abs(lat) <= 90 && Number.isFinite(lng)
+export const hasPointShape = p => p != null && !(ArrayBuffer.isView(p) && p.length > 3)
+export const isPoint       = p => hasPointShape(p) && isPlace(coordOf(p, 0), coordOf(p, 1))
 
 // Un iterable del path es un objeto: un string también se recorre, pero sus caracteres no son
 // vértices. Un array se lee en su lugar; otro iterable se materializa antes de leerlo, porque uno de

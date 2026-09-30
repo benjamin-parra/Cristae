@@ -85,7 +85,7 @@ const mount = items => {
 }
 
 const items = ['A', 'B', 'C', 'D'].map((id, i) => ({ id, pos: { lat: i, lng: i } }))
-const click = layer => layer.resolveClick({ containerPoint: { x: 10, y: 10 } }).map(p => p.id)
+const click = layer => layer.resolveClick({ x: 10, y: 10 }).map(p => p.id)
 
 test('el índice local de la capa + el tag del draw vuelven al id de DATO del punto', () => {
   const { layer, pintar, canalDe } = mount(items)
@@ -151,7 +151,7 @@ test('el pase reparte el buffer en un draw por chunk y los cubre TODOS', () => {
   const { layer, log } = mount(muchos(total))
   layer.pickObject = 7
 
-  layer.resolveClick({ containerPoint: { x: 10, y: 10 } })
+  layer.resolveClick({ x: 10, y: 10 })
 
   assert.deepEqual(log.draws, [
     { first: 0,             count: LOCAL_CAP },
@@ -176,7 +176,7 @@ test('el decode recompone el slot global de una entrada del chunk 1', () => {
   pintar(CENTRO, canalDe(slot), 7, chunk)
 
   assert.deepEqual(
-    layer.resolveClick({ containerPoint: { x: 10, y: 10 } }).map(p => p.id), [`p${slot}`],
+    layer.resolveClick({ x: 10, y: 10 }).map(p => p.id), [`p${slot}`],
     'el eje chunk completa la dirección que los 12 bits del local no alcanzan',
   )
 })

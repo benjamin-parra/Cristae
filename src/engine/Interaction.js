@@ -34,6 +34,7 @@ const consumerCursor = cursor => cursor && (globalThis.CSS?.supports('cursor', c
 export class Interaction {
 
   #map
+  #camera
   #registry
   #bus
   #container
@@ -43,10 +44,10 @@ export class Interaction {
   #onInteractionEnd
   #onEmptyClick
 
-  // Estado del puntero (muta-y-reusa salvo seq). seq distingue muestras para validar el cache; `inside`
-  // lo prenden el `pointerenter` o cualquier muestra —un motor montado con el puntero ya encima no recibe
-  // `pointerenter`— y lo apaga el `pointerleave` del contenedor.
-  #pointer       = { seq: 0, inside: false, clientX: 0, clientY: 0, containerPoint: { x: 0, y: 0 } }
+  // Estado del puntero, en píxeles del contenedor (muta-y-reusa). `inside` lo prenden el `pointerenter` o
+  // cualquier muestra —un motor montado con el puntero ya encima no recibe `pointerenter`— y lo apaga el
+  // `pointerleave` del contenedor.
+  #pointer       = { inside: false, x: 0, y: 0 }
   #containerRect = null
 
   #interacting = false          // gesto de zoom/pan en curso → suprime hover (ortogonal al subsistema)
@@ -78,8 +79,9 @@ export class Interaction {
   #domHandlers = new Map()
   #mapHandlers = new Map()
 
-  constructor({ map, registry, bus, container, pickLayers, hoverThrottleMs = 0, cursor, onInteractionStart, onInteractionEnd, onEmptyClick } = {}) {
+  constructor({ map, camera, registry, bus, container, pickLayers, hoverThrottleMs = 0, cursor, onInteractionStart, onInteractionEnd, onEmptyClick } = {}) {
     this.#map                = map
+    this.#camera             = camera
     this.#registry           = registry
     this.#bus                = bus
     this.#container          = container ?? map.getContainer()
@@ -183,30 +185,23 @@ export class Interaction {
   #updatePointer(event) {
     const rect = this.#containerRect ??= this.#container.getBoundingClientRect()
     const p = this.#pointer
-    p.seq++
-    p.inside           = true
-    p.clientX          = event.clientX
-    p.clientY          = event.clientY
-    p.containerPoint.x = event.clientX - rect.left
-    p.containerPoint.y = event.clientY - rect.top
+    p.inside = true
+    p.x      = event.clientX - rect.left
+    p.y      = event.clientY - rect.top
     return p
   }
 
-  // La muestra para el picking/resolución: copia inmutable del puntero + latlng/layerPoint
-  // (los necesita el HitResolver de capas Leaflet; el picking GPU solo usa containerPoint+seq).
-  #sampleOf(p) {
-    const cp = [p.containerPoint.x, p.containerPoint.y]
-    return {
-      seq           : p.seq,
-      containerPoint: { x: p.containerPoint.x, y: p.containerPoint.y },
-      latlng        : this.#map.containerPointToLatLng(cp),
-      layerPoint    : this.#map.containerPointToLayerPoint(cp),
-    }
+  // La muestra del puntero, `{ lat, lng, x, y }`: un píxel del contenedor y su posición, que la cámara
+  // proyecta si no llega. Es la misma que reciben los resolvers de cada capa, los canales `pointer:move`
+  // y `hover*` del bus y el `cristae:pointermove` del elemento. Una por evento y congelada: la comparten
+  // los handlers y el picking del mismo evento, y su identidad ata el pick de hover de una capa a la
+  // muestra que lo pidió.
+  #sampleOf(point, { lat, lng } = this.#camera.containerPointToLatLng(point)) {
+    return Object.freeze({ lat, lng, x: point.x, y: point.y })
   }
 
   #onPointerMove(event) {
-    const p = this.#updatePointer(event)
-    const sample = this.#sampleOf(p)
+    const sample = this.#sampleOf(this.#updatePointer(event))
     this.#bus.dispatch('pointer:move', null, sample)            // crudo: coordenadas, sin picking
 
     const h = this.#hover
@@ -224,29 +219,27 @@ export class Interaction {
     this.#bus.dispatch('hover:out', null, null)
   }
 
+  // El bus entrega el evento del DOM, nunca el de Leaflet: un click que no lo trae —uno disparado por
+  // código— sale con `null`. La muestra toma la posición del click y su píxel; el que se dispara con sólo
+  // `latlng` no trae píxel, y lo proyecta la cámara.
   #onClick(event) {
-    const hits = this.#registry.resolveHits('click', event)
-    this.#bus.dispatch('click', hits, event.originalEvent ?? event)
+    const { latlng } = event
+    const sample     = this.#sampleOf(event.containerPoint ?? this.#camera.latLngToContainerPoint(latlng), latlng)
+    const hits       = this.#registry.resolveHits('click', sample)
+    this.#bus.dispatch('click', hits, event.originalEvent ?? null)
     // Click en ESPACIO VACÍO (ningún hit en ninguna capa): entrega la coordenada cruda. Es la
     // captura de latlng para colocar un punto / editar geometría — el consumidor la cablea con el
     // callback inyectado. Cuando SÍ hay hit, el click ya se enrutó por el bus y esto no corre.
-    hits.length || this.#onEmptyClick?.(event.latlng)
+    hits.length || this.#onEmptyClick?.({ lat: sample.lat, lng: sample.lng })
   }
 
-  // Click contextual (botón secundario / long-press / tecla Menú), desde el MouseEvent del DOM.
-  // La muestra (containerPoint/latlng/layerPoint) se arma acá — mismo shape que #sampleOf — y el
+  // Click contextual (botón secundario / long-press / tecla Menú), desde el MouseEvent del DOM. El
   // pick es el MISMO camino síncrono que el click primario (`resolveHits('secondary-click')` →
   // `resolveClick`). El menú nativo del browser queda INTACTO por default: lo suprime el
   // consumidor con `event.preventDefault()` sólo cuando resolvió un hit propio.
   #onSecondaryClick(event) {
-    const containerPoint = this.#map.mouseEventToContainerPoint(event)
-    const sample = {
-      containerPoint,
-      latlng    : this.#map.containerPointToLatLng(containerPoint),
-      layerPoint: this.#map.containerPointToLayerPoint(containerPoint),
-    }
-    const hits = this.#registry.resolveHits('secondary-click', sample)
-    this.#bus.dispatch('secondary-click', hits, event)
+    const sample = this.#sampleOf(this.#map.mouseEventToContainerPoint(event))
+    this.#bus.dispatch('secondary-click', this.#registry.resolveHits('secondary-click', sample), event)
   }
 
   /* ── Sesión de hover (picking GPU no bloqueante) ── */

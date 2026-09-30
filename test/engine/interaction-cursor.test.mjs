@@ -14,6 +14,7 @@
 import { conGlDeEdicion, makeContainer, makeDragging, makeEditGl, makeGlify, makeLeaflet, makeMap, makePickSpy } from '../../test-helpers/engine-stub.mjs'
 import { after, test } from 'node:test'
 import assert from 'node:assert/strict'
+import { Camera } from '../../src/engine/Camera.js'
 import { Interaction } from '../../src/engine/Interaction.js'
 import { MapEngine } from '../../src/engine/MapEngine.js'
 import { EVENT_CLICK, EVENT_HOVER, HANDLE_HELD, HANDLE_NONE, HANDLE_OVER } from '../../src/events/events.js'
@@ -67,7 +68,7 @@ const montar = ({ demandas = { capa: EVENT_CLICK }, cursor, yaEncima = false } =
   const registry  = registro(demandas)
   const capas     = Object.keys(demandas).map(capaDePick)
   const bus       = { eventos: [], dispatch: tipo => bus.eventos.push(tipo) }
-  const it        = new Interaction({ map, registry, bus, container, cursor, pickLayers: () => capas })
+  const it        = new Interaction({ map, camera: new Camera({ map }), registry, bus, container, cursor, pickLayers: () => capas })
   it.syncHoverDemand()
   yaEncima || container.emitir('pointerenter')
   return { it, map, container, registry, capas, bus }

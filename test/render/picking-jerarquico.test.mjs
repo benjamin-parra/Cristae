@@ -243,21 +243,21 @@ test('la capa arma el batch: un draw con su objeto, chunk 0 y el largo del buffe
   layer.pickObject = 300                                   // la identidad que le asigna el motor
 
   pintar(spy.frame, CERCA, 300, 0, 3)                       // el vértice del slot 2, con ese tag
-  const partes = layer.resolveClick({ containerPoint: { x: 10, y: 10 } })
+  const partes = layer.resolveClick({ x: 10, y: 10 })
 
   assert.deepEqual(spy.draws, [{ mode: gl.POINTS, first: 0, count: items.length }], 'sin batch el pase no dibuja nada')
   assert.deepEqual(spy.tags, [[0, (300 & 63) << 2, 300 >> 6]], 'el tag del draw es el objeto de la capa con chunk 0')
   assert.deepEqual(partes.map(p => p.id), ['C'], 'y el índice local vuelve al id de dato')
 })
 
-test('el pick asíncrono devuelve la MUESTRA como metadata: el cache de hover queda atado a su seq', () => {
+test('el pick asíncrono devuelve la MUESTRA como metadata: el cache de hover queda atado a ella', () => {
   const { layer, spy } = capa()
   layer.pickObject = 1
   pintar(spy.frame, CERCA, 1, 0, 1)
-  const sample = { containerPoint: { x: 10, y: 10 }, seq: 42 }
+  const sample = { lat: 0, lng: 0, x: 10, y: 10 }
 
   assert.equal(layer.requestHoverHit(sample), true)
   assert.equal(layer.collectHoverHit(), sample)
-  assert.deepEqual(layer.resolveHover({ seq: 42 }).map(p => p.id), ['A'])
-  assert.deepEqual(layer.resolveHover({ seq: 43 }), [], 'otra muestra no hereda los hits de la anterior')
+  assert.deepEqual(layer.resolveHover(sample).map(p => p.id), ['A'])
+  assert.deepEqual(layer.resolveHover({ ...sample }), [], 'otra muestra no hereda los hits, aunque caiga en el mismo píxel')
 })

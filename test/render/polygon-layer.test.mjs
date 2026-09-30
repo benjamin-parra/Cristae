@@ -131,8 +131,8 @@ test('swap de MISMA cardinalidad (quita a, agrega c) cae a rebuild pese a coinci
   assert.equal(L.log.paths.length, baseCreated + 2, 'rebuild recreó los 2 polígonos del nuevo set')
   assert.equal(layer.count, 2, 'quedan 2 polígonos montados')
   // El picking prueba que el rebuild fue real (no un patch a medias): 'a' desapareció, 'c' entró.
-  assert.equal(layer.resolveClick({ latlng: { lat: 0, lng: 0 } }).length, 0, "'a' ya no pica: fue removido")
-  assert.deepEqual(layer.resolveClick({ latlng: { lat: 20, lng: 20 } }).map(h => h.id), ['c'], "'c' entró al índice")
+  assert.equal(layer.resolveClick({ lat: 0, lng: 0 }).length, 0, "'a' ya no pica: fue removido")
+  assert.deepEqual(layer.resolveClick({ lat: 20, lng: 20 }).map(h => h.id), ['c'], "'c' entró al índice")
 })
 
 test('id sucio SIN polígono montado (misma cardinalidad) cae a rebuild, no estila sobre un poly inexistente', () => {
@@ -152,7 +152,7 @@ test('id sucio SIN polígono montado (misma cardinalidad) cae a rebuild, no esti
   source.emitir([b, z], new Set(['z']), new Map([['b', b], ['z', z]]))
 
   assert.equal(L.log.clearLayers, baseClear + 1, 'la red de seguridad forzó rebuild')
-  assert.deepEqual(layer.resolveClick({ latlng: { lat: 30, lng: 30 } }).map(h => h.id), ['z'], "'z' quedó montado por el rebuild")
+  assert.deepEqual(layer.resolveClick({ lat: 30, lng: 30 }).map(h => h.id), ['z'], "'z' quedó montado por el rebuild")
 })
 
 test('id sucio MONTADO pero ausente del Source (itemById null) cae a rebuild, no crashea con item null', () => {
@@ -176,7 +176,7 @@ test('id sucio MONTADO pero ausente del Source (itemById null) cae a rebuild, no
 
   assert.equal(L.log.clearLayers, baseClear + 1, 'la red de seguridad forzó rebuild')
   assert.equal(layer.count, 2, 'quedó el set nuevo (b, c) tras el rebuild')
-  assert.equal(layer.resolveClick({ latlng: { lat: 0, lng: 0 } }).length, 0, "'a' ya no está en el índice")
+  assert.equal(layer.resolveClick({ lat: 0, lng: 0 }).length, 0, "'a' ya no está en el índice")
 })
 
 test('refresh() reconstruye desde el snapshot vigente (uso externo, con guard de grupo)', async () => {
@@ -190,13 +190,13 @@ test('refresh() reconstruye desde el snapshot vigente (uso externo, con guard de
 test('resolveClick devuelve el id del polígono que contiene el punto', async () => {
   const { layer } = await mount()
 
-  const inA = layer.resolveClick({ latlng: { lat: 0, lng: 0 } })
+  const inA = layer.resolveClick({ lat: 0, lng: 0 })
   assert.deepEqual(inA.map(h => h.id), ['a'], 'el click dentro de a lo pica')
 
-  const inB = layer.resolveClick({ latlng: { lat: 10, lng: 10 } })
+  const inB = layer.resolveClick({ lat: 10, lng: 10 })
   assert.deepEqual(inB.map(h => h.id), ['b'])
 
-  const outside = layer.resolveClick({ latlng: { lat: 50, lng: 50 } })
+  const outside = layer.resolveClick({ lat: 50, lng: 50 })
   assert.equal(outside.length, 0, 'fuera de todo polígono no pica nada')
 })
 

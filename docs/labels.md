@@ -30,7 +30,7 @@ etiquetas se deslizarían desfasadas del mapa durante la animación) reaparecien
 
 Construcción:
 ```js
-new LabelLayer({ map, pane: { name, zIndex }, paint = drawLabel, boundsPad = 0.08, style })
+new LabelLayer({ map, camera, pane: { name, zIndex }, paint = drawLabel, boundsPad = 0.08, style })
 ```
 
 | Método / prop | Firma | Notas |
@@ -45,7 +45,8 @@ new LabelLayer({ map, pane: { name, zIndex }, paint = drawLabel, boundsPad = 0.0
 
 **`Label`** solo exige `{ id, lat, lng, text }`; cualquier otro campo (p. ej. `accent`) lo interpreta
 el `paint`. El culling por bounds (`boundsPad` de padding) y la elevación de los hovered son de la
-capa; el resto es del painter.
+capa; el resto es del painter. La caja del culling y el `point` que recibe el painter —el píxel del
+contenedor, `{ x, y }`— salen de la `camera` del motor, planos.
 
 ### `drawLabel` (painter por defecto, exportado)
 
@@ -72,11 +73,13 @@ trae `accent`— una franja de acento a la izquierda. Memoiza el ancho medido (`
 ```js
 import { LabelLayer, drawLabel } from './src/render/LabelLayer.js'
 
-// Standalone con el painter por defecto.
+// Standalone con el painter por defecto, sobre el mapa y la cámara de un motor.
+const map    = engine.getLeafletMap()
 const labels = new LabelLayer({
   map,
-  pane: { name: 'fleetLabelsPane', zIndex: 665 },
-  style: { surface: '#fff', text: '#0f172a', accent: '#2563eb' },
+  camera : engine.camera,
+  pane   : { name: 'fleetLabelsPane', zIndex: 665 },
+  style  : { surface: '#fff', text: '#0f172a', accent: '#2563eb' },
 })
 
 labels.setLabels([
@@ -90,8 +93,9 @@ labels.setHovered([1])
 // Painter propio: otro look sin tocar la capa.
 const minimal = new LabelLayer({
   map,
-  pane: { name: 'tagsPane', zIndex: 640 },
-  paint: (ctx, point, label) => {
+  camera : engine.camera,
+  pane   : { name: 'tagsPane', zIndex: 640 },
+  paint  : (ctx, point, label) => {
     ctx.fillStyle = '#000'
     ctx.fillText(label.text, point.x, point.y)
   },

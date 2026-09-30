@@ -5,7 +5,7 @@
 
 // El re-export de abajo NO liga los nombres en este archivo: lo que se usa acá se importa.
 import type { CristaeReadSource, CristaeSource, CristaeFilter, SourceAccessors } from "./core";
-import type { LatLngPath, LatLngPoint } from "./geometry";
+import type { Bounds, BoundsLike, LatLng, LatLngPath, LatLngPoint } from "./geometry";
 
 export type {
   SourceAccessors,
@@ -15,7 +15,7 @@ export type {
   CristaeListener,
 } from "./core";
 export { createSource, defineSource, makeFilter, makeListener } from "./core";
-export type { EarthModel, LatLngPoint, LatLngPath } from "./geometry";
+export type { Bounds, BoundsLike, EarthModel, LatLng, LatLngPoint, LatLngPath } from "./geometry";
 export { distance, sphere, toParts, sampleAlong } from "./geometry";
 
 // ── IconSets (src/atlas/IconSet.js) ─────────────────────────────────────────
@@ -152,7 +152,7 @@ export interface HitBase {
   zIndex         : number;
   order          : number;
   /** Posición con la que un overlay presentó el hit (la hoja del spider, ya desplegada). */
-  latlng?        : { lat: number; lng: number };
+  latlng?        : LatLng;
   /** Capa que presentó este hit en lugar de la propia (hoja del cluster → su capa host). */
   presentedFrom? : string;
 }
@@ -204,7 +204,7 @@ export interface ClusterGroup<T = unknown> {
 /** `groups` viene `[]` cuando la burbuja base es plana (pocas hojas): ahí se usa `entities`. */
 export interface ClusterSession<T = unknown> {
   id       : string | number;
-  center   : { lat: number; lng: number } | null;
+  center   : LatLng | null;
   count    : number;
   entities : ClusterEntity<T>[];
   groups   : ClusterGroup<T>[];
@@ -218,31 +218,52 @@ export interface ClusterDismiss {
 /** Level-triggered: la verdad completa de los ids marcados que quedaron OCULTOS dentro de una
  *  burbuja, con el centro de la burbuja que los tapa. Vacío = ninguno oculto. */
 export interface ClusterMarked {
-  hidden : Array<{ layerId: string | null; id: string | number; center: { lat: number; lng: number } }>;
+  hidden : Array<{ layerId: string | null; id: string | number; center: LatLng }>;
 }
 
 // ── Canales del bus ─────────────────────────────────────────────────────────
-// Un canal por entrada; la firma es la que el bus invoca (`callback(hits, baseEvent)`). En
-// `pointer:move` no hay picking: los hits van `null` y la muestra viaja en el segundo argumento.
+// Un canal por entrada; la firma es la que el bus invoca: los hits y lo que los originó. Los clicks
+// entregan el evento del DOM; el hover y `pointer:move`, la muestra del puntero. En `pointer:move` no
+// hay picking: los hits llegan vacíos, una lista por handler.
 
-export interface PointerSample {
-  lat : number;
-  lng : number;
-  x   : number;
-  y   : number;
-}
+/** La muestra del puntero: su posición en grados y su píxel del contenedor. Es también el detail de
+ *  `cristae:pointermove`, y llega congelada: la comparten los handlers y el picking del mismo evento. */
+export interface PointerSample extends Readonly<LatLng>, Readonly<Point> {}
 
 export interface BusChannels {
   'click'           : (hits: Hit[], event: MouseEvent | null) => void;
   'secondary-click' : (hits: Hit[], event: MouseEvent | null) => void;
-  'hover'           : (hits: Hit[], event: MouseEvent | null) => void;
-  'hover:start'     : (hits: Hit[], event: MouseEvent | null) => void;
-  'hover:end'       : (hits: Hit[], event: MouseEvent | null) => void;
-  'pointer:move'    : (hits: null, sample: PointerSample | null) => void;
+  'hover'           : (hits: Hit[], sample: PointerSample) => void;
+  'hover:start'     : (hits: Hit[], sample: PointerSample) => void;
+  /** `null` cuando el hover cierra sin muestra (SPECS §10). */
+  'hover:end'       : (hits: Hit[], sample: PointerSample | null) => void;
+  'pointer:move'    : (hits: [], sample: PointerSample) => void;
   'cluster:expand'  : (session: ClusterSession) => void;
   'cluster:update'  : (session: ClusterSession) => void;
   'cluster:dismiss' : (detail: ClusterDismiss) => void;
   'cluster:marked'  : (snapshot: ClusterMarked) => void;
+}
+
+// ── Señales del motor ───────────────────────────────────────────────────────
+// Lo que el motor avisa sin picking: un solo payload, sin hits ni filtro por capa. Son también los
+// `detail` de los `cristae:*` del elemento (SPECS §10).
+
+/** La vista de la cámara que viaja en `viewportchange`; cuándo sale lo fija SPECS §10. */
+export interface ViewportChangeDetail {
+  center : LatLng;
+  zoom   : number;
+  bounds : Bounds;
+}
+/** Un click en el vacío, sin ningún hit. */
+export interface MapClickDetail {
+  latlng : LatLng;
+}
+export interface EngineSignals {
+  'ready'            : (detail: Record<string, never>) => void;
+  'viewportchange'   : (detail: ViewportChangeDetail) => void;
+  'map:click'        : (detail: MapClickDetail) => void;
+  'interactionstart' : (detail: Record<string, never>) => void;
+  'interactionend'   : (detail: Record<string, never>) => void;
 }
 
 // ── Marcadores HTML (addHtmlLayer / <cristae-html-layer>) ───────────────────
@@ -289,7 +310,7 @@ export interface LabelStyle {
 /** Painter de etiqueta: recibe el ctx ya preparado y la etiqueta resuelta. */
 export type LabelPaint = (
   ctx: CanvasRenderingContext2D,
-  point: { x: number; y: number },
+  point: Point,
   label: Label,
   hovered: boolean,
   style: LabelStyle,
@@ -297,7 +318,7 @@ export type LabelPaint = (
 /** Painter default de etiquetas (inyectable en la label-layer vía `paint`). */
 export function drawLabel(
   ctx: CanvasRenderingContext2D,
-  point: { x: number; y: number },
+  point: Point,
   label: Label,
   hovered: boolean,
   style?: LabelStyle,
@@ -613,30 +634,35 @@ export interface Insets {
   bottom? : number;
   left?   : number;
 }
-/** Una posición de la cámara, con el contrato de Leaflet: par o `{ lat, lng }`. Los puntos de las
- *  geometrías siguen otra regla, `LatLngPoint`. */
-export type LatLngLike = [number, number] | { lat: number; lng: number }
+/** Un píxel del contenedor del mapa. */
+export interface Point {
+  x : number;
+  y : number;
+}
 
-/** Cámara: la ÚNICA vía de movimiento del viewport tras el montaje. Todo es ACCIÓN (imperativo). */
+/** Cámara: la ÚNICA vía de movimiento del viewport tras el montaje. Todo es ACCIÓN (imperativo). Los
+ *  puntos entran en cualquier forma de `LatLngPoint` (lo que no lo es, SPECS §9), y lo que devuelve son
+ *  objetos planos. */
 export interface Camera {
-  setView(latlng: LatLngLike, zoom?: number): this;
-  panTo(latlng: LatLngLike): this;
-  flyTo(latlng: LatLngLike, zoom?: number, options?: Record<string, unknown>): this;
-  fitBounds(bounds: unknown, options?: { insets?: Insets }): this;
+  setView(latlng: LatLngPoint, zoom?: number): this;
+  panTo(latlng: LatLngPoint): this;
+  flyTo(latlng: LatLngPoint, zoom?: number, options?: Record<string, unknown>): this;
+  /** Encuadra una caja o un par de esquinas opuestas; lo que no lo es, SPECS §9. */
+  fitBounds(bounds: BoundsLike | null | undefined, options?: { insets?: Insets }): this;
   fitToLayer(layerId: string, options?: { insets?: Insets; maxZoom?: number }): this;
   /** Enfoca un punto dejándolo visible (des-clusteriza subiendo el zoom si hace falta). */
   revealPoint(layerId: string, id: string | number, options?: { zoom?: number }): this;
   /** Sigue la posición VIVA de un id (re-centra en cada flush). `reveal` des-clusteriza al iniciar. */
   followPoint(layerId: string, id: string | number, options?: { zoom?: number; reveal?: boolean }): this;
-  /** Encuadra (one-shot) el SUBCONJUNTO `ids` de una capa por sus puntos finitos. */
+  /** Encuadra (one-shot) el SUBCONJUNTO `ids` de una capa por sus posiciones válidas. */
   followBounds(layerId: string, ids: Iterable<string | number>, options?: { insets?: Insets; maxZoom?: number }): this;
   /** Navegación por conjunto: `mode:"fit"` encuadra el set; `mode:"track"` con UN id sigue su posición viva. */
   followPoints(layerId: string, ids: Iterable<string | number>, options?: { mode?: "fit" | "track"; zoom?: number; reveal?: boolean; insets?: Insets; maxZoom?: number }): this;
   focusPoints(layerId: string, ids: Iterable<string | number>, options?: { mode?: "fit" | "track" } & Record<string, unknown>): this;
   stopFollow(): this;
-  getCenter(): { lat: number; lng: number };
+  getCenter(): LatLng;
   getZoom(): number;
-  getBounds(): unknown;
+  getBounds(): Bounds;
   /** Zoom máximo efectivo (capacidad del tile). */
   getMaxZoom(): number;
   zoomIn(delta?: number): this;
@@ -644,8 +670,8 @@ export interface Camera {
   setZoom(zoom: number): this;
   panBy(offset: [number, number], options?: Record<string, unknown>): this;
   /** Proyección geográfica → píxel de contenedor (anclar overlays propios sin bajar a Leaflet). */
-  latLngToContainerPoint(latlng: LatLngLike): { x: number; y: number };
-  containerPointToLatLng(point: { x: number; y: number }): { lat: number; lng: number };
+  latLngToContainerPoint(latlng: LatLngPoint): Point;
+  containerPointToLatLng(point: Point | readonly [number, number]): LatLng;
 }
 
 // ── Motor y custom elements ──────────────────────────────────────────────────
@@ -713,10 +739,12 @@ export class MapEngine {
   /** Reapila una capa montada (z-index de su pane). `z` nulo vuelve al derivado en el alta. */
   setLayerZ(layerId: string, z?: number | null): this;
 
-  /** Suscripción a un canal del bus (no es un CustomEvent del DOM: el payload llega DIRECTO al
-   *  callback). Los canales de picking aceptan filtro por capa. Devuelve su función de baja. */
+  /** Suscripción a un canal del bus o a una señal del motor (no es un CustomEvent del DOM: el payload
+   *  llega DIRECTO al callback). Los canales de picking aceptan filtro por capa. Devuelve su función de
+   *  baja. */
   on<K extends keyof BusChannels>(event: K, cb: BusChannels[K]): () => void;
   on<K extends keyof BusChannels>(event: K, layerIds: string | string[] | null, cb: BusChannels[K]): () => void;
+  on<K extends keyof EngineSignals>(event: K, cb: EngineSignals[K]): () => void;
   registerIconSet(name: string, set: IconSet): this;
   createIcon(config: { size?: number; draw?: (ctx: CanvasRenderingContext2D, size: number) => void }): HTMLCanvasElement;
   setTileProvider(tile: { url: string; [k: string]: unknown }): this;

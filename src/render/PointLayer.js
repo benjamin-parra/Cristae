@@ -29,7 +29,7 @@ export class PointLayer {
   #layer       = null
   #binding     = null
   #picking     = null
-  #hoverPick   = { hits: [], sample: null }   // cache del último pick de hover; sample.seq valida hits
+  #hoverPick   = { hits: [], sample: null }   // cache del último pick de hover, atado a su muestra
   #pickObj     = 0      // identidad de objeto en el pase (la asigna el motor; 0 = el pase la saltea)
   // Partes de hit por canal: `out` (lo que se devuelve, truncado al nº de hits) referencia objetos de
   // `pool`, que sólo crece → en régimen permanente el hover no asigna nada por pick. Un pool por canal:
@@ -98,11 +98,9 @@ export class PointLayer {
   set pickObject(obj) { this.#pickObj = obj ?? 0 }
   get pickObject() { return this.#pickObj }
 
-  // Encola un pick GPU para la muestra del puntero. `sample` lleva containerPoint + seq.
+  // Encola un pick GPU para la muestra del puntero, en su píxel del contenedor.
   requestHoverHit(sample) {
-    if (!this.#picking) return false
-    const cp = sample.containerPoint
-    return this.#picking.request(cp.x, cp.y, this.#pickBatch(), sample)
+    return !!this.#picking && this.#picking.request(sample.x, sample.y, this.#pickBatch(), sample)
   }
 
   // Recoge el pick encolado (no bloqueante). Cachea los hits + la muestra para resolveHover.
@@ -114,15 +112,14 @@ export class PointLayer {
     return pick.metadata
   }
 
-  // resolveHover devuelve el cache solo si corresponde a la muestra vigente (mismo seq).
-  resolveHover(baseEvent) {
-    return this.#hoverPick.sample?.seq === baseEvent.seq ? this.#hoverPick.hits : []
+  // resolveHover devuelve el cache solo si es de la muestra vigente: cada muestra es un objeto nuevo.
+  resolveHover(sample) {
+    return this.#hoverPick.sample === sample ? this.#hoverPick.hits : []
   }
 
   // resolveClick hace un pick síncrono (un tiro) en el punto del evento, con el mismo batch.
-  resolveClick(baseEvent) {
-    const cp   = baseEvent.containerPoint ?? this.#map.latLngToContainerPoint(baseEvent.latlng)
-    const pick = this.#picking?.pickSync(cp.x, cp.y, this.#pickBatch(), baseEvent)
+  resolveClick(sample) {
+    const pick = this.#picking?.pickSync(sample.x, sample.y, this.#pickBatch(), sample)
     return pick ? this.#partsFrom(pick.hits, this.#clickParts) : []
   }
 

@@ -312,14 +312,14 @@ export class PolygonGpuLayer {
   }
 
   /* ── Picking point-in-poly sobre las tablas tipadas: kind 'polygon', sin distancia ── */
-  resolveClick(baseEvent) { return this.#hitsAt(baseEvent) }
-  resolveHover(baseEvent) { return this.#hitsAt(baseEvent) }
+  resolveClick(sample) { return this.#hitsAt(sample) }
+  resolveHover(sample) { return this.#hitsAt(sample) }
 
-  #hitsAt(baseEvent) {
-    if (!this.#index || !baseEvent?.latlng) return []
+  #hitsAt(sample) {
+    if (!this.#index) return []
     // Todas las que contienen el punto, como la capa de Leaflet: con polígonos superpuestos, quedarse
     // con la primera esconde la de abajo.
-    const partes = partsAtPoint(this.#index, baseEvent.latlng.lng, baseEvent.latlng.lat, this.#hits)
+    const partes = partsAtPoint(this.#index, sample.lng, sample.lat, this.#hits)
     // Una entidad con varias piezas —un multipolígono— aporta una parte por pieza: se responde UNA vez
     // por entidad, como `idsFor` en el sustrato de Leaflet.
     const vistos = new Set()

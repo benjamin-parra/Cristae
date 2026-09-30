@@ -219,7 +219,7 @@ test('lo que se ve es lo que se pickea: el pleno cae en la banda de ADELANTE y e
   assert.ok(rec.spy.attachments.includes(GL.DEPTH_ATTACHMENT),
     'el destino del pase de picking lleva profundidad: espeja el orden del visual')
 
-  h.engine.getLayer('flota').layer.resolveClick({ containerPoint: { x: 10, y: 10 } })
+  h.engine.getLayer('flota').layer.resolveClick({ x: 10, y: 10 })
   assert.ok(rec.clears.some(mask => mask & GL.DEPTH_BUFFER_BIT),
     'y cada pick la limpia: sin eso el z del pick anterior decidiría éste')
   assert.ok(rec.enables.includes(GL.DEPTH_TEST) && rec.disables.includes(GL.DEPTH_TEST),
@@ -239,7 +239,7 @@ test('atenuado ≠ no interactivo: el pick sobre un atenuado sigue devolviendo s
   assert.equal(signos(h, 'flota').get(4), -24, 'y está atenuado')
 
   rec.spy.bajoElCursor = { obj: layer.pickObject, entrada: slot, local: slot }
-  assert.deepEqual(layer.resolveClick({ containerPoint: { x: 10, y: 10 } }).map(p => p.id), [4],
+  assert.deepEqual(layer.resolveClick({ x: 10, y: 10 }).map(p => p.id), [4],
     'la silueta del atenuado escribe en el pase igual que la de un pleno (el vértice le da `abs(size)`)')
   const { first, count } = rec.spy.draws.at(-1)
   assert.deepEqual({ first, count }, { first: 0, count: 6 }, 'y el pase dibuja los 6: atenuar no saca a nadie del batch')

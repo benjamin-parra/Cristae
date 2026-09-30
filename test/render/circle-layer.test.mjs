@@ -48,13 +48,13 @@ test('un latlng DENTRO del radio pica; uno FUERA no', () => {
   const layer = new CircleLayer({ L, map, pane: 'p', source, interactive: true })
 
   // (0.5, 0.5) ≈ 78 km del centro → DENTRO
-  const dentro = layer.resolveClick({ latlng: { lat: 0.5, lng: 0.5 } })
+  const dentro = layer.resolveClick({ lat: 0.5, lng: 0.5 })
   assert.equal(dentro.length, 1, 'un latlng dentro del radio debe picar')
   assert.equal(dentro[0].id, 1)
   assert.equal(dentro[0].ref, 1)
 
   // (2, 2) ≈ 314 km del centro → FUERA
-  const fuera = layer.resolveClick({ latlng: { lat: 2, lng: 2 } })
+  const fuera = layer.resolveClick({ lat: 2, lng: 2 })
   assert.equal(fuera.length, 0, 'un latlng fuera del radio no debe picar')
 
   layer.destroy()
@@ -71,7 +71,7 @@ test('el pick coincide con el borde que dibuja L.circle', () => {
   source.set([{ id: 1, lat, lng, radius: 1000 }])
   const layer = new CircleLayer({ L, map, pane: 'p', source, interactive: true })
   const latR  = 1000 / 6371000 * 180 / Math.PI
-  const picks = dLat => layer.resolveClick({ latlng: { lat: lat + dLat, lng } }).length
+  const picks = dLat => layer.resolveClick({ lat: lat + dLat, lng }).length
 
   assert.equal(picks(latR * 0.999), 1, 'un milésimo adentro pica')
   assert.equal(picks(-latR * 0.999), 1, 'también al sur')
@@ -91,7 +91,7 @@ test('sólo pica en la copia del mundo donde el círculo está dibujado', () => 
     { id: 'B', lat: 0, lng: 179.99, radius: 10000 },     // Leaflet lo dibuja hasta pasado el 180
   ])
   const layer = new CircleLayer({ L, map, pane: 'p', source, interactive: true })
-  const picks = (lat, lng) => layer.resolveClick({ latlng: { lat, lng } }).map(h => h.id).join()
+  const picks = (lat, lng) => layer.resolveClick({ lat, lng }).map(h => h.id).join()
 
   assert.equal(picks(-33.45, -70.66), 'A')
   assert.equal(picks(-33.45, -70.66 + 360), '', 'la copia de la derecha no tiene círculo')
@@ -163,7 +163,7 @@ test('source.move() reubica el centro (setLatLng) — sin recrear, sin retocar r
   assert.equal(c1.setRadiusCalls, radiusBefore, 'el move no cambia el radio')
 
   // El picking CPU sigue al centro movido: (5,5) antes caía FUERA del círculo en (0,0), ahora es su centro.
-  const hit = layer.resolveClick({ latlng: { lat: 5, lng: 5 } })
+  const hit = layer.resolveClick({ lat: 5, lng: 5 })
   assert.deepEqual(hit.map(h => h.id), [1], 'el hit CPU sigue al centro movido')
 })
 

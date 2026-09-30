@@ -62,14 +62,14 @@ export class LeafletLineLayer {
   }
 
   /* ── Picking CPU nearest-segment (idéntico al backend GL): kind 'line', distancePx real ── */
-  resolveClick(baseEvent) { return this.#hitsAt(baseEvent) }
-  resolveHover(baseEvent) { return this.#hitsAt(baseEvent) }
+  resolveClick(sample) { return this.#hitsAt(sample) }
+  resolveHover(sample) { return this.#hitsAt(sample) }
 
-  #hitsAt(baseEvent) {
-    if (!this.#interactive || !baseEvent?.latlng || !this.#index.sorted.length) return []
+  #hitsAt(sample) {
+    if (!this.#interactive || !this.#index.sorted.length) return []
     const scale = 2 ** this.#map.getZoom()
     const tolPx = HIT_TOL_PX + this.#maxWeight / 2
-    const hits = nearest(baseEvent.latlng.lat, baseEvent.latlng.lng, this.#index, tolPx / scale)
+    const hits = nearest(sample.lat, sample.lng, this.#index, tolPx / scale)
     return hits.map(h => ({
       ref: h.id, id: h.id, distancePx: h.dist * scale,
       partIndex: h.partIndex, vertexIndex: h.vertexIndex,
