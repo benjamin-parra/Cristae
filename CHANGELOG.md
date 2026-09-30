@@ -218,6 +218,15 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   ya tenía —uno de Leaflet, como `overlayPane`, o uno que creó el dueño de un mapa adoptado— lo sacaba
   del mapa al quitarse; ahora lo usa prestado, y al irse la última capa se lo devuelve con el `z`, el
   puntero, la visibilidad y la opacidad que tenía ([SPECS §8](SPECS.md)).
+- **La retención de tiles vuelve a cubrir el zoom que Leaflet no anima.** Desde 0.31.0 se hacía a un
+  lado mirando el latch `_zoomAnimated` del mapa, que la política de zoom ya no apaga y que un
+  navegador con transformaciones 3D tiene siempre prendido: con `'none'` —el default del elemento—
+  cada zoom dejaba el mapa gris hasta que llegaba el nivel nuevo, y las semillas se descargaban sin
+  mostrarse nunca. Ahora la retención sigue al reset de la vista, que es justo el zoom que Leaflet no
+  anima, con cualquier política; y un zoom animado saca al empezar la foto que hubiera, que no acompaña
+  a la transición. Las semillas piden el tile que Leaflet pediría a su zoom: se armaban con la vuelta
+  al mundo y el rango de la y del zoom actual, así que con `world-copies`, o con un proveedor `tms` o
+  con `{-y}`, casi todas traían la imagen de otro lugar ([`docs/tiles.md`](docs/tiles.md)).
 
 ## [0.35.0] - 2026-10-01
 

@@ -4,11 +4,13 @@
 > [atlas de iconos](./atlas.md) y al [pipeline de interacción](./interaction.md): no toca
 > WebGL ni el dominio, solo el DOM de tiles. Resuelve un único defecto visual del zoom.
 
-Cuando Leaflet hace zoom, la animación arranca **antes** de que lleguen los tiles del nuevo
-nivel. Durante esos pocos frames el pane de tiles queda **gris** (el viejo nivel ya se está
-podando y el nuevo todavía no carga). La retención de snapshots tapa ese hueco: al iniciar el
-zoom toma una **foto** (canvas) de los tiles ya cargados, la mantiene visible y la
-**reproyecta** en cada frame de la animación, hasta que el nuevo nivel termina de cargar.
+Cuando Leaflet hace un zoom sin animarlo **resetea** la vista: suelta todos los tiles de golpe, y
+hasta que llega el nivel nuevo el pane de tiles queda **gris**. La retención de snapshots tapa ese
+hueco: justo antes del reset toma una **foto** (canvas) de los tiles ya cargados y la deja,
+**reproyectada** a la vista nueva, debajo del pane de tiles mientras el nivel nuevo carga encima.
+Un zoom animado no resetea —la transición de Leaflet escala los tiles viejos hasta que llegan los
+nuevos—, así que ahí la retención se hace a un lado. La política de animación del zoom
+([SPECS §9](../SPECS.md)) decide cuál es cuál.
 
 ---
 
@@ -36,24 +38,23 @@ El resto de este documento es la **retención de snapshots** durante el zoom (in
 
 ## Por qué snapshots + scoring + seed prefetch
 
-El problema tiene tres aristas y la solución ataca cada una sin tocar el render normal de
-Leaflet (solo se engancha a sus eventos y difiere su prune):
+El problema tiene dos aristas y la solución ataca cada una sin tocar el render normal de
+Leaflet (solo se engancha a sus eventos):
 
-1. **El hueco gris durante la animación.** Se captura un canvas con los tiles vivos al
-   `zoomstart` y se transforma (`translate3d` + `scale`) por frame para seguir el viewport
-   animado. El canvas vive en un **pane propio** (`pointer-events: none`) por encima del de
-   tiles, así no interfiere con la interacción.
+1. **El hueco gris tras el reset.** Leaflet avisa el reset (`viewprereset`) antes de que la capa
+   suelte sus tiles: ahí se captura un canvas con los tiles cargados. Al cerrar el reset
+   (`viewreset`) el canvas se pone con `translate3d` + `scale` en el lugar que ocupa en la vista
+   nueva. Vive en un **pane propio** (`pointer-events: none`) por debajo del de tiles: los tiles
+   nuevos lo tapan a medida que llegan, y no interfiere con la interacción.
 
-2. **El prune prematuro de Leaflet.** Si Leaflet poda los tiles viejos a media animación,
-   reaparece el mismo hueco que se está tapando. La retención **monkey-patchea**
-   `layer._pruneTiles`: durante la retención lo difiere (marca `pruneDeferred`) y lo ejecuta
-   recién al `zoomend`. Al desactivar la capa restaura el método original.
-
-3. **El primer frame tras un zoom grande.** Un solo snapshot del nivel actual cubre poco al
+2. **El primer frame tras un zoom grande.** Un solo snapshot del nivel actual cubre poco al
    saltar varios niveles. Por eso un **seed prefetch** precarga, en tiempo ocioso, tiles de
    niveles futuros (`+1, +2, +4, +8`) para tener material que reproyectar antes de que el
    usuario salte. El scoring de `ZoomSnapshotStore` elige entre todos los snapshots
    disponibles (capturados + seed) el mejor par para el viewport destino.
+
+Un zoom animado empieza con `zoomstart` y sin reset: la foto visible sale del documento, porque el
+pane de la retención no acompaña a la transición, y la próxima la elige el reset siguiente.
 
 Ningún flag global, ningún estado compartido entre mapas: toda la retención vive en la
 clausura que devuelve `createTileSnapshotRetention(map, …)`. Cada `L.map` tiene la suya.
@@ -107,8 +108,10 @@ pinte por debajo (el primario tapa al secundario en la zona compartida).
 
 ## `createTileSnapshotRetention(map, opts)` — la retención
 
-Engancha la retención a un `L.map`. Se auto-suscribe a los eventos de zoom de Leaflet y
-gestiona internamente un `ZoomSnapshotStore` y el seed prefetch.
+Engancha la retención a un `L.map`. Se auto-suscribe al reset de Leaflet y al inicio de cada zoom,
+y gestiona internamente un `ZoomSnapshotStore` y el seed prefetch. Se crea antes de agregar la capa
+de tiles: Leaflet reparte `viewprereset` en el orden de suscripción, y la capa suelta sus tiles en el
+suyo.
 
 ```js
 createTileSnapshotRetention(map, {
@@ -121,18 +124,17 @@ Ciclo de eventos que cablea (todos sobre `map`):
 
 | Evento Leaflet | Acción interna |
 |---|---|
-| `zoomstart` / `viewprereset` | captura snapshot de tiles vivos + muestra |
-| `zoomanim` | reproyecta al destino animado (`event.zoom`, `event.center`) |
-| `zoom` | reproyecta al estado intermedio |
-| `zoomend` | último ajuste + ejecuta el prune diferido |
+| `viewprereset` | captura los tiles cargados de la capa activa y cancela el prefetch en vuelo |
+| `zoomstart` | saca del documento la foto visible (queda en el almacén) |
+| `viewreset` | muestra la mejor combinación para la vista nueva |
 
 API devuelta:
 
 | Método | Firma | Complejidad | Notas |
 |---|---|---|---|
-| `activateLayer(layer)` | `(L.TileLayer) → void` | O(1) | adopta la capa de tiles activa: difiere su `_pruneTiles`, invalida snapshots viejos y agenda el seed prefetch. No-op si ya es la activa o si la capa no tiene `_pruneTiles` |
+| `activateLayer(layer)` | `(L.TileLayer) → void` | O(1) | adopta la capa de tiles activa: invalida snapshots viejos y agenda el seed prefetch. No-op si ya es la activa |
 | `invalidateSnapshots()` | `() → void` | O(s) | descarta todos los canvas y cancela el prefetch en vuelo. Para cuando cambia el **proveedor** de tiles (los snapshots viejos son de otro proveedor) |
-| `destroy()` | `() → void` | O(s) | cancela prefetch, restaura el `_pruneTiles` original, limpia snapshots y des-suscribe todos los eventos |
+| `destroy()` | `() → void` | O(s) | cancela prefetch, limpia snapshots y des-suscribe todos los eventos |
 
 `activateLayer` ya invalida snapshots internamente; `invalidateSnapshots` se expone como
 contrato explícito para quien **reemplaza** la capa de tiles sin cambiar de objeto (ej:
@@ -146,26 +148,22 @@ Para tener material antes del salto, la retención precarga snapshots de niveles
 
 - **Agendado con `requestIdleCallback`** (timeout 700 ms). Si el navegador no lo soporta, el
   prefetch simplemente no corre (el zoom sigue funcionando, solo con menos cobertura inicial).
-  Nunca se agenda durante una retención activa ni si ya hay uno agendado.
+  Se agenda al activar una capa, y nunca si ya hay uno agendado.
 - **Niveles objetivo:** `zoom + {1, 2, 4, 8}`, acotados a `maxZoom`. Por nivel se cargan hasta
   `MAX_SEED_TILES_PER_ZOOM` (24) tiles, ordenados por **cercanía al centro** (distancia
   Manhattan), así se prioriza lo que el usuario verá primero.
+- **La URL es la que Leaflet pediría a ese zoom.** Leaflet arma la URL de un tile con la grilla
+  del zoom de sus tiles: el zoom de la URL, la vuelta al mundo de la x y el rango con que invierte
+  la y (`tms`, `{-y}`). Para una semilla se le pone un momento la grilla del zoom de la semilla
+  (`_tileZoom` + `_resetGrid`) y después se le devuelve la suya.
 - **Generación cancelable.** Cada prefetch lleva un número de `generation`; cualquier
-  `cancelSeedPrefetch` (lo dispara un nuevo zoom, `activateLayer`, `invalidateSnapshots` o
+  `cancelSeedPrefetch` (lo dispara un reset, `activateLayer`, `invalidateSnapshots` o
   `destroy`) **incrementa** la generación. Las descargas en vuelo chequean
   `generation !== currentGeneration()` entre tile y tile y se **abortan** descartando el
   trabajo. No hay race: una prefetch obsoleta nunca inyecta un canvas viejo.
 - Los snapshots de seed se agregan con `kind: 'seed'` y se recortan con un cupo propio
   (`maxSeedSnapshots`) **antes** del recorte global, para que no desplacen a los snapshots
   reales capturados en el zoom.
-
-## Prune diferido — optimización del prune de Leaflet
-
-`activateLayer` reemplaza `layer._pruneTiles` por un wrapper: mientras `retaining` es `true` y
-la capa es la activa, marca `pruneDeferred = true` y **no poda**. Al `zoomend` (`endRetention`)
-ejecuta el `_pruneTiles` original una sola vez. Así los tiles viejos siguen disponibles para
-capturar/mostrar durante toda la animación, y se podan recién cuando el snapshot ya no se
-necesita. `destroy`/`resetLayer` restauran siempre el método original.
 
 ---
 
@@ -175,8 +173,8 @@ necesita. `destroy`/`resetLayer` restauran siempre el método original.
    `createTileSnapshotRetention`; no hay singletons ni estado compartido entre mapas.
 2. **Prefetch obsoleto nunca contamina.** El check de `generation` aborta toda descarga cuya
    generación quedó atrás; un canvas de seed solo se agrega si su generación sigue vigente.
-3. **El `_pruneTiles` original siempre se restaura** al desactivar la capa o destruir
-   (`resetLayer`), aunque haya un prune diferido pendiente.
+3. **La capa vuelve a su grilla.** Armar la URL de una semilla le cambia la grilla un momento, y
+   se le devuelve la suya en el mismo tick, aunque Leaflet lance al armarla.
 4. **Los canvas se liberan de verdad.** `discard` los saca del DOM y colapsa sus dimensiones a
    0 para soltar la memoria del bitmap, no solo la referencia.
 

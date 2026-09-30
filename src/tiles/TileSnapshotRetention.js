@@ -1,21 +1,23 @@
-// Retención de imagen de tiles durante el zoom de Leaflet.
-// Al iniciar un zoom toma un snapshot (canvas) de los tiles cargados y lo mantiene visible,
-// reproyectándolo al destino, hasta que el nuevo nivel termina de cargar. Así el mapa nunca
-// muestra el hueco gris entre que arranca el zoom y llegan los tiles nuevos.
+// Retención de imagen de tiles en el zoom que Leaflet no anima.
+// Cuando Leaflet resetea la vista —un zoom que no anima, o un salto que no puede animar— suelta todos los
+// tiles de golpe, y hasta que llega el nivel nuevo el mapa queda gris. La retención fotografía en un
+// canvas los tiles cargados antes de que se suelten y deja la foto, reproyectada a la vista nueva, en un
+// pane debajo del de tiles mientras el nivel nuevo carga encima.
 //
-// Sólo actúa en el zoom instantáneo; si Leaflet lo anima (map._zoomAnimated), su transición ya cubre
-// los tiles y la retención se hace a un lado. Se auto-gatea por frame (sin que el consumidor lo administre).
+// Un zoom animado no resetea: la transición de Leaflet escala los tiles viejos hasta que llegan los
+// nuevos. Ahí la retención se hace a un lado, y esconde la foto que hubiera, que no acompaña a la
+// transición. Se decide por zoom, así que sigue a la política de animación aunque cambie en vivo.
 //
 // Ciclo de eventos:
-//   zoomstart / viewprereset → startRetention  (captura + muestra snapshot)
-//   zoomanim                 → moveSnapshot     (reproyecta al destino animado)
-//   zoom                     → syncSnapshot     (reproyecta al estado intermedio)
-//   zoomend                  → settleSnapshot   (último ajuste y cierre)
+//   viewprereset → captura los tiles cargados. Leaflet avisa el reset antes de que la capa los suelte, y
+//                  a sus oyentes en el orden en que llegaron: la retención se crea antes que la capa.
+//   zoomstart    → esconde la foto visible
+//   viewreset    → muestra la mejor para la vista nueva
 
 import L from 'leaflet'
 import { ZoomSnapshotStore } from './ZoomSnapshotStore.js'
 
-const SEED_ZOOM_OFFSETS = [1, 2, 4, 8]
+const SEED_ZOOM_OFFSETS       = [1, 2, 4, 8]
 const MAX_SEED_TILES_PER_ZOOM = 24
 
 const ensureSnapshotPane = (map, paneName, paneZIndex) => {
@@ -133,17 +135,20 @@ const seedTileCoords = (map, layer, zoom) => {
     .slice(0, MAX_SEED_TILES_PER_ZOOM)
 }
 
-// Resuelve la URL de un tile a un zoom distinto del actual restaurando _tileZoom luego.
+// La URL de un tile de otro zoom. Leaflet la arma con la grilla del zoom de sus tiles —el zoom que va en
+// la URL, la vuelta al mundo de la x y el rango con que invierte la y—: se le pone un momento la del zoom
+// pedido y después se le devuelve la suya.
 const tileUrlAtZoom = (layer, coords) => {
-  const originalZoom = layer._tileZoom
+  const tileZoom  = layer._tileZoom
   const tilePoint = L.point(coords.x, coords.y)
-  tilePoint.z = coords.z
-  const wrappedCoords = layer._wrapCoords ? layer._wrapCoords(tilePoint) : tilePoint
+  tilePoint.z     = coords.z
   layer._tileZoom = coords.z
+  layer._resetGrid()
   try {
-    return layer.getTileUrl(wrappedCoords)
+    return layer.getTileUrl(layer._wrapCoords(tilePoint))
   } finally {
-    layer._tileZoom = originalZoom
+    layer._tileZoom = tileZoom
+    layer._resetGrid()
   }
 }
 
@@ -199,9 +204,6 @@ export const createTileSnapshotRetention = (map, {
   paneZIndex = 150,
 } = {}) => {
   let activeLayer      = null
-  let activePrune      = null
-  let retaining        = false
-  let pruneDeferred    = false
   let visibleSnapshots = []
   let seedGeneration   = 0
   let seedIdleId       = null
@@ -221,7 +223,7 @@ export const createTileSnapshotRetention = (map, {
   }
 
   const scheduleSeedPrefetch = () => {
-    if (retaining || !activeLayer || typeof requestIdleCallback !== 'function' || seedIdleId != null) return
+    if (!activeLayer || typeof requestIdleCallback !== 'function' || seedIdleId != null) return
     const generation = seedGeneration
     seedIdleId = requestIdleCallback(async () => {
       seedIdleId = null
@@ -234,85 +236,40 @@ export const createTileSnapshotRetention = (map, {
     }, { timeout: 700 })
   }
 
-  const applyPlacement = placement => {
-    const { element } = placement.snapshot
-    const { frame } = placement
-    element.style.transform = `translate3d(${frame.left}px, ${frame.top}px, 0) scale(${frame.scale})`
+  // La foto sale del documento pero queda en el almacén: otro reset puede volver a elegirla.
+  const hideSnapshots = () => {
+    visibleSnapshots.forEach(snapshot => snapshot.element.remove())
+    visibleSnapshots = []
   }
 
-  const showSnapshot = (zoom, pixelOrigin) => {
-    const pane = ensureSnapshotPane(map, paneName, paneZIndex)
+  // La vista de partida de las semillas ya no es la del mapa: la descarga en vuelo se cancela.
+  const captureSnapshot = () => {
+    if (!activeLayer) return
+    cancelSeedPrefetch()
+    buildTileSnapshots(activeLayer).forEach(snapshot => snapshotStore.add(snapshot))
+  }
+
+  const showSnapshots = () => {
+    if (!activeLayer) return
+    const pane       = ensureSnapshotPane(map, paneName, paneZIndex)
     const placements = snapshotStore.select({
-      targetZoom  : zoom,
-      pixelOrigin,
+      targetZoom  : map.getZoom(),
+      pixelOrigin : map.getPixelOrigin(),
       viewportSize: map.getSize(),
       zoomScale   : (targetZoom, sourceZoom) => map.getZoomScale(targetZoom, sourceZoom),
     })
-    const nextSnapshots = placements.map(placement => placement.snapshot)
 
-    visibleSnapshots
-      .filter(snapshot => !nextSnapshots.includes(snapshot))
-      .forEach(snapshot => snapshot.element.remove())
-
-    placements.forEach(placement => {
-      pane.appendChild(placement.snapshot.element)
-      applyPlacement(placement)
+    hideSnapshots()
+    placements.forEach(({ snapshot, frame }) => {
+      snapshot.element.style.transform = `translate3d(${frame.left}px, ${frame.top}px, 0) scale(${frame.scale})`
+      pane.appendChild(snapshot.element)
     })
-
-    visibleSnapshots = nextSnapshots
-    return placements.length > 0
+    visibleSnapshots = placements.map(placement => placement.snapshot)
   }
 
-  const resetLayer = () => {
-    if (activeLayer && activePrune) activeLayer._pruneTiles = activePrune
-    activeLayer   = null
-    activePrune   = null
-    pruneDeferred = false
-  }
-
-  const endRetention = () => {
-    if (retaining && pruneDeferred && activeLayer?._map) activePrune.call(activeLayer)
-    retaining     = false
-    pruneDeferred = false
-  }
-
-  const startRetention = () => {
-    if (!activeLayer || map._zoomAnimated) return   // si Leaflet anima el zoom, su transición cubre; a un lado
-    cancelSeedPrefetch()
-
-    if (!retaining) {
-      buildTileSnapshots(activeLayer).forEach(snapshot => snapshotStore.add(snapshot))
-    }
-
-    const wasRetaining = retaining
-    if (showSnapshot(map.getZoom(), map.getPixelOrigin())) {
-      retaining = true
-      if (!wasRetaining) pruneDeferred = false
-    }
-  }
-
-  // Sólo mid-retención: con zoom animado startRetention no enganchó y ni los seeds deben aparecer.
-  const moveSnapshot = event => {
-    if (!retaining) return
-    showSnapshot(event.zoom, map._getNewPixelOrigin(event.center, event.zoom))
-  }
-
-  const settleSnapshot = () => {
-    if (!retaining) return
-    showSnapshot(map.getZoom(), map.getPixelOrigin())
-    endRetention()
-  }
-
-  const syncSnapshot = () => {
-    if (!retaining) return
-    showSnapshot(map.getZoom(), map.getPixelOrigin())
-  }
-
-  map.on('zoomstart', startRetention)
-  map.on('viewprereset', startRetention)
-  map.on('zoomanim', moveSnapshot)
-  map.on('zoom', syncSnapshot)
-  map.on('zoomend', settleSnapshot)
+  map.on('viewprereset', captureSnapshot)
+  map.on('zoomstart', hideSnapshots)
+  map.on('viewreset', showSnapshots)
 
   return {
     // Invalidación explícita ante cambio de proveedor de tiles: descarta los canvas
@@ -325,34 +282,18 @@ export const createTileSnapshotRetention = (map, {
     },
     activateLayer(layer) {
       if (activeLayer === layer) return
-      if (typeof layer?._pruneTiles !== 'function') return
       cancelSeedPrefetch()
-      endRetention()
-      resetLayer()
       clearSnapshots()
       activeLayer = layer
-      activePrune = layer._pruneTiles
-      // Durante la retención diferimos el prune de Leaflet: si podara los tiles
-      // viejos a media animación reaparecería el hueco gris que estamos tapando.
-      layer._pruneTiles = () => {
-        if (retaining && activeLayer === layer) {
-          pruneDeferred = true
-          return
-        }
-        return activePrune.call(layer)
-      }
       scheduleSeedPrefetch()
     },
     destroy() {
       cancelSeedPrefetch()
-      endRetention()
-      resetLayer()
       clearSnapshots()
-      map.off('zoomstart', startRetention)
-      map.off('viewprereset', startRetention)
-      map.off('zoomanim', moveSnapshot)
-      map.off('zoom', syncSnapshot)
-      map.off('zoomend', settleSnapshot)
+      activeLayer = null
+      map.off('viewprereset', captureSnapshot)
+      map.off('zoomstart', hideSnapshots)
+      map.off('viewreset', showSnapshots)
     },
   }
 }
