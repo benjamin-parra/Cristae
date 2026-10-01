@@ -47,6 +47,7 @@ vértice `v` de un feature mapea al punto de path `⌈v/2⌉` — así el gradie
 | `styleOf?` | `(item) => { color?, weight?, opacity? }` | estilo **plano** por línea. `color` = `"#RRGGBB"` o `[r,g,b,a]` (0..1); `weight` en px de pantalla |
 | `scalarOf?` | `(item, vertexIndex) => number` | escalar por vértice, **genérico** (el core no lo interpreta) |
 | `colorRamp?` | `(value) => [r,g,b,a]` | rampa `valor → color` (0..1). Con `scalarOf` presente, **gana** sobre `styleOf.color` |
+| `hashOf?` | `(item) => number \| string` | hash de cambio, el de `SourceAccessors` (default = `idOf`). Un `set` sólo reescribe las líneas cuyo hash cambió: la que conserva su id y cambia de recorrido o de estilo lo declara |
 
 ### Declarativo — `<cristae-line-layer>`
 
@@ -140,7 +141,8 @@ handle.set(rutas)                               // empuja el dataset (acción)
 handle.setVisible(false)                        // toggle de visibilidad (espeja el estado `visible`)
 // Recolorear = ESTADO: cambiar styleOf(item) y re-empujar — NO hay handle.setStyle.
 ruta.color = '#c20b00'
-handle.set(rutas)                               // el motor reescribe el color (incremental/rebuild)
+ruta.version++                                  // con hashOf: r => r.version; sin él, el mismo id no cuenta como cambio
+handle.set(rutas)                               // el motor reescribe sólo esa línea
 ```
 
 `LineHandle`: `{ id, source, set(items), setVisible(v) }` — sólo **acciones**; el estilo va por `styleOf`.

@@ -285,7 +285,7 @@ Dos entradas de dato **simétricas**:
 | `data` | `Item[]` (ruta A) | **prop** |
 | `source` | `Source` (ruta B/C) | **prop** |
 | `geometry` | tablas del lector (`areasOf`) | **prop** — implica `backend="gpu"` |
-| `accessors` | `{ idOf, ringsOf, styleOf? }` | **prop** |
+| `accessors` | `{ idOf, ringsOf, styleOf?, hashOf? }` | **prop** |
 
 Tres entradas de dato. Las dos primeras son las de la capa de puntos: `.data` (el elemento posee la
 Source) y `.source` (la posee el consumidor y la comparte entre vistas); por `source` los accessors

@@ -6,7 +6,7 @@ import { makeAutoId } from './autoId.js'
 // la Source interna), `source` (una Source que el consumidor posee y comparte entre vistas; ver
 // createSource) y `geometry` (las tablas del lector — `areasOf(readGeoJson(bytes))` — sin materializar
 // un array; sólo la dibuja el sustrato `gpu`, y la identidad viaja con ellas). Los accessors =
-// { idOf, ringsOf, styleOf? }: con `source` viajan con ella, por `data` se asignan aparte, y con
+// { idOf, ringsOf, styleOf?, hashOf? }: con `source` viajan con ella, por `data` se asignan aparte, y con
 // `geometry` sólo hacen falta para pisar el `idOf`/`styleOf` que el default resuelve solo.
 //
 // `backend` elige el sustrato: `gpu` (default; relleno por stencil y contorno en una textura, un

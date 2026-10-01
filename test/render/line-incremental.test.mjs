@@ -80,10 +80,10 @@ const accessors = {
   styleOf: (it) => ({ color: it.color, weight: 3, opacity: 1 }),
 }
 
-const mount = async () => {
+const mount = async (acc = accessors) => {
   const glify = makeLinesGlify()
   const map = makeMap()
-  const source = createSource(accessors)
+  const source = createSource(acc)
   source.set([
     line('a', '#111111', [[0, 0], [1, 1]]),
     line('b', '#222222', [[10, 10], [11, 11]]),
@@ -161,4 +161,30 @@ test('patch que CAMBIA el nº de vértices de una línea cae a rebuild (re-encod
   await flush()
 
   assert.equal(glify.stats.setData, baseline + 1, 'el cambio de conteo de vértices fuerza rebuild')
+})
+
+test('un set con los mismos ids reescribe sólo la línea cuyo hashOf cambió; sin hashOf, ninguna', async () => {
+  const conHash = await mount({ ...accessors, hashOf: (it) => it.v ?? 0 })
+  conHash.glify.stats.subData.length = 0
+  conHash.source.set([
+    line('a', '#111111', [[0, 0], [1, 1]]),
+    { ...line('b', '#222222', [[10, 10], [12, 12]]), v: 1 },
+  ])
+  await flush()
+
+  assert.equal(conHash.glify.stats.setData, 0, 'mismo tamaño y mismos vértices: sin rebuild')
+  const subidos = conHash.glify.stats.subData
+  assert.ok(subidos.length >= 1 && subidos.every(c => c.srcOffset === 2 * BYTES), "sólo se subió el rango de 'b'")
+  assert.ok(Math.abs(subidos[0].data[BYTES] - projX0(12)) < 1e-4, "el último vértice de 'b' llegó al buffer")
+
+  const sinHash = await mount()
+  sinHash.glify.stats.subData.length = 0
+  sinHash.source.set([
+    line('a', '#111111', [[0, 0], [1, 1]]),
+    line('b', '#222222', [[10, 10], [12, 12]]),
+  ])
+  await flush()
+
+  assert.equal(sinHash.glify.stats.setData + sinHash.glify.stats.subData.length, 0,
+    'con hashOf = idOf los mismos ids no cuentan como cambio')
 })

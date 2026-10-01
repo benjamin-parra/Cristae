@@ -3,7 +3,7 @@ import { makeAutoId } from './autoId.js'
 
 // <cristae-line-layer> — capa de líneas GL declarativa. Como point-layer, dos entradas de dato:
 // `data` (array → el elemento posee la Source interna) y `source` (Source compartida del consumidor,
-// createSource/defineSource). `accessors` = { idOf, pathOf, styleOf?, scalarOf?, colorRamp? } se
+// createSource/defineSource). `accessors` = { idOf, pathOf, styleOf?, scalarOf?, colorRamp?, hashOf? } se
 // asigna por JS (funciones, no atributos). El grosor por brocha de glify y la ausencia de dash en el
 // backend GL son deuda documentada (ver docs/lines.md).
 export class CristaeLineLayer extends CristaeLayerElement {

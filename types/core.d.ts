@@ -15,6 +15,9 @@ export interface SourceAccessors<T> {
   variantOf?  : (item: T) => string;
   headingOf?  : (item: T) => number;
   sizeOf?     : (item: T) => number;
+  /** Hash de cambio (default = idOf). Un `set` da por cambiado sólo el ítem cuyo hash cambió: el que
+   *  conserva su id y cambia de geometría, estilo o sprite lo declara. Un número (versión, timestamp)
+   *  no aloca. Las capas lo toman de acá. */
   hashOf?     : (item: T) => string | number;
 }
 

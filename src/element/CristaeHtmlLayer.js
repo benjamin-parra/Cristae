@@ -2,9 +2,10 @@ import { CristaeLayerElement } from './base.js'
 import { makeAutoId } from './autoId.js'
 
 // <cristae-html-layer> — marcadores HTML (L.divIcon) declarativos, GL-safe. accessors = { idOf,
-// positionOf, htmlOf, classNameOf?, sizeOf?, anchorOf? }. Nicho: badges de dominio con contenido HTML
-// arbitrario (heroicon / glifo de fuente / letra) + popup/tooltip, que el iconset canvas del
-// point-layer no rinde. COMPLEMENTA el point-layer GPU (alta cardinalidad / tiempo real), no lo reemplaza.
+// positionOf, htmlOf, classNameOf?, sizeOf?, anchorOf?, hashOf? }. Nicho: badges de dominio con
+// contenido HTML arbitrario (heroicon / glifo de fuente / letra) + popup/tooltip, que el iconset canvas
+// del point-layer no rinde. COMPLEMENTA el point-layer GPU (alta cardinalidad / tiempo real), no lo
+// reemplaza.
 export class CristaeHtmlLayer extends CristaeLayerElement {
 
   static cristaeSignature = { consumes: [], produces: ['html'], combine: null, arity: 'leaf' }

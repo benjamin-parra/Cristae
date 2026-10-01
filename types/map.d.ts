@@ -3,7 +3,7 @@
 // sincronizado con src/index.js; el núcleo de datos vive en ./core.d.ts.
 
 // El re-export de abajo NO liga los nombres en este archivo: lo que se usa acá se importa.
-import type { CristaeReadSource, CristaeSource, CristaeFilter } from "./core";
+import type { CristaeReadSource, CristaeSource, CristaeFilter, SourceAccessors } from "./core";
 
 export type {
   SourceAccessors,
@@ -80,7 +80,7 @@ export const shapeRenderers: Record<
 >;
 
 // ── Polígonos (addPolygonLayer / <cristae-polygon-layer>) ───────────────────
-export interface PolygonAccessors<T> {
+export interface PolygonAccessors<T> extends Pick<SourceAccessors<T>, "hashOf"> {
   idOf     : (g: T) => string | number;
   /** Anillos Leaflet `[[lat,lng],…]` o multi-anillo `[[[lat,lng],…],…]`. */
   ringsOf  : (g: T) => number[][] | number[][][];
@@ -91,7 +91,7 @@ export interface PolygonAccessors<T> {
 // ── Líneas (addLineLayer / <cristae-line-layer>) ────────────────────────────
 // GPU (glify.Lines) + gradiente per-vértice por bufferSubData + picking CPU nearest-segment.
 // `dash` y el grosor real por triángulos NO están (deuda documentada — ver docs/lines.md).
-export interface LineAccessors<T> {
+export interface LineAccessors<T> extends Pick<SourceAccessors<T>, "hashOf"> {
   idOf       : (l: T) => string | number;
   /** Vértices del path en orden, `[lat, lng]`. Dos encodings (ver `toParts`): plano — un vértice no
    *  finito **corta** la línea (un track GPS con baches sale partido, no puenteado) — o anidado
@@ -265,7 +265,7 @@ export function sampleAlong(
 // ── Marcadores HTML (addHtmlLayer / <cristae-html-layer>) ───────────────────
 // L.divIcon sobre Leaflet — GL-safe (NO abre otro contexto WebGL). Nicho: badges de dominio con HTML
 // arbitrario (heroicon / glifo de fuente) + popup. COMPLEMENTA el point-layer GPU, no lo reemplaza.
-export interface HtmlAccessors<T> {
+export interface HtmlAccessors<T> extends Pick<SourceAccessors<T>, "hashOf"> {
   idOf         : (m: T) => string | number;
   positionOf   : (m: T) => { lat: number; lng: number };
   /** HTML del marcador (string) — heroicon SVG, glifo `<i class="fv-*">`, letra, etc. */
@@ -327,7 +327,7 @@ export const tilePresets: Record<
 >;
 
 // ── Puntos (addPointLayer / <cristae-point-layer>) ──────────────────────────
-export interface PointAccessors<T> {
+export interface PointAccessors<T> extends Pick<SourceAccessors<T>, "hashOf"> {
   idOf       : (item: T) => string | number;
   positionOf : (item: T) => { lat: number; lng: number };
   /** Variante (string opaca) → tile del atlas. El core no la interpreta. */
@@ -336,8 +336,6 @@ export interface PointAccessors<T> {
   sizeOf?    : (item: T) => number;
   /** Rumbo en grados (0=N, 90=E). Sólo si el iconSet `rotates`. */
   headingOf? : (item: T) => number;
-  /** Hash de cambio (default = idOf). Inclúyelo si el sprite depende de más que el id. */
-  hashOf?    : (item: T) => string | number;
 }
 
 export interface ClusterConfig {
@@ -434,7 +432,7 @@ export interface PolygonHandle<T = unknown> {
 }
 
 // ── Círculos en METROS (addCircleLayer) — Leaflet-native, escala con el zoom ──
-export interface CircleAccessors<T> {
+export interface CircleAccessors<T> extends Pick<SourceAccessors<T>, "hashOf"> {
   idOf           : (c: T) => string | number;
   positionOf     : (c: T) => { lat: number; lng: number };
   /** Radio en METROS (escala con el zoom, a diferencia del sprite px fijo). */
@@ -460,7 +458,7 @@ export interface CircleHandle<T = unknown> {
 }
 
 // ── Heatmap (addHeatLayer) — canvas 2D, densidad acumulada ───────────────────
-export interface HeatAccessors<T> {
+export interface HeatAccessors<T> extends Pick<SourceAccessors<T>, "hashOf"> {
   idOf       : (p: T) => string | number;
   positionOf : (p: T) => { lat: number; lng: number };
   /** Peso por punto (default 1); la densidad acumula por composición. */
