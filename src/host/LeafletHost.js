@@ -11,7 +11,7 @@ import { TILE_FILTER } from './styles.js'
 // Las facetas son `camera` —estado, comandos, proyección, política de animación del zoom y ciclo de
 // vista—, `surface`, los nodos donde dibujan las capas, `tiles`, el proveedor de la capa base con la
 // retención de su imagen y su atribución, e `input`, la entrada del contenedor y el arrastre del mapa.
-// `map` queda para glify, que se cuelga del mapa, y para `getLeafletMap()`.
+// `map` queda para `getLeafletMap()`.
 
 // El ciclo de vista, con un solo emisor: cada tipo tiene un oyente en el mapa, y los suscriptores del
 // anfitrión se reparten ese lugar en el orden en que llegaron. `zoomlevelschange` avisa que cambiaron los

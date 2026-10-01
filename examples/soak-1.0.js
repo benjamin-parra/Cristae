@@ -8,14 +8,10 @@ import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { MapEngine, adoptLeafletHost, shapePresetIconSet, createSource } from '../src/index.js'
 
-window.L = L
-await import('leaflet.glify')            // side-effect: adjunta L.glify (mismo patrón que <cristae-map>)
-const glify = L.glify
-
 /* ── Mapa + motor reales ─────────────────────────────────────────────────────────────────────── */
 const CENTER = [-33.441, -70.654]        // Santiago
 const map    = L.map('map', { center: CENTER, zoom: 13, preferCanvas: true, zoomControl: true })
-const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: L }), glify })
+const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: L }) })
 await engine.ready
 // Tiles por el motor (no `L.tileLayer(...).addTo(map)`): así se activa la retención de bitmaps.
 engine.setTileProvider({ url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', maxZoom: 19, attribution: '© OpenStreetMap' })

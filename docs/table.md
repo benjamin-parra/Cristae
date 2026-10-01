@@ -2,7 +2,7 @@
 
 > Pieza de [Cristae](../MODELO.md). Consume el contrato [`Source`](./data.md) (solo la cara de
 > **lectura**: `getSnapshot` + `subscribe`). Vive en `table/`, **aislada del mapa**: importa solo
-> `lit` y el contrato de `data/` — nunca `engine/`, Leaflet ni glify (invariante de capas, MODELO).
+> `lit` y el contrato de `data/` — nunca `engine/` ni Leaflet (invariante de capas, MODELO).
 
 Tabla paginada con **scroll virtual**: dibuja decenas de miles de filas manteniendo en el DOM solo
 la ventana visible. La misma `Source` (`createSource`/`defineSource`) que alimenta un

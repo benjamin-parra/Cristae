@@ -1,5 +1,5 @@
 // Regresión del leak de contexto WebGL: destroy() de una capa GL debe LIBERAR el contexto
-// (glify.remove no lo hace → el techo ~16 contextos se agota acumulativamente al montar/desmontar).
+// (quitar el canvas no lo hace → el techo ~16 contextos se agota acumulativamente al montar/desmontar).
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'

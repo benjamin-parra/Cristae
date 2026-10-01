@@ -1,6 +1,6 @@
-// Líneas GPU (glify.Lines) — LÍNEA BASE del banco junto con `points`.
-// Segunda capa donde la promesa se cumple: los vértices viven en el buffer GL y el patch por rango
-// entra por `bufferSubData` coalescido a rAF. Sirve de calibración: el costo que aparezca acá con N
+// Líneas GPU — LÍNEA BASE del banco junto con `points`.
+// Segunda capa donde la promesa se cumple: los vértices viven en una textura GL y el patch sube
+// sólo las filas tocadas (`texSubImage2D`), coalescido a rAF. Sirve de calibración: el costo que aparezca acá con N
 // vértices es el piso contra el que se leen polygon/circle/editable, que mueven la MISMA geometría
 // por SVG o por DOM.
 //
@@ -76,7 +76,7 @@ const armar = (i, vertices) => ({
 
 export default {
   id      : 'lines',
-  backend : 'gpu-glify',
+  backend : 'gpu-quads',
 
   montar: contexto => {
     ctx    = contexto

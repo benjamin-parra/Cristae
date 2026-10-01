@@ -13,11 +13,6 @@ import { MapEngine, adoptLeafletHost } from '../../src/index.js'
 import { crearMedidor } from './metrics.js'
 import { datosDe, mulberry32, VISTA } from './scenario.js'
 
-globalThis.L ??= L                       // leaflet.glify se adjunta a `window.L` al importarse
-
-let glifado = null
-const cargarGlify = () => glifado ??= import('leaflet.glify').then(() => L.glify)
-
 // Escotilla `?tiles=1`: el basemap real ayuda a mirar la escena, pero apaga el aislamiento
 // cross-origin (ver bench/vite.config.js) y con él la memoria exacta. Por default, sin tiles.
 export const CON_TILES = new URLSearchParams(globalThis.location?.search ?? '').get('tiles') === '1'
@@ -73,7 +68,6 @@ export const crearStage = async (el, { modulo, n, semilla }) => {
   const backend = await cargarBackend(modulo)
   const datos   = datosDe(backend.id, n, semilla)
   const rnd     = mulberry32(semilla)
-  const glify   = await cargarGlify()
 
   const medidor    = crearMedidor(el)
   const contenedor = el.appendChild(document.createElement('div'))
@@ -84,7 +78,7 @@ export const crearStage = async (el, { modulo, n, semilla }) => {
 
   medidor.iniciar()                      // abre la fase de montaje: de acá en adelante se mide
 
-  const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: L }), glify, zoomAnimation: 'none' })
+  const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: L }), zoomAnimation: 'none' })
   await engine.ready
   CON_TILES && engine.setTileProvider(OSM)
 
@@ -101,7 +95,7 @@ export const crearStage = async (el, { modulo, n, semilla }) => {
     return { hijos: el.childElementCount, canvas: el.querySelectorAll('canvas').length }
   }
 
-  backend.montar({ engine, map, L, glify, datos, rnd })
+  backend.montar({ engine, map, L, datos, rnd })
   backend.aplicarN(n)
 
   return { engine, map, backend, medidor, datos, destruir }

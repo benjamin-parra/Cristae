@@ -1,5 +1,5 @@
 // Entry del MAPA (`cristae/map`): motor headless (MapEngine) + web components <cristae-*> de mapa.
-// Importar este módulo registra los custom elements de mapa y arrastra Leaflet/glify. La tabla NO
+// Importar este módulo registra los custom elements de mapa y arrastra Leaflet. La tabla NO
 // vive acá — es `cristae/table` (no arrastra Leaflet). El núcleo de datos es `cristae/core`.
 // Re-exporta la superficie del núcleo por conveniencia (un consumidor de mapa también crea Sources).
 

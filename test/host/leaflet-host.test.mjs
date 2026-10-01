@@ -279,7 +279,7 @@ test('destruir un anfitrión adoptado devuelve el mapa como estaba', () => {
 // ya no es asunto suyo: su promesa no se cumple con un motor muerto.
 test('un mapa adoptado sin vista no despierta al motor destruido al tomarla', async () => {
   const map    = L.map(contenedor())
-  const engine = new MapEngine({ host: adoptLeafletHost(map), glify: null })
+  const engine = new MapEngine({ host: adoptLeafletHost(map) })
   let listo    = false
   engine.ready.then(() => listo = true)
   engine.destroy()
@@ -362,9 +362,9 @@ test('un anfitrión soltado bajo un envoltorio ajeno pasa de largo', async () =>
 
 // El motor es dueño de su anfitrión: el que crea se lleva el mapa, y el adoptado lo devuelve como estaba.
 test('el motor suelta su anfitrión al destruirse', () => {
-  const propio    = new MapEngine({ container: contenedor(), view: VISTA, glify: null })
+  const propio    = new MapEngine({ container: contenedor(), view: VISTA })
   const map       = L.map(contenedor()).setView(VISTA.center, VISTA.zoom)
-  const ajeno     = new MapEngine({ host: adoptLeafletHost(map), glify: null, zoomAnimation: 'none' })
+  const ajeno     = new MapEngine({ host: adoptLeafletHost(map), zoomAnimation: 'none' })
   const removidos = []
   propio.getLeafletMap().on('unload', () => removidos.push('propio'))
   map.on('unload', () => removidos.push('adoptado'))
@@ -380,7 +380,7 @@ test('el motor suelta su anfitrión al destruirse', () => {
 // tomó prestado: el motor igual suelta lo que le puso.
 test('el motor suelta su anfitrión aunque el dueño haya removido el mapa antes', () => {
   const map    = L.map(contenedor()).setView(VISTA.center, VISTA.zoom)
-  const engine = new MapEngine({ host: adoptLeafletHost(map), glify: null })
+  const engine = new MapEngine({ host: adoptLeafletHost(map) })
   engine.addHtmlLayer({ id: 'zonas', pane: 'overlayPane', accessors: { idOf: it => it.id, positionOf: it => it } })
 
   map.remove()
@@ -389,7 +389,7 @@ test('el motor suelta su anfitrión aunque el dueño haya removido el mapa antes
 })
 
 test('la señal ready del motor sale con su promesa: quien se suscribe al construirlo la oye', async () => {
-  const engine = new MapEngine({ container: contenedor(), view: VISTA, glify: null })
+  const engine = new MapEngine({ container: contenedor(), view: VISTA })
   let oida     = false
   engine.on('ready', () => oida = true)
   await engine.ready

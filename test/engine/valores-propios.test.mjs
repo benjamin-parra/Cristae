@@ -46,7 +46,7 @@ const cerca = (a, b, msg) => assert.ok(Math.abs(a - b) < 1e-2, `${msg}: ${a} vs 
 // Un motor con su mapa propio, ya con vista.
 const montar = async () => {
   const container = contenedor()
-  const engine    = new MapEngine({ glify: null, container, view: { center: [-33, -70], zoom: 10 } })
+  const engine    = new MapEngine({ container, view: { center: [-33, -70], zoom: 10 } })
   await engine.ready
   return { engine, container }
 }
@@ -261,7 +261,7 @@ test('el painter de etiquetas recibe un píxel plano, también el de una elevada
 // vista no hay centro ni caja que emitir: la vista sale desde que el mapa la toma.
 test('asignar insets a un mapa adoptado sin vista no lanza ni emite, y emite desde que la toma', () => {
   const map    = L.map(contenedor())
-  const engine = new MapEngine({ host: adoptLeafletHost(map), glify: null })
+  const engine = new MapEngine({ host: adoptLeafletHost(map) })
   const vistas = []
   engine.on('viewportchange', vista => vistas.push(vista))
 
@@ -283,7 +283,7 @@ test('una capa de etiquetas sobre un mapa adoptado sin vista no lanza, y pinta a
   window.HTMLCanvasElement.prototype.getContext = () => new Proxy({}, { get: () => () => {}, set: () => true })
   try {
     const map      = L.map(contenedor())
-    const engine   = new MapEngine({ host: adoptLeafletHost(map), glify: null })
+    const engine   = new MapEngine({ host: adoptLeafletHost(map) })
     const pintados = new Set()
     const rotulos  = engine.addLabelLayer({ id: 'rotulos', paint: (ctx, point, label) => pintados.add(label.id) })
 
@@ -313,7 +313,7 @@ test('una capa de calor sobre un mapa adoptado sin vista no lanza, y pinta al to
   const errores = t.mock.method(console, 'error', () => {})
   try {
     const map    = L.map(contenedor())
-    const engine = new MapEngine({ host: adoptLeafletHost(map), glify: null })
+    const engine = new MapEngine({ host: adoptLeafletHost(map) })
     engine.addHeatLayer({ id: 'calor', accessors: { idOf: it => it.id, positionOf: it => it }, data: [{ id: 1, lat: -33, lng: -70 }] })
 
     await frame()

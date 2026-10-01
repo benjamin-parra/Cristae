@@ -80,7 +80,7 @@ import { LabelLayer, drawLabel } from './src/render/LabelLayer.js'
 
 // Standalone con el painter por defecto, sobre el anfitrión que también usa el motor.
 const host   = adoptLeafletHost(map)
-const engine = new MapEngine({ host, glify })
+const engine = new MapEngine({ host })
 map.createPane('fleetLabelsPane').style.zIndex = '665'
 const labels = new LabelLayer({
   host,

@@ -26,7 +26,7 @@
 //   capa de polígonos  ·    200 features  →     1 nodo vivo    (era 200: un path SVG por feature; ahora el canvas GPU)
 //   capa de círculos   ·    200 features  →     1 nodo vivo    (era 200: un `L.circle` por círculo; ahora el canvas GPU)
 //   capa de marcadores HTML · 200 marcas  →   401 nodos vivos  (la raíz + envoltorio e icono por marca)
-//   capa de puntos     · 10.000 ítems     →     1 nodo vivo    (el canvas de su superficie; el de glify no pasaba por el harness)
+//   capa de puntos     · 10.000 ítems     →     1 nodo vivo    (el canvas de su superficie)
 //
 // El único nodo de la geometría editable es CONSTANTE —no escala con el trazo, ni con los anillos—: el
 // canvas de la superficie WebGL2; los vértices y los midpoints son puntos de un VBO. Los cinco tiles del

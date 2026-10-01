@@ -89,17 +89,13 @@ const DEFAULT_CLUSTER_DRAW = (ctx, size, count, plus, dim = false) => {
   ctx.fillText(label, size / 2, size / 2)
 }
 
-// Registro estático de engines vivos: al destruirse uno, sus hermanos reciben resetCanvasReference()
-// porque el teardown de glify (compartido) deja las referencias de canvas de los vecinos obsoletas.
-const _liveEngines = new Set()
-
 export class MapEngine {
 
   #host
   #registry
   #bus
   #interaction
-  #destroying = false             // teardown del engine en curso → no rebuildear glify (canvas muriendo)
+  #destroying = false             // teardown del engine en curso → no rebuildear capas ligadas ni emitir viewport
 
   #layers             = new Map()      // id → record { kind, source, layer, controls, paneName, order }
   #highlightOverlays  = new Set()      // overlays de interacción (canvas 2D fijo al contenedor) → dispose en destroy
@@ -126,7 +122,7 @@ export class MapEngine {
 
   // Lo que queda en `limits` son los límites de la cámara. Como la vista inicial, son del mapa propio: uno
   // adoptado trae los de su dueño.
-  constructor({ host, container, view, glify: _glify, insets, hoverThrottleMs = 0, zoomAnimation, cursor, ...limits } = {}) {
+  constructor({ host, container, view, insets, hoverThrottleMs = 0, zoomAnimation, cursor, ...limits } = {}) {
     this.#host      = host ?? createLeafletHost({ container, view, limits: limitsOf(limits) })
     // Sin modo explícito queda el del anfitrión: no anima en un mapa propio, y en uno adoptado no se
     // interviene la política de su dueño.
@@ -179,7 +175,6 @@ export class MapEngine {
       this.#emit('ready', {})
       return this
     })
-    _liveEngines.add(this)
   }
 
   /* ── Capas de puntos ── */
@@ -857,16 +852,12 @@ export class MapEngine {
   destroy() {
     if (this.#destroying) return
     this.#destroying = true
-    _liveEngines.delete(this)
     ;[...this.#highlightOverlays].forEach(e => e.dispose())
     this.#interaction.destroy()
     this.camera.destroy()
     this.#layers.forEach((_, id) => this.removeLayer(id))
     this.#signals.clear()
     this.#host.destroy()
-    // Tras el teardown de glify, los engines hermanos pueden quedar con referencia de canvas
-    // obsoleta (singleton window.L.glify compartido). Los notificamos para auto-sanar.
-    _liveEngines.forEach(e => e.#resetCanvases())
   }
 
   /* ── Internos ── */

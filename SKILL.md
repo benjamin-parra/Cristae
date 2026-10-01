@@ -11,7 +11,7 @@ description: >-
 
 # Cristae — reemplazar un mapa Leaflet/glify (declarativo)
 
-Cristae es Leaflet + glify **con los shaders reescritos** (atlas de iconos, rotación, picking GPU)
+Cristae es un mapa WebGL sobre Leaflet **con shaders propios** (atlas de iconos, rotación, picking GPU)
 y un **path incremental [0-alloc]**: mover/recolorear un punto es O(1) sin reconstruir el buffer. La
 piel es un web component `<cristae-map>`: el **HTML describe el mapa**, y un bloque JS chico solo
 conecta lo que no serializa. Por dentro **es** un `L.Map`, así que el Leaflet de la página sigue sirviendo.
@@ -25,7 +25,7 @@ conecta lo que no serializa. Por dentro **es** un `L.Map`, así que el Leaflet d
 
 ## Instalación — cómo cargar Cristae
 
-Tres formas según dónde estés. En todas, **Leaflet y glify viajan dentro del bundle** (sin CDN, sin
+Tres formas según dónde estés. En todas, **Leaflet viaja dentro del bundle** (sin CDN, sin
 `<script>` extra). Entries: `map` (mapa completo, re-exporta el núcleo) · `table` (`<cristae-table>`,
 no arrastra Leaflet) · `core` (solo datos).
 
@@ -337,8 +337,8 @@ solo**, pero con un motor **nuevo**. De ahí dos reglas:
 - **`map.invalidateCanvas()`** es el escape hatch manual: solo se necesita en el motor headless
   (`MapEngine` sin `<cristae-map>`, sin observer) o si el contenedor vuelve a ser visible **sin cambiar
   de tamaño** (no dispara resize). Con el elemento estándar, rara vez hace falta.
-- **Múltiples mapas en la página:** al destruirse un `<cristae-map>`, los hermanos vivos reciben un
-  reset automático de sus capas de puntos — no hay que hacer nada.
+- **Múltiples mapas en la página:** son independientes — cada motor tiene sus propios contextos WebGL,
+  así que destruir un `<cristae-map>` no toca a los demás.
 - **Shadow DOM:** el mapa vive en un shadow root; el CSS/JS de la página **no cruza** el borde (popups de
   Leaflet sin estilar, FontAwesome-JS que escanea `document` no ve adentro). Los overlays HTML propios
   (tarjeta al click) se renderizan en **light DOM** y se posicionan con `camera.latLngToContainerPoint`. Los
@@ -352,7 +352,7 @@ solo**, pero con un motor **nuevo**. De ahí dos reglas:
 - **Una fuente, varias vistas:** el mismo `createSource` alimenta la capa del mapa y una
   `<cristae-table>` — el filtro se computa una vez ([`docs/table.md`](./docs/table.md)).
 - **Timing:** las props objeto seteadas síncronas tras tomar la referencia llegan a tiempo; el motor
-  monta async (`await` de glify) y las capas se montan cuando existe. Lo que necesite el engine
+  monta tras el primer render del elemento y las capas se montan cuando existe. Lo que necesite el engine
   (toolbar items, `registerIconSet`) va en `cristae:ready`.
 
 ---
@@ -360,7 +360,7 @@ solo**, pero con un motor **nuevo**. De ahí dos reglas:
 ## Si no se puede ir 100% declarativo
 
 - **Migración incremental — envolver el `L.Map`:** no se usa el web component; se usa el motor headless
-  sobre el mapa adoptado. `new MapEngine({ host: adoptLeafletHost(map, { leaflet: L }), glify })` **no crea
+  sobre el mapa adoptado. `new MapEngine({ host: adoptLeafletHost(map, { leaflet: L }) })` **no crea
   ni destruye** el `L.Map` (los controles/capas Leaflet siguen vivos; SPECS §6); se migra capa por capa.
   `engine.getLeafletMap()` devuelve el `L.Map` crudo (también `map.engine.getLeafletMap()` desde el web
   component).
@@ -370,10 +370,10 @@ solo**, pero con un motor **nuevo**. De ahí dos reglas:
 
 ```js
 import { MapEngine, adoptLeafletHost, defineIconSet, createSource } from 'cristae/map'
-import L from 'leaflet'; import glify from 'leaflet.glify'
+import L from 'leaflet'
 
 const map    = L.map('map').setView([-35.5, -71.5], 6)   // el mapa propio + controles + capas Leaflet
-const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: L }), glify })
+const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: L }) })
 await engine.ready
 const fleet = createSource({ idOf: m => m.id, positionOf: m => ({ lat: m.lat, lng: m.lng }) })
 engine.addPointLayer({ id: 'fleet', source: fleet, iconSet, interactive: true })

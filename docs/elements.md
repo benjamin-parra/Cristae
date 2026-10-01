@@ -47,7 +47,7 @@ fleet.data      = MOVILES
 ```
 
 **Timing:** las props objeto se pueden asignar síncronas justo después de tomar la referencia y
-llegan a tiempo. El `<cristae-map>` monta el motor de forma **asíncrona** (`await` de glify), y las
+llegan a tiempo. El `<cristae-map>` monta el motor en su primer render (`firstUpdated`), y las
 capas hijas se encolan y montan recién cuando el motor existe; cualquier prop seteada en el tick
 síncrono del módulo ya está puesta antes de ese montaje. No hay carrera. (Ver *Ciclo de vida*.)
 
@@ -122,8 +122,7 @@ no API de consumidor.
 > panel que se activa, un modal con el mapa ya montado — el tamaño salta de 0 a N y dispara el observer)
 > se **auto-curan**. `invalidateCanvas()` es el escape hatch manual para el motor headless (`MapEngine`
 > sin elemento, sin observer) o el raro caso de volver a visible sin cambiar de tamaño. **Multi-mapa:**
-> cuando un `<cristae-map>` se destruye, sus hermanos vivos reciben el reset **automáticamente** — el
-> consumer no necesita hacer nada para ese caso.
+> destruir un `<cristae-map>` no afecta a los demás de la página: el consumer no necesita hacer nada.
 
 `el.engine`/`el.camera` son **`null` hasta montar** y getters **vivos**: no deben cachearse en una variable
 (tras un reattach apuntan al motor muerto — ver *Ciclo de vida*). `el.ready` es una promesa **one-shot por
@@ -507,7 +506,7 @@ API, optimizaciones y ejemplos en [`table.md`](./table.md).
 | `row-height` / `page-size` / `max-buttons` | number | atributo |
 | `search` / `count-label` / `scroll-height` | string | atributo / prop |
 
-Importarlo solo (`import 'cristae/table'`) **no** arrastra Leaflet/glify. Evento
+Importarlo solo (`import 'cristae/table'`) **no** arrastra Leaflet. Evento
 `cristae:rowclick` → `{ item, row }`.
 
 ---
@@ -562,23 +561,19 @@ mapEl.addEventListener('cristae:ready', () => {
 1. Importar el módulo → `customElements.define(...)` upgradea los elementos ya parseados.
 2. Cada capa, al conectarse, pide montaje a su `<cristae-map>` ancestro; si el motor aún no existe,
    queda **encolada**.
-3. El mapa monta el motor en `firstUpdated` (`await` de glify, asíncrono), aplica `tile`, cablea
-   eventos y entrega el motor a las capas encoladas **top-down**.
+3. El mapa monta el motor en `firstUpdated`, aplica `tile`, cablea eventos y entrega el motor a las capas encoladas **top-down**.
 4. Una capa monta cuando coinciden **motor + config mínima** (`mountReady`: una capa de puntos
    necesita `source` o `accessors`; un polígono `accessors`; una etiqueta `bind-to` o `source`).
    El montaje es **independiente del orden de asignación**: la config son objetos/funciones que
-   se asignan por JS y pueden llegar antes o después de que el motor monte (la carrera depende de cuándo
-   resuelve glify — inmediato en el bundle UMD, diferido en ESM). La capa difiere hasta tener su
+   se asignan por JS y pueden llegar antes o después de que el motor monte. La capa difiere hasta tener su
    config y monta en cuanto llega.
 5. Cambios de props **después** del montaje se reenvían al handle: `data → controls.set`,
    `source → attachSource`, `visible → setVisible`, config de cluster → `setConfig`.
 6. Quitar una **capa** del DOM (`disconnectedCallback`) la desmonta (`removeLayer`). Quitar el
    **`<cristae-map>`** destruye el motor entero (`engine.destroy()` → `L.Map.remove()` + contexto WebGL).
-   Al destruirse, **notifica automáticamente** a los demás `<cristae-map>` de la página para que
-   reposicionen sus capas GL (el teardown de glify, compartido entre mapas, dejaría obsoletos los
-   canvas de sus líneas sin esta notificación).
+   Los demás `<cristae-map>` de la página no se enteran: cada motor tiene sus propios contextos.
 7. **Reconexión:** si el `<cristae-map>` vuelve al DOM, se **re-monta** con un motor **nuevo** (las capas
-   hijas se re-encolan solas). Por eso `el.engine`/`el.camera` son getters vivos y **no deben cachearse**:
+   hijas montan solas). Por eso `el.engine`/`el.camera` son getters vivos y **no deben cachearse**:
    tras un reattach son otra instancia. Si el layout reconstruye el DOM, conviene insertar lo demás alrededor del
    nodo vivo en vez de detachar el mapa.
 

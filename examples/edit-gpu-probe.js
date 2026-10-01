@@ -1,7 +1,7 @@
 // Probe DESECHABLE de la tanda 1 del renderer de geometría editable en GPU. Mide, en navegador y sobre
 // el mapa real, las tres cosas que invalidarían el relleno por stencil-then-cover ANTES de que exista
 // arquitectura que tirar: que el navegador OTORGUE el stencil, que un contexto propio conviva con el de
-// glify sin agotar el techo de ~16, y que el fill-rate del abanico entre en presupuesto.
+// una capa de puntos viva sin agotar el techo de ~16, y que el fill-rate del abanico entre en presupuesto.
 //
 // La superficie (`src/render/EditSurface.js`) y las geometrías (`test/fixtures/polygons.mjs`) se
 // IMPORTAN: acá sólo vive el pase 1 del abanico, que es lo que todavía no existe y lo que se mide.
@@ -32,15 +32,13 @@ const mediana = xs => (xs.length ? [...xs].sort((a, b) => a - b)[xs.length >> 1]
 // Guard de saneo: un NaN o un ±Infinity envenena el bbox y con él el scissor → el anillo se descarta.
 const finito = anillo => anillo.every(Number.isFinite)
 
-/* ── Mapa real + capa glify VIVA: la convivencia de contextos es parte de lo que se mide ─────────── */
+/* ── Mapa real + capa de puntos VIVA: la convivencia de contextos es parte de lo que se mide ─────────── */
 
 const CENTRO = [-33.441, -70.654]
-window.L = L
-await import('leaflet.glify')
 
 const map    = L.map('map', { center: CENTRO, zoom: 13, zoomControl: true })
 const host   = adoptLeafletHost(map, { leaflet: L })
-const engine = new MapEngine({ host, glify: L.glify })
+const engine = new MapEngine({ host })
 await engine.ready
 engine.setTileProvider({ url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', maxZoom: 19, attribution: '© OpenStreetMap' })
 
@@ -119,7 +117,7 @@ const programa = (gl, fuenteVS, fuenteFS) => {
 
 /* ── Contexto propio (EditSurface de src/) ───────────────────────────────────────────────────────── */
 
-host.surface.mount(PANE, 640, { pointer: false })   // sobre los canvas de glify, bajo popups y controles
+host.surface.mount(PANE, 640, { pointer: false })   // sobre el canvas de la capa de puntos, bajo popups y controles
 
 let superficie = null
 let gpu        = null

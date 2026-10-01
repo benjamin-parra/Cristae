@@ -1,4 +1,4 @@
-// Tipos del entry `cristae/map` (mapa WebGL: Leaflet + glify con shaders propios).
+// Tipos del entry `cristae/map` (mapa WebGL sobre Leaflet, con shaders propios).
 // Importarlo REGISTRA los custom elements <cristae-*> (side effect). Mantener
 // sincronizado con src/index.js; el núcleo de datos vive en ./core.d.ts y la geometría pura
 // que re-exporta, en ./geometry.d.ts.
@@ -701,7 +701,6 @@ export interface MapEngineOptions {
   container?          : HTMLElement;
   /** Vista inicial del mapa propio. Default: `[0, 0]`, zoom 2. */
   view?               : { center?: LatLngPoint; zoom?: number };
-  glify               : unknown;
   insets?             : Insets;
   hoverThrottleMs?    : number;
   /** Política de animación del zoom (SPECS §9). Sin ella, `"none"` en un mapa propio y la del dueño en

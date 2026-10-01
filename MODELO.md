@@ -103,7 +103,7 @@ shared/external/Cristae/          # raiz del paquete (se sirve por GitHub: git i
    │  ├─ path.js                 # contrato de path: qué es un punto y los dos encodings
    │  ├─ filters.js  safe.js     # filtros/listeners + helpers de error 0-alloc
    │  └─ index.js                # entry cristae/core
-   └─ table/                     # ── TABLA (solo data/ + lit; sin Leaflet/glify) ──
+   └─ table/                     # ── TABLA (solo data/ + lit; sin Leaflet) ──
       ├─ PagedTable.js           # engine headless: scroll virtual + pool + quickselect
       ├─ CristaeTable.js         # <cristae-table> (LitElement, light DOM)
       ├─ QuickSelect.js          # Floyd-Rivest qselect O(n)
@@ -122,17 +122,17 @@ importan entre sí**:
         data/   ← contrato Source y de path, Store, Emitter, filters. Depende de NADA.
        ╱     ╲
    table/     engine/+element(mapa)/
-  (lit)       (Leaflet/glify)
+  (lit)       (Leaflet)
 ```
 
 **Invariante:** `table/` importa **solo** de `data/` (y `lit`). Nunca `engine/`, `render/`,
-Leaflet ni glify (verificable por grep; `src/table/PagedTable.js` ni siquiera importa `data/` en
+Leaflet (verificable por grep; `src/table/PagedTable.js` ni siquiera importa `data/` en
 runtime — duck-typea el `Source`). Esto permite el entry point `src/table/index.js`, que un consumidor
 solo-tabla importa sin arrastrar el motor de mapa.
 
 **Empaquetado a npm — un repo ahora, split al publicar.** El único beneficio de 3 paquetes
 (`cristae/core` = `data/`, `cristae/table` = `table/`, `cristae/map` = `engine/`+`element/`) es
-peso de instalación: una tabla no debe bajarse Leaflet+glify. Eso se consigue **hoy** con entry
+peso de instalación: una tabla no debe bajarse Leaflet. Eso se consigue **hoy** con entry
 points + `exports` map + `sideEffects:false` (tree-shake), sin versionar 3 paquetes. La frontera de
 capas —ya enforzada— vuelve el split futuro un cambio de empaquetado, no un reescrito: cada
 directorio pasa a ser el `main` de su paquete tal cual. El mismo `createSource` alimenta una capa de
@@ -146,7 +146,7 @@ legacy (Rollup matchea `^@cristae(/|$)`, no captura `@cristae`):
 |---|---|---|---|
 | `cristae/core` | `src/data/index.js` | nada (sin DOM/Lit/Leaflet) | — |
 | `cristae/table` | `src/table/index.js` | `lit` (+ re-export del núcleo) | `<cristae-table>` |
-| `cristae/map` | `index.js` | `leaflet`/`glify`/`lit` (+ re-export del núcleo) | `<cristae-*>` de mapa |
+| `cristae/map` | `index.js` | `leaflet`/`lit` (+ re-export del núcleo) | `<cristae-*>` de mapa |
 | `cristae/geojson` | `src/geojson/index.js` | nada (sin DOM/Lit/Leaflet) | — |
 | `cristae/geometry` | `src/geometry/index.js` | nada (sin DOM/Lit/Leaflet); `ellipsoid`/`WGS84`, la librería geodésica | — |
 
@@ -156,9 +156,9 @@ conveniencia (mismo módulo, una sola fuente de verdad en `data/`). El `package.
 `exports` map (dormido in-repo, los alias resuelven a archivo).
 
 **Deltas para el publish a npm (Opción B):** (1) `sideEffects: false` por paquete con manejo
-explícito de los módulos con efecto (registro de custom elements, `window.L` en `CristaeMap`);
+explícito de los módulos con efecto (registro de custom elements);
 (2) resolver `__DEBUG__` —global inyectado por Vite hoy— vía guard o reemplazo en el build del
-paquete (sin esto, los artefactos publicados rompen); (3) `lit`/`leaflet`/`glify` como deps/peers.
+paquete (sin esto, los artefactos publicados rompen); (3) `lit`/`leaflet` como deps/peers.
 
 > **VisibilityGuard.** El plugin que pausaba el render fuera de pantalla (monkey-patch de
 > `rebuild`/`patch`) se **internalizó** en `PagedTable` como un flag + `IntersectionObserver`
@@ -436,7 +436,7 @@ camera.getCenter() / getZoom() / getBounds()
 
 ## 11. Lifecycle del web component (Shadow + light DOM + slots)
 
-- **Shadow DOM** = superficie de render: `<div>` del `L.map`, panes, canvases GL, canvas de labels. CSS de Leaflet inyectado con `adoptedStyleSheets` (constructable stylesheet) → glify/panes encapsulados.
+- **Shadow DOM** = superficie de render: `<div>` del `L.map`, panes, canvases GL, canvas de labels. CSS de Leaflet inyectado con `adoptedStyleSheets` (constructable stylesheet) → panes encapsulados.
 - **Light DOM** = lo explícito: las **capas como elementos hijos** (`<cristae-point-layer>`, …) viven en light DOM, inspeccionables, y exponen su handle/props. (Su render real ocurre en el shadow; el hijo es solo declaración + canal de datos.)
 - **Slots** = UI del host por encima del mapa: `<slot name="overlay">` para sidebar/tooltip/controles. El host proyecta su chrome; el mapa va debajo.
 - `connectedCallback` → crea/monta el motor, que crea su mapa sobre el `<div>` del shadow (idempotente, guard `#mounted`; un re-montaje es un motor y un mapa nuevos). `disconnectedCallback` → `destroy()`, que remueve el mapa. **`ResizeObserver`** sobre el host → `engine.syncSize()` (`invalidateSize` + `syncPickingSize`). **`VisibilityGuard`** (ya incluido) pausa render en `display:none`.
@@ -474,7 +474,7 @@ camera.getCenter() / getZoom() / getBounds()
 10. **Throttle de interacción internalizado**: el motor coalesce su propio redraw en pan/zoom (no muta el emitter del consumidor); paridad opcional vía `interactionstart|end`.
 11. **`LabelLayer` unificada** standalone+attachment, `textOf` genérico (elimina `place/vehicle` label especializados y sus sprite builders de dominio).
 12. **Eliminar `WorkerPool` global; fan-out síncrono cero-alloc** (§16-2, §17): el fan-out de listeners pasa a `safeDispatch(listeners, data, onError)` (`try/catch` centralizado en `safe`, sin array de tareas ni clausuras). Resuelve a la vez el cuelgue por excepción (hoy un listener que lanza mata el slot) y la asignación por-emit de `notifyChanges`. El coalescing ya vive en el `Emitter`/rAF, así que el pool no aporta.
-13. **Erradicar singletons mutables de módulo** (§16-3/4): `connection.js thresholds`, `WorkerPool.instance`, `window.L.glify` → estado por-instancia / inyectado. (La config de dominio, como umbrales, sale al recipe.)
+13. **Erradicar singletons mutables de módulo** (§16-3/4): `connection.js thresholds`, `WorkerPool.instance`, `window.L` → estado por-instancia / inyectado. (La config de dominio, como umbrales, sale al recipe.)
 14. **`leaflet-edgebuffer` lazy/opt-in** contra el `L` provisto (§16-5): eliminar el `await import` top-level (vuelve async el módulo y parchea `L` global al evaluarse).
 15. **Defaults neutros** (§16-6): quitar de `#initMap` el center Santiago `[-33.45,-70.65]`, zoom, URL OSM y `maxZoom` horneados → config con defaults neutros.
 16. **`destroy()` en stores/emitters** (§16-7/8): `ComposableStore.destroy()` quita su listener del padre (hoy leak en `reactiveCompose`); `IntervalEmitter.destroy()` cancela el rAF pendiente; cap de intervalo configurable, no `[0,1000]` fijo.
@@ -569,7 +569,7 @@ camera.followPoint('fleet', id)        // + viewport-insets
 | 1 | **Atlas: shaders/encoding horneados, `buildAtlas` y compile call-once, `#dirty` consume-once.** Variante tardía → su marcador invisible **y** corrupción de los existentes (`r=idx/(n-1)`); 2º mapa en blanco. | `IconBuilder.js` 13,42,52,78,150,164; `GlifyLayer.js` 212-215,234; `GlifyPicking.js` 38 | **Crítica** | §7.2 — `Atlas` append-only + `GpuAtlasBinding` por contexto |
 | 2 | **`WorkerPool`: un listener que lanza mata el slot para siempre.** `slot.task()` sin aislamiento → `#drain` no corre → `idle=false` permanente; tras 4 lanzamientos el pool se cuelga y **ningún store vuelve a notificar**. | `WorkerPool.js` 59-64 | **Crítica** | Eliminar el pool; fan-out con `safeDispatch` síncrono + `safe` (try/catch centralizado, zero-alloc, §17) |
 | 3 | **Singleton mutable de módulo: umbrales de conexión.** `let thresholds` compartido por toda la página; dos mapas no pueden diferir; last-writer-wins. | `connection.js` 6,12-15 | Media (dominio) | Sale al `recipe/fleet`; config **por-instancia** |
-| 4 | **`window.L.glify` global read (singleton compartido).** Acopla a global; rompe SSR/portabilidad; orden de `<script>`. Con 2+ engines en la página, `destroy()` de uno deja el canvas del otro obsoleto hasta el próximo gesto del usuario. **Confirmado en producción.** | `GlifyLayer.js` 171,176,217 | Media | Fix de raíz: provider de `L` en constructor + glify re-exportado como factory por-instancia (sección empaquetado). **Mitigación aplicada:** (a) registro estático de engines vivos → `destroy()` notifica a hermanos para `resetCanvasReference()` automático; (b) `syncSize()` redibuja las capas de puntos tras `invalidateSize()` → el `ResizeObserver` interno de `<cristae-map>` cubre resize simétrico (sin desplazar centro) **y** show tras `display:none` (size 0→N) sin acción del consumer; (c) `invalidateCanvas()` expuesto en `MapEngine`/`<cristae-map>` como escape hatch para el path headless o el raro show sin cambio de tamaño. |
+| 4 | **`window.L.glify` global read (singleton compartido).** Acopla a global; rompe SSR/portabilidad; orden de `<script>`. Con 2+ engines en la página, `destroy()` de uno deja el canvas del otro obsoleto hasta el próximo gesto del usuario. **Confirmado en producción.** | `GlifyLayer.js` 171,176,217 | Media | **Resuelto de raíz:** cada capa dibuja en su propia superficie WebGL, sin glify ni `window.L`, así que destruir un motor no toca el canvas de otro. Además: (a) `syncSize()` redibuja las capas de puntos tras `invalidateSize()` → el `ResizeObserver` interno de `<cristae-map>` cubre resize simétrico (sin desplazar centro) **y** show tras `display:none` (size 0→N) sin acción del consumer; (b) `invalidateCanvas()` expuesto en `MapEngine`/`<cristae-map>` como escape hatch para el path headless o el raro show sin cambio de tamaño. |
 | 5 | **`await import('leaflet-edgebuffer')` top-level.** Vuelve **async** el módulo (afecta bundlers/consumidores) y parchea `L` global al evaluarse. | `MapWidget.js` 10-12 | Media | Carga lazy/opt-in contra el `L` provisto |
 | 6 | **Defaults de dominio/locale horneados.** Center Santiago `[-33.45,-70.65]`, zoom 12, URL OSM, `maxZoom` 19, `edgeBufferTiles` 3 en un widget "genérico". | `MapWidget.js` 537-549 | Media (portab.) | Config con defaults neutros |
 | 7 | **`ComposableStore` sin `destroy()` → leak de listener.** `reactiveCompose` registra un listener en el padre por `instanceId`; nada lo quita → un hijo descartado deja su callback vivo (y corre sobre un store muerto). | `ComposableStore.js` 62-70 | Media | `destroy()` → `parent.removeListener(instanceId)` |

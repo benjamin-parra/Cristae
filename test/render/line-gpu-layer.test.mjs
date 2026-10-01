@@ -1,5 +1,5 @@
-// Contrato del sustrato `gpu` de líneas: el grosor sale de UN quad por segmento, no de la brocha de
-// glify. Lo que se mide es el conteo de `drawArrays` — con la brocha, un trazo de 3 px paga `(4·1+1)² =
+// Contrato del sustrato `gpu` de líneas: el grosor sale de UN quad por segmento, no de una brocha.
+// Lo que se mide es el conteo de `drawArrays` — con la brocha, un trazo de 3 px paga `(4·1+1)² =
 // 25` pasadas por feature y por frame; acá paga UNA por tramo, sea cual sea el grosor.
 //
 // El árbol es el REAL (EditSurface + RingStore + StrokePass); lo único doble es el navegador.
@@ -90,7 +90,7 @@ test('un tramo son DOS draws (limpieza + trazo), sea cual sea el grosor', () => 
   const gruesa  = mount({ styleOf: () => ({ weight: 12 }) })
   const conUno  = drawsOf(delgada.spy, () => delgada.layer.redraw())
   const conDoce = drawsOf(gruesa.spy, () => gruesa.layer.redraw())
-  assert.equal(conUno, conDoce, 'la brocha de glify pagaría (4w+1)²: 25 pasadas con 3px, 2209 con 12px')
+  assert.equal(conUno, conDoce, 'una brocha pagaría (4w+1)²: 25 pasadas con 3px, 2209 con 12px')
   assert.equal(conUno, 1, 'un tramo = un drawArrays')
 })
 
@@ -176,7 +176,7 @@ test('por el motor, un patrón que no cabe se reporta desde el Source y la capa 
   t.after(() => (console.error = original))
   const spy = newSpy()
   currentGl = editGl(spy)
-  const engine = new MapEngine({ host: adoptLeafletHost(makeMap(), { leaflet: makeLeaflet() }), glify: {} })
+  const engine = new MapEngine({ host: adoptLeafletHost(makeMap(), { leaflet: makeLeaflet() }) })
   const handle = engine.addLineLayer({
     id       : 'ruta',
     data     : [{ id: 1, path: recorrido(5) }],
@@ -241,7 +241,7 @@ test('addLineLayer monta el sustrato de quads, también con picking', () => {
 
 test('`backend` y `vector` se rechazan nombrando la migración', () => {
   const engine = engineWith()
-  for (const opt of [{ backend: 'gpu' }, { backend: 'glify' }, { vector: true }])
+  for (const opt of [{ backend: 'gpu' }, { backend: 'leaflet' }, { vector: true }])
     assert.throws(() => engine.addLineLayer({ id: 'x', ...opt, accessors }), /siempre en GPU.*CHANGELOG/)
 })
 

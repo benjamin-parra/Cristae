@@ -223,8 +223,8 @@ export const partes = toParts([recorrido])
 export const porTramo: LineAccessors<{ id: number; puntos: number[][] }> = { idOf: t => t.id, pathOf: t => t.puntos }
 
 // ── El motor headless: un mapa propio sobre un contenedor, o uno de Leaflet adoptado ─────────
-export const propio   = (container: HTMLElement) => new MapEngine({ container, view: { center: [-33.45, -70.66], zoom: 12 }, glify: null })
-export const adoptado = (map: unknown) => new MapEngine({ host: adoptLeafletHost(map), glify: null, zoomAnimation: 'on' })
+export const propio   = (container: HTMLElement) => new MapEngine({ container, view: { center: [-33.45, -70.66], zoom: 12 } })
+export const adoptado = (map: unknown) => new MapEngine({ host: adoptLeafletHost(map), zoomAnimation: 'on' })
 export const limitado = (engine: MapEngine) => engine.setLimits({ minZoom: 3, maxZoom: null, maxBounds: [[-85, -180], [85, 180]] })
 
 // ── El mal uso NO compila ────────────────────────────────────────────────────
@@ -263,7 +263,7 @@ export const BadSignal = (engine: MapEngine) => engine.on('viewportchange', (vis
 
 // un objeto cualquiera no es un mapa adoptado.
 // @ts-expect-error MapHost sale de adoptLeafletHost
-export const BadHost = () => new MapEngine({ host: {}, glify: null })
+export const BadHost = () => new MapEngine({ host: {} })
 
 // slot fuera de las zonas del overlay (un typo quedaría mudo en runtime).
 // @ts-expect-error "arriba" no es una zona del overlay 3×3

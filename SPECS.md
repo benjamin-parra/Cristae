@@ -242,8 +242,8 @@ createIcon(descriptor) → IconHandle           // icono suelto, no toca el atla
 Framework-agnostic; sin Lit, sin React, sin dominio. `<cristae-map>` es una piel fina sobre esto.
 
 ```ts
-new MapEngine({ container: HTMLElement, view?: { center, zoom }, glify, /* defaults neutros */ }) → engine
-new MapEngine({ host: adoptLeafletHost(map, { leaflet? }), glify, … }) → engine
+new MapEngine({ container: HTMLElement, view?: { center, zoom }, /* defaults neutros */ }) → engine
+new MapEngine({ host: adoptLeafletHost(map, { leaflet? }), … }) → engine
 ```
 
 | Método | Tipo | Complejidad | Notas |
@@ -261,7 +261,7 @@ new MapEngine({ host: adoptLeafletHost(map, { leaflet? }), glify, … }) → eng
 | `ready: Promise` | — | — | resuelve cuando el mapa tiene vista, y no si el motor se destruye antes; la señal `ready` sale en el mismo momento |
 
 - **El mapa:** sin `host`, el motor crea su propio mapa sobre `container` —con `preferCanvas`, sin el fundido de tiles ni la animación de marcadores de Leaflet y sin controles: el zoom y la atribución los dibuja `<cristae-map>`, y sin él la atribución la da `getTileAttribution()` ([`docs/tiles.md`](./docs/tiles.md#la-atribución))—, con la vista inicial de `view` (default `[0, 0]`, zoom 2) y los límites de la cámara (§9), y `destroy()` lo remueve. Con `host` trabaja sobre un mapa que ya existe, adoptado con `adoptLeafletHost(map, { leaflet })`: el mapa sigue siendo de quien lo creó, y `destroy()` le quita los listeners del ciclo de vista y del arrastre, la política de zoom de §9 y la capa de tiles que le puso, con el pane de su retención, le devuelve los límites de la cámara que tenía si el motor le puso los suyos (§9), y lo deja vivo. Un mapa adoptado es de un solo motor. `leaflet` es el Leaflet que construyó el mapa (default: el de Cristae): con dos copias en la página, las capas del motor tienen que salir de la del mapa.
-- **glify** llega por la opción `glify`; `<cristae-map>` lo carga y lo lee de `window.L.glify`, donde se registra al importarse.
+- **Sin globals:** el motor no lee ni escribe `window.L`, y `<cristae-map>` no registra plugins: los puntos, las líneas y los polígonos se dibujan con la superficie WebGL de cada capa ([`docs/render.md`](./docs/render.md)), y el Leaflet que usa el mapa propio es el de Cristae.
 
 ---
 
@@ -293,11 +293,11 @@ new MapEngine({ host: adoptLeafletHost(map, { leaflet? }), glify, … }) → eng
 `addPointLayer`, `addPolygonLayer`, `addLabelLayer`, `removeLayer`, `getLayer`, `attachSource`, cámara (§9), `createIcon`, `registerIconSet`, `syncSize()`, `invalidateCanvas()`, `getLeafletMap()`, `destroy()`, `ready`.
 
 - **`syncSize()`**: resize del contenedor — `map.invalidateSize()` + reajuste del FBO de picking + **redibujo de las capas de puntos** (`invalidateSize()` solo emite `move`/`moveend` si el resize desplaza el centro, así que un resize simétrico limpiaría el canvas de la capa sin redibujarlo). Llamado por el `ResizeObserver` interno del elemento; el consumer raramente lo necesita.
-- **`invalidateCanvas()`**: reposiciona y redibuja todas las capas de puntos. Escape hatch manual: con `<cristae-map>`, resize y show-tras-`display:none` ya se auto-curan vía el observer → `syncSize()`; este método es para el motor headless (sin elemento, sin observer) o el raro show sin cambio de tamaño. **`destroy()` además notifica a los hermanos automáticamente** (multi-mapa).
+- **`invalidateCanvas()`**: reposiciona y redibuja todas las capas de puntos. Escape hatch manual: con `<cristae-map>`, resize y show-tras-`display:none` ya se auto-curan vía el observer → `syncSize()`; este método es para el motor headless (sin elemento, sin observer) o el raro show sin cambio de tamaño. Varios motores en la página son independientes: cada capa tiene su contexto, así que `destroy()` de uno no toca a los demás.
 
 ### 7.3 Lifecycle
 
-- **Montaje:** `firstUpdated` monta el motor (`await` glify, async; guard `#mounted`). En **reconexión** tras un `disconnectedCallback`, `connectedCallback` **re-monta** (firstUpdated no re-dispara) con un motor **nuevo**; las capas hijas se re-encolan solas (su `connectedCallback` vuelve a pedir montaje y, como `#mount` es async, llegan a la cola antes de que exista el motor).
+- **Montaje:** `firstUpdated` monta el motor (guard `#mounted`). En **reconexión** tras un `disconnectedCallback`, `connectedCallback` **re-monta** (firstUpdated no re-dispara) con un motor **nuevo**; las capas hijas montan solas (su `connectedCallback` vuelve a pedir montaje y, como el del mapa corre primero, ya encuentran el motor).
 - **Destrucción:** `disconnectedCallback` → `engine.destroy()` (el mapa es propio del motor: `L.Map.remove()` + contexto WebGL). Desconectar el elemento del DOM (`remove`/reparent/`innerHTML` en un ancestro) **destruye el mapa** — no es un `<div>` reposicionable.
 - **No cachear handles:** `engine`/`camera`/`getLeafletMap()` son getters vivos sobre el motor **actual**; tras un re-mount son otra instancia. El consumidor lee siempre el getter, nunca una copia.
 - **Readiness:** `ready` es una promesa **one-shot por instancia** (creada en construcción → disponible síncrona; resuelve al primer motor listo). El evento `cristae:ready` se **re-emite en cada (re)montaje** — es la señal para reenganchar tras un reattach.
@@ -359,7 +359,7 @@ Ejes **comunes a toda capa hoja** (viven en la base, ninguna subclase los declar
 ### 8.4 `<cristae-table>` / `PagedTable` (standalone — fuera de `<cristae-map>`)
 
 **No es una capa.** Vive en `table/`, no se monta dentro de `<cristae-map>` y solo importa de
-`data/` + `lit` (invariante de capas, MODELO §3.1; sin Leaflet/glify). Consume **solo la cara de
+`data/` + `lit` (invariante de capas, MODELO §3.1; sin Leaflet). Consume **solo la cara de
 lectura** del `Source` (§2): `getSnapshot()` + `subscribe(cb)`; ignora `accessors`/`positionOf`/
 `variants` (geometría de mapa). Proyecta filas con `template` (HTML con `data-ref`) + `binder`
 (`(refs, item, rowNumber) → void`) — su análogo domain-free de los accessors. Doc completa:
@@ -568,7 +568,7 @@ La **ley** (MODELO §5.4) formalizada como contrato que un implementador debe cu
 | deadlock por listener que lanza | no hay WorkerPool; `safeDispatch` aísla (§1) |
 | thrashing `center`/`zoom` ↔ gesto | no existe prop reactiva de centro; `initial-*` uncontrolled + cámara imperativa (§7.1/§9) |
 | "volver a X" no funciona (idempotencia) | no aplica: recentrar es acción (`flyTo`/`panTo`/`followPoint`), nunca prop (MODELO §5.4) |
-| `window.L.glify` global / orden de `<script>` | L inyectado en constructor (§6) |
+| `window.L` global / orden de `<script>` | el motor no lee ni escribe globals; el mapa propio usa el Leaflet de Cristae y uno adoptado trae el suyo (§6) |
 | doble-montaje StrictMode | guard `#mounted` + reuse de `L.map` (§7.3) |
 | shader recompila al crecer iconos | dims son uniforms, no literales GLSL (§4.2) |
 | ítem enfocado que se dibuja donde la capa no tiene nada (clusterizado / filtrado / sin posición) | el foco viaja **en el vértice** del ítem dibujado, no en una lista de ids aparte: un id sin slot no existe (§8 intro) |
@@ -595,7 +595,7 @@ La **ley** (MODELO §5.4) formalizada como contrato que un implementador debe cu
 
 1. **Cero estado mutable de módulo/singleton.** Todo estado vive en una instancia (engine/capa/binding) o se inyecta. (Mata multi-mapa y embebido seguro.)
 2. **El core no conoce dominio.** Ningún nombre público/interno con `vehicle`, `geofence`, `connection`, `etapa`. `variant`/`text` son strings opacas.
-3. **No se forkean dependencias.** supercluster y glify (sustrato de líneas) se usan como vienen. El `[0-alloc]`/O(1) de los puntos vive en el path incremental, que escribe el slot del VBO propio por `bufferSubData`; el rebuild sigue siendo O(n) coalescido (MODELO §17.5, §17 intro).
+3. **No se forkean dependencias.** supercluster se usa como viene. El `[0-alloc]`/O(1) de los puntos vive en el path incremental, que escribe el slot del VBO propio por `bufferSubData`; el rebuild sigue siendo O(n) coalescido (MODELO §17.5, §17 intro).
 4. **Estado → reactivo; acción → método.** Sin terceros casos (§11).
 5. **Cero-alloc en caliente.** (§13.)
 6. **El atlas se reusa y se le agrega; nunca se reconstruye desde cero** salvo regrow por capacidad.

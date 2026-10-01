@@ -1,4 +1,4 @@
-// Prueba pura de geometry/polyline.js + render/project.js (sin DOM/WebGL/glify).
+// Prueba pura de geometry/polyline.js + render/project.js (sin DOM ni WebGL).
 // Corre con: node test/polyline.test.mjs
 import { isDeepStrictEqual } from 'node:util'
 import { projX0, projY0 } from '../src/render/project.js'

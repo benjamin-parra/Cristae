@@ -1,4 +1,4 @@
-// Puntos GPU (glify) — LÍNEA BASE del banco.
+// Puntos GPU — LÍNEA BASE del banco.
 // Es la capa donde la promesa se cumple: un slot por punto en el buffer, sprite en atlas y `move`
 // O(1) sin rebuild (la Source coalesce sus notificaciones a rAF). Lo que el medidor registre acá es
 // PISO DEL INSTRUMENTO, no costo de la capa: calibra contra esto antes de leer las demás.
@@ -50,7 +50,7 @@ const armar = (_, i) => {
 
 export default {
   id      : 'points',
-  backend : 'gpu-glify',
+  backend : 'gpu-sprites',
 
   montar: contexto => {
     ctx    = contexto

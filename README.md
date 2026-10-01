@@ -1,11 +1,11 @@
 # Cristae
 
 Web components de alto rendimiento para **datos en tiempo real**: una tabla virtual y un mapa WebGL
-(Leaflet + glify con shaders reescritos) sobre un **núcleo de datos reactivo** compartido. Miles de
+(sobre Leaflet, con shaders propios) sobre un **núcleo de datos reactivo** compartido. Miles de
 updates/seg con hot-path *zero-alloc*. Piel declarativa `<cristae-*>` + motor headless `MapEngine`.
 
 > El nombre viene de las *cristae* mitocondriales —los pliegues de la membrana interna donde se
-> produce la energía—: una membrana (envoltura declarativa sobre Leaflet/glify) que además es el
+> produce la energía—: una membrana (envoltura declarativa sobre Leaflet) que además es el
 > sitio de potencia.
 
 ## Instalación (vía GitHub)
@@ -15,8 +15,8 @@ npm install github:benjamin-parra/Cristae   # o: git+https://github.com/benjamin
 ```
 
 `leaflet` y `lit` son **peerDependencies** (los provee el consumidor; Leaflet debe ser una sola
-instancia). `leaflet.glify`, `supercluster` y `geographiclib-geodesic` viajan como dependencias
-normales; la última sólo la usa el elipsoide de `cristae/geometry` ([geometría](docs/geometry.md)).
+instancia). `supercluster` y `geographiclib-geodesic` viajan como dependencias normales; la última
+sólo la usa el elipsoide de `cristae/geometry` ([geometría](docs/geometry.md)).
 
 ## Uso mínimo
 
@@ -36,7 +36,7 @@ import { createSource, defineIconSet } from 'cristae/map'
 
 | Specifier          | Trae                                    | Registra           |
 |--------------------|-----------------------------------------|--------------------|
-| `cristae/map`      | mapa + núcleo (Leaflet/glify/lit)       | `<cristae-*>` mapa |
+| `cristae/map`      | mapa + núcleo (Leaflet/lit)             | `<cristae-*>` mapa |
 | `cristae/table`    | tabla virtual + núcleo (solo `lit`)     | `<cristae-table>`  |
 | `cristae/core`     | solo el núcleo de datos (sin DOM)       | —                  |
 | `cristae/geojson`  | lector de GeoJSON a arrays tipados      | —                  |
@@ -59,15 +59,14 @@ consumo sin npm/CDN. El código fuente vive bajo [`src/`](src/).
 
 ## Limitaciones conocidas
 
-- **Movimiento forzado de cámara CON animación es inestable sobre la capa GL.** Mover el viewport por
-  código con animación —`camera.flyTo`, `camera.panTo` (paneo animado de Leaflet) o un zoom-in/zoom-out
-  animado— deja los puntos WebGL de glify **congelados durante el gesto**: la capa GL no se reproyecta
-  mientras dura la transición y recién salta a su lugar al cerrar el movimiento (`moveend`). Se percibe
-  como un arrastre lento con los marcadores desfasados del mapa base. **Recomendación:** mover la cámara
-  por código de forma **instantánea** — `camera.setView(...)` (paneo/zoom directo) — y dejar el modo de
-  zoom en su default `'none'`. El `followPoint` ya re-centra sin animación internamente.
-  **No afecta** a los gestos del usuario: arrastrar el mapa y la inercia del arrastre se reproyectan bien;
-  el problema es puntual del movimiento programático con animación.
+- **Un vuelo animado de cámara y el gesto de dos dedos dejan quietas las capas GL.** Con un modo de
+  zoom animado, `camera.flyTo` encadena zoom y paneo sin transición que seguir: las capas GL quedan
+  donde estaban mientras dura el vuelo y saltan a su lugar al cerrarlo (`zoomend`/`moveend`). El pinch
+  abre un zoom desde su primer movimiento, con cualquier modo y aunque los dos dedos sólo se desplacen:
+  las capas GL quedan quietas mientras dura el gesto y se asientan al soltar. El zoom animado (rueda,
+  `+`/`−`) y el paneo —con un dedo o el ratón, la inercia o `camera.panTo`— sí se siguen.
+  **Recomendación:** para el vuelo, dejar el modo de zoom en su default `'none'`, con el que `flyTo`
+  salta sin animar, o mover con `camera.setView(...)`. El `followPoint` ya re-centra sin animación.
 
 ## Licencia
 

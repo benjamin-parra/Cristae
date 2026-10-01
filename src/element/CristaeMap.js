@@ -1,15 +1,7 @@
 import { LitElement, html, css, unsafeCSS, nothing } from 'lit'
 import { unsafeHTML } from 'lit/directives/unsafe-html.js'
-import L from 'leaflet'
 import { surfaceCss } from '../host/styles.js'
 import { MapEngine } from '../engine/MapEngine.js'
-
-// glify es un plugin que se registra sobre window.L → aseguramos la instancia y lo importamos
-// por efecto (una sola vez). El motor recibe glify inyectado (sin global oculto en el core).
-if (typeof window !== 'undefined' && !window.L) window.L = L
-const glifyReady = (typeof window !== 'undefined')
-  ? import('leaflet.glify').then(() => window.L.glify)
-  : Promise.resolve(null)
 
 // <cristae-map> — piel fina sobre MapEngine (SPECS §7). Monta el motor en el shadow DOM, expone
 // la cámara y los métodos del motor, y reenvía los eventos del motor como CustomEvent `cristae:*`.
@@ -55,6 +47,11 @@ function createResizeSync(target, sync) {
 }
 
 export class CristaeMap extends LitElement {
+
+  // El motor necesita el contenedor que pinta el primer render, así que nace en `firstUpdated`, y lo que
+  // el elemento muestra de él —el zoom, la atribución— pide un segundo render. Es el diseño y no una
+  // cascada: Lit no avisa de eso en modo desarrollo (la API no existe en producción).
+  static { this.disableWarning?.('change-in-update') }
 
   static properties = {
     tile               : { type: Object },
@@ -204,7 +201,7 @@ export class CristaeMap extends LitElement {
   // Reconexión tras un disconnect: el renderRoot ya existe (Lit lo conserva) y firstUpdated NO vuelve
   // a dispararse → re-montamos el motor acá. En la PRIMERA conexión no hacemos nada (aún no hay div
   // #map en el shadow → monta firstUpdated). Las capas hijas se re-encolan solas: su connectedCallback
-  // vuelve a llamar requestMount y, como #mount es async, llegan a #pending antes de que exista el motor.
+  // vuelve a llamar requestMount, y como el padre conecta primero, ya encuentran el motor.
   // Por esto el consumidor NO debe cachear engine/camera: tras un reattach son OTRA instancia → usar
   // siempre los getters vivos `map.engine`/`map.camera`.
   connectedCallback() {
@@ -311,11 +308,10 @@ export class CristaeMap extends LitElement {
 
   #limits() { return Object.fromEntries(LIMITS.map(key => [key, this[key]])) }
 
-  async #mount() {
+  #mount() {
     if (this.#mounted) return
     this.#mounted = true
     this.#everMounted = true
-    const glify = await glifyReady
     const container = this.renderRoot.querySelector('#map')
 
     // `initial-center` admite [lat,lng], la cadena "lat,lng" o vacío → [0,0].
@@ -329,7 +325,6 @@ export class CristaeMap extends LitElement {
     }
 
     this.#engine = new MapEngine({
-      glify,
       container,
       view: { center: resolveCenter(), zoom: this.initialZoom ?? 2 },
       insets: this.viewportInsets,

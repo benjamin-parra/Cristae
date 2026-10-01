@@ -9,7 +9,6 @@
     "real-time",
     "webgl",
     "leaflet",
-    "glify",
     "virtual-table",
     "reactive",
     "map"
@@ -72,7 +71,6 @@
   },
   "dependencies": {
     "geographiclib-geodesic": "^2.2.0",
-    "leaflet.glify": "^3.3.1",
     "supercluster": "^8.0.1"
   },
   "devDependencies": {

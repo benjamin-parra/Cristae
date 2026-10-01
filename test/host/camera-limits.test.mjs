@@ -116,9 +116,9 @@ test('un mapa propio nace con sus límites: la vista inicial ya los cumple, sin 
 })
 
 test('el motor pone sus límites en el mapa propio y no los lee en uno adoptado', () => {
-  const propio = new MapEngine({ container: contenedor(), view: { center: [0, 0], zoom: 2 }, glify: null, minZoom: 4 })
+  const propio = new MapEngine({ container: contenedor(), view: { center: [0, 0], zoom: 2 }, minZoom: 4 })
   const map    = L.map(contenedor()).setView([0, 0], 2)
-  const ajeno  = new MapEngine({ host: adoptLeafletHost(map), glify: null, minZoom: 4 })
+  const ajeno  = new MapEngine({ host: adoptLeafletHost(map), minZoom: 4 })
   assert.equal(propio.camera.getZoom(), 4)
   assert.equal(map.getZoom(), 2)
   assert.equal(map.getMinZoom(), 0, 'el adoptado conserva los de su dueño')
@@ -132,7 +132,7 @@ test('el motor pone sus límites en el mapa propio y no los lee en uno adoptado'
 
 // Abrir un tope no mueve la vista: el aviso es lo único que sale, uno por tope que cambia.
 test('el motor avisa con zoomlevelschange que cambiaron los topes, aunque la vista no se mueva', () => {
-  const engine = new MapEngine({ container: contenedor(), view: { center: [0, 0], zoom: 10 }, glify: null, maxZoom: 10 })
+  const engine = new MapEngine({ container: contenedor(), view: { center: [0, 0], zoom: 10 }, maxZoom: 10 })
   const avisos = []
   engine.on('zoomlevelschange', detail => avisos.push(detail))
   engine.on('viewportchange', () => avisos.push('viewportchange'))
@@ -148,7 +148,7 @@ test('el motor avisa con zoomlevelschange que cambiaron los topes, aunque la vis
 test('al soltarse, el mapa adoptado recupera los límites que tenía antes del primer setLimits', () => {
   const map    = L.map(contenedor(), { minZoom: 1, maxZoom: 12, maxBounds: [[-50, -50], [50, 50]], maxBoundsViscosity: 0.5 })
   const caja   = map.setView([0, 0], 5).options.maxBounds
-  const engine = new MapEngine({ host: adoptLeafletHost(map), glify: null })
+  const engine = new MapEngine({ host: adoptLeafletHost(map) })
   engine.setLimits({ minZoom: 4, maxZoom: 6, maxBounds: CAJA, maxBoundsViscosity: 1 })
   engine.setLimits({ minZoom: 3 })
   engine.destroy()
@@ -160,7 +160,7 @@ test('al soltarse, el mapa adoptado recupera los límites que tenía antes del p
 })
 
 test('setLimits del motor: lo que no es un número finito o una caja no limita, y sin nada los quita', () => {
-  const engine = new MapEngine({ container: contenedor(), view: { center: [0, 0], zoom: 5 }, glify: null })
+  const engine = new MapEngine({ container: contenedor(), view: { center: [0, 0], zoom: 5 } })
   const map    = engine.getLeafletMap()
   assert.equal(engine.setLimits({ minZoom: '3', maxZoom: 7, maxBounds: [[0, 0], [10, 10]], maxBoundsViscosity: Infinity }), engine)
   assert.equal(map.getMinZoom(), 0)

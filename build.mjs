@@ -4,7 +4,7 @@
 // ESM soporta multi-entry. Necesitamos todos los entries de ENTRIES en AMBOS formatos, así que
 // orquestamos varias corridas de la API de Vite: 1 build ESM multi-entry + 1 build UMD por entry.
 //
-// Todo se bundlea hacia adentro (Leaflet, glify, lit) → self-contained, sin CDN. El resultado vive en
+// Todo se bundlea hacia adentro (Leaflet, lit) → self-contained, sin CDN. El resultado vive en
 // `dist/cristae/` junto a la app, servido por el mismo hosting estático. Además empaqueta la skill
 // (SKILL.md + MODELO/SPECS/docs) y genera llms.txt / llms-full.txt para consumo por agentes.
 
@@ -73,7 +73,6 @@ async function buildEsm() {
 async function buildUmd(name) {
   await build(baseConfig({
     outDir: resolve(outDir, 'umd'),
-    rollupOptions: { output: { inlineDynamicImports: true } },   // UMD no code-splittea: glify inline
     lib: {
       entry: ENTRIES[name],
       name: UMD_GLOBALS[name],
@@ -172,8 +171,8 @@ async function generateExample() {
       ]
       source.set(PTS)
 
-      // ready robusto: el evento puede emitirse antes de enganchar el listener (el bundle resuelve
-      // glify al instante), así que también esperamos el promise map.ready. Idempotente.
+      // ready robusto: el evento puede emitirse antes de enganchar el listener, así que también
+      // esperamos el promise map.ready. Idempotente.
       const onReady = () => {
         if (window.__SMOKE_OK__) return
         window.__SMOKE_OK__ = true
@@ -197,15 +196,15 @@ async function generateLlmsTxt() {
   const index = [
     '# Cristae',
     '',
-    '> Leaflet + glify con shaders reescritos (atlas de iconos, rotación, picking GPU) y path',
+    '> Mapa WebGL sobre Leaflet, con shaders propios (atlas de iconos, rotación, picking GPU) y path',
     '> incremental [0-alloc]. Piel declarativa web component `<cristae-map>` + motor headless',
-    '> `MapEngine`. Leaflet y glify viajan dentro del bundle (sin CDN).',
+    '> `MapEngine`. Leaflet viaja dentro del bundle (sin CDN).',
     '',
-    'Empieza por **SKILL.md** (instalación + reemplazo de Leaflet/glify paso a paso). MODELO.md es la',
+    'Empieza por **SKILL.md** (instalación + reemplazo de un mapa Leaflet paso a paso). MODELO.md es la',
     'arquitectura; SPECS.md el contrato formal e invariantes.',
     '',
     '## Documentación',
-    `- [SKILL](${base}/SKILL.md): guía práctica — reemplazar Leaflet/glify, instalación y API mínima`,
+    `- [SKILL](${base}/SKILL.md): guía práctica — reemplazar un mapa Leaflet, instalación y API mínima`,
     `- [MODELO](${base}/MODELO.md): arquitectura, capas, empaquetado`,
     `- [SPECS](${base}/SPECS.md): contrato Source, optimizaciones e invariantes`,
     ...docFiles.map(f => `- [${f.replace('.md', '')}](${base}/docs/${f})`),

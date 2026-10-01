@@ -223,7 +223,8 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   sale junto con su promesa, en una microtarea: con un mapa propio salía dentro del constructor, donde
   nadie alcanzaba a oírla.
   *Migración*: `new MapEngine({ leaflet: L, glify, map })` pasa a
-  `new MapEngine({ host: adoptLeafletHost(map, { leaflet: L }), glify })`, y `mapOptions: { center, zoom }`
+  `new MapEngine({ host: adoptLeafletHost(map, { leaflet: L }) })` (la opción `glify` sale, ver
+  *Eliminado*), y `mapOptions: { center, zoom }`
   a `view: { center, zoom }`. Otra opción de Leaflet —`minZoom`, `maxBounds`, …— se pasa al crear un mapa
   propio que después se adopta, y ese mapa es de quien lo creó: anima el zoom como lo configuró su dueño
   hasta que el motor pida otra política —`zoomAnimation: 'none'` conserva el default del mapa que creaba
@@ -272,6 +273,15 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   ya no los trae: va un `<cristae-toolbar>` u otro nodo en el slot de una zona.
 
 ### Eliminado
+- **`leaflet.glify` sale del paquete: ya no se importa, no se carga y no es dependencia.** Las capas
+  de puntos, líneas y polígonos dibujan con su propia superficie WebGL, así que `<cristae-map>` deja de
+  registrar `window.L` y de cargar el plugin, y como ya no espera una importación monta el motor en su
+  primer render. `MapEngineOptions.glify` sale de las opciones y de los tipos, y con él el registro de
+  motores vivos: destruir un motor ya no reposiciona las capas de los demás, porque ninguno comparte
+  canvas con otro. El bundle pierde el plugin y su UMD ya no necesita inlinear imports dinámicos.
+  *Migración*: se quita `glify` de `new MapEngine({ ... })` y `leaflet.glify` de las dependencias propias
+  si sólo estaba por Cristae. `import 'cristae/map'` ya no deja `window.L` definido: quien lo leía lo
+  asigna con su propio `import L from 'leaflet'`, o pasa su Leaflet por `adoptLeafletHost(map, { leaflet })`.
 - **Los polígonos pierden el sustrato `leaflet`: `backend` sale de `addPolygonLayer` y de
   `<cristae-polygon-layer>`.** La capa es siempre la GPU. Con él salen `PolygonLayer`, el `L.polygon`
   por figura y la opción `backend: 'leaflet' | 'gpu'` (y `CristaePolygonLayer.backend` en los tipos).
@@ -292,7 +302,7 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   elemento: la capa de líneas hace ahora gradiente, picking, `dash` y `cap` a la vez, así que ya no hace
   falta separar una capa `glify` interactiva de una `gpu` de trazo.
 - **`pathStyle` y el acceso transitorio al sustrato del anfitrión salen.** El anfitrión ya no expone
-  más que sus facetas: `host.map` queda para glify y `getLeafletMap()`. Nada de lo público los usaba.
+  más que sus facetas: `host.map` queda para `getLeafletMap()`. Nada de lo público los usaba.
   *Migración*: ninguna.
 - **`LatLngLike` sale de los tipos.** Era el punto de la cámara con el contrato de Leaflet, un par o
   `{ lat, lng }`; la cámara acepta ahora `LatLngPoint` y devuelve `LatLng`.

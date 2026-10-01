@@ -3,7 +3,7 @@ import { frameTransform } from './frame.js'
 
 // Capa de CAMPO DE CALOR (heatmap) reactiva a un Source. Hermana de PointLayer/LineGpuLayer en el ciclo
 // de vida (constructor {..}, subscribe al Source + redibujo coalescido a rAF, redraw/refresh/destroy),
-// pero su BACKEND es un CANVAS 2D acumulativo (estilo leaflet.heat), NO glify:
+// pero su BACKEND es un CANVAS 2D acumulativo (estilo leaflet.heat), no GL:
 //   1. cada punto estampa una BROCHA radial (degradado gris, opaco al centro → transparente al borde)
 //      con un globalAlpha CHICO ∝ su peso → con source-over el alpha se ACUMULA donde los puntos se
 //      agolpan (densidad). El aporte por punto es chico A PROPÓSITO: source-over es a+b·(1−a), que sólo
@@ -12,8 +12,8 @@ import { frameTransform } from './frame.js'
 //   2. una pasada de COLOR mapea ese alpha acumulado a una paleta pre-muestreada de `colorRamp`.
 //
 // Por qué canvas y no GL: el heat aditivo real (splat gaussiano a un framebuffer + colorización en un
-// segundo pase) no sale de los shaders de la point-layer en UN paso sin parchar glify (no hay programa
-// de acumulación ni FBO expuesto). El canvas es un PRIMER backend honesto; la interfaz es idéntica a la
+// segundo pase) no sale de los shaders de la point-layer en UN paso (no hay programa de
+// acumulación ni FBO). El canvas es un PRIMER backend honesto; la interfaz es idéntica a la
 // que tendría el backend GL (misma firma de constructor y mismos accessors), así el swap posterior no
 // toca el call-site (addHeatLayer). Costo conocido del backend canvas: getImageData/putImageData
 // reservan el framebuffer por redibujo (inherente a la técnica; se acota coalesciendo a un frame). Ver

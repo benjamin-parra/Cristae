@@ -1,5 +1,5 @@
 // Entry point SOLO-tabla. Importarlo registra <cristae-table> y expone su API imperativa SIN
-// arrastrar el motor de mapa (Leaflet/glify): `table/` solo depende de `lit` y del contrato Source
+// arrastrar el motor de mapa (Leaflet): `table/` solo depende de `lit` y del contrato Source
 // de `data/`. Es la frontera que vuelve trivial el futuro split a `cristae/table` — este archivo
 // pasa a ser el `main`/`exports` de ese paquete tal cual.
 //

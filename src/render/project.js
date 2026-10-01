@@ -1,4 +1,4 @@
-// Proyección EPSG:3857 a zoom 0, inlineada (glify ya EXIGE EPSG:3857 — points.ts:100).
+// Proyección EPSG:3857 a zoom 0, inlineada (el mapa es EPSG:3857).
 // map.project() aloca un Point y, vía toLatLng, un LatLng → por update × miles/seg = el GC
 // que se quiere evitar. Esto es lo que hace [0-alloc] real al path incremental (§17.5).
 // Mundo 256×256 a zoom 0, centro en (128,128): projX0(0)=128, projY0(0)=128.

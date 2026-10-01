@@ -40,7 +40,7 @@ const makeMap = () => {
 const montarElemento = ({ mode = 'draw', value = [] } = {}) => {
   const map = makeMap()
   currentGl = makeEditGl(makePickSpy(), makeSurface())
-  const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeLeaflet() }), glify: {} })
+  const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeLeaflet() }) })
 
   const el = Object.create(CristaeEditablePolyline.prototype)
   el.id = 'ruta'
