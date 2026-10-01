@@ -4,7 +4,6 @@ import { Interaction } from './Interaction.js'
 import { Camera, limitsOf } from './Camera.js'
 import { PointLayer } from '../render/PointLayer.js'
 import { OBJ_BITS } from '../render/Picking.js'
-import { LineLayer } from '../render/LineLayer.js'
 import { LineGpuLayer } from '../render/LineGpuLayer.js'
 import { PolygonGpuLayer } from '../render/PolygonGpuLayer.js'
 import { CircleLayer } from '../render/CircleLayer.js'
@@ -18,7 +17,8 @@ import { createClusterFold } from '../cluster/ClusterFold.js'
 import { defineClusterIconSet } from '../atlas/IconSet.js'
 import { createSource } from '../data/index.js'
 import { createLeafletHost } from '../host/LeafletHost.js'
-import { foldRuns, iterable } from '../geometry/polyline.js'
+import { iterable } from '../data/path.js'
+import { foldRuns } from '../geometry/polyline.js'
 import { emptyBounds, growBounds, growRun } from '../geometry/bounds.js'
 
 // MapEngine — orquestador headless (SPECS §6). Framework-agnóstico, sin dominio. Monta sobre un
@@ -96,7 +96,6 @@ const _liveEngines = new Set()
 export class MapEngine {
 
   #host
-  #glify
   #registry
   #bus
   #interaction
@@ -127,9 +126,8 @@ export class MapEngine {
 
   // Lo que queda en `limits` son los límites de la cámara. Como la vista inicial, son del mapa propio: uno
   // adoptado trae los de su dueño.
-  constructor({ host, container, view, glify, insets, hoverThrottleMs = 0, zoomAnimation, cursor, ...limits } = {}) {
+  constructor({ host, container, view, glify: _glify, insets, hoverThrottleMs = 0, zoomAnimation, cursor, ...limits } = {}) {
     this.#host      = host ?? createLeafletHost({ container, view, limits: limitsOf(limits) })
-    this.#glify     = glify
     // Sin modo explícito queda el del anfitrión: no anima en un mapa propio, y en uno adoptado no se
     // interviene la política de su dueño.
     if (zoomAnimation) this.#host.camera.zoomPolicy = zoomAnimation
@@ -276,36 +274,27 @@ export class MapEngine {
     return this.addPolygonLayer({ ...cfg, id, interactive, pane: pane ?? `cristae-polygon-gpu-${id}` })
   }
 
-  /* ── Capas de líneas (GL glify.Lines + hit-testing nearest-segment CPU) ── */
+  /* ── Capas de líneas (GL propio + hit-testing nearest-segment CPU) ── */
 
-  // `vector` fue el flag del sustrato con dash: se rechaza nombrando su reemplazo en vez de ignorarse,
-  // que daría glify sin dash a quien pedía otra cosa.
+  // `vector` y `backend` eran los flags del sustrato: se rechazan nombrando la migración en vez de
+  // ignorarse, que dibujaría distinto de lo que pedía quien los pasaba.
   addLineLayer(cfg) {
-    if (cfg.vector !== undefined)
-      throw new Error("[cristae] las líneas ya no aceptan `vector`: el trazo con dash es `backend: 'gpu'` (ver *Migración* en el CHANGELOG)")
+    if (cfg.vector !== undefined || cfg.backend !== undefined)
+      throw new Error('[cristae] las líneas se dibujan siempre en GPU y no aceptan `vector` ni `backend`: quitalos (ver *Migración* en el CHANGELOG)')
     return this.#addLine(cfg, this.#order++)
   }
 
   // `order` llega de afuera para la capa que nace tarde —las patas del fold usan el de su host—: si
   // tomara uno del contador, correría el z por defecto de las capas que se agreguen después.
   #addLine(cfg, order) {
-    const { id, data, accessors, interactive = false, pane, z, visible = true, backend = 'glify' } = cfg
+    const { id, data, accessors, interactive = false, pane, z, visible = true } = cfg
     const paneName = pane ?? `cristae-line-${id}`
     const zIndex   = z ?? (BASE_Z + order * Z_STEP)
 
     // `controls` = Source que posee el motor (ruta A/data); con `cfg.source` el dueño es el consumidor.
     const controls = cfg.source ? null : createSource(accessors)
     const source   = cfg.source ?? controls
-    // Sustrato del trazo: glify (#trackGl para reproyectar en move/zoom; con picking nearest-segment) o
-    // `gpu`, que da el grosor por quads y se repinta con sus propios moveend/zoomend/resize (ver docs/lines.md).
-    if (backend === 'gpu' && interactive)
-      throw new Error('[cristae] el sustrato `gpu` de líneas no resuelve picking: usá `glify` si la capa es interactiva')
-    const sustratos = {
-      gpu:   () => new LineGpuLayer({ host: this.#host, pane: paneName, source }),
-      glify: () => this.#trackGl(new LineLayer({ glify: this.#glify, map: this.#host.map, pane: paneName, source, interactive })),
-    }
-    if (!sustratos[backend]) throw new Error(`[cristae] backend de líneas desconocido '${backend}' (glify | gpu)`)
-    const layer = this.#build(paneName, zIndex, sustratos[backend])
+    const layer = this.#build(paneName, zIndex, () => new LineGpuLayer({ host: this.#host, pane: paneName, source }))
 
     const record = { kind: 'line', source, layer, controls, paneName, zIndex, order, interactive, visible, enabled: true }
     this.#layers.set(id, record)
@@ -321,10 +310,15 @@ export class MapEngine {
     // Handle = SÓLO las ACCIONES de la capa (empujar datos / togglear visibilidad). El estilo NO es
     // una acción: es estado (accessor `styleOf`) — para recolorear una línea se muta su item y se
     // set/patch la Source; el motor reescribe su color (incremental o rebuild). No hay `setStyle`.
+    // Con una Source del consumidor, `append` lanza en vez de perder los puntos: el que suma es su dueño.
     return {
       id,
       source,
       set:        items => controls?.set(items),
+      append:     (itemId, ...points) => {
+        if (!controls) throw new TypeError(`[cristae] la capa '${id}' lee una Source del consumidor: append va a esa Source`)
+        return controls.append(itemId, ...points)
+      },
       setVisible: v => this.setLayerVisibility(id, v),
     }
   }

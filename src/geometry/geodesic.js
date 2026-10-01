@@ -3,7 +3,8 @@
 // dice docs/geometry.md. `sphere(radius)` existe para reproducir las cifras de un sistema que mide con
 // otro radio, y `ellipsoid` (ellipsoid.js) da la geodésica del elipsoide, a precisión geodésica.
 // Módulo puro: sin Leaflet, sin DOM, sin el elipsoide.
-import { coordOf, foldArgs } from './polyline.js'
+import { coordOf } from '../data/path.js'
+import { foldArgs } from './polyline.js'
 
 const D = Math.PI / 180
 

@@ -110,7 +110,6 @@ export const ViaSource = () => (
     {/* Apilado declarado: el recorrido va DEBAJO de los marcadores (que caen al z automático 400). */}
     <CristaeLineLayer<Movil>
       source={source}
-      backend="gpu"
       z={378}
       accessors={{ idOf: (m) => m.id, pathOf: (m) => [[m.lat, m.lng]] as [number, number][] }}
     />

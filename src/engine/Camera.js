@@ -1,4 +1,4 @@
-import { isPlace } from '../geometry/polyline.js'
+import { isPlace } from '../data/path.js'
 import { emptyBounds, growBounds, readBounds } from '../geometry/bounds.js'
 
 // Camera — la ÚNICA vía de movimiento del viewport tras el montaje (SPECS §9, MODELO §5.4).

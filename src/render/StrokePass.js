@@ -26,6 +26,10 @@
 // patrón es un tramo del eje con su tapa, y la unión de todos los que rozan al fragmento da el
 // contorno, así la tapa redonda de un trazo cruza al período vecino sin casos aparte.
 //
+// El GRADIENTE (`gradient`) pinta cada segmento con una rampa entre los colores de sus dos vértices, que
+// salen de una tercera textura RGBA8 con el mismo índice que la de posiciones. El color por vértice
+// reemplaza al del trazo, y la opacidad del trazo —la que ya trae el foco— multiplica su alfa.
+//
 // La TAPA (`cap`) vale para cada trazo del patrón y, sin dash, para los dos extremos de una polilínea
 // abierta: el quad se estira `halfWidth` más allá del extremo y el fragment shader la recorta.
 
@@ -57,8 +61,8 @@ export const ownDash = dash => (dashLength(dash) ? dash.slice() : null)
 // «Sin límite» de un extremo que no existe; se pisa con cualquier distancia real.
 const FAR = 1e9
 
-const UNIFORMS = ['matrix', 'positions', 'arcs', 'texGeom', 'pixel', 'scale', 'halfWidth', 'color', 'first', 'count',
-                  'closed', 'dash', 'dashCount', 'period', 'cap']
+const UNIFORMS = ['matrix', 'positions', 'arcs', 'colors', 'texGeom', 'pixel', 'scale', 'halfWidth', 'color', 'first', 'count',
+                  'closed', 'dash', 'dashCount', 'period', 'cap', 'gradient']
 
 const VERTEX = `#version 300 es
 precision highp float;
@@ -66,6 +70,9 @@ precision highp float;
 uniform mat4      matrix;
 uniform sampler2D positions;
 uniform sampler2D arcs;       // largo acumulado por vértice, en world0 px; sólo se lee con dash
+uniform sampler2D colors;     // color por vértice; sólo se lee con gradient
+uniform vec4      color;      // el del trazo; con gradient, su alfa es la opacidad
+uniform int       gradient;   // 1 = el color sale de la textura colors
 uniform ivec2     texGeom;    // (máscara, corrimiento): índice de vértice → texel
 uniform vec2      pixel;      // unidades de clip por píxel CSS
 uniform float     scale;      // píxeles CSS por world0 px
@@ -77,6 +84,7 @@ uniform int       dashCount;  // 0 = trazo continuo
 uniform float     period;     // largo de una vuelta del patrón, en píxeles
 uniform int       cap;        // 0 = butt · 1 = round · 2 = square
 
+out vec4  tint;               // color del fragmento antes de la rampa del borde
 out float dist;               // distancia firmada al eje, en píxeles
 out float along;              // avance sobre el eje desde el origen del segmento, en píxeles
 flat out vec4 frame;          // (fase del patrón en el origen, largo previo a esa vuelta, inicio y fin del trazo)
@@ -88,6 +96,10 @@ const vec2  QUAD[6] = vec2[6](vec2(0.0, -1.0), vec2(1.0, -1.0), vec2(0.0, 1.0),
 
 vec2 positionAt(int entry) {
   return texelFetch(positions, ivec2(entry & texGeom.x, entry >> texGeom.y), 0).rg;
+}
+
+vec4 colorAt(int entry) {
+  return texelFetch(colors, ivec2(entry & texGeom.x, entry >> texGeom.y), 0);
 }
 
 vec2 pixelAt(int entry) {
@@ -141,6 +153,8 @@ void main() {
 
   float arc   = dashCount > 0 ? texelFetch(arcs, ivec2((first + edge) & texGeom.x, (first + edge) >> texGeom.y), 0).r * scale : 0.0;
   float phase = dashCount > 0 ? mod(arc, period) : 0.0;
+  vec4 ramp   = mix(colorAt(first + edge), colorAt(first + next), quad.x);
+  tint        = gradient == 1 ? vec4(ramp.rgb, ramp.a * color.a) : color;
   dist        = side;
   along       = dot(pos - pa, d1);
   frame       = vec4(phase, arc - phase, conPrev ? -FAR : phase, conPost ? FAR : phase + length(pb - pa));
@@ -154,12 +168,12 @@ precision highp float;
 precision highp int;
 
 uniform float halfWidth;
-uniform vec4  color;
 uniform float dash[${MAX_DASH}];   // (trazo, hueco) alternados
 uniform int   dashCount;
 uniform float period;
 uniform int   cap;
 
+in      vec4  tint;
 in      float dist;
 in      float along;
 flat in vec4  frame;
@@ -196,7 +210,7 @@ void main() {
       }
     }
   }
-  fragColor = vec4(color.rgb, color.a * (1.0 - smoothstep(-FEATHER, FEATHER, sd)));
+  fragColor = vec4(tint.rgb, tint.a * (1.0 - smoothstep(-FEATHER, FEATHER, sd)));
 }`
 
 const strokeProgram = gl => sharedProgram(gl, 'stroke', () => {
@@ -216,7 +230,7 @@ const strokeProgram = gl => sharedProgram(gl, 'stroke', () => {
 
 export class StrokePass {
 
-  #gl; #program; #uniform; #vao; #closed
+  #gl; #program; #uniform; #vao; #closed; #gradient
   #width      = 3
   #opacity    = 1
   #hex        = null
@@ -227,13 +241,14 @@ export class StrokePass {
   #dashCount  = 0
   #period     = 1
 
-  constructor({ gl, color = '#3388ff', width = 3, opacity = 1, closed = true, dash = null, cap = 'butt' }) {
+  constructor({ gl, color = '#3388ff', width = 3, opacity = 1, closed = true, dash = null, cap = 'butt', gradient = false }) {
     const { program, uniform } = strokeProgram(gl)
     this.#gl      = gl
     this.#program = program
     this.#uniform = uniform
     this.#vao     = gl.createVertexArray()
-    this.#closed  = closed
+    this.#closed   = closed
+    this.#gradient = gradient
     this.style({ color, width, opacity, dash, cap })
   }
 
@@ -282,12 +297,18 @@ export class StrokePass {
     gl.uniform4fv(u.color, this.#rgba)
     gl.uniform1i(u.positions, 0)
     gl.uniform1i(u.arcs, 1)
+    gl.uniform1i(u.colors, 2)
+    gl.uniform1i(u.gradient, this.#gradient ? 1 : 0)
     gl.uniform1i(u.closed, this.#closed ? 1 : 0)
     gl.uniform1i(u.cap, CAPS[this.#capName] ?? 0)
     gl.uniform1i(u.dashCount, this.#dashCount)
     gl.uniform1f(u.period, this.#period)
     gl.uniform1fv(u.dash, this.#dash)
     gl.uniform2i(u.texGeom, primera.textureWidth - 1, Math.log2(primera.textureWidth))
+    if (this.#gradient) {
+      gl.activeTexture(gl.TEXTURE2)
+      gl.bindTexture(gl.TEXTURE_2D, primera.colorTexture)
+    }
     gl.activeTexture(gl.TEXTURE1)
     gl.bindTexture(gl.TEXTURE_2D, arcs)
     gl.activeTexture(gl.TEXTURE0)

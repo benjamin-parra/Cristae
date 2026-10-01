@@ -1,5 +1,5 @@
-// render/color.js — parseo/formateo de color puro (hex/array → RGBA 0..1, → objeto glify {r,g,b,a},
-// hex → string `rgba()`). Agnóstico: sin DOM, Leaflet ni dominio; reusable por cualquier capa de render.
+// render/color.js — parseo/formateo de color puro (hex/array → RGBA 0..1, hex → string `rgba()`).
+// Agnóstico: sin DOM, Leaflet ni dominio; reusable por cualquier capa de render.
 
 // Plantilla del fallback; toRGBA devuelve una COPIA fresca en su rama inválida (contrato uniforme:
 // TODA rama entrega un [r,g,b,a] nuevo, así ningún caller puede corromper este default compartido).
@@ -18,13 +18,6 @@ export const toRGBA = (color, alpha = 1) => {
   return h.length === 6
     ? [((n >> 16) & 0xff) / 255, ((n >> 8) & 0xff) / 255, (n & 0xff) / 255, alpha]
     : [((n >>> 24) & 0xff) / 255, ((n >>> 16) & 0xff) / 255, ((n >>> 8) & 0xff) / 255, (n & 0xff) / 255]
-}
-
-// glify.Lines quiere el color PER-FEATURE como IColor {r,g,b,a} (line-feature-vertices lee color.r…),
-// no un array. Para el gradiente es placeholder (se sobre-escribe por vértice); para plano es el final.
-export const toColorObj = (color, alpha) => {
-  const [r, g, b, a] = toRGBA(color, alpha)
-  return { r, g, b, a }
 }
 
 // hex → string CSS `rgba(r, g, b, alpha)` con canales 0..255. Acepta los MISMOS formatos hex que toRGBA

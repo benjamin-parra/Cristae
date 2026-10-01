@@ -1,13 +1,13 @@
 // Move-equivalencia de render/color.js: fija el comportamiento ACTUAL de las tres funciones de color
-// (toRGBA, toColorObj, withAlpha) antes y después de mudarlas a su módulo. El MISMO oráculo debe
+// (toRGBA, withAlpha) antes y después de mudarlas a su módulo. El MISMO oráculo debe
 // pasar contra la ubicación vieja (LineLayer/LabelLayer) y la nueva (color.js).
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
 // Import al módulo nuevo tras la mudanza. En el paso 1 el oráculo corrió contra la ubicación ACTUAL
-// (toRGBA/toColorObj/DEFAULT_COLOR desde LineLayer.js; withAlpha extraído verbatim de LabelLayer.js,
+// (toRGBA/DEFAULT_COLOR; withAlpha extraído verbatim de LabelLayer.js,
 // no importable en node porque LabelLayer acopla leaflet). Los mismos asserts deben seguir verdes acá.
-import { toRGBA, toColorObj, DEFAULT_COLOR, withAlpha } from '../../src/render/color.js'
+import { toRGBA, DEFAULT_COLOR, withAlpha } from '../../src/render/color.js'
 
 const hasNaN = (arr) => arr.some((n) => Number.isNaN(n))
 
@@ -58,15 +58,6 @@ test('toRGBA: el fallback devuelve una COPIA fresca de DEFAULT_COLOR (no la cons
   assert.deepEqual(toRGBA('nope'), DEFAULT_COLOR)
   assert.notStrictEqual(toRGBA('nope'), DEFAULT_COLOR)
   assert.notStrictEqual(toRGBA('nope'), toRGBA('otro-invalido'))
-})
-
-test('toColorObj: envuelve el resultado de toRGBA como {r,g,b,a}', () => {
-  assert.deepEqual(toColorObj('#f00', 1), { r: 1, g: 0, b: 0, a: 1 })
-  assert.deepEqual(toColorObj([0.1, 0.2, 0.3, 0.4]), { r: 0.1, g: 0.2, b: 0.3, a: 0.4 })
-})
-
-test('toColorObj: inválido hereda el DEFAULT_COLOR de toRGBA', () => {
-  assert.deepEqual(toColorObj('nope', 0.5), { r: 0.4, g: 0.4, b: 0.4, a: 1 })
 })
 
 test('withAlpha: #RRGGBB → string rgba() con canales 0..255', () => {

@@ -159,7 +159,7 @@ export function createClusterFold(bridge, targets, { radius, maxZoom, minPoints,
   let legSeq = 0   // un id nuevo por trazo y por ensamblado: se recalculan enteros, y la Source compara por id
   const setLegs = legs => {
     if (legs.length) legsHandle ??= bridge.addLineLayer({
-      id: legsId, backend: 'gpu', z: bridge.overlayZ(base.order, 4),   // sobre labels(+200)
+      id: legsId, z: bridge.overlayZ(base.order, 4),   // sobre labels(+200)
       accessors: { idOf: s => s.id, pathOf: s => s.pts, styleOf: s => s },
     }, base.order)
     legsHandle?.set(legs)

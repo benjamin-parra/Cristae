@@ -191,7 +191,7 @@ test('abrir una espiral no corre el z por defecto de las capas que se agregan de
   const zDespues = abrir => {
     const { engine, control, bubbles } = mount()
     abrir && control.expand(bubbles()[0].id)
-    engine.addLineLayer({ id: 'despues', backend: 'gpu', accessors: { idOf: r => r.id, pathOf: r => r.path } })
+    engine.addLineLayer({ id: 'despues', accessors: { idOf: r => r.id, pathOf: r => r.path } })
     return engine.getLayer('despues').zIndex
   }
   assert.equal(zDespues(true), zDespues(false))

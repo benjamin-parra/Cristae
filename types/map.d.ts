@@ -95,8 +95,7 @@ export interface PolygonAccessors<T> extends Pick<SourceAccessors<T>, "hashOf"> 
 }
 
 // ── Líneas (addLineLayer / <cristae-line-layer>) ────────────────────────────
-// GPU (glify.Lines) + gradiente per-vértice por bufferSubData + picking CPU nearest-segment.
-// `dash` lo dibuja el backend `gpu`; `glify` no (ver docs/lines.md).
+// Siempre GPU (un quad por segmento) + gradiente per-vértice + picking CPU nearest-segment (ver docs/lines.md).
 export interface LineAccessors<T> extends Pick<SourceAccessors<T>, "hashOf"> {
   idOf       : (l: T) => string | number;
   /** Vértices del path en orden, cada uno en cualquiera de las formas de `LatLngPoint`. Dos encodings
@@ -105,8 +104,8 @@ export interface LineAccessors<T> extends Pick<SourceAccessors<T>, "hashOf"> {
    *  multi-parte sigue siendo UNA entidad: un id, un estilo, un hit. */
   pathOf     : (l: T) => LatLngPath;
   /** Estilo PLANO por línea. `color` = `"#RRGGBB"` o `[r,g,b,a]` (0..1); `weight` en px de pantalla.
-   *  `dash` (patrón `stroke-dasharray` en px) y `cap` los dibuja el backend `gpu`;
-   *  `glify` los ignora. En `gpu` el patrón corre continuo a lo largo de cada parte y no depende del
+   *  `dash` (patrón `stroke-dasharray` en px) y `cap` los dibuja el trazo: el patrón
+   *  corre continuo a lo largo de cada parte y no depende del
    *  zoom; admite hasta 16 valores ya repetidos (los impares cuentan doble), y por dónde sale el
    *  error de uno más largo lo dice docs/lines.md.
    *  Un solo eje `dash` cubre todos los patrones tradicionales: `[8,6]` guiones · `[1,6]`+`cap:'round'`
@@ -135,6 +134,11 @@ export interface LineHandle<T = unknown> {
   readonly source : CristaeReadSource<T>;
   /** Reemplaza el conjunto de líneas (ruta `data`; rebuild O(n)). */
   set(items: T[]): void;
+  /** Suma `points` al final del path de `itemId` en O(puntos): un track que crece sin rearmar su path
+   *  (ruta `data`). Continúa el último tramo abierto; un punto que no es punto corta. Lanza `RangeError`
+   *  con un id que la Source no tiene, y `TypeError` si la capa lee una `source` del consumidor: ahí se
+   *  suma con su `append`. Un `set`/`patch`/`remove` del id descarta lo sumado (ver docs/lines.md). */
+  append(itemId: string | number, ...points: unknown[]): void;
   setVisible(visible: boolean): void;
 }
 
@@ -551,11 +555,6 @@ export interface LineLayerConfig<T> {
   pane?        : string;
   z?           : number;
   visible?     : boolean;
-  /** Sustrato del trazo, leído al montar. `glify` (default) da picking y gradiente por vértice, pero el
-   *  grosor sale de una brocha que barre `(4w+1)²` veces por feature y por frame. `gpu` dibuja un quad
-   *  por segmento —grosor real, una pasada, sin picking ni gradiente— y toma UN contexto WebGL.
-   *  Sólo `gpu` dibuja dash. Ver docs/lines.md. */
-  backend?     : 'glify' | 'gpu';
 }
 
 export interface HtmlLayerConfig<T> {
@@ -798,9 +797,7 @@ export class MapEngine {
 export class CristaeMap extends HTMLElement {}
 export class CristaePointLayer extends HTMLElement {}
 export class CristaePolygonLayer extends HTMLElement {}
-export class CristaeLineLayer extends HTMLElement {
-  backend: 'glify' | 'gpu';
-}
+export class CristaeLineLayer extends HTMLElement {}
 export class CristaeHtmlLayer extends HTMLElement {}
 export class CristaeLabelLayer extends HTMLElement {}
 export class CristaeCluster extends HTMLElement {}

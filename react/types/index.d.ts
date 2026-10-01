@@ -289,8 +289,6 @@ export interface CristaeLineLayerProps<T = unknown> extends CristaeDataLayerProp
   accessors?   : LineAccessors<T>;
   interactive? : boolean;
   visible?     : boolean;
-  /** Sustrato del trazo, leído al montar: `glify` (default) o `gpu`, que dibuja dash. */
-  backend?     : 'glify' | 'gpu';
 }
 export declare function CristaeLineLayer<T = unknown>(
   props: CristaeLineLayerProps<T> & RefAttributes<CristaeLineLayerElement<T>>,

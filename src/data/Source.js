@@ -1,6 +1,7 @@
 import { Store } from './Store.js'
 import { Emitter } from './Emitter.js'
 import { toUnsub } from './teardown.js'
+import { isNested, listOf } from './path.js'
 
 // Ruta B genérica: adapta CUALQUIER librería de reactividad a un Source, sin Store/Emitter
 // propios del motor. El emitter deja de ser house-first — `subscribe` ES el punto de
@@ -43,28 +44,31 @@ export const defineSource = ({ accessors, variants, getSnapshot, subscribe, vers
 // y la version monótona. `abrir` es el beginOp (limpia SÓLO si la anterior ya emitió); `commit`
 // avanza la version y dispara el emit; `cerrar` es el onFlush (marca cerrada tras el reparto, así
 // una op del callback cae en la ventana que se cierra); `limpiar` es la baja (destroy). Los Sets se
-// vacían IN-PLACE, nunca se reasignan: las vistas toman la referencia una vez (dirtyIds/moveDirtyIds)
-// y la conservan mientras viva la Source.
+// vacían IN-PLACE, nunca se reasignan: las vistas toman la referencia una vez (dirtyIds/moveDirtyIds/
+// appendedPoints) y la conservan mientras viva la Source.
 const crearVentana = emitter => {
   const moves = new Set()      // ids movidos en la ventana actual (la capa los escribe por slot)
   const structs = new Set()    // ids con cambio estructural en la ventana actual
+  const appends = new Map()    // id → puntos sumados a su path en la ventana actual
   let cerrada = false          // tras un emit, la próxima op abre ventana nueva
   let version = 0              // monótona; el emitter hace dirty-skip contra ésta
   return {
     moves,
     structs,
+    appends,
     version: () => version,
     abrir:   () => {
       if (!cerrada) return
       moves.clear()
       structs.clear()
+      appends.clear()
       cerrada = false
     },
     marcarMove:   id => moves.add(id),
     marcarStruct: id => structs.add(id),
     commit:       () => { version++; emitter.notify() },
     cerrar:       () => cerrada = true,          // onFlush: los acumuladores ya se consumieron
-    limpiar:      () => { moves.clear(); structs.clear() },
+    limpiar:      () => { moves.clear(); structs.clear(); appends.clear() },
   }
 }
 
@@ -110,7 +114,27 @@ export const createSource = (accessors, variants) => {
   const positionOf = basePositionOf
     ? item => overrides.get(idOf(item)) ?? basePositionOf(item)
     : undefined
-  const readAccessors = positionOf ? { ...accessors, positionOf } : accessors
+
+  // pathOf efectivo: el del consumidor más los puntos que `append` sumó a ese id. Siguen al final del
+  // path si es plano, y a su última parte no vacía si es anidado: las vacías del final no aportan
+  // índice, así que el tramo abierto es el que termina donde termina el path. Un punto que no es punto
+  // corta, como en cualquier path. Leer un path con lo sumado lo copia: O(path), como quien lo recorre.
+  const tails      = new Map()          // id → puntos sumados desde el último set/patch/remove del id
+  const basePathOf = accessors.pathOf
+  const pathOf     = basePathOf
+    ? item => {
+      const tail = tails.get(idOf(item))
+      if (!tail) return basePathOf(item)
+      const top = listOf(basePathOf(item))
+      if (!isNested(top)) return top.concat(tail)
+      const parts = top.map(listOf)
+      let k = parts.length - 1
+      while (k > 0 && !parts[k].length) k--
+      parts[k] = parts[k].concat(tail)
+      return parts
+    }
+    : undefined
+  const readAccessors = positionOf || pathOf ? { ...accessors, ...(positionOf && { positionOf }), ...(pathOf && { pathOf }) } : accessors
 
   // Un único objeto: lectura (contrato Source) + escritura (dueño). El motor solo lee.
   return {
@@ -127,12 +151,16 @@ export const createSource = (accessors, variants) => {
     itemById:     id => store.get(id),
     dirtyIds:     () => ventana.structs,  // cambios estructurales de la ventana (acumulados)
     moveDirtyIds: () => ventana.moves,    // moves de la ventana (la capa los escribe por slot)
+    appendedPoints: () => ventana.appends, // id → puntos que `append` sumó en la ventana
 
     /* ── Escritura: dueño ── */
     set(items) {
       ventana.abrir()
       current = items
       overrides.clear()
+      tails.forEach((_, id) => ventana.marcarStruct(id))   // volvieron al path del consumidor: reescritura
+      tails.clear()
+      ventana.appends.clear()
       store.update(items)
       const d = store.dirtyIds
       if (d) { const { structs } = ventana; for (const id of d) structs.add(id) }
@@ -144,7 +172,7 @@ export const createSource = (accessors, variants) => {
       current = items
       // El patch es autoritativo sobre moves previos de los mismos ids.
       const { structs } = ventana
-      for (const id of dirtyIds) { overrides.delete(id); structs.add(id) }
+      for (const id of dirtyIds) { overrides.delete(id); tails.delete(id); ventana.appends.delete(id); structs.add(id) }
       store.patch(items, dirtyIds)
       ventana.commit()
     },
@@ -152,7 +180,9 @@ export const createSource = (accessors, variants) => {
     remove(id) {
       ventana.abrir()
       overrides.delete(id)
+      tails.delete(id)
       ventana.moves.delete(id)
+      ventana.appends.delete(id)
       current = current.filter(it => idOf(it) !== id)   // base completa, no la vista filtrada
       store.update(current)
       ventana.marcarStruct(id)
@@ -169,6 +199,17 @@ export const createSource = (accessors, variants) => {
       ventana.commit()
     },
 
+    // Suma `points` al final del path del id, en O(points): la capa escribe sólo lo agregado. El path
+    // del consumidor no se toca; `set`/`patch`/`remove` del id descartan lo sumado.
+    append(id, ...points) {
+      if (!pathOf) throw new TypeError('[createSource] append requiere accessors.pathOf')
+      if (store.get(id) === undefined) throw new RangeError(`[createSource] append: no hay un ítem con id ${String(id)}`)
+      if (!points.length) return
+      ventana.abrir()
+      for (const map of [tails, ventana.appends]) (map.get(id) ?? map.set(id, []).get(id)).push(...points)
+      ventana.commit()
+    },
+
     // Filtros: cambian la membresía → el snapshot cambia de tamaño → la capa rebuildea
     // (la ruta incremental no aplica). abrir+commit los integran al ciclo de flush.
     addFilter(filter) { ventana.abrir(); store.addFilter(filter); ventana.commit() },
@@ -178,6 +219,7 @@ export const createSource = (accessors, variants) => {
       emitter.destroy()
       store.destroy()
       overrides.clear()
+      tails.clear()
       ventana.limpiar()
     },
   }

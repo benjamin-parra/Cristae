@@ -351,10 +351,10 @@ const fuenteDefinida = () => core.defineSource({
 // archivo) es lo que hace ruido si el tipo se mueve: LECTURA = lo que el motor consume, DUEÑO =
 // el cuerpo PROPIO de CristaeSource (los heredados no se repiten en su bloque).
 const MIEMBROS_READ_SOURCE = [
-  'accessors', 'dirtyIds', 'getSnapshot', 'itemById', 'moveDirtyIds', 'subscribe', 'variants', 'version',
+  'accessors', 'appendedPoints', 'dirtyIds', 'getSnapshot', 'itemById', 'moveDirtyIds', 'subscribe', 'variants', 'version',
 ]
 const MIEMBROS_OWNER_SOURCE = [
-  'addFilter', 'destroy', 'dirtyIds', 'itemById', 'move', 'moveDirtyIds', 'patch', 'remove', 'removeFilter', 'set',
+  'addFilter', 'append', 'appendedPoints', 'destroy', 'dirtyIds', 'itemById', 'move', 'moveDirtyIds', 'patch', 'remove', 'removeFilter', 'set',
 ]
 
 test('el .d.ts parte el contrato: defineSource devuelve lectura, createSource dueño', () => {
@@ -369,12 +369,12 @@ test('el .d.ts parte el contrato: defineSource devuelve lectura, createSource du
 // eran los ÚNICOS asertos sobre la forma de createSource: renombrar moveDirtyIds, borrar
 // itemById/variants/dirtyIds o AGREGAR un miembro público pasaban con fail 0.
 const MIEMBROS_CREATE_SOURCE = [
-  'accessors', 'addFilter', 'destroy', 'dirtyIds', 'getSnapshot', 'itemById',
+  'accessors', 'addFilter', 'append', 'appendedPoints', 'destroy', 'dirtyIds', 'getSnapshot', 'itemById',
   'move', 'moveDirtyIds', 'patch', 'remove', 'removeFilter', 'set',
   'subscribe', 'variants', 'version',
 ]
 
-test('el retorno de createSource son exactamente estos 15 miembros, ni uno más', () => {
+test('el retorno de createSource son exactamente estos 17 miembros, ni uno más', () => {
   const src = core.createSource({ idOf: (it) => it.id, positionOf: (it) => it })
   const reales = Object.keys(src).sort()
   src.destroy()

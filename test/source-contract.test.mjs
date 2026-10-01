@@ -30,7 +30,7 @@ test('createSource devuelve lectura y escritura en el MISMO objeto', () => {
   const src = createSource({ idOf, positionOf }, variants)
 
   assert.deepEqual(miembros(src), [
-    'accessors', 'addFilter', 'destroy', 'dirtyIds', 'getSnapshot', 'itemById',
+    'accessors', 'addFilter', 'append', 'appendedPoints', 'destroy', 'dirtyIds', 'getSnapshot', 'itemById',
     'move', 'moveDirtyIds', 'patch', 'remove', 'removeFilter', 'set',
     'subscribe', 'variants', 'version',
   ])
@@ -40,7 +40,7 @@ test('createSource devuelve lectura y escritura en el MISMO objeto', () => {
 test('createSource fija el typeof y la aridad de cada miembro', () => {
   const src = createSource({ idOf, positionOf }, [])
   const aridad = {
-    addFilter: 1, destroy: 0, dirtyIds: 0, getSnapshot: 0, itemById: 1,
+    addFilter: 1, append: 1, appendedPoints: 0, destroy: 0, dirtyIds: 0, getSnapshot: 0, itemById: 1,
     move: 3, moveDirtyIds: 0, patch: 2, remove: 1, removeFilter: 1, set: 1,
     subscribe: 1, version: 0,
   }
@@ -60,10 +60,16 @@ test('createSource envuelve positionOf sólo cuando la fuente tiene geometría d
   assert.equal(conPunto.accessors.idOf, idOf)
   assert.equal(conPunto.accessors.variantOf, base.variantOf)
 
-  // Sin positionOf (fuente de líneas o de sólo tabla): el objeto pasa por identidad.
+  // Sin positionOf ni pathOf (fuente de sólo tabla): el objeto pasa por identidad.
+  const soloId = { idOf }
+  assert.equal(createSource(soloId).accessors, soloId)
+
+  // Con pathOf se envuelve (lo que `append` suma gana): sin positionOf, y con el resto intacto.
   const sinPunto = { idOf, pathOf }
-  assert.equal(createSource(sinPunto).accessors, sinPunto)
-  assert.equal(createSource(sinPunto).accessors.positionOf, undefined)
+  const conPath = createSource(sinPunto)
+  assert.notEqual(conPath.accessors.pathOf, pathOf)
+  assert.equal(conPath.accessors.idOf, idOf)
+  assert.equal(conPath.accessors.positionOf, undefined)
 })
 
 test('createSource usa idOf como hashOf por default: mutar un ítem sin cambiar su id no lo ensucia', async () => {
@@ -188,11 +194,11 @@ test('createSource exige SÓLO idOf: la geometría la pide cada capa que consuma
   assert.equal(tabla.itemById(7).nombre, 'a')
   tabla.destroy()
 
-  // Fuente de líneas: idem, `pathOf` no participa del override de posición.
-  const soloLinea = { idOf, pathOf }
-  const lineas = createSource(soloLinea)
-  assert.equal(lineas.accessors, soloLinea)
-  assert.equal(lineas.accessors.pathOf, pathOf)
+  // Fuente de líneas: `pathOf` se envuelve (lo sumado por `append`) y no hay override de posición.
+  const lineas = createSource({ idOf, pathOf })
+  lineas.set([{ id: 1, path: [[0, 0]] }])
+  assert.deepEqual(lineas.accessors.pathOf(lineas.itemById(1)), [[0, 0]], 'sin append devuelve el path base')
+  assert.equal(lineas.accessors.positionOf, undefined)
   lineas.destroy()
 })
 
@@ -219,7 +225,7 @@ const miembrosDeclarados = (nombre) => {
 
 test('S3 — la LECTURA (lo que el motor consume) vive en CristaeReadSource', () => {
   assert.deepEqual(miembrosDeclarados('CristaeReadSource'),
-    ['accessors', 'dirtyIds', 'getSnapshot', 'itemById', 'moveDirtyIds', 'subscribe', 'variants', 'version'])
+    ['accessors', 'appendedPoints', 'dirtyIds', 'getSnapshot', 'itemById', 'moveDirtyIds', 'subscribe', 'variants', 'version'])
 })
 
 // El desajuste ya no existe: createSource no expone NADA fuera de lo declarado (lectura ∪ dueño).

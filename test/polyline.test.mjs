@@ -73,13 +73,17 @@ const idx2 = idxOf([
   ok(hits[0].vertexIndex === 1, 'V: elige el segmento 1 (el más cercano), no el 0 -> vertexIndex 1')
 }
 
-// ── vertexCount / pathIndexOf: la matemática del mapeo buffer↔path (replica de LineLayer) ──
+// ── índice mutable: una entrada que crece se re-ordena al próximo nearest ──
 {
-  const pathIndexOf = (v) => (v + 1) >> 1
-  // K=3 → vertCount 4, buffer [p0, p1, p1, p2]
-  ok(pathIndexOf(0) === 0 && pathIndexOf(1) === 1 && pathIndexOf(2) === 1 && pathIndexOf(3) === 2, 'pathIndexOf K=3')
-  const vertCount = (K) => 2 * (K - 1)
-  ok(vertCount(2) === 2 && vertCount(3) === 4 && vertCount(5) === 8, 'vertCount = 2(K-1)')
+  const idx = idxOf([{ id: 1, path: [[0, 0], [0, 1]] }, { id: 2, path: [[0, 50], [0, 51]] }])
+  const e = idx.sorted.find((x) => x.id === 1)
+  const antes = nearest(0, 80, idx, 0.5).length
+  // El id 1 crece hasta cubrir lng 80 sin que `sorted` se ordene de nuevo: lo que se declara es `stale`.
+  e.pts = [...e.pts, { x: projX0(80), y: projY0(0) }]
+  e.bbox = { ...e.bbox, maxX: projX0(80) }
+  idx.stale = true
+  ok(antes === 0 && nearest(0, 80, idx, 0.5).length === 1, 'stale: nearest re-ordena y ve lo que creció')
+  ok(idx.stale === false, 'stale se limpia tras el re-orden')
 }
 
 // ── toParts: la convención de corte (encoding plano) ──

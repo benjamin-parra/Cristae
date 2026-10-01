@@ -222,7 +222,7 @@ Para **alta frecuencia** (mover móviles muchas veces/segundo sin rebuild) usar 
 | `createSource` | Devuelve **un** objeto que ES el `Source` (lectura) y que además se muta (dueño). | `(accessors, variants?) → Source` | O(1) |
 
 Un solo objeto: los miembros de **lectura** son el contrato `Source`
-(`getSnapshot`/`subscribe`/`version`/`itemById`/`dirtyIds`/`moveDirtyIds`/`accessors`/`variants`) y
+(`getSnapshot`/`subscribe`/`version`/`itemById`/`dirtyIds`/`moveDirtyIds`/`appendedPoints`/`accessors`/`variants`) y
 los de **escritura** son del dueño. Se adjunta tal cual (`layer.source = src`); el motor solo lee.
 El `Emitter` interno corre en tunnel reactivo (interval 0, defer 'raf'). No hay handle aparte ni
 `.source` anidada.
@@ -233,6 +233,7 @@ El `Emitter` interno corre en tunnel reactivo (interval 0, defer 'raf'). No hay 
 | `patch(items, dirtyIds)` | Patch parcial; rebuild solo si cambia membresía de filtro. | O(k) |
 | `move(id, lat, lng)` | Reposiciona **sin rebuild**. | O(1) `[0-alloc]` lado-dato |
 | `remove(id)` | Quita un ítem. | O(n) (filtra) |
+| `append(id, ...points)` | Suma puntos al final del path de un id (requiere `pathOf`); el path del consumidor no se toca. | O(puntos) |
 | `addFilter(f)` / `removeFilter(id)` | Filtros sobre el Store interno (computados una vez). | O(n·f) |
 | `destroy()` | Libera emitter, store y mapas. | O(1) |
 
@@ -241,6 +242,12 @@ de posición que `move` actualiza; el `positionOf` efectivo del `Source` devuelv
 existe. Marca el id en un Set reusable (`moveDirtyIds()`) y notifica (coalescido a rAF). La
 escritura real al buffer GPU (slot-write sobre los dirty ids) la hace la PointLayer — aquí solo
 vive el lado-dato.
+
+**`append` (clave):** hace para el path lo que `move` para la posición: guarda lo sumado aparte, el
+`pathOf` efectivo lo devuelve al final del path —copiándolo: O(path) por lectura, lo mismo que cuesta
+recorrerlo— y la ventana lo anuncia por `appendedPoints()` —un `Map<id, puntos>`— para que la capa de
+líneas escriba sólo eso. Un id desconocido lanza `RangeError`, sin puntos no hace nada, y un
+`set`/`patch`/`remove` del id descarta lo sumado. Semántica de lo sumado: [`lines.md`](lines.md#un-track-que-crece--append).
 
 ```js
 import { createSource } from './Source.js'

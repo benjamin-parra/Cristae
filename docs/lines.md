@@ -1,38 +1,36 @@
-# Líneas — `LineLayer`, `<cristae-line-layer>`, picking nearest-segment
+# Líneas — `<cristae-line-layer>`, picking nearest-segment
 
 > Pieza de [Cristae](../MODELO.md). Cuarta forma geométrica junto a [puntos](./render.md),
 > polígonos y [etiquetas](./labels.md). Consume un [Source](./data.md) y reusa la proyección
-> inlineada de `render/project.js`. Render GL sobre `glify.Lines`; picking CPU (`geometry/polyline.js`).
+> inlineada de `render/project.js`. Render GL propio (un quad por segmento); picking CPU (`geometry/polyline.js`).
 
-`LineLayer` dibuja polilíneas sobre WebGL apoyándose en `glify.Lines` **sin forkearlo**: reusa su
-rebuild (`setData`) y su draw (`gl.LINES`) tal cual, y le **añade** lo que su API no expone — el
-**color por vértice** para un gradiente, escribiendo el buffer interleaved por `bufferSubData` (el
-mismo patrón de bypass que `PointLayer` sobre `glify.points`). Es una primitiva **sin dominio**: una
-línea es N vértices con estilo, no un "recorrido" ni una "ruta" — eso lo compone el consumidor.
+Las líneas se dibujan **siempre en GPU**, con un único sustrato: el mismo `StrokePass` que dibuja el
+contorno de los polígonos, con `closed: false`. Los vértices viven en una textura y el vertex shader
+arma un quad por segmento desde `gl_VertexID`, con uniones miter y tapas `butt | round | square`.
+Panear y hacer zoom no reescriben un byte, y el conteo de draws **no depende del grosor ni del largo**:
+es uno por parte. Es una primitiva **sin dominio**: una línea es N vértices con estilo, no un
+"recorrido" ni una "ruta" — eso lo compone el consumidor.
+
+Cada capa toma UNO de los ~16 contextos WebGL de la página; una capa aguanta muchísimas líneas, así
+que no se hace una por línea.
 
 ---
 
-## La idea central: glify da menos de lo que su buffer permite
+## Cómo cambia lo dibujado
 
-`glify.Lines` asigna el color **por feature** (`colorFn(featureIndex, feature)`), pero lo **guarda
-por vértice** (`[x, y, r, g, b, a]`, `bytes=6`) y su shader **interpola** `_color` entre vértices. Es
-decir: el degradado ya es físicamente posible en el pipeline — sólo falta escribir los canales de
-color de cada vértice. Eso hace `LineLayer`:
+Los vértices viven en un arena mutable (`LineStore`) con un hueco por parte, y un cambio sube sólo lo
+que tocó:
 
-| Path | Cuándo | Costo | Mecanismo |
-|---|---|---|---|
-| **rebuild** | cambió el set de líneas / filtro / estilo / geometría | O(n), aloca O(n) | `glify.Lines.setData` |
-| **gradiente** | tras cada rebuild, si hay `scalarOf`+`colorRamp` | O(vértices), sólo en rebuild | escribe `r,g,b,a` por vértice y sube el buffer |
-| **patch incremental** *(interno, etapa 3)* | set y largos estables; sólo cambian `styleOf`/geometría de algunos ids | O(Σ vértices sucios), [0-alloc] | reescribe sólo los rangos sucios por `bufferSubData` — lo decide el motor leyendo `dirtyIds`, **no** hay API imperativa de restyle |
-| pan / zoom | — | [0-alloc] | glify sólo re-compone la matriz (`_reset` NO re-ejecuta `resetVertices`) → el color escrito **sobrevive** |
+| Cambio | Costo | Qué se sube |
+|---|---|---|
+| pan / zoom | [0-alloc] | nada: sólo cambia la matriz |
+| `patch` de unos ids | O(vértices de esos ids) | las filas de la textura que ocupan |
+| `append(id, ...points)` | O(puntos agregados) | las filas de lo agregado; si el hueco se agota, la parte se muda a uno del doble |
+| `set` con otra membresía, filtro | O(n) | textura nueva |
 
 > **El estilo es ESTADO, no una acción.** Recolorear una línea NO es un método `setStyle`: es cambiar
-> lo que devuelve `styleOf(item)` (o `scalarOf`) y `set`/`patch` la Source. El motor decide reescribir
-> sólo el color (incremental) o reconstruir — el `bufferSubData` es la *implementación* del patch, no
-> parte de la API. Igual que un punto no tiene `setColor`: mueve/patchea el item y `variantOf` decide.
-
-Un feature de `K` puntos ocupa `2·(K−1)` vértices (glify duplica los interiores para `gl.LINES`); el
-vértice `v` de un feature mapea al punto de path `⌈v/2⌉` — así el gradiente colorea segmento a segmento.
+> lo que devuelve `styleOf(item)` (o `scalarOf`) y `set`/`patch` la Source. Igual que un punto no tiene
+> `setColor`: mueve/patchea el item y `variantOf` decide.
 
 ---
 
@@ -66,34 +64,8 @@ layer.accessors = {
 layer.data = rutas                              // el elemento posee la Source interna
 ```
 `data` (el elemento posee la Source) y `source` (una `Source` compartida del consumidor) son las dos
-entradas de dato, como en `<cristae-point-layer>`. `interactive`/`visible`/`backend` son atributos;
+entradas de dato, como en `<cristae-point-layer>`. `interactive`/`visible` son atributos;
 `accessors`/`data`/`source` son props (funciones/objetos).
-
-### Sustrato — `backend`
-
-Dos formas de poner los mismos vértices en pantalla, con el mismo contrato (accessors, handle). Se
-lee al montar; en el elemento, con el atributo (`<cristae-line-layer backend="gpu">`).
-
-| `backend` | Grosor | Picking | Gradiente | `dash` | Foco por ítem | Contextos WebGL |
-|---|---|---|---|---|---|---|
-| `glify` *(default)* | brocha: `(4w+1)²` pasadas por feature y por frame | ✅ nearest-segment | ✅ por vértice | ❌ | ✅ exacto, en el alfa por vértice | comparte el de glify |
-| `gpu` | **un quad por segmento**, una pasada, con uniones por miter | ❌ | ❌ | ✅ | ✅ exacto | toma UNO de los ~16 |
-
-Regla: **gradiente o picking → `glify`; dash o un recorrido largo → `gpu`**.
-
-`gpu` es el mismo `StrokePass` que dibuja el contorno de los polígonos, con `closed: false`: los
-vértices viven en una textura y el vertex shader arma el quad desde `gl_VertexID`, así que panear y
-hacer zoom no reescriben un byte y el conteo de draws **no depende del grosor ni del largo** del
-recorrido. Es el sustrato de la geometría histórica —una ruta, un track— que se pide una vez y se mira:
-sin picking ni gradiente, que siguen siendo de `glify`.
-
-```js
-engine.addLineLayer({ id: 'ruta', backend: 'gpu', accessors, data })
-```
-
-Pedir `interactive: true` sobre `gpu` **falla ruidoso** en vez de dejar una capa que no contesta, y
-un `backend` que no es ninguno de los dos lanza nombrando los válidos. `vector`, el flag que elegía el
-trazo con dash, también lanza: su reemplazo es `backend: 'gpu'`.
 
 ### Multi-parte — una línea con huecos sigue siendo UNA entidad
 
@@ -114,8 +86,8 @@ El path y cada parte pueden ser cualquier iterable, y un vértice, cualquiera de
 > es lo correcto; el hueco se ve como hueco. Las partes de < 2 vértices se descartan (no hay segmento).
 
 Multi-parte **no** es multi-entidad: un id, un estilo, y **un solo hit** (gana la parte más cercana,
-que el hit reporta como `partIndex` + `segmentIndex`). En glify sale como un `MultiLineString`
-(una tirada de vértices por parte, contiguas y en orden); en `gpu`, como una parte por tramo.
+que el hit reporta como `partIndex` + `vertexIndex`). Cada parte es un rango de la textura y su
+propia pasada de dibujo.
 `scalarOf(item, vertexIndex)` indexa la **entrada** de `pathOf` — con el encoding plano los cortes
 ocupan índice, con el anidado los índices corren concatenados — así un array paralelo de escalares
 nunca se desincroniza.
@@ -141,45 +113,79 @@ layer.accessors = {
 }
 ```
 
+Cada vértice lleva su color (una textura RGBA8 junto a la de posiciones) y el color se interpola a lo
+largo del segmento. Con `scalarOf` presente el color de `styleOf` se ignora; `opacity`, no. La textura
+de colores sólo existe cuando hay gradiente.
+
+Con `append`, `scalarOf` se llama también para los índices agregados, que continúan los del path: el
+escalar de lo que crece tiene que poder responderse con el mismo `item` (un array paralelo que el
+consumidor también extiende).
+
 ### Imperativo — `engine.addLineLayer`
 
 ```js
 const handle = engine.addLineLayer({ id: 'ruta', accessors, data, interactive: true })
 handle.set(rutas)                               // empuja el dataset (acción)
+handle.append('ruta-1', [-33.4, -70.6])         // suma puntos al final de un track
 handle.setVisible(false)                        // toggle de visibilidad (espeja el estado `visible`)
 // Recolorear = ESTADO: cambiar styleOf(item) y re-empujar — NO hay handle.setStyle.
 ruta.color = '#c20b00'
 ruta.version++                                  // con hashOf: r => r.version; sin él, el mismo id no cuenta como cambio
-handle.set(rutas)                               // el motor reescribe sólo esa línea
+handle.set(rutas)                               // la capa reescribe sólo esa línea
 ```
 
-`LineHandle`: `{ id, source, set(items), setVisible(v) }` — sólo **acciones**; el estilo va por `styleOf`.
+`LineHandle`: `{ id, source, set(items), append(id, ...points), setVisible(v) }` — sólo **acciones**; el
+estilo va por `styleOf`. En el elemento, `layer.controls.append(id, ...points)`, con la capa montada:
+`append` sin más es el del DOM.
+
+`addLineLayer` rechaza `backend` y `vector` (ver *Migración* en el CHANGELOG): ya no hay sustrato que
+elegir.
+
+### Un track que crece — `append`
+
+`append(id, ...points)` suma puntos al final del path de `id` en O(puntos): lo que llega por un
+WebSocket no rearma el path del consumidor. Lo sumado **continúa el último tramo abierto** del path
+(el final de uno plano, la última parte no vacía de uno anidado: una parte vacía al final no abre
+tramo); un punto que no es punto corta, como en cualquier path, y lo que le sigue abre un tramo
+nuevo. Un único punto suelto al final espera al siguiente para dibujar.
+
+La Source dueña es quien lo guarda (`createSource(...).append`): requiere `pathOf`, lanza
+`RangeError` con un id que no tiene, y no hace nada sin puntos. El handle suma sobre la Source que
+posee la capa (ruta `data`); si la capa lee una `source` del consumidor, lanza `TypeError`: se suma
+con el `append` de esa Source. El path del consumidor no se toca, y un `set`, `patch` o `remove` del
+id descarta lo sumado: desde ahí manda el path que el consumidor entrega. Sobre una Source de lectura
+(`defineSource`) no hay `append`.
+
+### Foco
+
+`applyFocus(ids, dim)` —el foco por ítem que dirige `focus-ids`— atenúa en la **opacidad** de cada
+línea y es exacto: no se atenúa el pane. Es estado de la capa, así que un `patch` o un `append` lo
+conservan.
 
 ### Picking
 
-`kind:'line'`, `distancePx` real (nearest-segment), `partIndex` + `vertexIndex`. El índice espacial
-guarda **una entrada por parte** (bboxes ajustadas: las partes lejanas de un track disjunto se
-descartan por separado en el broad-phase) y `nearest` devuelve **un hit por id**.
+Con `interactive`: `kind:'line'`, `distancePx` real (nearest-segment), `partIndex` + `vertexIndex`. La
+tolerancia es 8 px más la mitad del grosor mayor: el trazo grueso capta desde su borde, no desde su
+eje. El índice espacial guarda **una entrada por parte** (bboxes ajustadas: las partes lejanas de un
+track disjunto se descartan por separado en el broad-phase) y `nearest` devuelve **un hit por id**.
 
 🔴 **`vertexIndex` vive en el espacio de índices de la ENTRADA de `pathOf`** — el mismo que recibe
 `scalarOf` — y apunta al vértice donde arranca el segmento picado. Sin eso el hit no sería cruzable
 con el dato: un índice local a la parte no dice nada sobre el array paralelo del consumidor.
 
-Los hits fluyen por el `LayerRegistry` con el
-desempate estándar (`zIndex desc, order asc, distancePx asc`) — el consumidor escucha `click`/`hover`
-como en cualquier capa. El hit-test nativo de glify se apaga (`sensitivity:0`); el índice espacial
-(`geometry/polyline.js`) se reconstruye en cada rebuild.
+El índice se arma al primer pedido de hit y se mantiene al día con cada `patch` y `append`, sin
+reconstruirse. Los hits fluyen por el `LayerRegistry` con el desempate estándar
+(`zIndex desc, order asc, distancePx asc`) — el consumidor escucha `click`/`hover` como en cualquier
+capa.
 
 ---
 
 ## Invariantes
 
 - **Sin dominio**: `pathOf`/`scalarOf`/`colorRamp` son opacos; el core no sabe qué es una velocidad.
-- **No se forkea glify**: sólo se escribe su buffer por `bufferSubData` (bypass sobre los recursos GL
-  de la instancia), como `PointLayer`. `setData`/`render`/`resetVertices`/draw/shaders intactos.
-- **Multi-mapa**: todo el estado vive en la instancia de `LineLayer`; cero `let` de módulo. (Una
-  instancia glify = un contexto WebGL → **una** line-layer aguanta muchísimas líneas en un contexto;
-  no hacer una instancia por línea.)
+- **Multi-mapa**: todo el estado vive en la instancia de la capa; cero `let` de módulo.
+- **El ancla de una parte** (el centro de su caja) se fija al escribirla y no se mueve al agregar: un
+  vértice muy lejano de ella pierde algo de precisión float32 antes que reescribir todo el rango.
 - **Apilado** por orden de hijos en el light DOM.
 
 ## Trazo: patrones y decoración
@@ -200,7 +206,7 @@ patrones tradicionales son todos el mismo eje (generalidad por composición, no 
 Con `cap:'butt'` (default) un tramo de largo 1 sale como un cuadradito, no como un punto — por eso el
 punteado y el raya-punto piden `cap:'round'`.
 
-`dash` y `cap` los dibuja `gpu`; `glify` los ignora. En `gpu` el patrón se mide en px de
+El patrón se mide en px de
 pantalla y corre **continuo a lo largo de cada parte**, sin reiniciarse en los vértices, y no cambia al
 hacer zoom: lo que crece con el zoom es la longitud de la línea, no el período. Un número impar de
 valores se repite, como en `stroke-dasharray`, y uno inválido —vacío, con un valor negativo o
@@ -237,16 +243,3 @@ puntosLayer.data = flechas
 Ventaja de componer en vez de meter `arrows:true` en la línea: las flechas heredan **gratis** todo el
 point-layer (atlas GPU, clustering opcional, picking, popup, `enabled`/`visible`), y el consumidor
 decide cuántas, con qué ícono y cuándo recalcularlas (p. ej. al cambiar el zoom).
-
-## Deuda conocida (NO en este incremento)
-
-- **Grosor (backend `glify`)**: glify no dibuja líneas gruesas — barre una línea de 1px con una
-  **brocha** de radio `w` en pasos de 0.5, así que rinde `2w+1` px de ancho y **`(4w+1)²` draw-calls por
-  feature**. `styleOf.weight` es px de pantalla en TODOS los sustratos: la capa convierte px → radio
-  (`(px−1)/2`) antes de pasárselo a glify. Aun convertido, el costo de *draw* sigue siendo cuadrático en
-  el grosor (8 px → 225 pasadas por feature y por frame): no escala. **El grosor real por triángulos ya
-  no es futuro: es el sustrato `gpu`** (abajo). `glify` sigue siendo el default porque es el único que
-  resuelve picking y gradiente por vértice.
-- **`dash` en el backend `glify`**: `gl.LINES` no lo soporta → usar `backend: 'gpu'`.
-- **Track vivo (`extend`)**: crecer una línea por la punta hoy pasa por rebuild coalescido; el append
-  incremental [0-alloc] al tail es una etapa posterior.

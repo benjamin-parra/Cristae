@@ -1,5 +1,5 @@
 import L from 'leaflet'
-import { coordOf, hasPointShape } from '../geometry/polyline.js'
+import { coordOf, hasPointShape } from '../data/path.js'
 import { retainTileSnapshots } from './TileSnapshotRetention.js'
 import { TILE_FILTER } from './styles.js'
 

@@ -25,7 +25,7 @@ const encuadre = alta => {
 }
 
 const deLinea = path => encuadre(engine => engine.addLineLayer({
-  id: 'ruta', backend: 'gpu', accessors: { idOf: r => r.id, pathOf: r => r.path }, data: [{ id: 1, path }],
+  id: 'ruta', accessors: { idOf: r => r.id, pathOf: r => r.path }, data: [{ id: 1, path }],
 }))
 
 test('encuadra una línea en cualquiera de las formas de punto', () => {
@@ -48,7 +48,7 @@ test('el tope de maxZoom va en el mismo encuadre, sin un zoom aparte', () => {
 
   const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeLeaflet() }) })
   engine.addLineLayer({
-    id: 'ruta', backend: 'gpu', accessors: { idOf: r => r.id, pathOf: r => r.path }, data: [{ id: 1, path: [[10, 20], [11, 21]] }],
+    id: 'ruta', accessors: { idOf: r => r.id, pathOf: r => r.path }, data: [{ id: 1, path: [[10, 20], [11, 21]] }],
   })
   engine.fitToLayers(null, { maxZoom: 9 })
   engine.destroy()

@@ -89,9 +89,9 @@ test('una capa que lanza al darse de alta no deja su pane ni oyentes', t => {
 
   assert.throws(() => engine.addEditableLayer({ id: 'editor' }), /WebGL2/)
   assert.throws(() => engine.addPolygonLayer({ id: 'zonas', accessors: { idOf: it => it.id, ringsOf: it => it.rings } }), /WebGL2/)
-  assert.throws(() => engine.addLineLayer({ id: 'rutas', backend: 'gpu', accessors: lineas }), /WebGL2/)
-  assert.throws(() => engine.addLineLayer({ id: 'picadas', backend: 'gpu', interactive: true, accessors: lineas }), /picking/)
-  assert.throws(() => engine.addLineLayer({ id: 'otras', backend: 'svg', accessors: lineas }), /desconocido/)
+  assert.throws(() => engine.addLineLayer({ id: 'rutas', accessors: lineas }), /WebGL2/)
+  assert.throws(() => engine.addLineLayer({ id: 'picadas', interactive: true, accessors: lineas }), /WebGL2/)
+  assert.throws(() => engine.addLineLayer({ id: 'otras', backend: 'gpu', accessors: lineas }), /backend/)
 
   const panes = ['cristae-edit-editor', 'cristae-polygon-zonas', 'cristae-line-rutas', 'cristae-line-picadas', 'cristae-line-otras']
   panes.forEach(pane => assert.equal(map.getPane(pane), null, `${pane} fuera del registro`))

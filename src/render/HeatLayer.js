@@ -1,7 +1,7 @@
 import { toRGBA } from './color.js'
 import { frameTransform } from './frame.js'
 
-// Capa de CAMPO DE CALOR (heatmap) reactiva a un Source. Hermana de PointLayer/LineLayer en el ciclo
+// Capa de CAMPO DE CALOR (heatmap) reactiva a un Source. Hermana de PointLayer/LineGpuLayer en el ciclo
 // de vida (constructor {..}, subscribe al Source + redibujo coalescido a rAF, redraw/refresh/destroy),
 // pero su BACKEND es un CANVAS 2D acumulativo (estilo leaflet.heat), NO glify:
 //   1. cada punto estampa una BROCHA radial (degradado gris, opaco al centro → transparente al borde)
@@ -95,7 +95,7 @@ export class HeatLayer {
     this.#canvas = canvas
     this.#ctx    = canvas.getContext('2d')
     this.#surface.mount(pane).appendChild(canvas)
-    // Ruta del Source: dibuja SÍNCRONO (como LineLayer#onChange). El Emitter del Source ya coalesce sus
+    // Ruta del Source: dibuja SÍNCRONO (como LineGpuLayer). El Emitter del Source ya coalesce sus
     // notificaciones a UN rAF, así que un rAF propio acá sería un SEGUNDO frame de latencia sin ganancia.
     // El rAF de #invalidate queda para los eventos de mapa (que Leaflet dispara sin coalescer).
     this.#unsub = source.subscribe(() => this.#draw())

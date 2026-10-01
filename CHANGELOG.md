@@ -12,7 +12,7 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   continuo a lo largo del anillo; con `null` o ausente el trazo es continuo. Lo consumen también los
   círculos en metros. Ver [`docs/polygons.md`](docs/polygons.md#estilo).
   *Migración*: ninguna — antes la capa GPU ignoraba el campo.
-- **El sustrato `gpu` de las líneas dibuja `dash` y `cap`.** `styleOf.dash` es un patrón
+- **Las líneas dibujan `dash` y `cap`.** `styleOf.dash` es un patrón
   `stroke-dasharray` en píxeles de pantalla que corre continuo a lo largo de cada parte, sin
   reiniciarse en los vértices ni cambiar con el zoom; `cap` (`butt`, `round`, `square`) redondea o
   cuadra cada trazo del patrón o, sin dash, las dos puntas de la parte. El patrón se mide en el
@@ -22,10 +22,20 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   Un patrón con más de 16 valores ya repetidos es un `RangeError` que el `Source` reporta, y la capa
   conserva lo que dibujaba; uno inválido deja la línea sólida.
   Ver [`docs/lines.md`](docs/lines.md#patrones-de-trazo--un-solo-eje-dash-no-un-flag-por-patrón).
-  *Migración*: ninguna — antes `gpu` ignoraba ambos campos; `glify` los sigue ignorando.
-- **`<cristae-line-layer>` elige su sustrato con el atributo `backend`** (`glify` | `gpu`), el mismo
-  eje que `addLineLayer`; sin él, `glify`. Ver [`docs/lines.md`](docs/lines.md).
-  *Migración*: reemplaza a la prop `vector` (ver *Eliminado*): `vector` pasa a `backend="gpu"`.
+  *Migración*: ninguna — antes sólo el trazo que se pedía con `vector` los dibujaba.
+- **Las líneas con gradiente por vértice, picking y foco se dibujan en GPU.** `scalarOf` +
+  `colorRamp` tiñen cada vértice (una textura RGBA8 junto a la de posiciones, que sólo existe con
+  gradiente) y el color se interpola a lo largo del segmento; `interactive` resuelve el segmento más
+  cercano con el mismo índice CPU de siempre, que se mantiene al día sin reconstruirse; y el foco
+  por ítem atenúa en la opacidad, así que un `patch` lo conserva. Ver [`docs/lines.md`](docs/lines.md).
+  *Migración*: ninguna — antes eran lo que daba el sustrato `glify`, que ya no existe (ver *Eliminado*).
+- **`append(id, ...points)` hace crecer un track por su punta.** Está en el handle de la capa
+  (`<cristae-line-layer>` lo da por `controls`) y en el `Source` dueño (`createSource`, que suma
+  `appendedPoints` a su lectura): suma puntos al final del path en O(puntos agregados), sin rearmar el
+  del consumidor y subiendo sólo las filas que tocó. Lo sumado continúa el último tramo abierto; un
+  `set`, `patch` o `remove` del id lo descarta.
+  Ver [`docs/lines.md`](docs/lines.md#un-track-que-crece--append).
+  *Migración*: ninguna.
 - **`cristae/geometry` — distancias en metros, con el modelo de la Tierra que se pida.**
   `distance(pointA, pointB, …)` mide el recorrido por los puntos, y `distance(path)` un path plano o
   anidado, con la regla de corte de `toParts`: un punto inválido corta y el hueco no suma; si hubo
@@ -104,6 +114,11 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   el zoom sigue obedeciendo la política de `zoom-animation` ([SPECS §9](SPECS.md)).
 
 ### Cambiado
+- **Las líneas se dibujan siempre en GPU, con un único sustrato.** Cada parte es un rango de una
+  textura que un solo `drawArrays` recorre, el grosor sale de un quad por segmento y un `patch` reescribe
+  sólo las filas de sus ids. Pedir una capa de líneas deja de elegir entre `glify` y `gpu`, y la
+  `LineLayer` de glify no existe más.
+  *Migración*: ninguna en lo que se pide por defecto; ver *Eliminado* si se pasaba `backend`.
 - **Los puntos se dibujan con un buffer y una superficie propios, sin glify.** `addPointLayer`,
   `<cristae-point-layer>`, los badges de `addOverlay` y las burbujas y la espiral de un cluster ya no
   montan `glify.points`: cada capa tiene su VBO, su contexto WebGL —uno por capa, como antes— y su
@@ -116,7 +131,7 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   *Migración*: ninguna en la API; el canvas de una capa de puntos ya no es el de glify, así que un CSS
   que lo apuntaba por sus clases debe apuntar al pane de la capa.
 - **Las patas de la espiral de un cluster se dibujan con las líneas de la librería.** Las patas al
-  centro y la traza que une las hojas son una capa de líneas `gpu` propia del fold, sin picking, que
+  centro y la traza que une las hojas son una capa de líneas propia del fold, sin picking, que
   nace con la primera espiral abierta: un fold que nunca se expande no toma ningún contexto WebGL por
   ellas. Se arma y se vacía con cada espiral, y se va con el fold.
   *Migración*: ninguna en la API; el pane de las patas pasa a llamarse `cristae-line-<id>:legs`, y como
@@ -268,12 +283,14 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   cambia por figura. Para apagar el relleno de una figura, `fillOpacity: 0`; su borde, `opacity: 0` o
   `weight: 0`. Con varias capas de polígonos en la página, que cada una toma un contexto WebGL, se
   juntan en una con un `styleOf` que las distinga.
-- **Las líneas pierden el sustrato `leaflet` y la prop `vector`.** `backend` queda en
-  `'glify' | 'gpu'`, y en el elemento lo elige su atributo (ver *Agregado*); pedir `backend: 'leaflet'`
-  lanza como cualquier sustrato desconocido, y `vector` lanza nombrando su reemplazo. Con él salen
-  `LeafletLineLayer` y el `L.polyline`. Ver [`docs/lines.md`](docs/lines.md).
-  *Migración*: `vector: true` pasa a `backend: 'gpu'`, que dibuja `dash` y `cap` pero no resuelve
-  picking; quien necesitaba las dos cosas pone una capa `glify` interactiva y otra `gpu` de trazo.
+- **Las líneas pierden la elección de sustrato: salen `backend`, `vector` y la `LineLayer` de glify.**
+  `addLineLayer` rechaza `backend` y `vector` nombrando esta migración en vez de ignorarlos, y
+  `<cristae-line-layer>` ya no tiene el atributo `backend`. Con ellos salen `LeafletLineLayer`, el
+  `L.polyline` y los auxiliares que sólo usaba el sustrato de glify (`toColorObj`, `cancelPendingRedraw`).
+  Ver [`docs/lines.md`](docs/lines.md).
+  *Migración*: se quita `backend` (y `vector: true`) de `addLineLayer` y el atributo `backend="..."` del
+  elemento: la capa de líneas hace ahora gradiente, picking, `dash` y `cap` a la vez, así que ya no hace
+  falta separar una capa `glify` interactiva de una `gpu` de trazo.
 - **`pathStyle` y el acceso transitorio al sustrato del anfitrión salen.** El anfitrión ya no expone
   más que sus facetas: `host.map` queda para glify y `getLeafletMap()`. Nada de lo público los usaba.
   *Migración*: ninguna.

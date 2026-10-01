@@ -1,18 +1,18 @@
 // Geometría de polilíneas genérica, sin dominio. Dos piezas:
-//   · el contrato de path, en grados: qué es un punto, los dos encodings y la regla de corte
-//     (`coordOf`, `isNested`, `foldRuns`, `toParts`). Lo comparten las capas de líneas, su encuadre,
-//     la medida en metros (geodesic.js) y las cajas (bounds.js); la edición comparte el lector de
-//     punto y la decisión de anidado. Los anillos de `ringsOf` y las posiciones de `positionOf` tienen
-//     su propio contrato.
+//   · la regla de corte sobre el contrato de path de `data/path.js` (`foldRuns`, `toParts`). La
+//     comparten las capas de líneas, su encuadre, la medida en metros (geodesic.js) y las cajas
+//     (bounds.js). Los anillos de `ringsOf` y las posiciones de `positionOf` tienen su propio
+//     contrato.
 //   · el hit-testing nearest-segment de la line-layer —distancia punto→segmento + índice espacial
 //     (bbox ordenado por maxX, descarte por upper-bound binario), O(log n + k) por consulta— y el
 //     muestreo de `sampleAlong`.
 //
-// La segunda se calcula en el marco EPSG:3857 a zoom 0 (world0 px) reusando projX0/projY0 — el MISMO
-// espacio que proyecta glify (points.ts exige EPSG:3857). El caller convierte la tolerancia y la
+// La segunda se calcula en el marco EPSG:3857 a zoom 0 (world0 px) reusando projX0/projY0, el mismo
+// espacio en que dibuja la capa. El caller convierte la tolerancia y la
 // distancia a píxeles de pantalla multiplicando por la escala del zoom (world0 · 2^zoom = screen).
 // Módulo puro: sin Leaflet, sin WebGL, testeable con coordenadas conocidas.
 import { projX0, projY0 } from '../render/project.js'
+import { coordOf, isNested, isPoint, iterable, listOf } from '../data/path.js'
 import { bboxOfPoints } from './bbox.js'
 import { lowerBoundBy } from './binary-search.js'
 
@@ -26,41 +26,6 @@ const distSqToSegment = (px, py, ax, ay, bx, by) => {
   const ex = px - cx, ey = py - cy
   return ex * ex + ey * ey
 }
-
-// Un punto, en grados, tiene cuatro formas: `[lat, lng]` —un array, donde lo que siga, una altura, se
-// ignora, o una vista tipada de dos o tres componentes—, `{ lat, lng }`, `{ lat, lon }` y
-// `{ latitude, longitude }`. Es un punto si sus dos componentes son números finitos y la latitud cae
-// en [-90, 90]: fuera de ahí no hay un lugar, y cada modelo de la Tierra la mediría distinto. No se
-// coacciona un string, y un objeto que expone `lat()` como método no es un punto. Una vista tipada más
-// larga es un track intercalado, que leído como punto mediría 0: no es un punto, y corta. El orden
-// `[lng, lat]` no entra: es un par igual en forma, y en latitudes medias no se distingue.
-//
-// `coordOf(p, 0)` es la latitud y `coordOf(p, 1)` la longitud de un valor no nulo, leídas en su
-// lugar, sin copiar el punto. El lector queda chico a propósito, con las formas objeto aparte: así
-// V8 lo inlina entero en los recorridos, y el double de un par no se encajona. Por lo mismo la forma
-// se reconoce por `typeof` y no comparando con undefined, y el null lo descarta `isPoint` antes de
-// leer: mezclar el double con undefined o con un NaN constante también obliga a encajonarlo, una
-// asignación por vértice en los recorridos de volumen.
-//
-// `isPlace` es la regla sin la forma, sobre la latitud y la longitud ya leídas: la comparten las
-// esquinas de una caja, que no llegan como punto. `hasPointShape` es la forma sin la regla: la usa la
-// cámara, que no acota la latitud.
-const indexable = v => Array.isArray(v) || ArrayBuffer.isView(v)
-
-const objectCoord = (p, axis) =>
-  typeof p.lat === 'number' ? (axis ? (typeof p.lng === 'number' ? p.lng : p.lon) : p.lat)
-  : axis ? p.longitude : p.latitude
-
-export const coordOf       = (p, axis) => (indexable(p) ? p[axis] : objectCoord(p, axis))
-export const isPlace       = (lat, lng) => Number.isFinite(lat) && Math.abs(lat) <= 90 && Number.isFinite(lng)
-export const hasPointShape = p => p != null && !(ArrayBuffer.isView(p) && p.length > 3)
-export const isPoint       = p => hasPointShape(p) && isPlace(coordOf(p, 0), coordOf(p, 1))
-
-// Un iterable del path es un objeto: un string también se recorre, pero sus caracteres no son
-// vértices. Un array se lee en su lugar; otro iterable se materializa antes de leerlo, porque uno de
-// un solo uso no se deja leer dos veces. Lo que no es iterable no trae vértices.
-export const iterable = v => typeof v === 'object' && !!v?.[Symbol.iterator]
-const listOf          = v => (Array.isArray(v) ? v : iterable(v) ? [...v] : [])
 
 /** Los tramos de `part` leída como un path plano, con `base` = la posición de la parte en la
  *  entrada. Un vértice que no es punto corta y, si hay `cut`, se le avisa con el vértice:
@@ -78,22 +43,6 @@ export const foldPart = (part, base, fn, acc, cut, least = 2) => {
 }
 
 // El encoding de un path lo decide su primer elemento que trae algo. Un array o una vista tipada se
-// decide por su lat y su lng, como se lee el punto —lo que siga, una altura o un objeto, no cuenta—:
-// si el primero no nulo de los dos es un objeto —un punto en cualquiera de sus formas, aunque venga
-// sucio—, el elemento es una parte y el path es anidado; si es un primitivo —un número, aunque sea
-// NaN—, es un vértice y el path es plano, y se corta. Otro objeto decide por sí mismo: un punto es un
-// vértice, así que un plano de objetos se decide en su primer punto, y otro iterable es una parte,
-// que se decide sin abrirla. Saltar lo que no decide (null, un primitivo, `[]`, `[null]`, un objeto
-// que no es punto ni iterable) es lo que deja leer un plano cuyo vértice 0 llega sucio, que es como
-// llega una fila GPS mala, y un anidado cuya primera parte llega vacía o con un vértice nulo en la
-// cabeza. Si nada decide, con algún array el path es anidado: leído como parte, un array sin lat ni
-// lng puede traer puntos después y, vacío, no aporta ni corta; leído como vértice, cortaría.
-export const isNested = top => {
-  const lead = top.find(v => (indexable(v) ? (v[0] ?? v[1]) != null : isPoint(v) || iterable(v)))
-  return lead === undefined ? top.some(indexable)
-    : indexable(lead) ? typeof (lead[0] ?? lead[1]) === 'object' : !isPoint(lead)
-}
-
 /** Pliega sobre `acc`, sin copiarlos, los tramos de puntos CONTIGUOS de un path:
  *  `acc = fn(acc, vertices, first, count, from)` por tramo, con el tramo en
  *  `vertices[first … first+count)` y `from` = la posición de su primer vértice en la entrada, para
@@ -151,13 +100,20 @@ export const toParts = input => foldRuns(input, pushPart, [])
 // el `from` de cada parte para que el hit pueda expresarse en el espacio de índices de la ENTRADA (el
 // mismo que recibe `scalarOf`) y no sólo en el local de la parte. Índice inmutable; reconstruir sólo
 // si cambia el set. Proyecta cada vértice a world0 px una vez. O(n·k) al construir.
+//
+// El índice se deja MUTAR: quien lo mantiene al día agrega entradas, quita las suyas o estira los `pts`
+// de una y su `bbox`, y marca `stale`. El orden por maxX se restablece al próximo `nearest`, una sola
+// vez por tanda de cambios y no por cambio.
+const byMaxX = (a, b) => a.bbox.maxX - b.bbox.maxX
+
 export const prepareIndex = items => ({
+  stale: false,
   sorted: (items ?? [])
     .flatMap(({ id, parts }) => parts.map(({ path, from }, partIndex) => {
       const pts = path.map(([lat, lng]) => ({ x: projX0(lng), y: projY0(lat) }))
       return { id, partIndex, from, pts, bbox: bboxOfPoints(pts) }
     }))
-    .sort((a, b) => a.bbox.maxX - b.bbox.maxX),
+    .sort(byMaxX),
 })
 
 // Un item se descarta si su bbox.maxX < value: sus previos tienen todo su bbox al oeste de `value`
@@ -214,6 +170,10 @@ export const sampleAlong = (input, count) => {
 export const nearest = (lat, lng, index, tol) => {
   const { sorted } = index
   if (!sorted.length) return []
+  if (index.stale) {
+    sorted.sort(byMaxX)
+    index.stale = false
+  }
   const px = projX0(lng), py = projY0(lat)
   const tol2 = tol * tol
   const out = []

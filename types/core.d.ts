@@ -44,6 +44,9 @@ export interface CristaeReadSource<T = unknown> {
   dirtyIds?(): Set<string | number> | null;
   /** Ids sólo movidos: la capa reescribe el slot de posición sin rebuild. */
   moveDirtyIds?(): Set<string | number> | null;
+  /** Puntos que `append` sumó al path de cada id en la ventana vigente: la capa de líneas
+   *  escribe sólo lo agregado. */
+  appendedPoints?(): Map<string | number, unknown[]> | null;
 }
 
 /**
@@ -61,6 +64,10 @@ export interface CristaeSource<T = unknown> extends CristaeReadSource<T> {
   patch(items: T[], dirtyIds: Set<string | number>): void;
   /** Quita un id del conjunto (rebuild). */
   remove(id: string | number): void;
+  /** Suma `points` al final del path de `id` en O(points): el track crece sin que el consumidor
+   *  rearme su path. Requiere `accessors.pathOf`; lanza `RangeError` si el id no existe. Un `set`,
+   *  `patch` o `remove` del id descarta lo sumado. */
+  append(id: string | number, ...points: unknown[]): void;
   /** Agrega un filtro de MEMBRESÍA compartido: afecta a TODOS los consumidores de la
    *  Source (mapa + tablas quedan sincronizados con un solo cómputo). */
   addFilter(filter: CristaeFilter<T>): void;
@@ -70,6 +77,7 @@ export interface CristaeSource<T = unknown> extends CristaeReadSource<T> {
   itemById(id: string | number): T | undefined;
   dirtyIds(): Set<string | number>;
   moveDirtyIds(): Set<string | number>;
+  appendedPoints(): Map<string | number, unknown[]>;
 }
 
 /** Crea una Source house-first (Store + Emitter propios del núcleo): lectura + dueño. */

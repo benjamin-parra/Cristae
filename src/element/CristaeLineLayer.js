@@ -4,8 +4,8 @@ import { makeAutoId } from './autoId.js'
 // <cristae-line-layer> — capa de líneas GL declarativa. Como point-layer, dos entradas de dato:
 // `data` (array → el elemento posee la Source interna) y `source` (Source compartida del consumidor,
 // createSource/defineSource). `accessors` = { idOf, pathOf, styleOf?, scalarOf?, colorRamp?, hashOf? } se
-// asigna por JS (funciones, no atributos). `backend` elige el sustrato al montar (`glify` o `gpu`); el
-// grosor por brocha de glify y la ausencia de dash en ese backend son deuda documentada (ver docs/lines.md).
+// asigna por JS (funciones, no atributos). Un track crece por su punta con `controls.append` (ver
+// docs/lines.md): el elemento no lo declara, porque `append` es el del DOM.
 export class CristaeLineLayer extends CristaeLayerElement {
 
   // Gramática de composición: entidad hoja que produce `line`.
@@ -17,7 +17,6 @@ export class CristaeLineLayer extends CristaeLayerElement {
     accessors: { type: Object },
     interactive: { type: Boolean },
     visible: { type: Boolean },
-    backend: { type: String },          // sin declarar, el default del motor
   }
 
   constructor() {
@@ -39,7 +38,6 @@ export class CristaeLineLayer extends CristaeLayerElement {
       accessors: this.accessors,
       interactive: this.interactive,
       visible: this.visible,
-      backend: this.backend,
     })
   }
 

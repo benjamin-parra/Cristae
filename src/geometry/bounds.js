@@ -3,7 +3,8 @@
 // de 180, y con el oeste al este del este no es una caja. Es la caja de la API, de los encuadres y de lo
 // que una capa informa como propia; las cajas de trabajo de los índices, sin regla de lugar, viven en
 // bbox.js. Módulo puro, como geodesic.js: sin Leaflet, sin DOM.
-import { coordOf, foldArgs, isPlace, isPoint } from './polyline.js'
+import { coordOf, isPlace, isPoint } from '../data/path.js'
+import { foldArgs } from './polyline.js'
 
 // La caja vacía, que el primer lugar que se le suma vuelve la caja de un punto. Hasta entonces no es una
 // caja: `readBounds` la rechaza, y con él decide todo el que acumula si le quedó alguna.

@@ -100,6 +100,7 @@ shared/external/Cristae/          # raiz del paquete (se sirve por GitHub: git i
    ├─ data/                      # ── NÚCLEO compartido (no depende de nada) ──
    │  ├─ Store.js  Emitter.js    # store reactivo + emisor coalescido
    │  ├─ Source.js               # contrato Source + defineSource / createSource
+   │  ├─ path.js                 # contrato de path: qué es un punto y los dos encodings
    │  ├─ filters.js  safe.js     # filtros/listeners + helpers de error 0-alloc
    │  └─ index.js                # entry cristae/core
    └─ table/                     # ── TABLA (solo data/ + lit; sin Leaflet/glify) ──
@@ -118,7 +119,7 @@ El grafo de dependencias es un DAG con `data/` como núcleo y dos consumidores q
 importan entre sí**:
 
 ```
-        data/   ← contrato Source, Store, Emitter, filters. Depende de NADA.
+        data/   ← contrato Source y de path, Store, Emitter, filters. Depende de NADA.
        ╱     ╲
    table/     engine/+element(mapa)/
   (lit)       (Leaflet/glify)

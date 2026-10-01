@@ -19,7 +19,7 @@
 // sueltos y DERIVAN el suyo (un vértice, las cuatro esquinas): así el gesto es uno solo para los cuatro.
 //
 // Sistema de coordenadas: pares [lat, lng] (la entrada acepta además las otras formas de punto de
-// `geometry/polyline.js`; la salida SIEMPRE es [lat, lng]). Una capa atada al mismo `value` lo lee con su
+// `data/path.js`; la salida SIEMPRE es [lat, lng]). Una capa atada al mismo `value` lo lee con su
 // propio contrato: la de líneas, en las mismas formas; la de polígonos, en pares. Formas por `kind`:
 //   · polygon   → rings: anillo simple [[lat,lng],…] o multi-anillo [[[lat,lng],…],…] (sin cerrar: el
 //                 primer punto NO se repite al final). La salida conserva la forma de la entrada.
@@ -28,7 +28,7 @@
 //   · rectangle → bounds: [[sur,oeste],[norte,este]]  (o null mientras no se dibujó)
 import { CLICK_TOLERANCE, HANDLE_HELD, HANDLE_NONE, HANDLE_OVER } from '../events/events.js'
 import { ChunkedPath, ROLE } from '../geometry/ChunkedPath.js'
-import { coordOf, isNested, isPoint } from '../geometry/polyline.js'
+import { coordOf, isNested, isPoint } from '../data/path.js'
 import { EditArena } from './EditArena.js'
 import { EditFillLayer } from './EditFillLayer.js'
 import { defineEditIconSet, editHandleChannels, EditHandleLayer } from './EditHandleLayer.js'

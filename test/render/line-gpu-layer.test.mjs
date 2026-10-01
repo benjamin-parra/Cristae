@@ -13,6 +13,7 @@ import assert from 'node:assert/strict'
 import { LineGpuLayer } from '../../src/render/LineGpuLayer.js'
 import { MapEngine } from '../../src/engine/MapEngine.js'
 import { adoptLeafletHost } from '../../src/host/LeafletHost.js'
+import { createSource } from '../../src/data/Source.js'
 
 const WITH_STENCIL = () => ({ stencil: true })
 
@@ -62,17 +63,17 @@ const makeMap = () => {
 const recorrido = (n, lat = 0, lng = 0) =>
   Array.from({ length: n }, (_, i) => [lat + i * 0.001, lng + i * 0.001])
 
-const fakeSource = (items, styleOf = null) => ({
-  accessors  : { pathOf: r => r.path, styleOf },
-  getSnapshot: () => items,
-  subscribe  : () => () => {},
-})
+// Un Source real: la capa lo lee por su contrato (`itemById`, `dirtyIds`, `appendedPoints`) y se entera de
+// los cambios por `subscribe`, que reparte en el siguiente turno.
+const tick = () => new Promise(resolve => setTimeout(resolve, 5))
 
-const mount = ({ items = [{ id: 1, path: recorrido(50) }], styleOf = null, map = makeMap(), envolver = gl => gl } = {}) => {
+const mount = ({ items = [{ id: 1, path: recorrido(50) }], styleOf = null, map = makeMap(), envolver = gl => gl, ...opts } = {}) => {
   const spy = newSpy()
   currentGl = envolver(editGl(spy))
-  const layer = new LineGpuLayer({ host: adoptLeafletHost(map), pane: 'gpu-line', source: fakeSource(items, styleOf) })
-  return { layer, map, spy }
+  const source = createSource({ idOf: r => r.id, pathOf: r => r.path, styleOf, ...opts.accessors })
+  source.set(items)
+  const layer = new LineGpuLayer({ host: adoptLeafletHost(map), pane: 'gpu-line', source })
+  return { layer, map, spy, source }
 }
 
 // Los `drawArrays` de UN repintado, contados desde cero.
@@ -140,15 +141,16 @@ test('el dash y la tapa de styleOf llegan al trazo, y un tramo sin ellos no here
   ])
 })
 
-test('un patrón mutado en sitio y publicado con set se vuelve a leer', () => {
+test('un patrón mutado en sitio y publicado con set se vuelve a leer', async () => {
   const patron = [8, 6]
   const items  = [{ id: 1, path: recorrido(5), estilo: { dash: patron } }]
   const { trazos, envolver } = espiarTrazos()
-  const { layer } = mount({ items, styleOf: item => item.estilo, envolver })
+  const { layer, source } = mount({ items, styleOf: item => item.estilo, envolver })
   layer.redraw()
   patron.push(2)
   trazos.length = 0
-  layer.set(items)
+  source.set(items)
+  await tick()
   assert.deepEqual(trazos.map(t => t.dashCount), [6], '[8, 6, 2] se repite: seis valores')
 })
 
@@ -160,14 +162,9 @@ test('el dash no cambia el conteo de draws: sigue siendo uno por tramo', () => {
 
 // El patrón se comprueba al resolver el estilo: el error sale de quien cargó los datos, no de un
 // repintado que corre dentro del ciclo de vista y cortaría a los demás oyentes.
-test('un patrón que no cabe lanza al cargar los datos y deja la capa como estaba', () => {
+test('un patrón que no cabe lanza al montar la capa', () => {
   const largo = [{ id: 2, path: recorrido(5), estilo: { dash: Array(18).fill(1) } }]
-  assert.throws(() => mount({ items: largo, styleOf: item => item.estilo }), RangeError, 'el alta')
-  const { layer, map, spy } = mount({ styleOf: item => item.estilo })
-  const subidas = spy.texImages.length
-  assert.throws(() => layer.set(largo), RangeError)
-  assert.equal(spy.texImages.length, subidas, 'el store no se rehízo')
-  assert.equal(drawsOf(spy, () => map.fire('moveend')), 1, 'la vista sigue repintando el recorrido de antes')
+  assert.throws(() => mount({ items: largo, styleOf: item => item.estilo }), RangeError)
 })
 
 // Por el motor los datos entran por el Source, que reparte a sus suscriptores aislados: el error sale
@@ -182,7 +179,6 @@ test('por el motor, un patrón que no cabe se reporta desde el Source y la capa 
   const engine = new MapEngine({ host: adoptLeafletHost(makeMap(), { leaflet: makeLeaflet() }), glify: {} })
   const handle = engine.addLineLayer({
     id       : 'ruta',
-    backend  : 'gpu',
     data     : [{ id: 1, path: recorrido(5) }],
     accessors: { idOf: r => r.id, pathOf: r => r.path, styleOf: r => r.estilo },
   })
@@ -218,60 +214,39 @@ test('destroy() desengancha del ciclo de vista, suelta su pane y devuelve el con
   assert.equal(spy.released, 1, 'el techo de ~16 contextos es acumulativo: nadie devuelve uno solo')
 })
 
-test('set() reingiere y repinta', () => {
-  const { layer, spy } = mount()
-  assert.equal(drawsOf(spy, () => layer.set([{ id: 1, path: recorrido(5) }, { id: 2, path: recorrido(5, 1) }])), 2)
+test('un set del Source reingiere y repinta', async () => {
+  const { source, spy } = mount()
+  spy.draws.length = 0
+  source.set([{ id: 1, path: recorrido(5) }, { id: 2, path: recorrido(5, 1) }])
+  await tick()
+  assert.equal(spy.draws.length, 2)
 })
 
-/* ── 3. El motor lo expone como sustrato, y rechaza lo que no sabe hacer ── */
+/* ── 3. El motor: un solo sustrato, sin `backend` ── */
 
-test('addLineLayer({ backend: "gpu" }) monta el sustrato de quads, no el de glify', () => {
-  const map    = makeMap()
-  currentGl    = editGl(newSpy())
-  // `glify: {}` no sabe montar nada: si el sustrato se resolviera al de siempre, esto reventaría.
-  const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeLeaflet() }), glify: {} })
-  const handle = engine.addLineLayer({
-    id: 'ruta',
-    backend: 'gpu',
-    accessors: { idOf: r => r.id, pathOf: r => r.path },
-  })
+const engineWith = () => {
+  currentGl = editGl(newSpy())
+  return new MapEngine({ host: adoptLeafletHost(makeMap(), { leaflet: makeLeaflet() }) })
+}
+const accessors = { idOf: r => r.id, pathOf: r => r.path }
+
+test('addLineLayer monta el sustrato de quads, también con picking', () => {
+  const engine = engineWith()
+  const handle = engine.addLineLayer({ id: 'ruta', accessors })
+  engine.addLineLayer({ id: 'picada', interactive: true, accessors })
   assert.equal(handle.id, 'ruta')
   assert.ok(engine.getLayer('ruta').layer instanceof LineGpuLayer)
+  assert.ok(engine.getLayer('picada').layer instanceof LineGpuLayer)
 })
 
-test('pedir picking sobre el sustrato gpu falla RUIDOSO, no deja una capa muda', () => {
-  const map    = makeMap()
-  currentGl    = editGl(newSpy())
-  const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeLeaflet() }), glify: {} })
-  assert.throws(
-    () => engine.addLineLayer({ id: 'x', backend: 'gpu', interactive: true, accessors: { idOf: r => r.id, pathOf: r => r.path } }),
-    /no resuelve picking/,
-  )
+test('`backend` y `vector` se rechazan nombrando la migración', () => {
+  const engine = engineWith()
+  for (const opt of [{ backend: 'gpu' }, { backend: 'glify' }, { vector: true }])
+    assert.throws(() => engine.addLineLayer({ id: 'x', ...opt, accessors }), /siempre en GPU.*CHANGELOG/)
 })
 
-test('un backend desconocido se rechaza nombrando los válidos', () => {
-  const map    = makeMap()
-  const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeLeaflet() }), glify: {} })
-  assert.throws(
-    () => engine.addLineLayer({ id: 'x', backend: 'triangulos', accessors: { idOf: r => r.id, pathOf: r => r.path } }),
-    /glify \| gpu/,
-  )
-})
-
-// `leaflet` fue un sustrato de líneas: pedirlo ahora no cae en silencio al de glify.
-test("`backend: 'leaflet'` ya no existe: se rechaza como cualquier desconocido", () => {
-  const engine = new MapEngine({ host: adoptLeafletHost(makeMap(), { leaflet: makeLeaflet() }), glify: {} })
-  assert.throws(
-    () => engine.addLineLayer({ id: 'x', backend: 'leaflet', accessors: { idOf: r => r.id, pathOf: r => r.path } }),
-    /backend de líneas desconocido 'leaflet'/,
-  )
-})
-
-// `vector` fue el flag del sustrato con dash: pedirlo no cae en silencio a glify, que no lo dibuja.
-test('`vector` ya no existe: se rechaza nombrando su reemplazo', () => {
-  const engine = new MapEngine({ host: adoptLeafletHost(makeMap(), { leaflet: makeLeaflet() }), glify: {} })
-  assert.throws(
-    () => engine.addLineLayer({ id: 'x', vector: true, accessors: { idOf: r => r.id, pathOf: r => r.path } }),
-    /backend: 'gpu'/,
-  )
+test('el handle de la capa expone append', () => {
+  const engine = engineWith()
+  const handle = engine.addLineLayer({ id: 'ruta', data: [{ id: 1, path: recorrido(2) }], accessors })
+  assert.equal(typeof handle.append, 'function')
 })
