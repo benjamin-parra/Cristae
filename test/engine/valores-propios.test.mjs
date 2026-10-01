@@ -16,10 +16,10 @@ const window           = prepararDom()
 globalThis.Element     = window.Element
 globalThis.HTMLElement = class extends EventTarget {}
 await import('../../test-helpers/element-stub.mjs')
-const { default: L }       = await import('leaflet')
-const { MapEngine }        = await import('../../src/engine/MapEngine.js')
-const { adoptLeafletHost } = await import('../../src/host/LeafletHost.js')
-const { CristaeMap }       = await import('../../src/element/CristaeMap.js')
+const { default: L }                          = await import('leaflet')
+const { MapEngine }                           = await import('../../src/engine/MapEngine.js')
+const { createLeafletHost, adoptLeafletHost } = await import('../../src/host/LeafletHost.js')
+const { CristaeMap }                          = await import('../../src/element/CristaeMap.js')
 
 const CLASES_LEAFLET = Object.values(L).filter(v => typeof v === 'function' && v.prototype)
 
@@ -43,12 +43,13 @@ const plano = (valor, claves, msg) => {
 // La proyección de Leaflet redondea el origen de píxeles: un píxel son ~1e-3 grados a este zoom.
 const cerca = (a, b, msg) => assert.ok(Math.abs(a - b) < 1e-2, `${msg}: ${a} vs ${b}`)
 
-// Un motor con su mapa propio, ya con vista.
+// Un motor con su mapa propio, ya con vista: el anfitrión es el que el motor crea cuando no recibe uno.
 const montar = async () => {
   const container = contenedor()
-  const engine    = new MapEngine({ container, view: { center: [-33, -70], zoom: 10 } })
+  const host      = createLeafletHost({ container, view: { center: [-33, -70], zoom: 10 } })
+  const engine    = new MapEngine({ host })
   await engine.ready
-  return { engine, container }
+  return { engine, container, map: host.map }
 }
 
 const puntero = (container, tipo, x, y) =>
@@ -197,14 +198,14 @@ test('los eventos del elemento llevan en el detail los mismos valores planos', a
 // El click lo sintetiza la puerta del puntero con la pulsación quieta: el `click` que Leaflet dispara —el
 // de `map.fire('click', { latlng })`, la forma habitual de simularlo— ya no es un click de Cristae.
 test('una pulsación quieta sale por click con su hit, y en el vacío por map:click con su posición plana', async () => {
-  const { engine, container } = await montar()
-  const recibido              = { click: [], vacio: [] }
+  const { engine, container, map } = await montar()
+  const recibido                   = { click: [], vacio: [] }
   engine.on('click', 'marcas', (hits, ev) => recibido.click.push([hits.length, ev.type]))
   engine.on('map:click', detalle => recibido.vacio.push(detalle))
   await marcar(engine)
 
   const vacio = engine.camera.latLngToContainerPoint([-33.1, -70.1])
-  engine.getLeafletMap().fire('click', { latlng: L.latLng(-33, -70) })
+  map.fire('click', { latlng: L.latLng(-33, -70) })
   clickear(container, 400, 300)
   clickear(container, vacio.x, vacio.y)
 

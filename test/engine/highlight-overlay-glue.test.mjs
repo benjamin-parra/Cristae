@@ -14,10 +14,11 @@ import { adoptLeafletHost } from '../../src/host/LeafletHost.js'
 const flushRaf = () => new Promise(r => setTimeout(r, 5))
 const items = Array.from({ length: 10 }, (_, i) => ({ id: i + 1, lat: i * 0.1, lng: i * 0.2, size: 24 }))
 const accessors = { idOf: it => it.id, positionOf: it => ({ lat: it.lat, lng: it.lng }), sizeOf: it => it.size }
-const newEngine = () => new MapEngine({ host: adoptLeafletHost(makeMap(), { leaflet: makeLeaflet() }) })
+const newEngine = (map = makeMap()) =>
+  ({ map, engine: new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeLeaflet() }) }) })
 
 test('addHighlightOverlay: cablea el pase separado end-to-end sobre MapEngine', async () => {
-  const engine = newEngine()
+  const { engine, map } = newEngine()
   engine.addPointLayer({ id: 'flota', accessors, iconSet: makeIconSet(), data: items })
   await flushRaf()                                      // drena el notify de set()
 
@@ -32,21 +33,21 @@ test('addHighlightOverlay: cablea el pase separado end-to-end sobre MapEngine', 
   assert.equal(draws[0].size, 24, 'usa el sizeOf del host')
 
   draws.length = 0
-  engine.getLeafletMap().fire('zoomend')                // settle de viewport → reasienta los resaltados
+  map.fire('zoomend')                                   // settle de viewport → reasienta los resaltados
   await flushRaf()
   assert.equal(draws.length, 2, 'reasienta en cambio de viewport')
 
   ov.destroy()
   draws.length = 0
-  engine.getLeafletMap().fire('zoomend'); await flushRaf()
+  map.fire('zoomend'); await flushRaf()
   assert.equal(draws.length, 0, 'destroy desconecta del viewport y de la Source')
-  assert.equal(engine.getLeafletMap().getPane('cristae-highlight-hl'), null, 'y suelta su pane')
+  assert.equal(map.getPane('cristae-highlight-hl'), null, 'y suelta su pane')
 
   engine.destroy()
 })
 
 test('addHighlightOverlay: el ViewAnimator lo reproyecta POR FRAME durante el zoom animado', async () => {
-  const engine = newEngine()
+  const { engine, map } = newEngine()
   engine.addPointLayer({ id: 'flota', accessors, iconSet: makeIconSet(), data: items })
   await flushRaf()
 
@@ -58,11 +59,11 @@ test('addHighlightOverlay: el ViewAnimator lo reproyecta POR FRAME durante el zo
 
   // `zoomanim` = un frame de zoom animado (trae la vista DESTINO). El motor interpola (z,c) y reproyecta
   // los resaltados por frame ANTES de zoomend → el retículo sigue a su sprite en vez de teletransportarse.
-  engine.getLeafletMap().fire('zoomanim', { zoom: 6, center: { lat: 1, lng: 1 } })
+  map.fire('zoomanim', { zoom: 6, center: { lat: 1, lng: 1 } })
   await flushRaf()
   assert.ok(draws.length >= 2, 'reproyecta los resaltados DURANTE la animación, no sólo al asentar')
 
-  engine.getLeafletMap().fire('zoomend')                // corta la interpolación
+  map.fire('zoomend')                                   // corta la interpolación
   ov.destroy()
   engine.destroy()
 })
@@ -82,21 +83,21 @@ test('addHighlightOverlay: en el zoom animado, cada realce cae sobre el punto de
     }))
     return el
   })
-  const engine = newEngine()
+  const { engine, map } = newEngine()
   engine.addPointLayer({ id: 'flota', accessors, iconSet: makeIconSet(), data: items })
   const ov = engine.addHighlightOverlay({ id: 'hl', layerId: 'flota', drawHighlight: () => {} })
   ov.setHighlighted(new Map([[2, 'follow'], [5, 'select']]))
   await flushRaf()
 
   origenes.length = 0
-  engine.getLeafletMap().fire('zoomanim', { zoom: 3, center: { lat: 1, lng: 1 } })
+  map.fire('zoomanim', { zoom: 3, center: { lat: 1, lng: 1 } })
   await new Promise(r => setTimeout(r, 300))           // la animación dura 250 ms
   assert.deepEqual(origenes.slice(-2), [
     [0.2 * 800 - 800 + 400, 0.1 * 800 - 800 + 300],
     [0.8 * 800 - 800 + 400, 0.4 * 800 - 800 + 300],
   ])
 
-  engine.getLeafletMap().fire('zoomend')
+  map.fire('zoomend')
   engine.destroy()
   restaurar()
 })
@@ -110,7 +111,7 @@ test('addHighlightOverlay: el canvas mide el viewport en px CSS y su buffer en p
   const canvases = []
   const restaurar = decorarElementos((el, tag) => (tag === 'canvas' && canvases.push(el), el))
 
-  const engine = newEngine()
+  const { engine } = newEngine()
   engine.addPointLayer({ id: 'flota', accessors, iconSet: makeIconSet(), data: items })
   await flushRaf()
   engine.addHighlightOverlay({ id: 'hl', layerId: 'flota', drawHighlight: () => {} })
@@ -125,18 +126,18 @@ test('addHighlightOverlay: el canvas mide el viewport en px CSS y su buffer en p
 })
 
 test('addHighlightOverlay: rechaza un layerId ausente o que no es de puntos', () => {
-  const engine = newEngine()
+  const { engine } = newEngine()
   assert.equal(engine.addHighlightOverlay({ id: 'x', layerId: 'inexistente', drawHighlight: () => {} }), null)
   engine.destroy()
 })
 
 test('engine.destroy() dispone los overlays de interacción vivos', async () => {
-  const engine = newEngine()
+  const { engine, map } = newEngine()
   engine.addPointLayer({ id: 'flota', accessors, iconSet: makeIconSet(), data: items })
   await flushRaf()
   const draws = []
   engine.addHighlightOverlay({ id: 'hl', layerId: 'flota', drawHighlight: () => draws.push(1) })
   engine.destroy()                                      // no debe throwear ni dejar el overlay suscripto
-  engine.getLeafletMap?.().fire?.('zoomend'); await flushRaf()
+  map.fire('zoomend'); await flushRaf()
   assert.equal(draws.length, 0, 'tras destroy, el overlay no redibuja')
 })

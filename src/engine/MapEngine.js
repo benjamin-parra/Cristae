@@ -116,6 +116,7 @@ export class MapEngine {
   #dimOpacity         = 0.3            // opacidad del resto mientras hay enfoque POR CAPA
   #focusKinds         = null           // kinds de capa que el enfoque por capa atenúa (null = todas)
   #itemFocus          = new Map()      // enfoque por ÍTEM: layerId → Set(id) declarado (vacío = todo atenuado)
+  #leafletWarned      = false          // getLeafletMap() ya avisó en este motor
 
   camera
   ready
@@ -798,7 +799,15 @@ export class MapEngine {
     return this
   }
 
-  getLeafletMap() { return this.#host.map }
+  // Fuera de contrato: el mapa de Leaflet es un detalle del anfitrión y lo que se haga con él no lo cubre
+  // ninguna garantía. Devuelve el mapa y avisa una vez por motor; se retira en 1.0.
+  getLeafletMap() {
+    this.#leafletWarned || console.warn(
+      '[cristae] getLeafletMap() está fuera de contrato y se retira en 1.0: el mapa de Leaflet es un ' +
+      'detalle interno. La cámara, los tiles y el cursor se piden al motor (docs/elements.md).')
+    this.#leafletWarned = true
+    return this.#host.map
+  }
 
   // Resize del contenedor: recalcula el tamaño con el ancla fija, reajusta el picking FBO y resetea las
   // capas GL (un resize simétrico no desplaza el centro, así que ninguna se redibuja sola).

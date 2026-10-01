@@ -56,7 +56,7 @@ export default {
   montar: contexto => {
     ctx    = contexto
     fuente = createSource(ACCESSORS)
-    encuadrar(ctx.map ?? ctx.engine.getLeafletMap())
+    encuadrar(ctx.map)
     // Parámetros EXPLÍCITOS: si el remake cambia sus defaults, la comparación A/B dejaría de ser
     // pareja sin que nadie lo note.
     capa = ctx.engine.addHeatLayer({

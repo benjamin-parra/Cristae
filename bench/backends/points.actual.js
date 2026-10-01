@@ -55,7 +55,7 @@ export default {
   montar: contexto => {
     ctx    = contexto
     fuente = createSource(ACCESSORS, PALETA)
-    encuadrar(ctx.map ?? ctx.engine.getLeafletMap())
+    encuadrar(ctx.map)
     capa = ctx.engine.addPointLayer({
       id        : ID,
       accessors : ACCESSORS,

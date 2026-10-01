@@ -28,9 +28,10 @@ const accessors = { idOf: v => v.id, positionOf: v => ({ lat: v.lat, lng: v.lng 
 const orden = a => [...a].sort((x, y) => x - y)
 
 const mount = ({ data = FLOTA, zoom = 3, foldOpts = {} } = {}) => {
-  const engine = new MapEngine({ host: adoptLeafletHost(makeMap({ zoom }), { leaflet: makeLeaflet() }) })
-  const host = engine.addPointLayer({ id: 'flota', data, accessors, iconSet: makeIconSet(), interactive: false })
-  const fold = engine.addClusterFold([{ id: 'flota' }], { radius: 80, maxZoom: 18, minPoints: 2, ...foldOpts })
+  const map     = makeMap({ zoom })
+  const engine  = new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeLeaflet() }) })
+  const host    = engine.addPointLayer({ id: 'flota', data, accessors, iconSet: makeIconSet(), interactive: false })
+  const fold    = engine.addClusterFold([{ id: 'flota' }], { radius: 80, maxZoom: 18, minPoints: 2, ...foldOpts })
   const control = fold.handle.control
 
   const events = { expand: [], update: [], dismiss: [], marked: [] }
@@ -41,7 +42,7 @@ const mount = ({ data = FLOTA, zoom = 3, foldOpts = {} } = {}) => {
 
   const spiderId = control.bubbleLayerId.replace(':clusters', ':spider')
   return {
-    engine, host, map: engine.getLeafletMap(), fold, control, events,
+    engine, host, map, fold, control, events,
     bubbles: () => engine.getLayer(control.bubbleLayerId).source.getSnapshot(),
     spider: () => engine.getLayer(spiderId)?.source?.getSnapshot() ?? [],
     suppressed: () => engine.getLayer('flota').suppressed,

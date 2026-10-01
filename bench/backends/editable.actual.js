@@ -71,7 +71,7 @@ export default {
 
   montar: contexto => {
     ctx = contexto
-    encuadrar(ctx.map ?? ctx.engine.getLeafletMap())
+    encuadrar(ctx.map)
     handle = ctx.engine.addEditableLayer({
       id       : ID,
       kind     : 'polyline',

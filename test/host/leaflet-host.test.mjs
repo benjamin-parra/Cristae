@@ -362,16 +362,15 @@ test('un anfitrión soltado bajo un envoltorio ajeno pasa de largo', async () =>
 
 // El motor es dueño de su anfitrión: el que crea se lleva el mapa, y el adoptado lo devuelve como estaba.
 test('el motor suelta su anfitrión al destruirse', () => {
-  const propio    = new MapEngine({ container: contenedor(), view: VISTA })
-  const map       = L.map(contenedor()).setView(VISTA.center, VISTA.zoom)
-  const ajeno     = new MapEngine({ host: adoptLeafletHost(map), zoomAnimation: 'none' })
-  const removidos = []
-  propio.getLeafletMap().on('unload', () => removidos.push('propio'))
-  map.on('unload', () => removidos.push('adoptado'))
+  const suyo   = contenedor()
+  const propio = new MapEngine({ container: suyo, view: VISTA })
+  const map    = L.map(contenedor()).setView(VISTA.center, VISTA.zoom)
+  const ajeno  = new MapEngine({ host: adoptLeafletHost(map), zoomAnimation: 'none' })
 
   propio.destroy()
   ajeno.destroy()
-  assert.deepEqual(removidos, ['propio'], 'el mapa propio se remueve y el adoptado sigue siendo de su dueño')
+  assert.equal(suyo.querySelector('.leaflet-map-pane'), null, 'el mapa propio se remueve')
+  assert.ok(map.getContainer().querySelector('.leaflet-map-pane'), 'y el adoptado sigue siendo de su dueño')
   assert.equal(map._tryAnimatedZoom, L.Map.prototype._tryAnimatedZoom, 'que lo recibe sin la política')
   map.remove()
 })

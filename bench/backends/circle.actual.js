@@ -62,7 +62,7 @@ export default {
   montar: contexto => {
     ctx    = contexto
     fuente = createSource(ACCESSORS)
-    encuadrar(ctx.map ?? ctx.engine.getLeafletMap())
+    encuadrar(ctx.map)
     capa = ctx.engine.addCircleLayer({ id: ID, accessors: ACCESSORS, source: fuente })
     return capa
   },

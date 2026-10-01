@@ -160,8 +160,9 @@ test('al soltarse, el mapa adoptado recupera los límites que tenía antes del p
 })
 
 test('setLimits del motor: lo que no es un número finito o una caja no limita, y sin nada los quita', () => {
-  const engine = new MapEngine({ container: contenedor(), view: { center: [0, 0], zoom: 5 } })
-  const map    = engine.getLeafletMap()
+  const host   = createLeafletHost({ container: contenedor(), view: { center: [0, 0], zoom: 5 } })
+  const engine = new MapEngine({ host })
+  const map    = host.map
   assert.equal(engine.setLimits({ minZoom: '3', maxZoom: 7, maxBounds: [[0, 0], [10, 10]], maxBoundsViscosity: Infinity }), engine)
   assert.equal(map.getMinZoom(), 0)
   assert.equal(map.getMaxZoom(), 7)

@@ -65,7 +65,7 @@ export default {
   montar: contexto => {
     ctx    = contexto
     fuente = createSource(ACCESSORS)
-    encuadrar(ctx.map ?? ctx.engine.getLeafletMap())
+    encuadrar(ctx.map)
     // Ruta standalone (`source` + `accessors` + `textOf`), no `bindTo`: ligarla a una capa host
     // mezclaría el costo del host con el de las etiquetas y el banco dejaría de aislar la capa.
     capa = ctx.engine.addLabelLayer({

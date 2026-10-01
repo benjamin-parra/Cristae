@@ -63,7 +63,8 @@ after(conGlDeEdicion(espiar))   // puntos y zonas toman su contexto del harness
 
 const mount = async ({ data = FLOTA(), interactive = false, where = null, zonas = false, cluster = false } = {}) => {
   contextos.length = 0
-  const engine = new MapEngine({ host: adoptLeafletHost(makeMap(), { leaflet: makeLeaflet() }) })
+  const map    = makeMap()
+  const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeLeaflet() }) })
   const flota  = engine.addPointLayer({ id: 'flota', accessors, iconSet: makeIconSet(), data, interactive, where })
   engine.addPointLayer({ id: 'otra', accessors, iconSet: makeIconSet(), data: FLOTA() })
   const capas  = { flota: contextos[0], otra: contextos[1] }
@@ -71,11 +72,11 @@ const mount = async ({ data = FLOTA(), interactive = false, where = null, zonas 
   cluster && engine.addClusterFold([{ id: 'flota' }], { radius: 80, maxZoom: 18, minPoints: 2 })
   await flushRaf()
   await flushRaf()     // dos cuadros: el emit coalescido de la Source y el repintado que agenda
-  return { engine, capas, flota, datos: data }
+  return { engine, map, capas, flota, datos: data }
 }
 
 // Opacidad efectiva del pane de una capa ('' = plena). El nombre sale del record: no se calca a mano.
-const opacidad = (h, id) => h.engine.getLeafletMap().getPane(h.engine.getLayer(id).paneName)?.style.opacity ?? ''
+const opacidad = (h, id) => h.map.getPane(h.engine.getLayer(id).paneName)?.style.opacity ?? ''
 const capa     = (h, id) => h.capas[id]
 const uDim     = rec => rec.uniformes.filter(u => u.name === 'uDim').map(u => u.v)
 const dibujos  = rec => rec.spy.draws.length

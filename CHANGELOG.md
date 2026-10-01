@@ -114,6 +114,12 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   el zoom sigue obedeciendo la política de `zoom-animation` ([SPECS §9](SPECS.md)).
 
 ### Cambiado
+- **`engine.getLeafletMap()` queda fuera de contrato y avisa por consola.** Devuelve el mismo mapa, pero
+  el de Leaflet es el anfitrión del motor y un detalle suyo: lo que se haga con él no tiene garantía entre
+  versiones. Avisa la primera vez que lo pide cada motor y se retira en 1.0. La cámara, los tiles, el
+  cursor y las señales del motor cubren lo que se bajaba a buscar ahí.
+  *Migración*: ninguna por ahora; quien lo usa pasa a esas vías antes del retiro. Los elementos de
+  Cristae no lo llaman.
 - **Las líneas se dibujan siempre en GPU, con un único sustrato.** Cada parte es un rango de una
   textura que un solo `drawArrays` recorre, el grosor sale de un quad por segmento y un `patch` reescribe
   sólo las filas de sus ids. Pedir una capa de líneas deja de elegir entre `glify` y `gpu`, y la

@@ -785,6 +785,7 @@ export class MapEngine {
   /** Cursor del contenedor, en vivo: `null`, `''` o un valor que el CSS rechace es ninguno. Su precedencia
    *  frente al arrastre, el editor y el `pointer` automático: docs/interaction.md#el-cursor-del-contenedor. */
   setCursor(cursor: string | null): this;
+  /** @deprecated Fuera de contrato: el mapa de Leaflet es un detalle del anfitrión. Se retira en 1.0 (SPECS §6). */
   getLeafletMap(): unknown;
   syncSize(): void;
   invalidateCanvas(): void;

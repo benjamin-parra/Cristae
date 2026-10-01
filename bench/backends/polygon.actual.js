@@ -85,7 +85,7 @@ export default {
 
   montar: contexto => {
     ctx = contexto
-    encuadrar(ctx.map ?? ctx.engine.getLeafletMap())
+    encuadrar(ctx.map)
     capa = ctx.engine.addPolygonLayer({ id: ID, accessors: ACCESSORS, data: todos })
     return capa
   },
