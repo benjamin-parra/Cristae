@@ -4,75 +4,41 @@
 // así que acá se ejerce el camino entero: packer real → píxel compuesto como lo compone el fragment →
 // `pickSync` real (el gl stub devuelve ese píxel) → partes de hit.
 
+import '../../test-helpers/engine-stub.mjs'
+import { conGlDeEdicion, makeEditGl, makeIconSet, makeLeaflet, makeMap } from '../../test-helpers/engine-stub.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { PointLayer } from '../../src/render/PointLayer.js'
 import { packTag, LOCAL_BITS } from '../../src/render/Picking.js'
+import { adoptLeafletHost } from '../../src/host/LeafletHost.js'
 
 const PATCH  = 6
 const HALF   = PATCH >> 1
 const CENTRO = HALF * PATCH + HALF         // el cursor cae SIEMPRE en el texel central del parche
-
-// gl stub: todo no-op salvo los tamaños del drawing buffer y `readPixels`, que entrega el parche que el
-// test pintó — lo único que el pase lee de vuelta de la GPU.
-const makeGl = (frame, log) => new Proxy({ drawingBufferWidth: 800, drawingBufferHeight: 600 }, {
-  get: (t, p) => {
-    if (p === 'readPixels') return (...args) => args[6].set(frame)
-    if (p === 'drawArrays') return (mode, first, count) => log.draws.push({ first, count })
-    return p in t ? t[p] : () => ({})
-  },
-})
-
-const makeGlify = (gl, log) => ({
-  points({ data, color }) {
-    log.color = color
-    const layer = {
-      gl,
-      bytes:           7,
-      program:         {},
-      typedVertices:   new Float32Array(Math.max(data.length, 1) * 7),
-      mapMatrix:       { array: new Float32Array(16) },
-      mapCenterPixels: { x: 0, y: 0 },
-      getBuffer:       () => ({}),
-      setData(next) { layer.typedVertices = new Float32Array(Math.max(next.length, 1) * 7) },
-      layer: { redraw() {}, _reset() {} },
-      remove() {},
-    }
-    return layer
-  },
-})
-
-const makeIconSet = () => ({
-  rotates: false,
-  defaultSize: 24,
-  atlas: {
-    count: 1, cols: 1, rows: 1, tileSize: 2, capacity: 4,
-    tileChannel: () => 0,
-    cellOf: () => ({ col: 0, row: 0 }),
-    tileAt: () => new Uint8Array(2 * 2 * 4),
-  },
-  resolve: () => 0,
-  tileScale: () => 1,
-})
+const FLOATS = 7
 
 const accessors = { idOf: it => it.id, positionOf: it => it.pos }
 
+// El GL del harness: el pase lee de vuelta el parche CRUDO que el test pinta (`spy.frame`), y los canales
+// de cada slot salen del espejo de lo que la capa subió al VBO.
 const mount = items => {
-  const frame = new Uint8Array(PATCH * PATCH * 4)
-  const log   = { color: null, draws: [] }
-  const source = {
+  const gl        = makeEditGl()
+  const spy       = gl.spy
+  const restaurar = conGlDeEdicion(() => gl)
+  const source    = {
     accessors,
     getSnapshot: () => items,
     subscribe:   () => () => {},
     itemById:    id => items.find(it => it.id === id),
   }
   const layer = new PointLayer({
-    glify: makeGlify(makeGl(frame, log), log), map: { latLngToContainerPoint: () => ({ x: 0, y: 0 }) },
-    pane: 'p', source, iconSet: makeIconSet(), interactive: true,
+    host: adoptLeafletHost(makeMap(), { leaflet: makeLeaflet() }), pane: 'p', source, iconSet: makeIconSet(), interactive: true,
   })
+  restaurar()
   // Pinta un texel del parche tal como lo escribe el fragment: R = local alto + nibble bajo del chunk,
   // G = local bajo, B y A = el resto del tag. La suma es exacta (ambos sumandos son múltiplos de 1/255
   // y el packer garantiza que no desbordan el byte).
+  const frame  = spy.frame
   const pintar = (texel, canal, obj, chunk = 0) => {
     const tag = packTag(obj, chunk)
     const i   = texel * 4
@@ -81,7 +47,8 @@ const mount = items => {
     frame[i + 2] = Math.round(tag[1] * 255)
     frame[i + 3] = Math.round(tag[2] * 255)
   }
-  return { layer, frame, pintar, log, canalDe: slot => log.color(slot) }
+  const canalDe = slot => ({ b: spy.array.datos[slot * FLOATS + 4], a: spy.array.datos[slot * FLOATS + 5] })
+  return { layer, frame, pintar, log: spy, canalDe }
 }
 
 const items = ['A', 'B', 'C', 'D'].map((id, i) => ({ id, pos: { lat: i, lng: i } }))
@@ -153,7 +120,7 @@ test('el pase reparte el buffer en un draw por chunk y los cubre TODOS', () => {
 
   layer.resolveClick({ x: 10, y: 10 })
 
-  assert.deepEqual(log.draws, [
+  assert.deepEqual(log.draws.map(({ first, count }) => ({ first, count })), [
     { first: 0,             count: LOCAL_CAP },
     { first: LOCAL_CAP,     count: LOCAL_CAP },
     { first: LOCAL_CAP * 2, count: 5 },

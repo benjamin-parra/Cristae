@@ -3,7 +3,7 @@
 // alta no puede pisarle el contenido. Simétrico con la capa de puntos.
 
 import '../../test-helpers/engine-stub.mjs'
-import { conGlDeEdicion, makeEditGl, makeGlify, makeMap, makeLeaflet } from '../../test-helpers/engine-stub.mjs'
+import { conGlDeEdicion, makeEditGl, makeMap, makeLeaflet } from '../../test-helpers/engine-stub.mjs'
 import { test, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { MapEngine } from '../../src/engine/MapEngine.js'
@@ -12,7 +12,7 @@ import { createSource } from '../../src/data/Source.js'
 
 const accessors = { idOf: g => g.id, ringsOf: () => [[[0, 0], [0, 1], [1, 1]]] }
 after(conGlDeEdicion(() => makeEditGl()))   // el sustrato GPU toma su contexto WebGL2 del harness
-const newEngine = () => new MapEngine({ host: adoptLeafletHost(makeMap(), { leaflet: makeLeaflet() }), glify: makeGlify() })
+const newEngine = () => new MapEngine({ host: adoptLeafletHost(makeMap(), { leaflet: makeLeaflet() }) })
 const ids = source => source.getSnapshot().map(g => g.id)
 
 test('con `source`, el motor expone la del consumidor y el handle no la muta', () => {

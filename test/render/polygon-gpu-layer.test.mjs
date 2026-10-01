@@ -11,7 +11,7 @@
 // El harness (engine-stub) shimea window/document — se importa PRIMERO.
 
 import './../../test-helpers/engine-stub.mjs'
-import { decorarElementos, makeGl, makeGlify, makeLeaflet, makeMap as makeMapStub, makePickSpy, makeSurface, oyentesDeVista } from '../../test-helpers/engine-stub.mjs'
+import { decorarElementos, makeGl, makeLeaflet, makeMap as makeMapStub, makePickSpy, makeSurface, oyentesDeVista } from '../../test-helpers/engine-stub.mjs'
 import { after, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { MapEngine } from '../../src/engine/MapEngine.js'
@@ -151,7 +151,7 @@ test('una capa nueva tras destroy() abre SU contexto, sube SU textura y dibuja',
 
 test('el alta que reemplaza a una capa dada de baja cuelga su canvas de un pane VIVO', () => {
   const map    = makeMap()
-  const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeLeaflet() }), glify: makeGlify() })
+  const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeLeaflet() }) })
   const pane   = 'cristae-polygon-gpu-areas'
 
   currentGl = editGl(newSpy())
@@ -251,7 +251,7 @@ test('setVisible(false) deja de dibujar y setVisible(true) vuelve', () => {
 
 test('MapEngine.setLayerVisibility alcanza a la capa, no sólo al pane', () => {
   const map    = makeMap()
-  const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeLeaflet() }), glify: makeGlify() })
+  const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeLeaflet() }) })
   const spy    = newSpy()
   currentGl = editGl(spy)
   engine.addPolygonGpuLayer({ id: 'areas', geometry: ONE_RING() })
@@ -289,7 +289,7 @@ test('el motor tampoco repinta la capa por frame de arrastre', () => {
   const map      = Object.assign(makeMap(), {   // el marco del paneo: mover `position` es arrastrar
     containerPointToLayerPoint: ([x, y]) => ({ x: x - position.x, y: y - position.y }),
   })
-  const engine   = new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeLeaflet() }), glify: makeGlify() })
+  const engine   = new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeLeaflet() }) })
   const spy      = newSpy()
   currentGl = editGl(spy)
   engine.addPolygonGpuLayer({ id: 'areas', geometry: ONE_RING() })
@@ -695,7 +695,7 @@ test('sin `owner`, el sujeto sigue siendo la parte', () => {
 
 const conMotor = () => {
   const map = makeMap()
-  const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeLeaflet() }), glify: makeGlify() })
+  const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeLeaflet() }) })
   currentGl = editGl(newSpy())
   return { engine, map }
 }

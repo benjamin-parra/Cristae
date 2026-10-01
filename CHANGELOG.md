@@ -104,6 +104,17 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   el zoom sigue obedeciendo la política de `zoom-animation` ([SPECS §9](SPECS.md)).
 
 ### Cambiado
+- **Los puntos se dibujan con un buffer y una superficie propios, sin glify.** `addPointLayer`,
+  `<cristae-point-layer>`, los badges de `addOverlay` y las burbujas y la espiral de un cluster ya no
+  montan `glify.points`: cada capa tiene su VBO, su contexto WebGL —uno por capa, como antes— y su
+  repintado coalescido a un cuadro. El canvas rinde a la resolución del dispositivo y el tamaño del
+  sprite se escribe en esa unidad, así que en una pantalla de DPR alto el punto mide lo que declara y
+  sale nítido en vez de escalado; si la ventana pasa a un monitor de otra escala, el set se recodifica
+  en el próximo movimiento de la vista.
+  El pick usa la matriz del último dibujo: durante el zoom animado pica lo que está en pantalla. Ver
+  [`docs/render.md`](docs/render.md).
+  *Migración*: ninguna en la API; el canvas de una capa de puntos ya no es el de glify, así que un CSS
+  que lo apuntaba por sus clases debe apuntar al pane de la capa.
 - **Las patas de la espiral de un cluster se dibujan con las líneas de la librería.** Las patas al
   centro y la traza que une las hojas son una capa de líneas `gpu` propia del fold, sin picking, que
   nace con la primera espiral abierta: un fold que nunca se expande no toma ningún contexto WebGL por

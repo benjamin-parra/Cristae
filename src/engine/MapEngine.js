@@ -110,7 +110,7 @@ export class MapEngine {
   // y se devuelve en la baja, así que un ciclo de alta/baja no agota el rango. `byObj` es el mapa
   // inverso — el decodificador entrega (obj, chunk, local) y tiene que volver a la capa.
   #pick               = { entries: [], byObj: new Map(), free: [], next: 1 }
-  #glLayers           = new Set()      // capas GL (canvas glify propio) a reproyectar en move/zoom/resize
+  #glLayers           = new Set()      // capas GL que el motor reproyecta en move/zoom/resize
   #pendingBinds       = []             // label-layers cuyo host aún no existía (resolución por nombre)
   #signals            = new Map()      // eventos del motor (ready/viewportchange/interaction*) → handlers
   #iconSets           = new Map()      // nombre → IconSet registrado (resolución por nombre)
@@ -201,7 +201,7 @@ export class MapEngine {
     // `where`: membresía por-capa (filtra qué ítems de la Source compartida entran a ESTA capa
     // sin mutar la Source). Otras vistas de la misma Source no se ven afectadas.
     const layer = this.#build(paneName, zIndex, () =>
-      this.#trackGl(new PointLayer({ glify: this.#glify, map: this.#host.map, pane: paneName, source, iconSet: set, interactive, where })))
+      this.#trackGl(new PointLayer({ host: this.#host, pane: paneName, source, iconSet: set, interactive, where })))
 
     // `where`/`enabled` en el record: si esta capa está clusterizada, el cluster indexa `source ∧ where`
     // de los hosts HABILITADOS (no la Source cruda) → cuenta lo que la capa REALMENTE muestra.
@@ -537,7 +537,7 @@ export class MapEngine {
 
     const set   = this.#resolveIconSet(iconSet)
     const layer = this.#build(paneName, zIndex, () => this.#trackGl(new PointLayer({
-      glify: this.#glify, map: this.#host.map, pane: paneName, source: host.source,
+      host: this.#host, pane: paneName, source: host.source,
       accessors, iconSet: set, interactive: false, where: membresia,
     })))
     layer.suppressed = host.suppressed ?? null               // hereda la supresión del cluster (si la hay)
@@ -668,7 +668,7 @@ export class MapEngine {
     record.source   = source
     record.controls = null
     record.layer    = this.#trackGl(new PointLayer({
-      glify: this.#glify, map: this.#host.map, pane: record.paneName, source, iconSet: record.iconSet, interactive: record.interactive, where: record.where,
+      host: this.#host, pane: record.paneName, source, iconSet: record.iconSet, interactive: record.interactive, where: record.where,
     }))
     if (!record.enabled) record.layer.enabled = false   // el swap conserva el gate de la entidad deshabilitada
     if (record.interactive) {
@@ -812,7 +812,7 @@ export class MapEngine {
   getLeafletMap() { return this.#host.map }
 
   // Resize del contenedor: recalcula el tamaño con el ancla fija, reajusta el picking FBO y resetea las
-  // capas de puntos (un resize simétrico no desplaza el centro, así que el canvas glify no se redibuja solo).
+  // capas GL (un resize simétrico no desplaza el centro, así que ninguna se redibuja sola).
   syncSize() {
     this.#host.camera.invalidateSize()
     this.#pick.entries.forEach(({ layer }) => layer.syncPickingSize())
@@ -877,7 +877,7 @@ export class MapEngine {
 
   /* ── Internos ── */
 
-  // Reposiciona/redibuja las capas de puntos en paneo y zoom (glify solo autoregistra moveend → _reset).
+  // Reposiciona/redibuja las capas GL inscritas en paneo y zoom.
   // En `move` solo si el marco se desplazó de verdad; durante el zoom lo gobierna el cierre del gesto.
   #wireRenderLifecycle() {
     const hostCamera = this.#host.camera
@@ -903,7 +903,7 @@ export class MapEngine {
 
   // Zoom animado: reproyecta POR FRAME a la vista interpolada (tamaño de sprite/retículo fijo, alineado
   // con los tiles), en vez de dejar que el canvas escale con la transición CSS de Leaflet. Alcanza a las
-  // capas GL (que apagan su `_animateZoom`, ver PointLayer) y a los overlays de interacción vía renderAtView.
+  // capas GL (cuya superficie no sigue esa transición) y a los overlays de interacción vía renderAtView.
   // Sincronizado al easing del tile (~cubic-bezier(0,0,.25,1), 250ms). `zoomanim` trae la vista destino
   // y sale antes de que la vista cambie: la de la cámara es todavía la de partida.
   #wireZoomReproject() {
@@ -930,12 +930,12 @@ export class MapEngine {
     hostCamera.on('zoomend', () => { cancelAnimationFrame(raf); this.#forEachGlLayer(l => l.resetCanvasReference()) })
   }
 
-  // Inscribe una capa GL (canvas glify propio que Leaflet NO reproyecta) en el set que el ciclo de
+  // Inscribe una capa GL (un canvas propio que nadie más reproyecta) en el set que el ciclo de
   // render recorre en move/zoom/resize, y envuelve su destroy() para darla de baja sola. ÚNICO punto
   // de alta/baja: cualquier capa GL —PointLayer hoy (punto, overlay, burbuja de cluster); otra
   // entidad/modificador GL mañana— se inscribe pasando por acá al CREARSE, sin enumerar `kind`s ni
-  // escanear todas las capas en el hot-path. Las que se reproyectan solas —etiquetas, calor, los
-  // sustratos de Leaflet y los de GPU— no pasan por acá. (#2)
+  // escanear todas las capas en el hot-path. Las que se reproyectan solas —etiquetas, calor y los
+  // sustratos `gpu` de líneas y polígonos— no pasan por acá. (#2)
   #trackGl(layer) {
     this.#glLayers.add(layer)
     const destroy = layer.destroy.bind(layer)
@@ -1182,7 +1182,7 @@ export class MapEngine {
       hashOf: b => `${b.count}:${b.expanded ? 'd' : b.marked ? 'm' : ''}:${b.lat}:${b.lng}`,
     }, iconSet.variants)
     const layer = this.#build(bubblePane, zIndex, () =>
-      this.#trackGl(new PointLayer({ glify: this.#glify, map: this.#host.map, pane: bubblePane, source: controls, iconSet, interactive })))
+      this.#trackGl(new PointLayer({ host: this.#host, pane: bubblePane, source: controls, iconSet, interactive })))
     this.#layers.set(siblingId, {
       kind: 'point', source: controls, layer, controls, paneName: bubblePane, order, interactive,
       visible: true, enabled: true,

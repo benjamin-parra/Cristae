@@ -26,7 +26,7 @@
 //   capa de polígonos  ·    200 features  →     1 nodo vivo    (era 200: un path SVG por feature; ahora el canvas GPU)
 //   capa de círculos   ·    200 features  →     1 nodo vivo    (era 200: un `L.circle` por círculo; ahora el canvas GPU)
 //   capa de marcadores HTML · 200 marcas  →   401 nodos vivos  (la raíz + envoltorio e icono por marca)
-//   capa de puntos     · 10.000 ítems     →     0 nodos vivos, 1 capa GL   ← BLINDA lo que ya está bien
+//   capa de puntos     · 10.000 ítems     →     1 nodo vivo    (el canvas de su superficie; el de glify no pasaba por el harness)
 //
 // El único nodo de la geometría editable es CONSTANTE —no escala con el trazo, ni con los anillos—: el
 // canvas de la superficie WebGL2; los vértices y los midpoints son puntos de un VBO. Los cinco tiles del
@@ -43,7 +43,7 @@
 // mide el banco, no este archivo.
 
 import '../../test-helpers/engine-stub.mjs'
-import { makeMap, makeLeaflet, makeEditGl, makeGlify, makeIconSet, conGlDeEdicion, contadorNodos, decorarElementos } from '../../test-helpers/engine-stub.mjs'
+import { makeMap, makeLeaflet, makeEditGl, makeIconSet, conGlDeEdicion, contadorNodos, decorarElementos } from '../../test-helpers/engine-stub.mjs'
 import test, { after } from 'node:test'
 import assert from 'node:assert/strict'
 import { createSource } from '../../src/data/Source.js'
@@ -239,23 +239,20 @@ test('capa de marcadores HTML de 200 marcas → 401 nodos vivos y sin churn al r
 
 /* ── Puntos GL: el passthrough que la librería promete, blindado ── */
 
-test('capa de puntos de 10.000 ítems → 0 nodos DOM y UNA capa GL', async () => {
-  const L = makeLeaflet()
+test('capa de puntos de 10.000 ítems → el canvas de su superficie, y nada más', async () => {
   const contador = contadorNodos()
-  const glify = makeGlify()
   const source = createSource({ idOf: it => it.id, positionOf: it => ({ lat: it.lat, lng: it.lng }) })
   source.set(Array.from({ length: PUNTOS }, (_, i) => ({ id: i, lat: i * 0.001, lng: i * 0.002 })))
   await flush()
 
-  // Se le PASA un `L` que su contrato no pide: el aserto es que no lo usa para NADA. Si un remake le
-  // colgara un nodo por ítem —por `L` o por su cuenta—, el contador lo delata en vez de dejarlo entrar.
-  const capa = new PointLayer({ L, glify, map: makeMap(), pane: 'p', source, iconSet: makeIconSet() })
+  // Si un remake le colgara un nodo por ítem, el contador lo delata en vez de dejarlo entrar.
+  const capa = new PointLayer({ host: adoptLeafletHost(makeMap(), { leaflet: makeLeaflet() }), pane: 'p', source, iconSet: makeIconSet() })
   await flush()
 
   assert.equal(capa.count, PUNTOS, 'los 10.000 entraron de verdad')
-  assert.equal(contador.vivos, 0, 'LÍNEA BASE — cero nodos que el navegador tenga que mantener')
-  assert.equal(contador.creados, 0, 'y ninguno transitorio: no hay churn escondido')
-  assert.equal(glify.layers.length, 1, 'los 10.000 viajan en UNA capa GL: un buffer, un draw')
+  assert.equal(contador.vivos, 1, 'LÍNEA BASE — el canvas de la superficie: los 10.000 viajan en un buffer')
+  assert.equal(contador.creados, 1, 'y ninguno transitorio: no hay churn escondido')
 
   capa.destroy()
+  assert.equal(contador.vivos, 0, 'destroy devuelve el canvas')
 })

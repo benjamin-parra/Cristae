@@ -7,7 +7,7 @@
 // Encender la animación después dejaría los tiles saltando mientras el resto acompaña.
 
 import '../../test-helpers/engine-stub.mjs'
-import { makeGlify, makeMap, makeLeaflet } from '../../test-helpers/engine-stub.mjs'
+import { makeMap, makeLeaflet } from '../../test-helpers/engine-stub.mjs'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { MapEngine } from '../../src/engine/MapEngine.js'
@@ -16,7 +16,7 @@ import { adoptLeafletHost } from '../../src/host/LeafletHost.js'
 // `_tryAnimatedZoom` es lo que Leaflet consulta en CADA zoom: true = anima, false = salto instantáneo.
 const conModo = zoomAnimation => {
   const map    = makeMap({ zoom: 10 })
-  const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeLeaflet() }), glify: makeGlify(), zoomAnimation })
+  const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeLeaflet() }), zoomAnimation })
   return {
     engine, map,
     acercar: () => map._tryAnimatedZoom(map._center, map._zoom + 2),
@@ -64,7 +64,7 @@ test('devuelve el motor, para encadenar', () => {
 
 test('con mapa ADOPTADO y sin modo, la política queda en manos del consumidor', () => {
   const map    = makeMap({ zoom: 10 })
-  const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeLeaflet() }), glify: makeGlify() })
+  const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeLeaflet() }) })
   assert.equal(map._tryAnimatedZoom(map._center, 8), true, 'no se interviene un mapa ajeno')
   engine.destroy()
 })

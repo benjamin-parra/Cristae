@@ -118,8 +118,8 @@ interface Writable {
 | Método | Complejidad | Patch o rebuild |
 |---|---|---|
 | `set(items)` | O(n) diff de id-set | rebuild si cambió el set / filtro / clusters; si no, patch |
-| `patch(items, dirtyIds)` | O(k) | rebuild solo si cambia membresía de filtro/cluster (o un regrow de atlas, §4.2); si no, **k escrituras de slot** (mismo mecanismo que `move`/recolor, §13) — O(k) **[0-alloc]**, sin `setData` |
-| `move(id, lat, lng)` | O(1), **[0-alloc]** en WebGL2 | nunca rebuild: `bufferSubData` al slot del vértice en el buffer de glify (no `setData`/`resetVertices`). Ver MODELO §17.5 |
+| `patch(items, dirtyIds)` | O(k) | rebuild solo si cambia membresía de filtro/cluster (o un regrow de atlas, §4.2); si no, **k escrituras de slot** (mismo mecanismo que `move`/recolor, §13) — O(k) **[0-alloc]**, sin rebuild |
+| `move(id, lat, lng)` | O(1), **[0-alloc]** en WebGL2 | nunca rebuild: `bufferSubData` al slot del vértice en el VBO de la capa. Ver MODELO §17.5 |
 | `remove(id)` | O(1) amort. | patch (o rebuild si afecta cluster/filtro) |
 
 - **Ejemplo:** `const s = createSource(accessors); layer.source = s; ws.onMsg(m => s.move(m.id, m.lat, m.lng))`.
@@ -292,7 +292,7 @@ new MapEngine({ host: adoptLeafletHost(map, { leaflet? }), glify, … }) → eng
 
 `addPointLayer`, `addPolygonLayer`, `addLabelLayer`, `removeLayer`, `getLayer`, `attachSource`, cámara (§9), `createIcon`, `registerIconSet`, `syncSize()`, `invalidateCanvas()`, `getLeafletMap()`, `destroy()`, `ready`.
 
-- **`syncSize()`**: resize del contenedor — `map.invalidateSize()` + reajuste del FBO de picking + **redibujo de las capas de puntos** (`invalidateSize()` solo emite `move`/`moveend` si el resize desplaza el centro, así que un resize simétrico limpiaría el canvas glify sin redibujarlo). Llamado por el `ResizeObserver` interno del elemento; el consumer raramente lo necesita.
+- **`syncSize()`**: resize del contenedor — `map.invalidateSize()` + reajuste del FBO de picking + **redibujo de las capas de puntos** (`invalidateSize()` solo emite `move`/`moveend` si el resize desplaza el centro, así que un resize simétrico limpiaría el canvas de la capa sin redibujarlo). Llamado por el `ResizeObserver` interno del elemento; el consumer raramente lo necesita.
 - **`invalidateCanvas()`**: reposiciona y redibuja todas las capas de puntos. Escape hatch manual: con `<cristae-map>`, resize y show-tras-`display:none` ya se auto-curan vía el observer → `syncSize()`; este método es para el motor headless (sin elemento, sin observer) o el raro show sin cambio de tamaño. **`destroy()` además notifica a los hermanos automáticamente** (multi-mapa).
 
 ### 7.3 Lifecycle
@@ -516,19 +516,18 @@ La **ley** (MODELO §5.4) formalizada como contrato que un implementador debe cu
 | `propertiesOf` (§17) | — | O(largo del rango) | — |
 | `distance` (§18) | — | — | O(vértices), una pasada; un path de arrays no se copia, otro iterable se materializa una vez |
 
-**Objetivo de estado estable** (miles de updates/seg): la ruta caliente —`move`/recolor → encode → `bufferSubData` → draw— es **O(1) por elemento y [0-alloc]**, *bajo precondición de set sin cambios* (id con slot vigente) — path incremental, MODELO §17.5. Es la única garantía de alloc incondicional. Si una implementación asigna por elemento en esta ruta, está mal. **El rebuild NO tiene esa garantía:** `set`/filtro/cluster pasa por el `setData` de glify, que es O(n) y aloca O(n) (glify stock no tiene update in-place). El coalescing acota la *tasa* a ≤1 rebuild/flush de rAF, **no** el costo: si el set cambia cada frame se paga O(n)/frame. Mantener barato el rebuild es responsabilidad del *uso* (que el set cambie poco), no del scheduler (MODELO §17 intro).
+**Objetivo de estado estable** (miles de updates/seg): la ruta caliente —`move`/recolor → encode → `bufferSubData` → draw— es **O(1) por elemento y [0-alloc]**, *bajo precondición de set sin cambios* (id con slot vigente) — path incremental, MODELO §17.5. Es la única garantía de alloc incondicional. Si una implementación asigna por elemento en esta ruta, está mal. **El rebuild NO tiene esa garantía:** `set`/filtro/cluster reescribe y re-sube el buffer entero, O(n), y aloca cuando el set crece. El coalescing acota la *tasa* a ≤1 rebuild/flush de rAF, **no** el costo: si el set cambia cada frame se paga O(n)/frame. Mantener barato el rebuild es responsabilidad del *uso* (que el set cambie poco), no del scheduler (MODELO §17 intro).
 
 ---
 
 ## 13. Reglas de rendimiento (obligatorias en el hot-path)
 
 (MODELO §17.) Render, picking, `Atlas.sync`, `notify`, `dispatch`:
-- **Dos paths, dos presupuestos (MODELO §17 intro):** el **incremental** (`move`/recolor, los miles/seg) es `bufferSubData` al slot → **[0-alloc]** obligatorio (precondición: id con slot vigente). El **rebuild** (`set`/filtro/cluster) pasa por `setData` de glify → O(n) alloc inevitable; el coalescing acota su *tasa* (≤1/flush rAF), no su costo agregado ni garantiza que sea raro. Las reglas [0-alloc] aplican al incremental, no al rebuild.
-- **Path incremental = escribir el buffer de glify, no forkear (mecanismo verificado, MODELO §17.5):** O(1) por bypass de la instancia (`instance.gl`/`typedVertices`/`getBuffer('vertices')`), sin fork ni monkey-patch. Funda: `mapCenterPixels` es fijo de por vida (`base-gl-layer.ts:164`, nunca recalculado) → el vértice es función pura del latLng → update puntual real. `move`: escribir `projX0(lng)-cx`, `projY0(lat)-cy` en `typedVertices[slot*7 .. +2]` + `gl.bufferSubData(.., base*4, verts, base, 2)` (forma de 5 args WebGL2 → sin `subarray`, **[0-alloc]**). Recolor: `encodeColor(tileIdx, norm, i, verts, base+2)` sobre `[base+2 .. +6]`.
-  - **`[0-alloc]` exige proyección inlineada:** `map.project()` aloca (`Point` + `LatLng`); usar `projX0/projY0` (EPSG:3857 zoom-0, que glify ya exige — `points.ts:100`). `projX0(lng)=256*(lng/360+0.5)`; `projY0(lat)=256*(0.5 − 0.25/π·ln((1+s)/(1−s)))` con `s=sin(clamp(lat,±85.0511)·π/180)`.
-  - **Invariantes:** (1) **recapturar `typedVertices` + reconstruir `id→slot` tras cada rebuild** (el `Float32Array` se reemplaza en `render()`, `points.ts:114`; el `WebGLBuffer` es estable); (2) **assert `instance.bytes===7`** + offsets → fallar ruidoso si glify cambia el layout; (3) hover/click nativo deshabilitado (`sensitivity:0`): el path no toca `allLatLngLookup` (stale, no usado — el picking lee el buffer, que sí está fresco; `GlifyLayer.js:88-94` comparte buffer). `DYNAMIC_DRAW` se logra re-emitiendo `bufferData` sobre el buffer capturado (sin tocar glify).
+- **Dos paths, dos presupuestos (MODELO §17 intro):** el **incremental** (`move`/recolor, los miles/seg) es `bufferSubData` al slot → **[0-alloc]** obligatorio (precondición: id con slot vigente). El **rebuild** (`set`/filtro/cluster) reescribe el buffer entero → O(n), con alloc al crecer el set; el coalescing acota su *tasa* (≤1/flush rAF), no su costo agregado ni garantiza que sea raro. Las reglas [0-alloc] aplican al incremental, no al rebuild.
+- **Path incremental = escribir el slot del VBO propio (MODELO §17.5):** el vértice es función pura del latLng y del ancla, que sólo cambia en un rebuild —que reescribe todo— → update puntual real. `move`: escribir `projX0(lng)-ax`, `projY0(lat)-ay` en `verts[slot*7 .. +2]` + `gl.bufferSubData(.., base*4, verts, base, 2)` (forma de 5 args WebGL2 → sin `subarray`, **[0-alloc]**). Recolor/patch: los 7 floats del slot.
+  - **`[0-alloc]` exige proyección inlineada:** `map.project()` aloca (`Point` + `LatLng`); usar `projX0/projY0` (EPSG:3857 zoom-0). `projX0(lng)=256*(lng/360+0.5)`; `projY0(lat)=256*(0.5 − 0.25/π·ln((1+s)/(1−s)))` con `s=sin(clamp(lat,±85.0511)·π/180)`.
+  - **Invariantes:** (1) `id→slot` se reconstruye en cada rebuild; (2) el espejo CPU es la única copia de los datos: el path incremental lo parcha y sube ese rango, y el `WebGLBuffer` es estable (el rebuild reasigna su almacenamiento con `bufferData(.., DYNAMIC_DRAW)`).
 - **Arrays de instancia reusados** + truncado de `length` (no `new Array`, no `.map`/`.filter` que asignan; usar `for`/`forEach`).
-- **Objeto scratch mutado-y-retornado** **solo en el path de rebuild** (callback `color:(i)=>…` de glify): `encodeColor` devuelve un único `{r,g,b,a}` reusado — seguro porque glify hace `{...colorFn(i), a}` sincrónicamente (`points.ts:136`). El path incremental no usa scratch-objeto (escribe el slot).
 - **Enteros inline:** `col = i % cols; row = (i/cols)|0` (no objeto de coordenadas).
 - **Sin `try/catch` en bloque:** solo `safe`/`safeDispatch`.
 - **`onError`/callbacks estables** (refs de módulo), nunca clausuras por call.
@@ -543,8 +542,8 @@ La **ley** (MODELO §5.4) formalizada como contrato que un implementador debe cu
 | `Atlas` | append no mueve celdas; encoding estable al crecer; exceder C → objeto nuevo |
 | `GpuAtlasBinding` | append = `texSubImage2D` × Δ; multi-mapa converge; regrow re-sube sin recompilar shader |
 | `IconSet` | preseed de `variants` ⇒ 0 append runtime; variante no declarada ⇒ 1 append visible |
-| `Source`/handle | version igual ⇒ 0 rebuild; `move` ⇒ 0 `setData` (espiar): hace `bufferSubData` y [0-alloc] (allocation profiler); `set` en zoom ⇒ update no descartado |
-| buffer incremental | `move`/recolor escribe el slot correcto del `typedVertices` (leer de vuelta el buffer GL); assert de layout falla si `bytes ≠ 7`; tras `setData` el mirror se resetea desde `data` |
+| `Source`/handle | version igual ⇒ 0 rebuild; `move` ⇒ 0 `bufferData` (espiar): hace `bufferSubData` desde el mismo espejo y [0-alloc] (allocation profiler); `set` en zoom ⇒ update no descartado |
+| buffer incremental | `move`/recolor escribe el slot correcto del espejo (leer de vuelta lo subido al buffer GL); un rebuild reescribe el espejo entero |
 | reactividad | N asignaciones/tick ⇒ 1 rebuild con el valor final |
 | filtros | mismo `id` + `deps` distinto ⇒ predicado reemplazado y re-evaluado; `deps` igual ⇒ 0 rebuild aunque el predicado sea otra instancia |
 | cámara | `followPoint` re-centra sin bombeo, y lo que no es una caja no lo corta; insets aplicados; sobre el Leaflet real, ningún retorno lleva una instancia de Leaflet |
@@ -588,7 +587,6 @@ La **ley** (MODELO §5.4) formalizada como contrato que un implementador debe cu
 | `destroy()` con rAF/patch en vuelo | cancelar el rAF, drenar o descartar el pending de forma limpia |
 | Leaflet de versión/instancia distinta | guard en runtime → error claro al construir |
 | filtro recompilado con el mismo `id` (cambio de modo) | reconciliar por `deps`: mismo `id` + `deps` distinto = replace + re-evalúa; `deps` igual = no-op (§8.1). Reconciliar solo por `id` dejaría el predicado viejo activo |
-| upgrade de glify cambia el layout de vértices | assert `instance.bytes === 7` + offsets en construcción → fallar ruidoso, nunca corromper el buffer en silencio (§13, MODELO §17.5) |
 | capa con 0 ítems | render vacío válido (no caso especial) |
 
 ---
@@ -597,7 +595,7 @@ La **ley** (MODELO §5.4) formalizada como contrato que un implementador debe cu
 
 1. **Cero estado mutable de módulo/singleton.** Todo estado vive en una instancia (engine/capa/binding) o se inyecta. (Mata multi-mapa y embebido seguro.)
 2. **El core no conoce dominio.** Ningún nombre público/interno con `vehicle`, `geofence`, `connection`, `etapa`. `variant`/`text` son strings opacas.
-3. **No se forkea ni se reescriben los algoritmos de glify.** El rebuild (`setData`/`resetVertices`), supercluster y picking migran intactos. Se **añade** un path incremental (`move`/recolor) que escribe el buffer interleaved de glify por `bufferSubData` desde el motor — sobre los recursos GL de la instancia, **sin** forkear glify ni mutar su prototipo (mismo patrón que el draw de picking ya existente). El `[0-alloc]`/O(1) vive en ese path; el rebuild sigue siendo O(n) coalescido (MODELO §17.5, §17 intro).
+3. **No se forkean dependencias.** supercluster y glify (sustrato de líneas) se usan como vienen. El `[0-alloc]`/O(1) de los puntos vive en el path incremental, que escribe el slot del VBO propio por `bufferSubData`; el rebuild sigue siendo O(n) coalescido (MODELO §17.5, §17 intro).
 4. **Estado → reactivo; acción → método.** Sin terceros casos (§11).
 5. **Cero-alloc en caliente.** (§13.)
 6. **El atlas se reusa y se le agrega; nunca se reconstruye desde cero** salvo regrow por capacidad.

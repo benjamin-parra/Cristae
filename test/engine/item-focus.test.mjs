@@ -6,7 +6,7 @@
 // falsy (presente-vacío: participa, nadie brillante) | undefined (retiro).
 
 import '../../test-helpers/engine-stub.mjs'
-import { conGlDeEdicion, makeEditGl, makeGlify, makeMap, makeLeaflet, makeIconSet } from '../../test-helpers/engine-stub.mjs'
+import { conGlDeEdicion, makeEditGl, makeMap, makeLeaflet, makeIconSet } from '../../test-helpers/engine-stub.mjs'
 import { test, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { MapEngine } from '../../src/engine/MapEngine.js'
@@ -15,7 +15,7 @@ import { POINT_VERTEX, POINT_PICKING_FRAGMENT } from '../../src/render/shaders.j
 
 /* ── Harness ── */
 
-const FLOATS   = 7      // layout de glify por vértice: [x, y, r, g, b, a, size]
+const FLOATS   = 7      // layout de los sprites por vértice: [x, y, r, g, b, a, size]
 const SIZE     = 6      // canal donde vive el eje: la magnitud es el tamaño, el SIGNO es la membresía
 const ITEM_DIM = 0.3    // atenuación del eje por ÍTEM (MapEngine); el eje por CAPA trae la suya
 
@@ -35,88 +35,58 @@ const APILADOS = () => ['abajo', 'arriba'].map(id => ({ id, lat: 0, lng: 0, size
 const accessors = { idOf: it => it.id, positionOf: it => ({ lat: it.lat, lng: it.lng }), sizeOf: it => it.size }
 const ZONAS     = { accessors: { idOf: it => it.id, ringsOf: () => [[[0, 0], [0, 1], [1, 1]]] }, data: [{ id: 'z1' }, { id: 'z2' }] }
 
-// glify del harness + las tres cosas que el eje necesita observar y el doble no trae:
-//   · el llenado de `typedVertices` desde los callbacks `color`/`size`, como el render de glify: el eje vive
-//     en el SIGNO de ese canal, y sobre un buffer en 0 el flip escribiría −0. x,y quedan en 0 (el harness no
-//     proyecta y ningún aserto los lee);
-//   · el asiento `drawing` del overlay y un contexto CON profundidad —los dos, reales—, que es lo que
-//     enciende la banda de z del foco;
-//   · los contadores (redraw / setData) y `uniform1f` por NOMBRE: `getUniformLocation` devuelve el nombre,
-//     que es lo único que distingue `uDim` de los uniforms del atlas.
+// El GL de cada superficie, con lo que el eje necesita observar y el doble no trae: los enums reales de
+// arriba y `uniform1f` por NOMBRE —`getUniformLocation` devuelve el nombre, que es lo único que distingue
+// `uDim` de los uniforms del atlas—. Las capas toman su contexto en el orden en que se dan de alta.
+const contextos = []
 const espiar = () => {
-  const capas = new Map()
-  const base  = makeGlify()
-  return {
-    capas,
-    points(opts) {
-      const l   = base.points(opts)
-      const rec = { spy: l.gl.spy, redraws: 0, setData: 0, uniformes: [], clears: [], enables: [], disables: [], depthFuncs: [], verts: () => l.typedVertices }
-      const llenar = n => {
-        const v = l.typedVertices
-        for (let i = 0; i < n; i++) {
-          const c = opts.color(i)
-          v[i * FLOATS + 2]    = c.r
-          v[i * FLOATS + 3]    = c.g
-          v[i * FLOATS + 4]    = c.b
-          v[i * FLOATS + 5]    = c.a
-          v[i * FLOATS + SIZE] = opts.size(i)
-        }
-      }
-      const redraw  = l.layer.redraw
-      const setData = l.setData
-      l.layer.redraw  = () => { rec.redraws++; redraw() }
-      l.layer.drawing = fn => { rec.draw = fn }
-      l.setData       = next => { rec.setData++; setData(next); llenar(next.length) }
-      l.gl = new Proxy(l.gl, {
-        get: (t, p) => {
-          if (Object.hasOwn(GL, p)) return GL[p]
-          if (p === 'getContextAttributes') return () => ({ depth: true })
-          // Fuera del draw el contexto tiene el test APAGADO: así se ve si el pase restaura o se lo deja.
-          if (p === 'getParameter')         return param => (param === GL.DEPTH_TEST ? false : t.getParameter?.(param))
-          if (p === 'getUniformLocation')   return (_program, name) => name
-          if (p === 'uniform1f')            return (name, v) => rec.uniformes.push({ name, v })
-          if (p === 'clear')                return mask => rec.clears.push(mask)
-          if (p === 'enable')               return cap => rec.enables.push(cap)
-          if (p === 'disable')              return cap => rec.disables.push(cap)
-          if (p === 'depthFunc')            return fn => rec.depthFuncs.push(fn)
-          return t[p]
-        },
-      })
-      llenar(opts.data.length)
-      capas.set(opts.pane, rec)
-      return l
+  const base = makeEditGl()
+  const rec  = { spy: base.spy, uniformes: [], clears: [], enables: [], disables: [], depthFuncs: [] }
+  contextos.push(rec)
+  return new Proxy(base, {
+    get: (t, p) => {
+      if (Object.hasOwn(GL, p)) return GL[p]
+      // Fuera del draw el contexto tiene el test APAGADO: así se ve si el pase restaura o se lo deja.
+      if (p === 'getParameter')       return param => (param === GL.DEPTH_TEST ? false : t.getParameter?.(param))
+      if (p === 'getUniformLocation') return (_program, name) => name
+      if (p === 'uniform1f')          return (name, v) => rec.uniformes.push({ name, v })
+      if (p === 'clear')              return mask => rec.clears.push(mask)
+      if (p === 'enable')             return cap => rec.enables.push(cap)
+      if (p === 'disable')            return cap => rec.disables.push(cap)
+      if (p === 'depthFunc')          return fn => rec.depthFuncs.push(fn)
+      return t[p]
     },
-  }
+  })
 }
 
-after(conGlDeEdicion(() => makeEditGl()))   // las zonas son polígonos GPU: toman su contexto del harness
+after(conGlDeEdicion(espiar))   // puntos y zonas toman su contexto del harness
 
 const mount = async ({ data = FLOTA(), interactive = false, where = null, zonas = false, cluster = false } = {}) => {
-  const glify  = espiar()
-  const engine = new MapEngine({ host: adoptLeafletHost(makeMap(), { leaflet: makeLeaflet() }), glify })
+  contextos.length = 0
+  const engine = new MapEngine({ host: adoptLeafletHost(makeMap(), { leaflet: makeLeaflet() }) })
   const flota  = engine.addPointLayer({ id: 'flota', accessors, iconSet: makeIconSet(), data, interactive, where })
   engine.addPointLayer({ id: 'otra', accessors, iconSet: makeIconSet(), data: FLOTA() })
+  const capas  = { flota: contextos[0], otra: contextos[1] }
   zonas && engine.addPolygonLayer({ id: 'zonas', ...ZONAS })
   cluster && engine.addClusterFold([{ id: 'flota' }], { radius: 80, maxZoom: 18, minPoints: 2 })
   await flushRaf()
-  return { engine, glify, flota, datos: data }
+  await flushRaf()     // dos cuadros: el emit coalescido de la Source y el repintado que agenda
+  return { engine, capas, flota, datos: data }
 }
 
 // Opacidad efectiva del pane de una capa ('' = plena). El nombre sale del record: no se calca a mano.
 const opacidad = (h, id) => h.engine.getLeafletMap().getPane(h.engine.getLayer(id).paneName)?.style.opacity ?? ''
-const capa     = (h, id) => h.glify.capas.get(h.engine.getLayer(id).paneName)
+const capa     = (h, id) => h.capas[id]
 const uDim     = rec => rec.uniformes.filter(u => u.name === 'uDim').map(u => u.v)
+const dibujos  = rec => rec.spy.draws.length
 
-// Tamaño SIGNADO por id, leído del vértice: + pleno, − atenuado.
+// Tamaño SIGNADO por id, leído de lo que la GPU va a leer: el espejo del ARRAY_BUFFER que mantiene el
+// doble (`bufferData` lo estrena, `bufferSubData` le parcha el rango). + pleno, − atenuado.
 const signos = (h, id) => {
   const layer = h.engine.getLayer(id).layer
-  const v     = capa(h, id).verts()
+  const v     = capa(h, id).spy.array.datos
   return new Map(Array.from({ length: layer.count }, (_, s) => [layer.idForSlot(s), v[s * FLOATS + SIZE]]))
 }
-
-// Lo que la GPU va a leer: el espejo del ARRAY_BUFFER que mantiene el doble (`bufferData` lo estrena,
-// `bufferSubData` le parcha el rango).
-const enGpu = (h, id) => capa(h, id).spy.array.datos
 
 /* ── Tests ── */
 
@@ -124,18 +94,18 @@ const enGpu = (h, id) => capa(h, id).spy.array.datos
 test('sin eje por ÍTEM el buffer queda IDÉNTICO y no se pide un repinte de más', async () => {
   const h   = await mount()
   const rec = capa(h, 'flota')
-  const { redraws } = rec
+  const antes = dibujos(rec)
   assert.equal(rec.spy.bufferSubDatas.length, 0, 'el alta no escribe rangos: el buffer entero viajó en el bufferData del build')
 
   h.engine.focus(['flota'])                                 // eje por CAPA: el eje por ítem sigue dormido
   assert.equal(opacidad(h, 'flota'), '', 'la enfocada queda plena')
   assert.notEqual(opacidad(h, 'otra'), '', 'y el resto se atenúa por PANE')
   h.engine.unfocusAll()
+  await flushRaf()
 
   assert.equal(rec.spy.bufferSubDatas.length, 0, 'sin eje por ítem no se toca un byte del buffer')
   assert.equal(capa(h, 'otra').spy.bufferSubDatas.length, 0, 'ni el de la atenuada: el pane no cuesta buffer')
-  assert.equal(rec.redraws, redraws, '`applyFocus(null)` sobre una capa sin foco es no-op: ni un draw extra')
-  assert.deepEqual(uDim(rec), [], 'y `uDim` no se sube: sin foco el shader no lo lee')
+  assert.equal(dibujos(rec), antes, '`applyFocus(null)` sobre una capa sin foco es no-op: ni un draw extra')
   h.engine.destroy()
 })
 
@@ -146,7 +116,6 @@ test('el SIGNO del `size` es la membresía, y todo lo que entra después nace co
 
   assert.deepEqual([...signos(h, 'flota')], [[1, -24], [2, 24], [3, -24], [4, -24], [5, -24], [6, -24]],
     'el enfocado conserva su magnitud en +; el resto, la MISMA magnitud en −')
-  assert.equal(enGpu(h, 'flota')[SIZE], -24, 'y es lo que viajó al buffer, no sólo el espejo CPU')
   assert.equal(opacidad(h, 'flota'), '', 'su pane queda PLENO: atenúa por ÍTEM, no apagando la capa entera')
   assert.notEqual(opacidad(h, 'otra'), '', 'y la que no declara nada sí se atenúa por pane')
 
@@ -164,42 +133,42 @@ test('el SIGNO del `size` es la membresía, y todo lo que entra después nace co
 })
 
 // 3 · `dim` es un número honrado exacto y vive en un uniform: cambiarlo NO escribe el buffer.
-test('`dim` viaja como uniform: llega exacto, cambiarlo no escribe un byte y el mismo valor no se re-sube', async () => {
+test('`dim` viaja como uniform del draw: llega exacto, cambiarlo no escribe un byte y sin cambios no se repinta', async () => {
   const h     = await mount()
   const rec   = capa(h, 'flota')
-  const antes = rec.redraws
+  const antes = dibujos(rec)
   h.engine.setLayerFocus('flota', [2])
+  await flushRaf()
   const escrituras = rec.spy.bufferSubDatas.length
-  assert.deepEqual(uDim(rec), [ITEM_DIM], 'el eje por ítem atenúa con SU constante')
+  assert.equal(uDim(rec).at(-1), ITEM_DIM, 'el eje por ítem atenúa con SU constante')
   assert.ok(escrituras > 0, 'firmar los 5 atenuados sí costó buffer')
-  assert.equal(rec.redraws, antes + 1, 'y UN solo repinte para los 5, no uno por ítem')
+  assert.equal(dibujos(rec), antes + 1, 'y UN solo repinte para los 5, no uno por ítem')
 
   h.engine.focus(['otra'], { opacity: 0.137 })              // el eje por capa impone su dim sobre el por ítem
-  assert.deepEqual(uDim(rec), [ITEM_DIM, 0.137], 'llega exacto, sin redondeos: es un float, no una opacidad de CSS')
+  await flushRaf()
+  assert.equal(uDim(rec).at(-1), 0.137, 'llega exacto, sin redondeos: es un float, no una opacidad de CSS')
   assert.equal(rec.spy.bufferSubDatas.length, escrituras, 'mover `dim` no toca el buffer: la membresía no cambió')
 
-  const repintes = rec.redraws
+  const repintes = dibujos(rec)
   h.engine.setLayerFocus('flota', [2])                      // mismos ids, mismo dim
-  assert.deepEqual(uDim(rec), [ITEM_DIM, 0.137], 'el mismo valor no se re-sube')
-  assert.equal(rec.redraws, repintes, 'y sin nada que cambiar no se pide repinte')
+  await flushRaf()
+  assert.equal(dibujos(rec), repintes, 'sin nada que cambiar no se pide repinte')
   assert.equal(rec.spy.bufferSubDatas.length, escrituras, 'ni se reescribe el rango')
   h.engine.destroy()
 })
 
-// 4 · el foco no toca la Source: cero `setData` tras N toggles.
+// 4 · el foco no toca la Source: cero rebuilds tras N toggles.
 test('el foco no toca la Source: N toggles sin un solo rebuild ni un ítem mutado', async () => {
   const h    = await mount()
   const rec  = capa(h, 'flota')
   const src  = h.engine.getLayer('flota').source
   const snap = src.getSnapshot()
-  const { setData } = rec
   const enteras = rec.spy.bufferDatas.length
 
   h.datos.forEach(it => h.engine.setLayerFocus('flota', [it.id]))
   h.engine.setLayerFocus('flota', undefined)                // …y el retiro del eje
 
-  assert.equal(rec.setData, setData, 'ni un rebuild: el eje no reconstruye el set')
-  assert.equal(rec.spy.bufferDatas.length, enteras, 'ni una re-subida entera del buffer')
+  assert.equal(rec.spy.bufferDatas.length, enteras, 'ni un rebuild: el eje no reconstruye el set ni re-sube el buffer')
   assert.equal(src.getSnapshot(), snap, 'el snapshot sigue siendo el MISMO array')
   assert.deepEqual(h.datos.map(it => it.size), [24, 24, 24, 24, 24, 24], 'y ningún ítem quedó mutado')
   h.engine.destroy()
@@ -305,9 +274,11 @@ test('el `dimOpacity` del eje por capa no se filtra al eje por ítem', async () 
   const rec = capa(h, 'flota')
   h.engine.setLayerFocus('flota', [2])
   h.engine.focus(['otra'], { opacity: 0.05 })
+  await flushRaf()
   assert.equal(uDim(rec).at(-1), 0.05, 'mientras vive, el eje por capa impone su opacidad')
 
   h.engine.unfocusAll()
+  await flushRaf()
   assert.equal(uDim(rec).at(-1), ITEM_DIM, 'al morir, el eje por ítem vuelve a SU constante: no hereda el 0.05')
   assert.equal(opacidad(h, 'zonas'), String(ITEM_DIM), 'y el pane de la que no tiene nada que salvar, igual')
   h.engine.destroy()

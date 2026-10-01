@@ -6,7 +6,7 @@
 //   node --test test/engine/cluster-fold.test.mjs
 import test, { after } from 'node:test'
 import assert from 'node:assert/strict'
-import { conGlDeEdicion, makeEditGl, makeGlify, makeIconSet, makeMap, makeLeaflet, installCanvasStub } from '../../test-helpers/engine-stub.mjs'
+import { conGlDeEdicion, makeEditGl, makeIconSet, makeMap, makeLeaflet, installCanvasStub } from '../../test-helpers/engine-stub.mjs'
 import { MapEngine } from '../../src/engine/MapEngine.js'
 import { adoptLeafletHost } from '../../src/host/LeafletHost.js'
 
@@ -28,7 +28,7 @@ const accessors = { idOf: v => v.id, positionOf: v => ({ lat: v.lat, lng: v.lng 
 const orden = a => [...a].sort((x, y) => x - y)
 
 const mount = ({ data = FLOTA, zoom = 3, foldOpts = {} } = {}) => {
-  const engine = new MapEngine({ host: adoptLeafletHost(makeMap({ zoom }), { leaflet: makeLeaflet() }), glify: makeGlify() })
+  const engine = new MapEngine({ host: adoptLeafletHost(makeMap({ zoom }), { leaflet: makeLeaflet() }) })
   const host = engine.addPointLayer({ id: 'flota', data, accessors, iconSet: makeIconSet(), interactive: false })
   const fold = engine.addClusterFold([{ id: 'flota' }], { radius: 80, maxZoom: 18, minPoints: 2, ...foldOpts })
   const control = fold.handle.control

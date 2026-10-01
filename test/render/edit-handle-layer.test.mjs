@@ -391,7 +391,7 @@ test('el tamaño del handle se declara en px CSS y baja a la superficie en px de
   assert.deepEqual(doble.tiles, editHandleChannels(iconSet).tiles, 'el tile no depende de la resolución')
 })
 
-test('el VAO lee el buffer del arena con el layout de glify, una sola vez', () => {
+test('el VAO lee el buffer del arena con el layout de los sprites, una sola vez', () => {
   const { log } = montar(23)
   assert.deepEqual(log.attribs, [
     { index: 0, size: 2, stride: 28, offset: 0 },

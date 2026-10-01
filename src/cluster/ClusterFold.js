@@ -489,7 +489,7 @@ export function createClusterFold(bridge, targets, { radius, maxZoom, minPoints,
       legsHandle && bridge.removeLayer(legsId)
       // Teardown del engine: TODO se está removiendo, así que des-suprimir el host y
       // refrescarlo (+ resyncear sus labels/overlays ligados) es trabajo inútil y peligroso
-      // — rebuildearía glify sobre un canvas que se destruye.
+      // — reconstruiría el buffer de una capa cuyo contexto se está soltando.
       // El `destroy()` de cada capa libera igual. Fuera del teardown (quitar UNA capa) el
       // host SÍ se des-suprime y resyncea normalmente.
       if (bridge.destroying()) return

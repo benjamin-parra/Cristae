@@ -5,7 +5,7 @@
 // acá se verifica el CABLEADO.
 
 import '../../test-helpers/engine-stub.mjs'
-import { makeGlify, makeMap, makeLeaflet, makeIconSet, decorarElementos } from '../../test-helpers/engine-stub.mjs'
+import { makeMap, makeLeaflet, makeIconSet, decorarElementos } from '../../test-helpers/engine-stub.mjs'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { MapEngine } from '../../src/engine/MapEngine.js'
@@ -14,7 +14,7 @@ import { adoptLeafletHost } from '../../src/host/LeafletHost.js'
 const flushRaf = () => new Promise(r => setTimeout(r, 5))
 const items = Array.from({ length: 10 }, (_, i) => ({ id: i + 1, lat: i * 0.1, lng: i * 0.2, size: 24 }))
 const accessors = { idOf: it => it.id, positionOf: it => ({ lat: it.lat, lng: it.lng }), sizeOf: it => it.size }
-const newEngine = () => new MapEngine({ host: adoptLeafletHost(makeMap(), { leaflet: makeLeaflet() }), glify: makeGlify() })
+const newEngine = () => new MapEngine({ host: adoptLeafletHost(makeMap(), { leaflet: makeLeaflet() }) })
 
 test('addHighlightOverlay: cablea el pase separado end-to-end sobre MapEngine', async () => {
   const engine = newEngine()
@@ -73,11 +73,13 @@ test('addHighlightOverlay: el ViewAnimator lo reproyecta POR FRAME durante el zo
 // a ese zoom es el píxel (800, 800).
 test('addHighlightOverlay: en el zoom animado, cada realce cae sobre el punto de su sprite', async () => {
   const origenes  = []
+  // Sólo el 2D del pase: la superficie de la capa de puntos sigue tomando su WebGL2 del harness.
   const restaurar = decorarElementos((el, tag) => {
-    if (tag === 'canvas') el.getContext = () => new Proxy({}, {
+    const getContext = el.getContext
+    if (tag === 'canvas') el.getContext = kind => (kind !== '2d' ? getContext(kind) : new Proxy({}, {
       get: (_, p) => (p === 'translate' ? (x, y) => origenes.push([x, y]) : () => {}),
       set: () => true,
-    })
+    }))
     return el
   })
   const engine = newEngine()

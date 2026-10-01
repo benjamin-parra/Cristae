@@ -4,7 +4,7 @@
 // cámara le entrega a Leaflet la caja como par de esquinas, que se aplana para asertarla.
 
 import '../../test-helpers/engine-stub.mjs'
-import { conGlDeEdicion, makeEditGl, makeGlify, makeMap, makeLeaflet } from '../../test-helpers/engine-stub.mjs'
+import { conGlDeEdicion, makeEditGl, makeMap, makeLeaflet } from '../../test-helpers/engine-stub.mjs'
 import { test, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { MapEngine } from '../../src/engine/MapEngine.js'
@@ -17,7 +17,7 @@ const encuadre = alta => {
   const cajas = []
   map.fitBounds = ([sw, ne]) => { cajas.push([...sw, ...ne]); return map }
 
-  const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeLeaflet() }), glify: makeGlify() })
+  const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeLeaflet() }) })
   alta(engine)
   engine.fitToLayers()
   engine.destroy()
@@ -46,7 +46,7 @@ test('el tope de maxZoom va en el mismo encuadre, sin un zoom aparte', () => {
   map.fitBounds = (corners, { maxZoom }) => { pedidos.push(maxZoom); return map }
   map.setZoom   = zoom => { pedidos.push(`setZoom ${zoom}`); return map }
 
-  const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeLeaflet() }), glify: makeGlify() })
+  const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeLeaflet() }) })
   engine.addLineLayer({
     id: 'ruta', backend: 'gpu', accessors: { idOf: r => r.id, pathOf: r => r.path }, data: [{ id: 1, path: [[10, 20], [11, 21]] }],
   })

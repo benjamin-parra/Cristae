@@ -234,7 +234,7 @@ Source (contrato núcleo)                         ← B: layer.source = defineSo
 ### 5.3 Política patch vs rebuild (generalizada, idéntica a la actual)
 - **`set(items)`** → `store.update` → diff de set de IDs. Si **cambió el set** ó hay **cambio de filtro pendiente** ó **clusters cambiaron** → `rebuild` (deferido a rAF). Si solo cambiaron posiciones/variantes detectables por `versionOf` → `patch`.
 - **`patch(items, dirtyIds)`** → `store.patch`. Cambio de membresía de filtro → `rebuild`; si no → `patch`.
-- **`move(id, lat, lng)`** → mueve posición/label **sin rebuild**: escribe el slot del vértice (`id→slot`) en el buffer interleaved de glify vía `bufferSubData` (§17.5). O(1), [0-alloc] en WebGL2. **No** pasa por `setData`/`resetVertices`.
+- **`move(id, lat, lng)`** → mueve posición/label **sin rebuild**: escribe el slot del vértice (`id→slot`) en el VBO de la capa vía `bufferSubData` (§17.5). O(1), [0-alloc] en WebGL2. **No** reconstruye el buffer.
 - **`refresh()`** (de **capa**, genérico) → re-evalúa `variantOf`/`versionOf` y redibuja (generaliza el "recompute por antigüedad": el consumidor lo llama en su timer; el motor no conoce "latencia"). Es re-evaluar el estado computado de **una capa** — distinto del `map.invalidateSize()` de Leaflet (dimensiones del contenedor tras resize, que el motor ya llama internamente en el `ResizeObserver`, §11). Se llama `refresh` (no `invalidate`) para no chocar con ese término de Leaflet.
 - **Cambio de `iconSet`** (set inicial, swap en caliente, o resolución tardía de `icon-set="…"`) → **rebuild reactivo con reseed automático** (deferido a rAF, coalescido con cualquier `set`/`accessors`/`preloadIcons` del mismo tick). El motor reacciona al **valor**, no al momento ni al loader → §7.2.
 - Hook de escape: `shouldRebuild?(prev, next)` override opcional.
@@ -344,7 +344,7 @@ Es el patrón de los atlas de glyphs en renderers de texto / streaming buffers: 
 - **Declarado:** `IconSet({ variants })` preseed-ea → atlas con capacidad+headroom y celdas ocupadas antes del primer render (ruta rápida, cero append en runtime).
 - **No declarado (red de seguridad):** variante nueva → append por celda en el siguiente `sync` de **cada** binding; `console.warn` en debug. **Nunca** invisibles, **nunca** repack salvo agotar capacidad.
 - **Regrow** (raro): nuevo `Atlas`; cada binding re-sube completo en su próximo `sync`, copiando el bitmap previo por `drawImage` (no redibujar canvases).
-- **Hot-path cero-alloc (§17):** el atlas expone `tileChannel(index)` (canal r, `index/(C-1)`) y `cellOf` (que computa `col/row` como **enteros inline** `i%cols`, `(i/cols)|0`, sin objeto de coordenadas) — ambos O(1) [0-alloc], **sin concerns de picking/heading**. La composición del color por punto es **render-side**: `encodeColor` **muta-y-retorna un scratch compartido** (no `{r,g,b,a}` por punto — glify lo lee sincrónicamente en `resetVertices`) tomando r de `tileChannel`, g del `headingOf` y b,a del slot. `sync` en estado estable = 2 comparaciones.
+- **Hot-path cero-alloc (§17):** el atlas expone `tileChannel(index)` (canal r, `index/(C-1)`) y `cellOf` (que computa `col/row` como **enteros inline** `i%cols`, `(i/cols)|0`, sin objeto de coordenadas) — ambos O(1) [0-alloc], **sin concerns de picking/heading**. La composición del color por punto es **render-side**: `PointLayer` escribe los canales directo en su espejo —r de `tileChannel`, g del `headingOf` y b,a del slot—, sin objeto por punto. `sync` en estado estable = 2 comparaciones.
 
 > Dos propiedades que el diseño garantiza: **(1)** el atlas se **reusa y se le agregan** variantes (append por celda con `texSubImage2D`), nunca se reconstruye desde cero; **(2)** con **dos mapas no se rompe** — cada capa tiene su binding con cursor propio sobre el mismo `Atlas` compartido, y el `#dirty` global (booleano consume-once, raíz del 2º-mapa-en-blanco) desaparece, reemplazado por identidad intrínseca (cuenta + identidad de objeto).
 
@@ -459,7 +459,7 @@ camera.getCenter() / getZoom() / getBounds()
 
 ## 13. Cambios estructurales requeridos en Cristae (lista precisa)
 
-> Todos **estructurales** (terminología, fronteras, esquema). Los **algoritmos** de glify (rebuild `setData`/`resetVertices`, supercluster) y de picking **no** se reescriben ni se forkea glify. Se **añade** un path incremental (`move`/recolor) que escribe el buffer interleaved de glify por `bufferSubData` — código del motor sobre los recursos GL de la instancia, **no** un fork ni un monkey-patch del prototipo (§17.5). Es el mismo patrón que el framework ya usa para el draw de picking (`GlifyLayer.js:80-94` bypassa `drawOnCanvas`).
+> Todos **estructurales** (terminología, fronteras, esquema). Los **algoritmos** de supercluster y de picking **no** se reescriben. Los puntos dibujan desde su propio VBO, y el path incremental (`move`/recolor) escribe su slot por `bufferSubData` (§17.5).
 
 1. **Atlas como valor append-only + `GpuAtlasBinding` por contexto** (§7.2): `Atlas` inmutable-por-generación con capacidad fija e índice/encoding estables (CPU, sin WebGL); binding por capa con cursor (`uploaded` / identidad de objeto) que hace `texSubImage2D` en append y `texImage2D` en regrow; dims → uniforms. **Elimina `#dirty`** (booleano consume-once). *(El cambio más profundo; habilita reuse+append, arregla la corrupción de marcadores existentes y el 2º-mapa-en-blanco.)*
 2. **API de cámara** en `MapWidget`/`Camera` (§9) — hoy inexistente (solo `.leaflet`).
@@ -589,13 +589,12 @@ camera.followPoint('fleet', id)        // + viewport-insets
 
 > Contexto: en modo reactivo (`interval=0`) el productor emite **miles de updates/seg**. El cuello de botella **no es CPU, es presión de GC**: una sola asignación por-elemento × miles de puntos × decenas de emits/seg = pausas de GC que se ven como tirones en el mapa, y colapso en segundos. Estas reglas son obligatorias en render, picking, `Atlas.sync`, `notify` y `dispatch`.
 
-> **Dos paths, dos presupuestos de alloc (clave — verificado en glify 3.3.1).** glify NO ofrece update in-place: `setData`→`render`→`resetVertices` es **siempre O(n) y aloca O(n)** (spreadea `{...color}` por punto en `points.ts:136`, crea un objeto-lookup por punto que en este uso ni se lee, y hace `new Float32Array`). Por eso:
-> - **Path de rebuild** (`set` cambió el set / filtro / cluster): pasa por `setData` de glify → aloca O(n). El coalescing **acota la *tasa* a ≤1 rebuild por flush de rAF** (colapsa N pushes del `Source` del mismo tick en uno) — pero **no acota el costo agregado y no garantiza que el rebuild sea raro**. Si el *set* de ítems cambia en cada frame, se paga el alloc O(n) en **cada** frame; el diseño no lo evita ni el coalescing lo esconde. La condición para que este path sea barato es que **el conjunto cambie poco** (alta/baja/reorder/filtro), lo cual es propiedad del **uso del Source**, no del motor. La vía para que los "miles/seg" no toquen este path es enrutar el estado estable por `move`/`patch` (incremental). El scratch de `encodeColor` (§17.1) solo mantiene limpio *nuestro* lado; glify domina el alloc y no lo tocamos.
-> - **Path incremental** (`move`/`patch`/recolor en estado estable, los "miles/seg"): **NO** pasa por `setData`. Es código del motor que escribe el buffer interleaved de glify por `bufferSubData` (§17.5). El **[0-alloc] real (WebGL2)** se cumple **bajo precondición**: el id tiene slot vigente (el set no cambió desde el último rebuild) → solo se reescribe posición/color de ese slot. Esa es la **única garantía de alloc incondicional del diseño**; el costo del rebuild no lo es, porque depende del *tipo de cambio*, no del scheduler. El presupuesto de §17 aplica a *este* path y a encode/dispatch/`Atlas.sync`, no al rebuild.
+> **Dos paths, dos presupuestos de alloc (clave).** Reconstruir el buffer de una capa de puntos es **siempre O(n)**: reescribe cada vértice y re-sube el buffer entero. Por eso:
+> - **Path de rebuild** (`set` cambió el set / filtro / cluster): reescribe el espejo y lo re-sube → O(n), y aloca cuando el set crece. El coalescing **acota la *tasa* a ≤1 rebuild por flush de rAF** (colapsa N pushes del `Source` del mismo tick en uno) — pero **no acota el costo agregado y no garantiza que el rebuild sea raro**. Si el *set* de ítems cambia en cada frame, se paga el O(n) en **cada** frame; el diseño no lo evita ni el coalescing lo esconde. La condición para que este path sea barato es que **el conjunto cambie poco** (alta/baja/reorder/filtro), lo cual es propiedad del **uso del Source**, no del motor. La vía para que los "miles/seg" no toquen este path es enrutar el estado estable por `move`/`patch` (incremental).
+> - **Path incremental** (`move`/`patch`/recolor en estado estable, los "miles/seg"): **NO** reconstruye. Escribe el slot del VBO de la capa por `bufferSubData` (§17.5). El **[0-alloc] real (WebGL2)** se cumple **bajo precondición**: el id tiene slot vigente (el set no cambió desde el último rebuild) → solo se reescribe posición/color de ese slot. Esa es la **única garantía de alloc incondicional del diseño**; el costo del rebuild no lo es, porque depende del *tipo de cambio*, no del scheduler. El presupuesto de §17 aplica a *este* path y a encode/dispatch/`Atlas.sync`, no al rebuild.
 
 ### 17.1 Estado estable = cero asignaciones
-- **Arrays de instancia reusados + truncado de longitud** (`arr.length = idx`), nunca arrays nuevos por ciclo. Ya lo hace `GlifyLayer.#renderItems` con `points/meta/items`.
-- **Objeto scratch mutado-y-retornado** para valores por-elemento **en el path de rebuild** (callback `color:(i)=>…` de glify). Ej.: `encodeColor` devuelve **un único** `{r,g,b,a}` reusado — seguro porque glify lo consume sincrónicamente: hace `chosenColor = {...colorFn(i), a}` en la misma iteración (`points.ts:136`), copia verificada. En el path incremental no hay scratch-objeto: `encodeColor(index, out, offset)` escribe directo en el slot del buffer (§17.5).
+- **Arrays de instancia reusados + truncado de longitud** (`arr.length = idx`), nunca arrays nuevos por ciclo. Lo hace el rebuild de `PointLayer` con su espejo e `#idBySlot`.
 - **Enteros inline** en vez de objetos de coordenadas: `col = i % cols; row = (i/cols)|0` (no `{col,row}`).
 
 ### 17.2 `map`/`filter` que solo iteran → `forEach`/`for`
@@ -641,21 +640,27 @@ notifyChanges() { safeDispatch(this.#listeners, this.#selfFilteredData, reportLi
 ### 17.4 Sin scheduler global: `safeDispatch` síncrono
 Se **elimina** el `WorkerPool` (singleton `MessageChannel`): su propósito —trocear cadenas largas de listeners para no bloquear el render— ya lo cubre el coalescing del `Emitter`/rAF aguas arriba. El fan-out es `safeDispatch` **síncrono y cero-alloc**, sin pool ni por-engine. Un listener genuinamente pesado difiere su **propio** trabajo (responsabilidad del consumidor); la librería no carga un scheduler global. *(Decisión: no hay variante asíncrona "configurable" — un flag así sería justo el tipo de menú que invita a cablear la rama equivocada.)*
 
-### 17.5 Path incremental: escritura directa del buffer de glify (mecanismo verificado)
+### 17.5 Path incremental: escritura directa del slot
 
-Es lo que hace al `move()` O(1) y al `[0-alloc]` **reales**, no aspiracionales. La intención —actualización puntual O(1)— **es alcanzable por bypass** (operar sobre los recursos GL de la instancia), **sin fork y sin monkey-patch**. Todo lo que sigue está verificado contra el source de glify 3.3.1 (`src/points.ts`, `src/base-gl-layer.ts`, `src/index.ts`) y de Cristae-Framework.
+Es lo que hace al `move()` O(1) y al `[0-alloc]` **reales**, no aspiracionales.
 
-**Por qué el bypass basta — cadena de hechos verificados:**
+**Por qué una escritura puntual basta:**
 
-1. **El marco de coordenadas es fijo de por vida.** `mapCenterPixels` se asigna **una sola vez** en el constructor (`base-gl-layer.ts:164`) y **nunca se recalcula** (grep exhaustivo del paquete: solo lectura, en `drawOnCanvas`). El pan/zoom **no toca los vértices** — solo recompone la matriz por frame (`points.ts:312-327`). Corolario clave: el vértice de un punto es **función pura de su propio latLng**: `project(latLng,0) − mapCenterPixels`. Por eso actualizar un punto **no** depende de los demás → **O(1) genuino**, no O(n) disfrazado.
-2. **Los handles son públicos:** `instance.gl`, `instance.typedVertices` (el `Float32Array` espejo, asignado en `points.ts:114`), `instance.getBuffer('vertices')` (devuelve el **mismo `WebGLBuffer` cacheado**, `base-gl-layer.ts:253-262`), `instance.bytes` (=7), `instance.mapCenterPixels`, `instance.map`. Nada `private` bloquea.
-3. **Picking comparte el buffer.** `GlifyLayer.#drawPick` (`GlifyLayer.js:88-94`) hace `useProgram` + `enableVertexAttribArray` + `drawArrays`, **sin re-bindear buffer ni llamar `vertexAttribPointer`**: lee el mismo buffer `vertices`. → un `bufferSubData` actualiza **visual y picking a la vez**; el path incremental **no** necesita sincronizar ningún lookup de CPU.
-4. **No se reescribe nada de glify.** No se llama `setData`/`render`/`resetVertices`; se escribe en el buffer existente. Es el patrón que el framework ya usa para picking. Monkey-patchear `Points.prototype` sería estado global compartido (rompe multi-mapa/embebido, anti-patrón §16) y no aporta nada que el bypass no dé; forkear es overkill de mantenimiento sin necesidad.
+1. **El vértice es función pura de su latLng y del ancla.** Las posiciones van en world0 relativas a un
+   ancla que sólo cambia en un rebuild, y el rebuild reescribe todo. El pan/zoom no toca los vértices:
+   sólo rehace la matriz (`anchorMatrix`). Actualizar un punto **no** depende de los demás → O(1)
+   genuino.
+2. **El espejo CPU es la única copia.** `PointLayer` posee un `Float32Array` de 7 floats por slot
+   (`[x, y, r, g, b, a, size]`, `point-program.js`) y su `WebGLBuffer`, estable de por vida: el rebuild
+   reasigna su almacenamiento con `bufferData(.., DYNAMIC_DRAW)`, el path incremental parcha el espejo
+   y sube ese rango.
+3. **Picking comparte el buffer.** El pase se enlaza con los índices de atributo del visual y dibuja con
+   el VAO de la capa → un `bufferSubData` actualiza **visual y picking a la vez**.
 
-**Layout (verificado, glify 3.3.1):** `bytes = 7` floats interleaved por punto `[x, y, r, g, b, a, size]` (`points.ts` defaults: vertex start0/size2, color start2/size4, pointSize start6/size1).
-
-**Proyección inlineada — esto es lo que logra el `[0-alloc]` (el detalle que faltaba):**
-`map.project(latLng, 0)` **aloca** (un `Point` y, vía `toLatLng`, un `LatLng` interno) → por update × miles/seg = justo el GC que se quería evitar. Hay que **inlinear** la transformación EPSG:3857 a zoom 0 (glify ya **exige** EPSG:3857 — `points.ts:100` advierte si no lo es —, así que el acoplamiento ya está asumido). Derivada y simplificada de `SphericalMercator.project` + `Transformation` + `scale(0)=256` de Leaflet:
+**Proyección inlineada — esto es lo que logra el `[0-alloc]`:**
+`map.project(latLng, 0)` **aloca** (un `Point` y, vía `toLatLng`, un `LatLng` interno) → por update ×
+miles/seg = justo el GC que se quería evitar. `render/project.js` inlinea EPSG:3857 a zoom 0, derivada
+de `SphericalMercator.project` + `Transformation` + `scale(0)=256` de Leaflet:
 
 ```js
 const D = Math.PI / 180, MAXLAT = 85.0511287798
@@ -668,48 +673,13 @@ const projY0 = (lat) => {
 // sanity: projX0(0)=128, projY0(0)=128  ✔ (mundo 256×256 a zoom 0, centro en 128,128)
 ```
 
-**Mecánica (dos fases):**
-
-```js
-// ── (A) re-bind tras CADA rebuild del engine ──
-// setData crea un typedVertices NUEVO (points.ts:114); el WebGLBuffer (objeto) es estable,
-// pero el Float32Array espejo NO → recapturar referencia y reconstruir id→slot.
-bindToInstance(instance, items) {
-  this.gl    = instance.gl
-  this.buf   = instance.getBuffer('vertices')   // estable entre rebuilds
-  this.verts = instance.typedVertices           // ← NUEVO cada rebuild: recapturar siempre
-  this.cx    = instance.mapCenterPixels.x        // fijos de por vida
-  this.cy    = instance.mapCenterPixels.y
-  if (instance.bytes !== 7)                       // assert de layout (ver invariantes)
-    throw new Error('[cristae] glify layout != 7; abortar path incremental')
-  this.slot.clear()                               // id → índice de slot (orden del último render)
-  for (let i = 0; i < items.length; i++) this.slot.set(items[i].id, i)
-  this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.buf)
-  this.gl.bufferData(this.gl.ARRAY_BUFFER, this.verts, this.gl.DYNAMIC_DRAW) // hint apto a updates
-}
-
-// ── (B) move(id, lat, lng): O(1), [0-alloc] en WebGL2 ──
-move(id, lat, lng) {
-  const i = this.slot.get(id)
-  if (i === undefined) return false               // sin slot vigente → lo toma patch/rebuild
-  const base = i * 7                              // vertex.start = 0
-  this.verts[base]     = projX0(lng) - this.cx
-  this.verts[base + 1] = projY0(lat) - this.cy
-  const gl = this.gl
-  gl.bindBuffer(gl.ARRAY_BUFFER, this.buf)
-  gl.bufferSubData(gl.ARRAY_BUFFER, base * 4, this.verts, base, 2) // WebGL2: 2 floats, sin subarray
-  this.scheduleRedraw()                           // coalescido a rAF por el engine
-  return true
-}
-// recolor: idéntico sobre [base+2 .. base+6); encodeColor(tileIdx, angleNorm, i, this.verts, base+2)
-// escribe r,g,b,a en el mirror — sin objeto por punto — y bufferSubData(.., base+2, 4).
-```
-
-- **[0-alloc] real en WebGL2:** la forma de 5 args `bufferSubData(target, dstByteOffset, srcData, srcOffset, length)` sube los floats **desde `typedVertices`** sin crear `subarray`. El picking ya exige WebGL2 (`GlifyPicking` `@requires WebGL2`, §16-10) → es el path primario.
-- **WebGL1 (fallback):** sin la forma de 5 args → `gl.bufferSubData(ARRAY_BUFFER, base*4, this.verts.subarray(base, base+2))` (view minúsculo, no copia) o un scratch de 7 floats reusado.
-- **`DYNAMIC_DRAW` se logra sin fork:** se re-emite `bufferData` con el hint sobre **nuestro** buffer capturado, una vez por rebuild en (A). No hay que tocar el código de glify.
+**Mecánica:** `move` escribe `projX0(lng) − ax`, `projY0(lat) − ay` en `verts[slot*7 .. +2]` y sube esos
+2 floats con la forma de 5 args `bufferSubData(target, dstByteOffset, srcData, srcOffset, length)`, que
+no crea `subarray` → **[0-alloc]**. Un patch reescribe los 7 floats del slot igual. Después agenda un
+repintado, coalescido a rAF.
 
 **Invariantes de este path (condiciones de corrección, no recomendaciones):**
-1. **Recapturar `typedVertices` y reconstruir `id→slot` tras cada rebuild** (fase A). El buffer-objeto es estable, pero el `Float32Array` espejo se reemplaza en cada `render()`; cachear la referencia vieja = escribir a un array huérfano que ya no respalda al GPU.
-2. **Assert `instance.bytes === 7`** (y offsets de `shaderVariables`) en (A): si un upgrade de glify cambia el layout interleaved, **fallar ruidoso**, no corromper vértices en silencio. (Pinear la versión vendorizada acompaña; el assert es la red.)
-3. **Hover/click nativo de glify deshabilitado** (`sensitivity:0`, picking propio por GPU): el path incremental **no** actualiza `latLngLookup`/`allLatLngLookup`, que quedan stale pero no se usan (el hit-test va por el buffer, que sí está fresco). Reactivar el hover nativo los corrompería.
+1. **`id→slot` se reconstruye en cada rebuild**: un id sin slot vigente lo toma el rebuild, nunca una
+   escritura a ciegas.
+2. **El canal de tile se codifica con el atlas final**: un regrow a mitad del rebuild re-encoda el set
+   (el canal depende de la capacidad).

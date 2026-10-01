@@ -1,7 +1,7 @@
 // Stubs para montar un MapEngine o una capa headless en node:test. No es un jsdom ni un Leaflet real:
 // existe lo que las capas y el motor tocan —construcción + addPointLayer + addClusterFold + control.*,
-// y del `leaflet` inyectado sólo el constructor de puntos, ver makeLeaflet—. El GL/glify reusa el
-// mismo enfoque que test/pointlayer.test.mjs (la capa no lee nada de vuelta salvo el buffer). Los
+// y del `leaflet` inyectado sólo el constructor de puntos, ver makeLeaflet—. Del GL se lee de vuelta
+// sólo lo que la GPU devolvería —el parche del picking— y lo que se le subió. Los
 // iconSets de burbuja/sub-cluster que arma el fold son los REALES (defineClusterIconSet); rasterizan a
 // un canvas stub cuyo ctx es no-op y cuyos píxeles nunca se leen en CPU (Atlas.tileAt guarda el
 // canvas; sólo se entrega a gl.texImage2D, no-op). Así el harness ejerce el camino real de iconos, no
@@ -38,7 +38,8 @@ const elemento = (base = {}) => Object.assign(base, {
 // Un contexto 2D que no dibuja: todo es no-op salvo `measureText`, que mide 0 como un texto vacío, para
 // que un painter de etiquetas pueda maquetar.
 const NOOP_CTX = new Proxy({ measureText: () => ({ width: 0 }) }, { get: (t, p) => t[p] ?? (() => {}), set: () => true })
-const makeCanvas = () => ({ width: 0, height: 0, style: {}, getContext: () => NOOP_CTX })
+// Un canvas que pide `webgl2` recibe su propio doble de GL (el de una superficie: ver makeEditGl).
+const makeCanvas = () => ({ width: 0, height: 0, style: {}, getContext: kind => (kind === 'webgl2' ? makeEditGl() : NOOP_CTX) })
 
 if (!globalThis.window) {
   const doc = {
@@ -67,7 +68,7 @@ if (!globalThis.window) {
   globalThis.cancelAnimationFrame ??= win.cancelAnimationFrame
 }
 
-/* ── WebGL + glify (idéntico contrato al de pointlayer.test) ── */
+/* ── WebGL ── */
 
 // Constantes numéricas explícitas (para que cualquier comparación/aritmética sobre ellas se sostenga);
 // el resto (métodos y constantes del picking: createRenderbuffer, fenceSync, FRAMEBUFFER…)
@@ -149,7 +150,7 @@ const objDe  = tag => (tag[1] >> 2) | (tag[2] << 6)
 // TRANSPARENTE no escribe texel aunque el draw la cubra —es con lo que se apaga un handle del visual y del
 // pase de una sola escritura—. El tile sale del espejo del VBO que alimenta al draw, que es de donde lo lee
 // la GPU; `tileVacio` es el canal que el test declara transparente.
-const FLOATS_ENTRADA = 7                  // layout de glify: [x, y, tile, angle, b, a, size]
+const FLOATS_ENTRADA = 7                  // layout de los sprites: [x, y, tile, angle, b, a, size]
 const CANAL_TILE     = 2
 
 const descarta = (spy, d, entrada) =>
@@ -282,33 +283,6 @@ const CON_STENCIL = () => ({ stencil: true })
 
 export const makeEditGl = (spy = makePickSpy(), canvas = makeSurface()) =>
   new Proxy(makeGl(null, spy, canvas), { get: (t, p) => (p === 'getContextAttributes' ? CON_STENCIL : t[p]) })
-
-// UN glify por engine; cada points() devuelve una capa nueva (el fold crea host/burbuja/spider/sub).
-// `layers` expone las capas creadas (con `_lost`, que el spy de loseContext marca) para caracterizar
-// que destroy() libera el contexto GL.
-export const makeGlify = () => {
-  const layers = []
-  return {
-    layers,
-    points({ data }) {
-      const layer = {
-        _lost: false,
-        bytes: 7,
-        program: {},
-        typedVertices: new Float32Array(Math.max(data.length, 1) * 7),
-        mapMatrix: { array: new Float32Array(16) },
-        mapCenterPixels: { x: 0, y: 0 },
-        getBuffer: () => ({}),
-        setData(next) { layer.typedVertices = new Float32Array(Math.max(next.length, 1) * 7) },
-        layer: { redraw() {}, _reset() {} },
-        remove() {},
-      }
-      layer.gl = makeGl(() => { layer._lost = true })
-      layers.push(layer)
-      return layer
-    },
-  }
-}
 
 // IconSet stub para los HOSTS (el fold no lo rasteriza; sólo direcciona). Atlas mínimo como en
 // pointlayer.test. Las burbujas/sub-clusters usan el defineClusterIconSet REAL (canvas stub abajo).

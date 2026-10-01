@@ -75,18 +75,14 @@ export class GpuAtlasBinding {
     gl.texSubImage2D(gl.TEXTURE_2D, 0, cell.col * t, cell.row * t, gl.RGBA, gl.UNSIGNED_BYTE, atlas.tileAt(index))
   }
 
-  // Setea las dims en un programa. Guarda y restaura el programa activo: glify dibuja contra SU
-  // programa (set una vez, no por draw); dejar otro activo rompe su uniformMatrix4fv del siguiente
-  // frame. Fuera del hot-path (solo en register/regrow) → el getParameter es despreciable.
+  // Setea las dims en un programa. Deja ese programa activo: cada draw fija el suyo antes de dibujar.
   #applyDims(program, atlas) {
     const gl = this.#gl
-    const prev = gl.getParameter(gl.CURRENT_PROGRAM)
     gl.useProgram(program)
     gl.uniform1i(gl.getUniformLocation(program, 'uAtlas'), 0)
     setF(gl, program, 'uCols', atlas.cols)
     setF(gl, program, 'uRows', atlas.rows)
     setF(gl, program, 'uTileSize', atlas.tileSize)
     setF(gl, program, 'uMaxIndex', Math.max(atlas.capacity - 1, 1))
-    gl.useProgram(prev)
   }
 }

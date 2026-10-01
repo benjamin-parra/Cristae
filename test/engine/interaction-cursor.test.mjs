@@ -11,7 +11,7 @@
 //
 // Importa el helper de stubs PRIMERO: instala el shim window/document que la carga del árbol toca por
 // top-level.
-import { conGlDeEdicion, makeContainer, makeDragging, makeEditGl, makeGlify, makeLeaflet, makeMap, makePickSpy } from '../../test-helpers/engine-stub.mjs'
+import { conGlDeEdicion, makeContainer, makeDragging, makeEditGl, makeLeaflet, makeMap, makePickSpy } from '../../test-helpers/engine-stub.mjs'
 import { after, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { Camera } from '../../src/engine/Camera.js'
@@ -347,7 +347,7 @@ test('el editor que monta el motor informa su handle al árbitro, y al irse lo s
   glVigente = makeEditGl(spy)
   const container = contenedor()
   const map       = { ...makeMap(), getContainer: () => container, dragging: makeDragging() }
-  const engine    = new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeLeaflet() }), glify: makeGlify(), cursor: 'crosshair' })
+  const engine    = new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeLeaflet() }), cursor: 'crosshair' })
   engine.addEditableLayer({ id: 'geo', kind: 'polygon', value: [[0, 0], [0, 10], [10, 10], [10, 0]] })
   const path = engine.getLayer('geo').editor.paths[0]
   const v1   = path.nextVertex(path.firstVertex)          // [0, 10] → píxel (1000, 0)

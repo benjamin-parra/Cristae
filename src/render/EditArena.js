@@ -1,6 +1,6 @@
 // Espejo GPU del arena editable, indexado por REF 1:1 con el `ChunkedPath`: una textura RG32F de
 // posiciones —la que leen relleno y trazo por `texelFetch`— y un VBO interleaved de 7 floats por entrada
-// en el layout de glify, del que salen los handles y el pase de picking.
+// en el layout de los sprites (point-program.js), del que salen los handles y el pase de picking.
 //
 // Las posiciones van PROYECTADAS a world0 y RELATIVAS AL ANCLA, el centro del bbox congelado en `reset`:
 // float32 alcanza a z18 y el desplazamiento absoluto vive en la matriz, así que el pan y el zoom no
@@ -8,9 +8,9 @@
 // índice en el arena —que duplica al crecer—, porque el pase de picking lo direcciona con 6 bits.
 import { ROLE } from '../geometry/ChunkedPath.js'
 import { anchorMatrix } from './anchor-matrix.js'
+import { POINT_FLOATS } from './point-program.js'
 
-const FLOATS_PER_ENTRY = 7                       // [x, y, tile, angle, b, a, size]
-const BYTES_PER_ENTRY  = FLOATS_PER_ENTRY * 4
+const BYTES_PER_ENTRY = POINT_FLOATS * 4
 
 // Tile y tamaño por ROL. El midpoint inactivo (`ROLE.free`, y vive DENTRO del run) sale con el tile
 // transparente: una escritura, sin excepción en el batch.
@@ -257,7 +257,7 @@ export class EditArena {
     for (let ref = from; ref < to; ref++) this.#mirror(ref)
   }
 
-  // Una entrada en las dos copias: la posición proyectada rel-ancla, y los 7 floats del layout de glify
+  // Una entrada en las dos copias: la posición proyectada rel-ancla, y los 7 floats del layout de los sprites
   // con el id del picking (`local + 1`) repartido en los canales b,a. La paridad del local es el kind, así
   // que el rol elige tile y tamaño sin bit extra. [0-alloc]
   #mirror(ref) {
@@ -268,7 +268,7 @@ export class EditArena {
     const x = this.#xy[0] - this.#anchorX
     const y = this.#xy[1] - this.#anchorY
     const p = ref * 2
-    const v = ref * FLOATS_PER_ENTRY
+    const v = ref * POINT_FLOATS
     this.#pos[p]      = x
     this.#pos[p + 1]  = y
     this.#vert[v]     = x
@@ -301,7 +301,7 @@ export class EditArena {
     const entries = path.chunkCount * path.entriesPerChunk
     this.#rows      = Math.max(1, Math.ceil(entries / this.#width))
     this.#pos       = resize(Float32Array, this.#pos,       this.#width * this.#rows * 2)
-    this.#vert      = resize(Float32Array, this.#vert,      entries * FLOATS_PER_ENTRY)
+    this.#vert      = resize(Float32Array, this.#vert,      entries * POINT_FLOATS)
     this.#box       = resize(Float64Array, this.#box,       path.chunkCount * 4)
     this.#rev       = resize(Int32Array,   this.#rev,       path.chunkCount)
     this.#seen      = resize(Int32Array,   this.#seen,      path.chunkCount)
@@ -338,6 +338,6 @@ export class EditArena {
     const gl = this.#gl
     gl.bindBuffer(gl.ARRAY_BUFFER, this.#vbo)
     gl.bufferSubData(gl.ARRAY_BUFFER, from * BYTES_PER_ENTRY, this.#vert,
-      from * FLOATS_PER_ENTRY, (to - from + 1) * FLOATS_PER_ENTRY)
+      from * POINT_FLOATS, (to - from + 1) * POINT_FLOATS)
   }
 }

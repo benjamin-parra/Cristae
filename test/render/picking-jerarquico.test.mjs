@@ -5,11 +5,12 @@
 // pase pidió (tamaño del destino, adjuntos, origen del viewport, tags y draws).
 //
 // El harness va PRIMERO: instala los globals de módulo (window/document) que Leaflet toca al evaluarse.
-import { makeGl, makePickSpy, makeGlify, makeIconSet, makeMap, makeSurface } from '../../test-helpers/engine-stub.mjs'
+import { conGlDeEdicion, makeEditGl, makeGl, makeLeaflet, makePickSpy, makeIconSet, makeMap, makeSurface } from '../../test-helpers/engine-stub.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { Picking, packTag, OBJ_BITS, CHUNK_BITS, LOCAL_BITS } from '../../src/render/Picking.js'
 import { PointLayer } from '../../src/render/PointLayer.js'
+import { adoptLeafletHost } from '../../src/host/LeafletHost.js'
 
 const PATCH = 6
 const HALF  = PATCH >> 1
@@ -46,7 +47,7 @@ const montar = (useDepth = false) => {
   const spy     = makePickSpy()
   const gl      = makeGl(null, spy)
   const picking = new Picking()
-  picking.attach(gl, {}, {}, useDepth)
+  picking.attach(gl, {}, useDepth)
   return { picking, gl, spy, frame: spy.frame }
 }
 
@@ -179,7 +180,7 @@ const pixelLeido = ({ x, y }) => ({ x: -x + HALF, y: -y + HALF })
 const montarSobre = superficie => {
   const spy     = makePickSpy()
   const picking = new Picking()
-  picking.attach(makeGl(null, spy, superficie), {}, {})
+  picking.attach(makeGl(null, spy, superficie), {})
   return { picking, spy }
 }
 
@@ -198,8 +199,8 @@ test('el parche se recorta sobre el píxel del CURSOR, con la superficie a 1× y
   })
 })
 
-// La superficie de edición rinde a CSS × DPR y la de glify a tamaño CSS: en la misma pantalla conviven
-// las dos, así que la escala tiene que salir del CANVAS y no de `devicePixelRatio`.
+// Las superficies propias rinden a CSS × DPR, pero un canvas puede rendir a tamaño CSS: la escala tiene
+// que salir del CANVAS y no de `devicePixelRatio`.
 test('la escala sale del canvas: una superficie a tamaño CSS pickea igual en una pantalla HiDPI', () => {
   const previo = globalThis.devicePixelRatio
   globalThis.devicePixelRatio = 2
@@ -225,16 +226,17 @@ test('syncSize remide la escala: el canvas puede cambiar de caja sin cambiar de 
 const items = ['A', 'B', 'C', 'D'].map((id, i) => ({ id, pos: { lat: i, lng: i } }))
 
 const capa = () => {
-  const glify = makeGlify()
-  const layer = new PointLayer({
-    glify, map: makeMap(), pane: 'p', iconSet: makeIconSet(), interactive: true,
+  const gl        = makeEditGl()
+  const restaurar = conGlDeEdicion(() => gl)
+  const layer     = new PointLayer({
+    host: adoptLeafletHost(makeMap(), { leaflet: makeLeaflet() }), pane: 'p', iconSet: makeIconSet(), interactive: true,
     source: {
       accessors:   { idOf: it => it.id, positionOf: it => it.pos },
       getSnapshot: () => items,
       subscribe:   () => () => {},
     },
   })
-  const { gl } = glify.layers[0]
+  restaurar()
   return { layer, gl, spy: gl.spy }
 }
 

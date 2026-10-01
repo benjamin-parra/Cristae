@@ -575,8 +575,8 @@ mapEl.addEventListener('cristae:ready', () => {
 6. Quitar una **capa** del DOM (`disconnectedCallback`) la desmonta (`removeLayer`). Quitar el
    **`<cristae-map>`** destruye el motor entero (`engine.destroy()` → `L.Map.remove()` + contexto WebGL).
    Al destruirse, **notifica automáticamente** a los demás `<cristae-map>` de la página para que
-   reposicionen sus capas de puntos (el teardown de glify compartido dejaría sus canvas obsoletos
-   sin esta notificación).
+   reposicionen sus capas GL (el teardown de glify, compartido entre mapas, dejaría obsoletos los
+   canvas de sus líneas sin esta notificación).
 7. **Reconexión:** si el `<cristae-map>` vuelve al DOM, se **re-monta** con un motor **nuevo** (las capas
    hijas se re-encolan solas). Por eso `el.engine`/`el.camera` son getters vivos y **no deben cachearse**:
    tras un reattach son otra instancia. Si el layout reconstruye el DOM, conviene insertar lo demás alrededor del

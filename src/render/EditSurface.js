@@ -1,16 +1,14 @@
 import { frameTransform } from './frame.js'
 import { loseGlContext } from './gl-teardown.js'
 
-// Superficie WebGL2 PROPIA de la geometría editable: un canvas en su pane con un contexto que no se
-// comparte con glify. El stencil se decide en `getContext` y no se habilita después —volver a llamarlo
-// sobre el mismo canvas devuelve el MISMO contexto e ignora los atributos nuevos, y el canvas es de
-// glify—, así que el relleno par-impar obliga a un contexto aparte. Uno por instancia de mapa,
-// PEREZOSO y jamás recreado: el techo de contextos vivos del navegador (~16) se agota de forma
+// Superficie WebGL2 PROPIA de una capa GPU: un canvas en su pane con un contexto que no se comparte.
+// Stencil y profundidad se deciden en `getContext` y no se habilitan después —volver a llamarlo sobre
+// el mismo canvas devuelve el MISMO contexto e ignora los atributos nuevos—, así que se piden al
+// crearla. PEREZOSA y jamás recreada: el techo de contextos vivos del navegador (~16) se agota de forma
 // ACUMULATIVA y nadie devuelve uno salvo `loseContext`.
 
 export const SURFACE_ATTRS = {
   stencil               : true,     // el pase de paridad del abanico escribe acá; sin esto no hay relleno
-  depth                 : false,
   alpha                 : true,
   premultipliedAlpha    : true,
   preserveDrawingBuffer : false,
@@ -27,7 +25,7 @@ const dprOf = () => globalThis.devicePixelRatio || 1
 
 export class EditSurface {
 
-  #camera; #surface; #paneName; #attrs
+  #camera; #surface; #paneName; #attrs; #cssZoom
   #offZoom   = []
   #canvas    = null
   #gl        = null
@@ -37,13 +35,16 @@ export class EditSurface {
   #animando  = false
   #ancla     = { x: 0, y: 0, zoom: 0, center: null }   // ancla y vista con las que se rasterizó el contenido
 
-  // `antialias` queda fijado para toda la vida del contexto —alternarlo exigiría recrearlo, que es
-  // justo lo que el presupuesto prohíbe—: con MSAA el abanico multiplica su fill-rate.
-  constructor({ host, pane, antialias = false }) {
+  // `antialias` y `depth` quedan fijados para toda la vida del contexto —alternarlos exigiría
+  // recrearlo, que es justo lo que el presupuesto prohíbe—: con MSAA el abanico multiplica su
+  // fill-rate. `cssZoom: false` es para la capa que el motor reproyecta por cuadro durante el zoom: el
+  // canvas se queda en su ancla y no sigue la transición, que lo escalaría por encima de ese dibujo.
+  constructor({ host, pane, antialias = false, depth = false, cssZoom = true }) {
     this.#camera   = host.camera
     this.#surface  = host.surface
     this.#paneName = pane
-    this.#attrs    = { ...SURFACE_ATTRS, antialias }
+    this.#attrs    = { ...SURFACE_ATTRS, antialias, depth }
+    this.#cssZoom  = cssZoom
   }
 
   get gl()          { return this.#gl }
@@ -150,8 +151,10 @@ export class EditSurface {
     }
 
     this.#surface.mount(this.#paneName).appendChild(canvas)
+    this.#canvas = canvas
+    if (!this.#cssZoom) return gl
+
     this.#surface.followZoom(canvas)
-    this.#canvas  = canvas
     // Zoom animado: el canvas NO se re-rasteriza por frame —eso vibra— ni espera a `zoomend` —eso
     // teletransporta—. Recibe el mismo transform que los tiles y la transición del zoom lo lleva. Se oye
     // recién con el contexto creado: una superficie que no lo consiguió no queda colgada de la vista.

@@ -2,7 +2,7 @@
 // reapila una capa ya montada moviendo el z-index de su pane — sin recrearla.
 
 import '../../test-helpers/engine-stub.mjs'
-import { makeGlify, makeMap, makeLeaflet, makeIconSet } from '../../test-helpers/engine-stub.mjs'
+import { makeMap, makeLeaflet, makeIconSet } from '../../test-helpers/engine-stub.mjs'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { MapEngine } from '../../src/engine/MapEngine.js'
@@ -11,7 +11,7 @@ import { adoptLeafletHost } from '../../src/host/LeafletHost.js'
 const flushRaf = () => new Promise(r => setTimeout(r, 5))
 const items = [{ id: 1, lat: 0, lng: 0, size: 24 }]
 const accessors = { idOf: it => it.id, positionOf: it => ({ lat: it.lat, lng: it.lng }), sizeOf: it => it.size }
-const newEngine = () => new MapEngine({ host: adoptLeafletHost(makeMap(), { leaflet: makeLeaflet() }), glify: makeGlify() })
+const newEngine = () => new MapEngine({ host: adoptLeafletHost(makeMap(), { leaflet: makeLeaflet() }) })
 const zDe = (engine, paneName) => engine.getLeafletMap().getPane(paneName)?.style.zIndex
 
 const conCapa = async (cfg) => {

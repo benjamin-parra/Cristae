@@ -4,21 +4,21 @@
 > [MODELO §17 / §17.5](../MODELO.md) (los dos paths de render). Consume el [Atlas](./atlas.md) +
 > [IconSet](./icons.md) (residencia GPU vía `GpuAtlasBinding`) y un [Source](./data.md).
 
-`PointLayer` dibuja miles de puntos sobre WebGL apoyándose en `leaflet.glify`, pero **sustituye sus
-shaders** por unos propios (atlas de iconos, rotación, picking por color) y le añade lo que glify no
-tiene: un **path incremental [0-alloc]** para mover/recolorear un punto sin reconstruir el buffer.
+`PointLayer` dibuja miles de puntos sobre WebGL con un VBO propio, en una superficie propia
+(`EditSurface`), con los shaders de la casa (atlas de iconos, rotación, picking por color) y un **path
+incremental [0-alloc]** para mover/recolorear un punto sin reconstruir el buffer.
 
 ---
 
 ## Los dos paths (la idea central)
 
-glify solo sabe `setData(data)` → reconstruye todo el buffer interleaved: **O(n) con O(n) de
-allocations**. Sirve para el alta/baja del set, pero pagar O(n) por mover un punto cada frame es
-inviable a miles de updates/seg. Por eso `PointLayer` tiene **dos presupuestos** (SPECS §12-13):
+Reconstruir el buffer entero es **O(n)**: sirve para el alta/baja del set, pero pagar O(n) por mover un
+punto cada frame es inviable a miles de updates/seg. Por eso `PointLayer` tiene **dos presupuestos**
+(SPECS §12-13):
 
 | Path | Cuándo | Costo | Mecanismo |
 |---|---|---|---|
-| **rebuild** | el set cambió (`set`/filtro/cluster/regrow, o cambió el tamaño del snapshot) | O(n), aloca O(n) | `glify.setData` |
+| **rebuild** | el set cambió (`set`/filtro/cluster/regrow, o cambió el tamaño del snapshot) | O(n); aloca sólo si el set creció | reescribe el espejo y sube lo que ocupa con `bufferData` |
 | **incremental** | el set NO cambió; solo se movieron/recolorearon ids con slot vigente | **O(1) por elemento, [0-alloc]** | escribir el slot del buffer con `bufferSubData` |
 
 El `Source` ya coalesce los cambios a un rAF (vía el `Emitter`); `PointLayer` solo decide, en cada
@@ -28,21 +28,19 @@ flush, **cuál path** corresponde leyendo los acumuladores del Source (`moveDirt
 
 ## Por qué el path incremental es O(1) real (MODELO §17.5)
 
-No es un fork ni un monkey-patch de glify. Se apoya en una invariante verificada de glify/Leaflet:
-
-- `mapCenterPixels` se fija **una vez de por vida** de la capa (`base-gl-layer.ts:164`, nunca se
-  recalcula). Por tanto el vértice de un punto es **función pura de su latLng** → se puede reescribir
-  un vértice puntual sin tocar el resto.
-- El layout del vértice es `[x, y, r, g, b, a, size]` (`bytes === 7`). `x,y` = posición proyectada;
-  `r` = canal de tile (del Atlas); `g` = ángulo normalizado; `b,a` = índice local de picking
-  (`local + 1`, 12 bits; el objeto y el chunk son uniform del draw); `size` = tamaño **signado** — la
-  magnitud es el tamaño en px y el signo es el eje focus (ver *Foco por ítem*).
+- El vértice de un punto es **función pura de su latLng y del ancla**, y el ancla sólo cambia en un
+  rebuild, que reescribe todo. Se puede reescribir un vértice puntual sin tocar el resto.
+- El layout del vértice es `[x, y, r, g, b, a, size]` (7 floats, `point-program.js`). `x,y` = posición
+  en world0 relativa al ancla; `r` = canal de tile (del Atlas); `g` = ángulo normalizado; `b,a` = índice
+  local de picking (`local + 1`, 12 bits; el objeto y el chunk son uniform del draw); `size` = tamaño
+  **signado** — la magnitud es el tamaño en px del buffer y el signo es el eje focus (ver *Foco por
+  ítem*).
 - **Mover** = reescribir `[x,y]` (2 floats). **Recolorear/patch** = reescribir los 7 floats del slot.
 - `gl.bufferSubData(target, dstByteOffset, srcData, srcOffset, length)` (forma de 5 args de WebGL2)
-  escribe un subrango **sin crear un `subarray`** → genuinamente **[0-alloc]**.
+  escribe un subrango del espejo **sin crear un `subarray`** → genuinamente **[0-alloc]**.
 
 Para que sea [0-alloc] de verdad, la proyección debe ser inlineada: `map.project()` asigna
-(`Point` + `LatLng`). En su lugar se usa `projX0/projY0` (EPSG:3857 a zoom 0, que glify ya exige):
+(`Point` + `LatLng`). En su lugar se usa `projX0/projY0` (EPSG:3857 a zoom 0):
 
 ```
 projX0(lng) = 256 * (lng/360 + 0.5)
@@ -52,48 +50,57 @@ projY0(lat) = 256 * (0.5 − 0.25/π · ln((1+s)/(1−s))),  s = sin(clamp(lat, 
 `src/render/project.js` exporta `projX0`/`projY0`, verificadas para coincidir **exactamente** con
 `map.project(latLng, 0)` de Leaflet.
 
-### Dos invariantes que el path debe respetar
-1. **Recapturar `typedVertices` + reconstruir `id→slot` tras cada rebuild.** glify reemplaza el
-   `Float32Array` en cada `render()` (`points.ts:114`); el `WebGLBuffer` en cambio es estable. El
-   método `#bind()` recaptura el array y el buffer, y re-emite `bufferData(..., DYNAMIC_DRAW)` (hint
-   apto a updates puntuales) sobre el buffer capturado.
-2. **`assert bytes === 7`.** Si glify cambiara el layout, fallar ruidoso en vez de corromper. El
-   hover/click nativo de glify se apaga (`sensitivity: 0`): el path no usa `allLatLngLookup` (queda
-   stale, no se lee); el picking lee el buffer, que sí está fresco.
+### El marco
+
+- **Ancla.** Cada rebuild la fija en el centro de la vista: lo que se dibuja queda cerca, así float32
+  alcanza a z18. La traslación absoluta vive en la matriz (`anchorMatrix`, aritmética en float64).
+- **Escala del buffer.** La superficie rinde a px CSS × DPR, y `gl_PointSize` mide en px del buffer:
+  el tamaño se escribe multiplicado por esa escala. Si cambia (la ventana pasó a otro monitor), el
+  siguiente `resetCanvasReference` re-codifica el set: el motor lo llama al mover o hacer zoom, así que
+  hasta el próximo movimiento de la vista el canvas sigue a la escala anterior.
+- **Repintado.** `redraw()` agenda un dibujo en el próximo cuadro; los pedidos del mismo cuadro son uno.
+  `resetCanvasReference()` y `renderAtView()` dibujan en el acto. Entre un `renderAtView` y el
+  `resetCanvasReference` que asienta la capa, el dibujo agendado usa el cuadro inyectado, no la vista de
+  partida de la cámara.
+- **Superficie.** Una por capa, con profundidad (el orden por banda del foco) y **sin** la transición CSS
+  del zoom: durante el zoom animado el motor la reproyecta por cuadro con `renderAtView(zoom, center)`,
+  que sólo rehace la matriz.
 
 ---
 
 ## PointLayer
 
-Construcción: `new PointLayer({ glify, map, pane, source, iconSet, interactive = false })`.
-Se suscribe al `source` y reacciona en cada flush.
+Construcción: `new PointLayer({ host, pane, source, iconSet, interactive = false, accessors?, where? })`.
+Toma su superficie del anfitrión, se suscribe al `source` y reacciona en cada flush.
 
 | Miembro | Tipo | Notas |
 |---|---|---|
 | `count` | getter | nº de puntos dibujados |
-| `redraw()` | acción | fuerza un `redraw` de la capa glify |
+| `redraw()` | acción | agenda un repintado en el próximo cuadro |
+| `resetCanvasReference()` | acción | reasienta el canvas a la vista viva y dibuja en el acto |
+| `renderAtView(zoom, center)` | acción | dibuja a una vista inyectada (un cuadro del zoom animado) |
 | `applyFocus(ids, dim?)` | `(Set<id>\|null, number) → true` | eje focus por ítem: plenos los de `ids`, el resto a `dim` (`null` = sin foco). Ver *Foco por ítem* |
 | `idForSlot(slot)` | `(number) → id` | traduce un hit de picking (slot) a id de dato |
-| `requestHoverHit(cx, cy, meta)` | acción | encola un pick GPU no bloqueante (si `interactive`) |
-| `collectHoverHit()` | `() → {slots, metadata}\|null` | recoge el resultado del pick encolado |
-| `pickSync(cx, cy, meta)` | acción | pick síncrono (un solo punto) |
-| `syncPickingSize()` | acción | reajusta el FBO de picking al tamaño del viewport |
-| `destroy()` | acción | desuscribe, libera picking, binding y capa |
+| `requestHoverHit(sample)` | acción | encola un pick GPU no bloqueante (si `interactive`) |
+| `collectHoverHit()` | `() → sample\|null` | recoge el pick encolado y cachea sus hits para `resolveHover` |
+| `resolveClick(sample)` | `→ parts` | pick síncrono (un tiro) |
+| `syncPickingSize()` | acción | remide la escala del pase de picking |
+| `destroy()` | acción | desuscribe, cancela el repintado agendado y suelta la superficie (con ella, el contexto) |
 
 **Flujo de `#onChange` (por flush, ya coalescido):**
-1. Sin capa aún, o el snapshot cambió de tamaño → **rebuild**.
-2. Sin `source.itemById` (lookup O(1)) → rebuild seguro.
-3. Drena `moveDirtyIds()` → `#writePosition` (2 floats) por id. Si un id no tiene slot → rebuild.
-4. Drena `dirtyIds()` → `#writeSlot` (7 floats) por id. Si el Atlas cambió de identidad (regrow) →
+1. El snapshot cambió de tamaño, o no hay `source.itemById` (lookup O(1)) → **rebuild**.
+2. Drena `moveDirtyIds()` → 2 floats por id. Si un id no tiene slot (y no falta por política) → rebuild.
+3. Drena `dirtyIds()` → los 7 floats del slot por id. Si el Atlas cambió de identidad (regrow) →
    rebuild (re-encode total, porque cambió `C`).
-5. Si el Atlas creció (append de variantes nuevas) → `binding.sync`. `redraw`.
+4. Agenda el repintado. El Atlas se sincroniza en el draw (append o regrow).
 
 Los acumuladores **no se limpian acá**: el `Source` los limpia al abrir la siguiente ventana de
 flush, de modo que un 2º suscriptor (p. ej. una `LabelLayer`) vea el mismo set en este flush.
 
-El **rebuild** reusa los arrays de instancia (`#positions`, `#meta`, `#idBySlot`) y trunca su
-`length` (no `new Array`/`.map`/`.filter`) — sin allocations entre rebuilds salvo crecimiento del
-set. Omite posiciones no finitas (§15.2) y ids duplicados (se queda con el primero).
+El **rebuild** reescribe el espejo (`Float32Array` que sólo crece, por duplicación) e `#idBySlot`, y
+trunca su `length` — sin allocations entre rebuilds salvo crecimiento del set. Omite posiciones no
+finitas (§15.2) y ids duplicados (se queda con el primero). Si un regrow del atlas ocurre a mitad del
+recorrido, lo recorre otra vez: el canal de tile depende de la capacidad.
 
 ---
 
@@ -131,7 +138,7 @@ salen las dos cosas que el atenuado necesita, sin ampliar el vértice ni partir 
 
 Consecuencias, que son el punto del diseño:
 
-- **`#sizeFor` es el punto único** que devuelve el tamaño ya signado, así que cualquier rebuild ajeno
+- **`#encode` es el punto único** que escribe el tamaño ya signado, así que cualquier rebuild ajeno
   (`set`/filtro/cluster/regrow) y cualquier patch incremental **reponen el atenuado solos**.
 - `applyFocus` reescribe **sólo lo que cambió de estado**: `Set → Set'` por diferencia simétrica contra
   `#slot` (O(K+K′), sin recorrer el buffer); un cambio de sólo `dim` no toca ni un byte.
@@ -140,8 +147,8 @@ Consecuencias, que son el punto del diseño:
 - Un id enfocado **sin slot** (clusterizado, filtrado, posición no finita) simplemente no existe en el
   buffer: no hay dónde pintar un fantasma.
 
-Degradación: si el contexto no concede profundidad, el mismo camino dibuja sin `DEPTH_BUFFER_BIT` y el
-orden vuelve al de slot — un flag, no un segundo camino.
+Degradación: si el contexto no concede profundidad, `DEPTH_TEST` sin buffer de profundidad pasa
+siempre y el orden vuelve al de slot — el mismo camino, sin un segundo.
 
 ---
 
@@ -157,8 +164,10 @@ orden vuelve al de slot — un flag, no un segundo camino.
 - El id es **jerárquico** y entra en los 32 bits del píxel: objeto (14 bits) y chunk (6) por draw,
   índice local (12) por vértice con la convención `local + 1`. Los impactos se devuelven ordenados del
   texel más cercano al cursor hacia afuera (`PickHits`), que es la desambiguación entre vecinos.
-- Comparte el **mismo buffer** que el render (no re-sube vértices) y el **mismo Atlas** vía un binding
-  propio → el pick siempre ve la posición fresca escrita por el path incremental.
+- Comparte el **mismo buffer** que el render (no re-sube vértices): el programa del pase se enlaza con
+  los índices de atributo del visual, así el VAO de la capa sirve a los dos. Usa el **mismo Atlas** y la
+  **matriz del último dibujo** → el pick ve la posición fresca del path incremental y lo que está en
+  pantalla, también en un cuadro del zoom animado.
 
 | Método | Notas |
 |---|---|
@@ -175,7 +184,6 @@ orden vuelve al de slot — un flag, no un segundo camino.
 import { PointLayer } from './src/render/PointLayer.js'
 import { defineIconSet } from './src/atlas/IconSet.js'
 import { createSource } from './src/data/Source.js'
-import glify from 'leaflet.glify'
 
 const iconSet = defineIconSet({ /* describe + renderers, ver icons.md */ })
 const source = createSource({
@@ -184,7 +192,8 @@ const source = createSource({
   variantOf: v => v.estado,
 })
 
-const layer = new PointLayer({ glify, map, pane: 'overlayPane', source, iconSet, interactive: true })
+// `host`: el anfitrión del mapa (`createLeafletHost` / `adoptLeafletHost`).
+const layer = new PointLayer({ host, pane: 'cristae-point-flota', source, iconSet, interactive: true })
 
 // Alta del set → rebuild (O(n), una vez).
 source.set([{ id: 1, lat: -33.4, lng: -70.6, estado: 'activo' }, /* … */])
@@ -192,8 +201,8 @@ source.set([{ id: 1, lat: -33.4, lng: -70.6, estado: 'activo' }, /* … */])
 // Mover un punto vivo → path incremental [0-alloc], sin reconstruir el buffer.
 source.move(1, -33.41, -70.61)
 
-// Picking bajo el cursor (no bloqueante).
-layer.requestHoverHit(px, py, { /* meta */ })
-const hit = layer.collectHoverHit()
-if (hit) for (const slot of hit.slots) console.log('id bajo cursor:', layer.idForSlot(slot))
+// Picking bajo el cursor (no bloqueante): el resultado queda atado a SU muestra.
+const sample = { lat, lng, x: px, y: py }
+layer.requestHoverHit(sample)
+layer.collectHoverHit() === sample && layer.resolveHover(sample).forEach(part => console.log('id bajo cursor:', part.id))
 ```

@@ -12,18 +12,10 @@ import { defineIconSet } from '../atlas/IconSet.js'
 import { ROLE } from '../geometry/ChunkedPath.js'
 import { blendOver } from './EditSurface.js'
 import { CHUNK_BITS } from './Picking.js'
-import { POINT_FRAGMENT, POINT_VERTEX } from './shaders.js'
+import { linkPointProgram } from './point-program.js'
 
 // El pase direcciona el chunk con 6 bits: de acá en adelante el ordinal no es representable.
 const ORDINAL_CAP = 1 << CHUNK_BITS
-
-// Layout de vértice de glify: [x, y, tile, angle, b, a, size].
-const STRIDE = 28
-const ATTRS  = [
-  { name: 'vertex',    size: 2, offset: 0 },
-  { name: 'color',     size: 4, offset: 8 },
-  { name: 'pointSize', size: 1, offset: 24 },
-]
 
 // Variante y tamaño en pantalla por ROL. El rol `free` es el midpoint inactivo del último vértice de un
 // trazo abierto: el tile TRANSPARENTE lo saca del visual y del picking a la vez, sin excepción en el batch.
@@ -126,34 +118,11 @@ export class EditHandleLayer {
     this.#iconSet = iconSet
     this.#binding = new GpuAtlasBinding(gl)
 
-    this.#program = gl.createProgram()
-    ;[[gl.VERTEX_SHADER, POINT_VERTEX], [gl.FRAGMENT_SHADER, POINT_FRAGMENT]].forEach(([type, source]) => {
-      const shader = gl.createShader(type)
-      gl.shaderSource(shader, source)
-      gl.compileShader(shader)
-      gl.attachShader(this.#program, shader)
-      gl.deleteShader(shader)                // el programa las retiene hasta el link
-    })
-    gl.linkProgram(this.#program)
-    if (!gl.getProgramParameter(this.#program, gl.LINK_STATUS))
-      throw new Error(`[cristae] el programa de los handles no linkea: ${gl.getProgramInfoLog(this.#program)}`)
+    ;({ program: this.#program, vao: this.#vao } = linkPointProgram(gl, arena.vbo))
     this.#uMatrix = gl.getUniformLocation(this.#program, 'matrix')
 
-    // El VBO del arena es un objeto ESTABLE —`grow` reasigna su almacenamiento, no el buffer—, así que
-    // el VAO se arma una vez y sobrevive a la duplicación del arena.
-    this.#vao = gl.createVertexArray()
-    gl.bindVertexArray(this.#vao)
-    gl.bindBuffer(gl.ARRAY_BUFFER, arena.vbo)
-    ATTRS.forEach(({ name, size, offset }) => {
-      const loc = gl.getAttribLocation(this.#program, name)
-      if (loc < 0) return
-      gl.enableVertexAttribArray(loc)
-      gl.vertexAttribPointer(loc, size, gl.FLOAT, false, STRIDE, offset)
-    })
-    gl.bindVertexArray(null)
-
     this.#binding.register(this.#program)
-    this.#binding.register(picking.attach(gl, this.#program, this.#binding.texture))
+    this.#binding.register(picking.attach(gl, this.#program))
   }
 
   get iconSet()  { return this.#iconSet }

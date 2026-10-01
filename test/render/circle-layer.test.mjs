@@ -7,7 +7,7 @@
 //
 // El harness (engine-stub) shimea window/document — se importa PRIMERO.
 import '../../test-helpers/engine-stub.mjs'
-import { conGlDeEdicion, makeEditGl, makeGlify, makeLeaflet, makeMap, makePickSpy } from '../../test-helpers/engine-stub.mjs'
+import { conGlDeEdicion, makeEditGl, makeLeaflet, makeMap, makePickSpy } from '../../test-helpers/engine-stub.mjs'
 import test, { after } from 'node:test'
 import assert from 'node:assert/strict'
 import { createSource } from '../../src/data/Source.js'
@@ -336,7 +336,7 @@ test('oculta no repinta, visible sí; destroy deja la capa inerte', async () => 
 })
 
 test('desde el motor: la visibilidad de la capa llega al dibujo y la baja libera el contexto', async () => {
-  const engine = new MapEngine({ host: adoptLeafletHost(makeMap(), { leaflet: makeLeaflet() }), glify: makeGlify() })
+  const engine = new MapEngine({ host: adoptLeafletHost(makeMap(), { leaflet: makeLeaflet() }) })
   const { spy } = gpu()
   const handle = engine.addCircleLayer({ id: 'radios', accessors, data: [{ id: 1, lat: 0, lng: 0, radius: 100000 }] })
   await flush()

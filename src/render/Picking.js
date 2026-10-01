@@ -2,12 +2,11 @@ import { pixelScaleOf } from './pixel-scale.js'
 import { POINT_VERTEX, POINT_PICKING_FRAGMENT } from './shaders.js'
 
 // Picking GPU no-bloqueante: micro-FBO + lectura diferida por PBO/fenceSync (WebGL2).
-// Comparte el buffer de vértices de glify — el programa de picking se linkea con los MISMOS
-// índices de atributo (bindAttribLocation) que el visual, así reusa el vertexAttribPointer que
-// glify ya dejó montado: no re-bindea buffer ni vertexAttribPointer. Un bufferSubData al buffer
-// actualiza visual y picking a la vez (§17.5). Cada draw declara su textura; la que se captura en
-// attach es la que hay que dejar bindeada al salir, y es estable (un solo objeto reusado por el
-// binding incluso en regrow) → capturarla una vez no produce staleness.
+// Comparte el buffer de vértices del visual — el programa de picking se linkea con los MISMOS
+// índices de atributo (bindAttribLocation) que el visual, así el VAO que cada draw enlaza en su `bind`
+// sirve a los dos programas. Un bufferSubData al buffer actualiza visual y picking a la vez (§17.5).
+// Cada draw declara su textura. Al salir el pase deja el framebuffer, el viewport y la mezcla del
+// visual; programa, VAO y textura los fija cada visual al dibujar.
 //
 // El id que devuelve el pase es JERÁRQUICO y entra en los 32 bits del píxel: objeto (14) y chunk (6)
 // por draw, índice local (12) por vértice. El local lleva un +1 en el packer, así que el valor 0
@@ -74,23 +73,20 @@ export class PickHits {
 
 export class Picking {
 
-  #gl            = null
-  #program       = null
-  #target        = null   // destino de picking — { framebuffer, color, depth }, de PATCH×PATCH
-  #pbo           = null
-  #buf           = new Uint8Array(PATCH * PATCH * 4)
-  #hits          = new PickHits()
-  #atlasTexture  = null
-  #attrLocs      = []
-  #uMatrix       = null
-  #uPickTag      = null
-  #useDepth      = false
-  #flight        = { active: false, fence: null, metadata: null, stale: false }
-  #queued        = { active: false, cx: 0, cy: 0, batch: null, metadata: null }
-  #result        = { hits: null, metadata: null }   // reusado por pick, como los hits que envuelve
-  #visualProgram = null   // programa visual de glify → se restaura tras el pick (glify dibuja con él, sin re-useProgram)
-  #scale         = 1      // px del buffer por px CSS (ver #scaleFor)
-  #scaledAt      = 0      // ancho del buffer con el que se midió; 0 = sin medir
+  #gl       = null
+  #program  = null
+  #target   = null   // destino de picking — { framebuffer, color, depth }, de PATCH×PATCH
+  #pbo      = null
+  #buf      = new Uint8Array(PATCH * PATCH * 4)
+  #hits     = new PickHits()
+  #uMatrix  = null
+  #uPickTag = null
+  #useDepth = false
+  #flight   = { active: false, fence: null, metadata: null, stale: false }
+  #queued   = { active: false, cx: 0, cy: 0, batch: null, metadata: null }
+  #result   = { hits: null, metadata: null }   // reusado por pick, como los hits que envuelve
+  #scale    = 1      // px del buffer por px CSS (ver #scaleFor)
+  #scaledAt = 0      // ancho del buffer con el que se midió; 0 = sin medir
 
   get ready() { return !!this.#gl }
   get program() { return this.#program }
@@ -98,11 +94,9 @@ export class Picking {
   get busy() { return this.#flight.active || this.#queued.active }
 
   // Devuelve el programa de picking para que el binding del atlas le setee sus dims-uniforms.
-  attach(gl, visualProgram, atlasTexture, useDepth = false) {
-    this.#gl            = gl
-    this.#atlasTexture  = atlasTexture
-    this.#visualProgram = visualProgram
-    this.#useDepth      = useDepth
+  attach(gl, visualProgram, useDepth = false) {
+    this.#gl       = gl
+    this.#useDepth = useDepth
     this.#createTarget()
     this.#compile(visualProgram)
     this.#pbo = gl.createBuffer()
@@ -249,7 +243,6 @@ export class Picking {
     gl.useProgram(this.#program)
     gl.activeTexture(gl.TEXTURE0)
     if (this.#uMatrix) gl.uniformMatrix4fv(this.#uMatrix, false, batch.matrix)
-    for (let i = 0; i < this.#attrLocs.length; i++) gl.enableVertexAttribArray(this.#attrLocs[i])
     const uTag  = this.#uPickTag
     const draws = batch.draws
     let tex = null
@@ -269,9 +262,6 @@ export class Picking {
     gl.enable(gl.BLEND)                     // constante y no `getParameter`: la consulta es síncrona
     this.#useDepth && gl.disable(gl.DEPTH_TEST)
     gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight)
-    gl.useProgram(this.#visualProgram)      // restaurar el programa visual de glify (dibuja sin re-useProgram)
-    gl.activeTexture(gl.TEXTURE0)
-    gl.bindTexture(gl.TEXTURE_2D, this.#atlasTexture)
   }
 
   // RGBA → PickHits. Vacío = las cuatro componentes en 0 (el clear); el alpha por sí solo ya no
@@ -293,7 +283,7 @@ export class Picking {
   }
 
   // Renderbuffers y no texturas: un renderbuffer no se puede bindear a una unidad de textura, así que
-  // desaparece el riesgo de dejarlo colgado en TEXTURE0 y que el próximo draw de glify (p. ej. el
+  // desaparece el riesgo de dejarlo colgado en TEXTURE0 y que el próximo draw del visual (p. ej. el
   // redraw del zoom) salga en blanco.
   #createTarget() {
     const gl = this.#gl
@@ -326,11 +316,10 @@ export class Picking {
     const program = gl.createProgram()
     gl.attachShader(program, vs)
     gl.attachShader(program, fs)
-    // Mismos índices de atributo que el visual → reusa el vertexAttribPointer montado por glify.
-    this.#attrLocs = []
+    // Mismos índices de atributo que el visual: el VAO del visual sirve también al pase.
     for (const name of ['vertex', 'color', 'pointSize']) {
       const loc = gl.getAttribLocation(visualProgram, name)
-      if (loc >= 0) { gl.bindAttribLocation(program, loc, name); this.#attrLocs.push(loc) }
+      loc >= 0 && gl.bindAttribLocation(program, loc, name)
     }
     gl.linkProgram(program)
     this.#program  = program

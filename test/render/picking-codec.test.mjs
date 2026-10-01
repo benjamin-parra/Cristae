@@ -70,7 +70,7 @@ const makeGl = fb => {
 const attached = (fb, useDepth = false) => {
   const doble = makeGl(fb)
   const picking = new Picking()
-  picking.attach(doble.gl, {}, {}, useDepth)
+  picking.attach(doble.gl, {}, useDepth)
   return { picking, ...doble }
 }
 

@@ -3,7 +3,7 @@
 // «nada» y no se asigna nunca.
 
 import '../../test-helpers/engine-stub.mjs'
-import { makeGlify, makeMap, makeLeaflet, makeIconSet } from '../../test-helpers/engine-stub.mjs'
+import { makeMap, makeLeaflet, makeIconSet } from '../../test-helpers/engine-stub.mjs'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { MapEngine } from '../../src/engine/MapEngine.js'
@@ -12,7 +12,7 @@ import { createSource } from '../../src/data/index.js'
 
 const items = [{ id: 1, lat: 0, lng: 0 }]
 const accessors = { idOf: it => it.id, positionOf: it => ({ lat: it.lat, lng: it.lng }) }
-const newEngine = () => new MapEngine({ host: adoptLeafletHost(makeMap(), { leaflet: makeLeaflet() }), glify: makeGlify() })
+const newEngine = () => new MapEngine({ host: adoptLeafletHost(makeMap(), { leaflet: makeLeaflet() }) })
 const addCapa = (engine, id, cfg) => engine.addPointLayer({ id, accessors, iconSet: makeIconSet(), data: items, ...cfg })
 
 test('sólo las capas INTERACTIVAS consumen id de objeto, y cada una el suyo', () => {

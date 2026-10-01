@@ -3,16 +3,18 @@
 // un RESALTADO (gate O(K), los N puntos que se mueven no lo tocan); (3) resaltar NO crece el atlas
 // (el costo in-tile que el overlay evita); (4) micro-benchmark del redibujo O(K).
 //
-// El harness (engine-stub) shimea window/document y provee glify/map stub — se importa PRIMERO.
+// El harness (engine-stub) shimea window/document y provee el mapa y el GL de las superficies — se
+// importa PRIMERO.
 
 import './../../test-helpers/engine-stub.mjs'
-import { makeGlify, makeMap } from '../../test-helpers/engine-stub.mjs'
+import { makeMap, makeLeaflet } from '../../test-helpers/engine-stub.mjs'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createHighlightOverlay } from '../../src/render/HighlightOverlay.js'
 import { createSource } from '../../src/data/Source.js'
 import { defineIconSet } from '../../src/atlas/IconSet.js'
 import { PointLayer } from '../../src/render/PointLayer.js'
+import { adoptLeafletHost } from '../../src/host/LeafletHost.js'
 
 /* ── Helpers ── */
 
@@ -130,7 +132,7 @@ test('resaltar NO crece el atlas (el costo in-tile que el overlay evita)', async
   const iconSet = dotIconSet()
   const { source } = buildSource(1000)
   await flushRaf()
-  const layer = new PointLayer({ glify: makeGlify(), map: makeMap(), pane: 'pts', source, iconSet })
+  const layer = new PointLayer({ host: adoptLeafletHost(makeMap(), { leaflet: makeLeaflet() }), pane: 'pts', source, iconSet })
   assert.equal(iconSet.atlas.count, 1, 'la flota usa UNA variante base')
 
   const overlay = createHighlightOverlay({

@@ -2,7 +2,7 @@
 // y el divisor del índice (maxIndex = C-1) son UNIFORMS, no literales horneados en GLSL
 // → el programa se compila UNA vez y nunca recompila al crecer iconos ni en regrow.
 //
-// Layout de vértice de glify (bytes=7): [x, y, r, g, b, a, size].
+// Layout de vértice (7 floats, ver point-program.js): [x, y, r, g, b, a, size].
 //   r = canal de tile (atlas.tileChannel)   g = ángulo normalizado (heading/360)
 //   b,a = índice local de picking (12 bits, entrada+1)   size = px en pantalla, SIGNADO
 // El objeto y el chunk del picking NO viajan por vértice: son uniform por draw (§Picking).

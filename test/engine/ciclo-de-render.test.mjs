@@ -5,7 +5,7 @@
 // Corre con: node --test test/engine/ciclo-de-render.test.mjs
 
 import '../../test-helpers/engine-stub.mjs'
-import { makeGlify, makeMap, makeLeaflet, makeIconSet } from '../../test-helpers/engine-stub.mjs'
+import { makeMap, makeLeaflet, makeIconSet } from '../../test-helpers/engine-stub.mjs'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { MapEngine } from '../../src/engine/MapEngine.js'
@@ -18,12 +18,11 @@ test('en move, las capas GL se reposicionan sólo si el marco se desplazó, y no
   const map    = Object.assign(makeMap(), {
     containerPointToLayerPoint: ([x, y]) => ({ x: x - marco.x, y: y - marco.y }),
   })
-  const glify  = makeGlify()
-  const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeLeaflet() }), glify })
+  const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeLeaflet() }) })
   engine.addPointLayer({ id: 'flota', accessors, iconSet: makeIconSet(), data: [{ id: 1, lat: 0, lng: 0 }] })
 
   let resets = 0
-  glify.layers[0].layer._reset = () => resets++
+  engine.getLayer('flota').layer.resetCanvasReference = () => resets++
   const mover = (x, y) => {
     Object.assign(marco, { x, y })
     map.fire('move')
@@ -45,7 +44,7 @@ test('en move, las capas GL se reposicionan sólo si el marco se desplazó, y no
 // movimiento, sin esperar a que se asiente.
 test('la señal move sale en cada paso del movimiento del anfitrión', () => {
   const map    = makeMap()
-  const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeLeaflet() }), glify: makeGlify() })
+  const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeLeaflet() }) })
   const pasos  = []
   const off    = engine.on('move', detail => pasos.push(detail))
 
@@ -62,7 +61,7 @@ test('la señal move sale en cada paso del movimiento del anfitrión', () => {
 // reparto del anfitrión que oyen las capas, antes que ellas.
 test('quitar capas desde las señales de la vista no rompe el reparto', () => {
   const map    = makeMap()
-  const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeLeaflet() }), glify: makeGlify() })
+  const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeLeaflet() }) })
   engine.addLabelLayer({ id: 'rotulos' })
   engine.addHeatLayer({ id: 'calor', accessors, data: [{ id: 1, lat: 0, lng: 0 }] })
   engine.on('interactionstart', () => engine.removeLayer('calor'))

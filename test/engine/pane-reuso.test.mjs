@@ -4,7 +4,7 @@
 // cuenta quién sostiene cada pane: el motor por cada capa, y además la capa que cuelga su propio nodo.
 
 import '../../test-helpers/engine-stub.mjs'
-import { conGlDeEdicion, makeGlify, makeMap, makeLeaflet, makeIconSet, oyentesDeVista } from '../../test-helpers/engine-stub.mjs'
+import { conGlDeEdicion, makeMap, makeLeaflet, makeIconSet, oyentesDeVista } from '../../test-helpers/engine-stub.mjs'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { MapEngine } from '../../src/engine/MapEngine.js'
@@ -18,7 +18,7 @@ const montar = engine => engine.addPointLayer({ id: 'flota', accessors, iconSet:
 
 test('quitar una capa saca su pane del registro, y el alta siguiente estrena uno conectado', () => {
   const map    = makeMap()
-  const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeLeaflet() }), glify: makeGlify() })
+  const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeLeaflet() }) })
 
   montar(engine)
   const primero = map.getPane(PANE)
@@ -35,7 +35,7 @@ test('quitar una capa saca su pane del registro, y el alta siguiente estrena uno
 
 test('un pane COMPARTIDO sobrevive mientras le quede una capa', () => {
   const map    = makeMap()
-  const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeLeaflet() }), glify: makeGlify() })
+  const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeLeaflet() }) })
   const comun  = 'compartido'
 
   engine.addPointLayer({ id: 'a', accessors, iconSet: makeIconSet(), data: items, pane: comun })
@@ -53,7 +53,7 @@ test('un pane COMPARTIDO sobrevive mientras le quede una capa', () => {
 test('un pane que el mapa ya tenía no se va con la capa', () => {
   const map    = makeMap()
   const propio = map.createPane('delDueño')
-  const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeLeaflet() }), glify: makeGlify() })
+  const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeLeaflet() }) })
 
   engine.addPointLayer({ id: 'flota', accessors, iconSet: makeIconSet(), data: items, pane: 'delDueño' })
   engine.removeLayer('flota')
@@ -63,7 +63,7 @@ test('un pane que el mapa ya tenía no se va con la capa', () => {
 
 test('las capas que cuelgan su propio nodo también sueltan su pane al quitarse', () => {
   const map    = makeMap()
-  const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeLeaflet() }), glify: makeGlify() })
+  const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeLeaflet() }) })
   engine.addLabelLayer({ id: 'rotulos' })
   engine.addHeatLayer({ id: 'calor', accessors, data: items })
   const panes = ['cristae-label-rotulos', 'cristae-heat-calor']
@@ -82,7 +82,7 @@ test('una capa que lanza al darse de alta no deja su pane ni oyentes', t => {
   const map     = makeMap()
   const host    = adoptLeafletHost(map, { leaflet: makeLeaflet() })
   const oyentes = oyentesDeVista(host)
-  const engine  = new MapEngine({ host, glify: makeGlify() })
+  const engine  = new MapEngine({ host })
   const vista   = () => oyentes('zoomanim', 'zoomend', 'moveend', 'resize')
   const antes   = vista()
   const lineas  = { idOf: it => it.id, pathOf: it => it.path }
@@ -104,7 +104,7 @@ test('una capa que lanza al darse de alta no deja su pane ni oyentes', t => {
 // no deja nada sostenido: el reintento con el mismo id se va entero al quitarse.
 test('un alta mal configurada no deja su pane sostenido', () => {
   const map    = makeMap()
-  const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeLeaflet() }), glify: makeGlify() })
+  const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeLeaflet() }) })
   const rampa  = () => { throw new Error('rampa') }
   engine.addPointLayer({ id: 'base', accessors, iconSet: makeIconSet(), data: items })
   const antes = Object.keys(map._panes)

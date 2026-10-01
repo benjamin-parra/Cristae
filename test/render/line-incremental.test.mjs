@@ -3,9 +3,9 @@
 // buffer). Un cambio de tamaño (o de nº de vértices de una parte) SÍ cae a setData (re-encode seguro).
 //
 // Se importa el harness PRIMERO (shimea window/document + requestAnimationFrame, que la Source real usa
-// para coalescer su emit a rAF). El makeGlify del harness es de PUNTOS (bytes=7); las líneas usan otra
-// instancia (bytes=6, layout [x,y,r,g,b,a] y setData por FeatureCollection), así que se arma un glify
-// stub LOCAL para lines() que cuenta setData y captura cada bufferSubData (con una copia del rango).
+// para coalescer su emit a rAF). El harness no trae glify: las líneas (bytes=6, layout [x,y,r,g,b,a] y
+// setData por FeatureCollection) usan un glify stub LOCAL para lines() que cuenta setData y captura cada
+// bufferSubData (con una copia del rango).
 import '../../test-helpers/engine-stub.mjs'
 import { makeMap } from '../../test-helpers/engine-stub.mjs'
 import test from 'node:test'
