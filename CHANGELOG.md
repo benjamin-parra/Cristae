@@ -5,6 +5,22 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
 [`docs/versionado.md`](docs/versionado.md) — en `0.x`, el **minor cuenta los cambios medios**
 (capacidad o eje de API nuevo) y el **patch los menores desde el último medio** (fix / perf / revert).
 
+## [0.35.0] - 2026-10-01
+
+> Sale como **minor**: los accessors de cada capa ganan `hashOf` ([`docs/versionado.md`](docs/versionado.md)).
+
+### Agregado
+- **`hashOf` en los accessors de todas las capas.** La Source ya lo leía para decidir qué ítems
+  cambiaron, pero sólo `PointAccessors` lo declaraba; en líneas, polígonos, círculos, HTML y calor
+  entraba con una intersección. Ahora las seis lo toman de `SourceAccessors`, que lo documenta una vez.
+- **En las líneas importa.** Sin `hashOf` el hash es el id: un `set` con los mismos ids no reescribe
+  nada, y la línea que cambia de recorrido o de estilo se queda como estaba. Un número —una versión, un
+  timestamp— alcanza y no aloca. Las demás capas, sin él, rearman todo y no pierden el cambio.
+
+### Corregido
+- **El ejemplo de recolorear de `docs/lines.md`** mutaba el color y volvía a hacer `set`, que por lo
+  de arriba no reescribe la línea. Ahora sube su versión junto con el color.
+
 ## [0.34.1] - 2026-08-25
 
 > Sale como **patch**: el pase de picking deja de pedir dos cosas que no usa; ninguna firma cambia
