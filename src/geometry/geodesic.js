@@ -7,6 +7,10 @@ import { coordOf, foldArgs } from './polyline.js'
 
 const D = Math.PI / 180
 
+// El radio de la esfera por defecto, en metros. Quien coloca puntos a una distancia dada y después los
+// mide con `arcMeters` tiene que usar este mismo radio, o el punto cae a otra distancia de la que se pidió.
+export const MEAN_RADIUS = 6371008.8
+
 // La marca de un modelo es a la vez su núcleo: `model[MODEL](lat1, lng1, lat2, lng2)` son los metros
 // entre dos puntos válidos, en grados. Va en el registro global de símbolos, y no es una clase, para
 // que una copia de la librería reconozca los modelos de otra cargada en la misma página: `instanceof`
@@ -26,7 +30,7 @@ export const checkLength = (length, name) => {
 // escala de centímetros, donde la ley de cosenos pierde los dígitos. El término se acota a [0, 1]
 // porque en pares casi antípodas el redondeo lo empuja sobre 1, y ahí `asin` da NaN. El antimeridiano
 // no necesita caso aparte: sin² tiene período π.
-export const sphere = (radius = 6371008.8) => {
+export const sphere = (radius = MEAN_RADIUS) => {
   checkLength(radius, '[sphere] radius')
   return makeModel((lat1, lng1, lat2, lng2) => {
     const sLat = Math.sin((lat2 - lat1) * D / 2)

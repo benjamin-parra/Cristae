@@ -1,5 +1,5 @@
 import { EditFillLayer } from './EditFillLayer.js'
-import { FEATHER, StrokePass } from './StrokePass.js'
+import { FEATHER, StrokePass, ownDash } from './StrokePass.js'
 import { EditSurface } from './EditSurface.js'
 import { RingStore } from './RingStore.js'
 import { projX0, projY0, readView } from './project.js'
@@ -96,7 +96,7 @@ export class PolygonGpuLayer {
   constructor({
     host, pane, geometry = null, source = null, interactive = false, idOf = null,
     color = '#3388ff', weight = 3, opacity = 1,
-    fill = true, fillColor = color, fillOpacity = 0.2, stroke = true, styleOf = null,
+    fill = true, fillColor, fillOpacity = 0.2, stroke = true, styleOf = null,
   }) {
     this.#camera      = host.camera
     this.#source      = source
@@ -108,20 +108,18 @@ export class PolygonGpuLayer {
     this.#surface = new EditSurface({ host, pane })
     this.#gl      = this.#surface.attach()
     // La superficie ya tomó uno de los ~16 contextos del navegador. Lo que siga puede tirar —el store
-    // rechaza una geometría que no entra en la textura—, y un contexto que nadie devuelve no vuelve.
-    // Todo lo que toma un recurso va bajo la misma guarda, `restyle()` incluido: llama a `styleOf` e
-    // `idOf`, que son código del consumidor, y si tira dejaría tomado uno de los ~16 contextos del
-    // navegador para toda la vida de la página.
+    // rechaza una geometría que no entra en la textura, y el estilo llama a `styleOf` e `idOf`, que son
+    // código del consumidor—, y un contexto que nadie devuelve no vuelve en toda la vida de la página.
     try {
       const items = source ? source.getSnapshot() : null
       this.#ingest(geometry ?? tablesFromRings(items, source.accessors.ringsOf), items)
-      this.#fill   = fill ? new EditFillLayer({ gl: this.#gl, rings: [], step: 1, color: fillColor, opacity: fillOpacity }) : null
+      this.#fill   = fill ? new EditFillLayer({ gl: this.#gl, rings: [], step: 1, color: fillColor ?? color, opacity: fillOpacity }) : null
       this.#stroke = stroke ? new StrokePass({ gl: this.#gl, color, width: weight, opacity }) : null
       // El canvas se ancla en coordenadas de CAPA, así que el pane lo traslada durante el arrastre y
       // los píxeles siguen alineados: sólo una vista ya asentada necesita repintar.
       this.#offView = host.camera.on('moveend zoomend resize', () => this.redraw())
       this.#unsub   = source?.subscribe(() => this.#onChange())
-      this.restyle()
+      this.redraw()
     } catch (e) {
       this.destroy()
       throw e
@@ -129,80 +127,105 @@ export class PolygonGpuLayer {
   }
 
   // Toda la geometría entra por acá, venga de tablas o de un Source: el store se rehace entero, que es
-  // el perfil de estas capas —pocas entidades, baja frecuencia de cambio—.
+  // el perfil de estas capas —pocas entidades, baja frecuencia de cambio—. Lo nuevo se arma y se estila
+  // aparte y reemplaza a lo anterior sólo si resolvió entero: si algo lanza, la capa queda como estaba.
   #ingest(geometry, items = this.#items) {
     // `rings` acota lo que se sube a la textura y `parts` lo que entra al índice: con una sola de las
     // dos, el relleno y el picking miran conjuntos distintos y la capa contesta por figuras que no
     // dibujó. Además la pertenencia anillo→polígono se reconstruye de `parts`.
     if ((geometry.rings === undefined) !== (geometry.parts === undefined))
       throw new Error('[cristae] la selección necesita `rings` y `parts` juntas, o ninguna')
-    const anterior = this.#store
-    this.#store = new RingStore({ gl: this.#gl, project, rings: { ...geometry, ringIds: geometry.rings } })
-    anterior?.destroy()
-    this.#owner = geometry.owner ?? null
+    const store = new RingStore({ gl: this.#gl, project, rings: { ...geometry, ringIds: geometry.rings } })
+    const owner = geometry.owner ?? null
+    try {
+      const { parts, partBox } = this.#agrupar(store, geometry)
+      this.#resolveStyles(parts, owner, items)
+      this.#partBox = partBox
+    } catch (e) {
+      store.destroy()
+      throw e
+    }
+    this.#store?.destroy()
+    this.#store = store
+    this.#owner = owner
     this.#items = items
-    this.#agrupar(geometry)
     this.#measure(geometry)
     this.#index = this.#interactive ? prepareRangeIndex(geometry) : null
   }
 
   #onChange() {
     const items = this.#source.getSnapshot()
-    this.#ingest(tablesFromRings(items, this.#source.accessors.ringsOf), items)
-    this.restyle()
+    this.setGeometry(tablesFromRings(items, this.#source.accessors.ringsOf), items)
   }
 
+  // Reemplaza la geometría completa y reestila. Es la vía de quien arma las tablas por su cuenta, como
+  // las capas que derivan sus anillos de otra cosa: el contexto WebGL queda, sólo se rehace el store.
+  setGeometry(geometry, items = this.#items) {
+    this.#ingest(geometry, items)
+    return this.redraw()
+  }
 
   // El estilo se resuelve por parte y se guarda: `styleOf` puede depender de la selección o de un
   // filtro, y reevaluarlo por frame lo llamaría una vez por polígono en cada repintado.
   // Con Source, `styleOf` e `idOf` reciben la ENTIDAD, igual que en la capa de Leaflet.
-  #subject(parteId) {
-    if (!this.#owner) return parteId
+  #subject(parteId, owner = this.#owner, items = this.#items) {
+    if (!owner) return parteId
     // Con Source el dueño es la ENTIDAD; con tablas del lector, el índice de la FEATURE. En los dos
     // casos el sujeto es "de quién es esta parte", que es lo que hace que un multipolígono conteste
     // una sola vez y lo que recibe `idOf`.
-    return this.#items ? this.#items[this.#owner[parteId]] : this.#owner[parteId]
+    return items ? items[owner[parteId]] : owner[parteId]
   }
 
   restyle() {
+    this.#resolveStyles(this.#parts)
+    return this.redraw()
+  }
+
+  // Se resuelve entero en partes nuevas y recién ahí se publica: un `styleOf` que lanza, o un patrón
+  // que no cabe, deja las partes y el medio trazo como estaban.
+  #resolveStyles(parts, owner = this.#owner, items = this.#items) {
     const base = this.#base
     // El trazo se expande en píxeles de PANTALLA, así que una figura con la caja justo afuera todavía
     // pinta borde adentro. El descarte necesita el medio ancho máximo para no comérselo.
     let halfWidth = 0
-    this.#parts.forEach(parte => {
-      const sujeto = this.#subject(parte.id)
+    const styled = parts.map(parte => {
+      const sujeto = this.#subject(parte.id, owner, items)
       const id     = this.#idOf ? this.#idOf(sujeto) : sujeto
       // El foco se pliega acá, no en el dibujo: es un multiplicador de opacidad por entidad y esta es
       // la única pasada que ya recorre las partes.
       const s = focusedStyle({ ...base, ...(this.#styleOf?.(sujeto) ?? null) }, this.#focus, id)
-      parte.fill   = { color: s.fillColor ?? s.color, opacity: s.fillOpacity }
-      parte.stroke = { color: s.color, width: s.weight, opacity: s.opacity }
-      halfWidth    = Math.max(halfWidth, s.weight / 2)
+      halfWidth = Math.max(halfWidth, s.weight / 2)
+      return {
+        ...parte,
+        fill   : { color: s.fillColor ?? s.color, opacity: s.fillOpacity },
+        stroke : { color: s.color, width: s.weight, opacity: s.opacity, dash: ownDash(s.dash ?? null) },
+      }
     })
+    this.#parts     = styled
     this.#halfWidth = halfWidth
-    return this.redraw()
   }
 
   // Los anillos del store salen agrupados por parte y en su orden, así que la pertenencia se
   // reconstruye con un corrimiento — sin volver a mirar la geometría.
-  #agrupar({ ringAt, parts, partCount }) {
-    const ids = parts ?? Uint32Array.from({ length: partCount ?? 0 }, (_, p) => p)
-    const box = new Float64Array(4)
-    this.#partBox = new Float64Array(ids.length * 4)
+  #agrupar(store, { ringAt, parts, partCount }) {
+    const ids     = parts ?? Uint32Array.from({ length: partCount ?? 0 }, (_, p) => p)
+    const box     = new Float64Array(4)
+    const partBox = new Float64Array(ids.length * 4)
     let r = 0
-    this.#parts = Array.from(ids, (id, k) => {
+    const partes = Array.from(ids, (id, k) => {
       const n = ringAt[id + 1] - ringAt[id]
       box[0] = box[1] = Infinity
       box[2] = box[3] = -Infinity
       const rings = Array.from({ length: n }, () => {
-        this.#store.worldBoxOf(r, this.#ringBox)
+        store.worldBoxOf(r, this.#ringBox)
         box[0] = Math.min(box[0], this.#ringBox[0]); box[1] = Math.min(box[1], this.#ringBox[1])
         box[2] = Math.max(box[2], this.#ringBox[2]); box[3] = Math.max(box[3], this.#ringBox[3])
-        return { arena: this.#store.viewOf(r++) }
+        return { arena: store.viewOf(r++) }
       })
-      this.#partBox.set(box, k * 4)
-      return { id, rings, fill: null, stroke: null }
+      partBox.set(box, k * 4)
+      return { id, rings }
     })
+    return { parts: partes, partBox }
   }
 
   // Caja en grados de lo que la capa dibuja, en la forma de toda caja en grados (geometry/bounds.js), o

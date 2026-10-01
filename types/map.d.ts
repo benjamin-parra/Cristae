@@ -424,7 +424,8 @@ export interface PolygonLayerConfig<T> {
   /** Id de la entidad. Sale de `accessors.idOf` cuando lo hay; por la ruta `geometry` recibe el índice
    *  de la FEATURE, y omitirlo ya identifica por feature (la geometría trae su `owner`). */
   idOf?        : (subject: T | number) => string | number;
-  /** Estilo por entidad. Mismo criterio que `idOf` para el sujeto que recibe. */
+  /** Estilo por entidad. Mismo criterio que `idOf` para el sujeto que recibe. El sustrato `gpu`
+   *  entiende además `dash`, un patrón de trazo en px de pantalla (`null` o ausente: continuo). */
   styleOf?     : (subject: T | number) => Record<string, unknown>;
   pane?        : string;
   z?           : number;
@@ -442,14 +443,14 @@ export interface PolygonHandle<T = unknown> {
   style?(options: Record<string, unknown>): void;
 }
 
-// ── Círculos en METROS (addCircleLayer) — Leaflet-native, escala con el zoom ──
+// ── Círculos en METROS (addCircleLayer) — dibujados en la GPU, escalan con el zoom ──
 export interface CircleAccessors<T> extends Pick<SourceAccessors<T>, "hashOf"> {
   idOf           : (c: T) => string | number;
   positionOf     : (c: T) => { lat: number; lng: number };
   /** Radio en METROS (escala con el zoom, a diferencia del sprite px fijo). */
   radiusMetersOf : (c: T) => number;
-  /** Opciones de `L.circle` (color, fillColor, weight, opacity, …), salvo `interactive`, que se ignora:
-   *  el picking es por índice. */
+  /** Estilo por círculo, con el vocabulario de la capa de polígonos: `color`, `weight`, `opacity`,
+   *  `fillColor`, `fillOpacity` y `dash`. Un `color` sin `fillColor` mueve también el relleno. */
   styleOf?       : (c: T) => Record<string, unknown>;
 }
 export interface CircleLayerConfig<T> {

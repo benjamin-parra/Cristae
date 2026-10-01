@@ -8,6 +8,10 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
 ## [Sin publicar]
 
 ### Agregado
+- **El sustrato `gpu` de los polígonos dibuja `dash`.** `styleOf.dash` es un patrón en píxeles de
+  pantalla que corre continuo a lo largo del anillo; con `null` o ausente el trazo es continuo. Lo
+  consumen también los círculos en metros. Ver [`docs/polygons.md`](docs/polygons.md#estilo).
+  *Migración*: ninguna — antes `gpu` ignoraba el campo.
 - **El sustrato `gpu` de las líneas dibuja `dash` y `cap`.** `styleOf.dash` es un patrón
   `stroke-dasharray` en píxeles de pantalla que corre continuo a lo largo de cada parte, sin
   reiniciarse en los vértices ni cambiar con el zoom; `cap` (`butt`, `round`, `square`) redondea o
@@ -97,6 +101,20 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   el zoom sigue obedeciendo la política de `zoom-animation` ([SPECS §9](SPECS.md)).
 
 ### Cambiado
+- **Los círculos en metros se dibujan en la GPU, y su borde coincide con el hit a cualquier latitud.**
+  `addCircleLayer` deja de montar un `L.circle` por círculo: cada uno es un anillo de vértices que el
+  relleno de polígonos sube a una textura y compone por stencil, así que 200 círculos son un nodo y no
+  200. El anillo se coloca sobre la misma esfera con la que mide el picking —cada vértice a `radius`
+  metros del centro según `arcMeters`—, de modo que el contorno dibujado y el área que pica son los
+  mismos por construcción; sólo los separa la flecha de la cuerda, que la capa mantiene bajo 0,2 px
+  eligiendo entre 16 y 4096 segmentos por círculo y re-teselando cuando el zoom asienta en otro número.
+  `styleOf` habla el vocabulario de la capa de polígonos —`color`, `weight`, `opacity`, `fillColor`,
+  `fillOpacity` y `dash`—, y las claves `fill`, `stroke` y `dashArray` de `L.circle` ya no se leen. Un
+  círculo de centro o radio no finitos, o que abarca un polo, no se dibuja ni pica: antes, uno que
+  pasaba a no finito conservaba su último centro. Ver [`docs/geometry.md`](docs/geometry.md).
+  *Migración*: si `styleOf` devolvía `fill: false` o `stroke: false`, usar `fillOpacity: 0` u
+  `opacity: 0`; `dashArray: '8 6'` pasa a `dash: [8, 6]`. Un círculo que debe seguir existiendo cuando
+  sus datos se vuelven inválidos hay que sacarlo de la Source explícitamente.
 - **La cámara y los eventos entregan objetos planos, no los de Leaflet.** `camera.getCenter()` y
   `containerPointToLatLng` devuelven `{ lat, lng }`, `getBounds()` `{ south, west, north, east }` —con
   la longitud de la vista sin envolver, como la daba Leaflet— y `latLngToContainerPoint` `{ x, y }`;
@@ -225,6 +243,12 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   El mapa de Leaflet sigue en `getLeafletMap()`.
 
 ### Corregido
+- **En el sustrato `gpu` de los polígonos, el `color` de `styleOf` mueve también el relleno.** El
+  relleno heredaba el `color` de la capa y no el del estilo de cada figura, así que una figura con
+  `color: '#e53935'` tenía el borde rojo y el relleno del color de la capa; ahora el relleno sigue al
+  borde, como en un path de Leaflet, salvo que la capa o el estilo fijen `fillColor`.
+  *Migración*: quien quería el relleno con el color de la capa y el borde de otro lo fija con
+  `fillColor`.
 - **Un encuadre con `maxZoom` deja la caja en el medio de la región visible.** `fitToLayer`,
   `followBounds`, `followPoints({ mode: 'fit' })` y `fitToLayers` encuadraban al zoom que cabe y después
   alejaban hasta el tope conservando el centro: con `viewport-insets` desiguales la caja quedaba

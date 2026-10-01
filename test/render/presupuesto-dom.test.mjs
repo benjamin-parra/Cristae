@@ -24,7 +24,7 @@
 //   polígono editable  ·    400 vértices  →     1 nodo vivo    (era 800, con el midpoint del cierre)
 //   atlas de handles   ·      N editores  →     5 nodos vivos  (era 5 POR editor)
 //   capa de polígonos  ·    200 features  →   200 nodos vivos   (los "200 paths + 0 markers" de la unidad vieja)
-//   capa de círculos   ·    200 features  →   200 nodos vivos   (ídem)
+//   capa de círculos   ·    200 features  →     1 nodo vivo    (era 200: un `L.circle` por círculo; ahora el canvas GPU)
 //   capa de puntos     · 10.000 ítems     →     0 nodos vivos, 1 capa GL   ← BLINDA lo que ya está bien
 //
 // El único nodo de la geometría editable es CONSTANTE —no escala con el trazo, ni con los anillos—: el
@@ -192,16 +192,22 @@ test('capa de polígonos de 200 features → 200 nodos vivos', async () => {
   assert.equal(contador.creados, 200, 'sin churn: montó una vez, no rebuildeó')
 })
 
-test('capa de círculos de 200 features → 200 nodos vivos', async () => {
+// Los 200 círculos son anillos de UNA textura, y el único nodo es el canvas de su superficie: no escala
+// con la cantidad ni con los segmentos de cada uno.
+test('capa de círculos de 200 features → 1 nodo DOM vivo', async () => {
   const items = Array.from({ length: FEATURES }, (_, i) => ({ id: i, lat: i * 0.5, lng: i * 0.5, radio: 5000 }))
-  const { contador } = await montar(
-    opciones => new CircleLayer(opciones),
+  glVigente = makeEditGl()
+  const { capa, contador } = await montar(
+    opciones => new CircleLayer({ host: adoptLeafletHost(opciones.map), ...opciones }),
     { idOf: it => it.id, positionOf: it => ({ lat: it.lat, lng: it.lng }), radiusMetersOf: it => it.radio },
     items,
   )
 
-  assert.equal(contador.vivos, 200, 'LÍNEA BASE — un nodo por feature: el radio en metros lo reproyecta el path')
-  assert.equal(contador.creados, 200, 'sin churn: montó una vez, no rebuildeó')
+  assert.equal(contador.vivos, EDITABLE, 'LÍNEA BASE — el canvas de la superficie, y nada más')
+  assert.equal(contador.creados, EDITABLE, 'sin churn: montó una vez, no rebuildeó')
+
+  capa.destroy()
+  assert.equal(contador.vivos, 0, 'destroy devuelve el canvas')
 })
 
 /* ── Puntos GL: el passthrough que la librería promete, blindado ── */

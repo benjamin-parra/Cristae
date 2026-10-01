@@ -71,7 +71,9 @@ error del llamador, no un dato malo, y leerlo como un punto inválido mediría e
 - Las fábricas validan al construir y lanzan `RangeError` si el radio o el semieje no es un número
   finito mayor que 0, o si el achatamiento no está en [0, 1). Los modelos son inmutables.
 
-El picking de `addCircleLayer` mide con la esfera por defecto, sin opción de modelo.
+El picking de `addCircleLayer` mide con la esfera por defecto, sin opción de modelo, y el contorno se
+dibuja sobre esa misma esfera —cada vértice a `radius` metros del centro según `arcMeters`—: el borde
+y el hit coinciden a cualquier latitud.
 
 ## Cajas
 

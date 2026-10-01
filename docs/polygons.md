@@ -42,8 +42,10 @@ solo.
 ## Estilo
 
 Las opciones son las de un path de Leaflet, con sus mismos defaults — `color` `#3388ff`, `weight` 3,
-`opacity` 1, `fillColor` = `color`, `fillOpacity` 0.2, `stroke` y `fill` en `true`. El `styleOf` de
-los accessors recibe **la entidad** y pisa esos defaults por figura; `applyFocus(ids, dim)` atenúa lo
+`opacity` 1, `fillColor` = `color`, `fillOpacity` 0.2, `stroke` y `fill` en `true`; el sustrato `gpu`
+agrega `dash`, un patrón de trazo en píxeles de pantalla (`null` o ausente, trazo continuo). Un
+`color` que pone `styleOf` mueve también el relleno, salvo que el mismo estilo o la capa fijen
+`fillColor`. El `styleOf` de los accessors recibe **la entidad** y pisa esos defaults por figura; `applyFocus(ids, dim)` atenúa lo
 que queda fuera del foco. `interactive` es la excepción y se ignora: el picking es por índice, y los
 eventos salen por `cristae:click`/`cristae:hover` con `interactive` en la capa; un path interactivo para
 Leaflet pondría su propio `pointer` encima del cursor del mapa. El estilo se resuelve **una vez por

@@ -166,7 +166,7 @@ resuelven sólo si algún participante reconoció el píxel.
 
 `engine/Interaction.js` es el **único** que escribe `container.style.cursor`, y sólo cuando el valor
 efectivo cambia. Ninguna capa le compite: todas crean sus objetos Leaflet con `interactive: false`, así
-que no hay un hijo `.leaflet-interactive` que imponga su `pointer`. Los polígonos y los círculos, que
+que no hay un hijo `.leaflet-interactive` que imponga su `pointer`. Los polígonos de Leaflet, que
 reciben el estilo del consumidor, se lo dan a Leaflet sólo a través de `pathStyle` (`render/focus.js`),
 que le fija `interactive: false` encima: el `interactive` de un `styleOf` se ignora. Las líneas, los
 marcadores y las patas del cluster lo llevan en literal, porque a Leaflet no le pasan el estilo del

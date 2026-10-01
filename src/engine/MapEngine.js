@@ -364,7 +364,7 @@ export class MapEngine {
     }
   }
 
-  /* ── Círculos en METROS (Leaflet-native L.circle — escala con el zoom, a diferencia del sprite px) ── */
+  /* ── Círculos en METROS (dibujados en la GPU — escalan con el zoom, a diferencia del sprite px) ── */
 
   addCircleLayer(cfg) {
     const { id, data, accessors, interactive = true, pane, z, visible = true } = cfg
@@ -374,8 +374,8 @@ export class MapEngine {
 
     const controls = cfg.source ? null : createSource(accessors)
     const source   = cfg.source ?? controls
-    // Con puntero: el sustrato leaflet lo oye en su lienzo.
-    const layer    = this.#build(paneName, zIndex, () => new CircleLayer({ ...this.#substrate, pane: paneName, source, interactive }), true)
+    // Se repinta con sus propios moveend/zoomend/resize, así que no va a #glLayers.
+    const layer    = this.#build(paneName, zIndex, () => new CircleLayer({ host: this.#host, pane: paneName, source, interactive }), true)
 
     const record = { kind: 'circle', source, layer, controls, paneName, zIndex, order, interactive, visible, enabled: true }
     this.#layers.set(id, record)

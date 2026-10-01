@@ -130,6 +130,7 @@ export const makePickSpy = () => ({
   tags           : [],
   draws          : [],
   texImages      : [],
+  texels         : [],          // una copia de los datos de cada `texImage2D`, en el orden de `texImages`
   texSubImages   : [],
   bufferDatas    : [],
   bufferSubDatas : [],
@@ -222,7 +223,10 @@ const pickGl = spy => ({
 const arrayBuffer = (spy, target) => (target === GL_CONSTS.ARRAY_BUFFER ? spy.array : null)
 
 const uploadGl = spy => ({
-  texImage2D    : (_target, _level, _internal, width, height) => spy.texImages.push({ width, height }),
+  texImage2D    : (_target, _level, _internal, width, height, _border, _format, _type, data) => {
+    spy.texImages.push({ width, height })
+    spy.texels.push(data?.slice() ?? null)
+  },
   texSubImage2D : (_target, _level, x, y, width, height, _format, _type, _src, srcOffset) =>
     spy.texSubImages.push({ x, y, width, height, srcOffset }),
   bufferData    : (target, src) => {

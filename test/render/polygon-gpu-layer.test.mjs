@@ -487,6 +487,67 @@ test('style() mueve el default de la capa y respeta lo que styleOf pisa', () => 
   assert.ok(layer.style({ color: '#0000ff', weight: 4 }) !== undefined, 'aplica y repinta')
 })
 
+// Un `styleOf` que sólo cambia `color` mueve también el relleno, como en un path de Leaflet: `fillColor`
+// sin declarar sigue al color vigente, no al de la capa. El relleno fija su color con `uniform4f` y el
+// trazo con `uniform4fv`.
+test('sin fillColor, el relleno sigue al color que pone styleOf', () => {
+  const spy = newSpy(), fills = []
+  currentGl = new Proxy(editGl(spy), { get: (t, p) => (p === 'uniform4f' ? (_loc, ...rgba) => fills.push(rgba) : t[p]) })
+  const layer = new PolygonGpuLayer({
+    host: anfitrion().host, pane: 'gpu', geometry: ONE_RING(),
+    styleOf: () => ({ color: '#ff0000' }),
+  })
+  assert.deepEqual(fills.at(-1), [1, 0, 0, 0.2], 'rojo con fillOpacity 0,2, no el azul por defecto')
+
+  layer.style({ fillColor: '#00ff00' })
+  assert.deepEqual(fills.at(-1), [0, 1, 0, 0.2], 'pero un fillColor explícito de la capa sí gana al color de styleOf')
+  layer.destroy()
+})
+
+// El dash de `styleOf` viaja al trazo: el largo acumulado del patrón sube como una segunda textura, y
+// sólo cuando alguna parte lo pide.
+test('el dash de styleOf llega al trazo y un trazo continuo no sube la textura del patrón', () => {
+  const sin = mount(ONE_RING())
+  const con = mount(ONE_RING(), { styleOf: () => ({ dash: [6, 4] }) })
+
+  assert.equal(sin.spy.texImages.length, 1, 'sólo las posiciones')
+  assert.equal(con.spy.texImages.length, 2, 'las posiciones y el largo acumulado del patrón')
+})
+
+// El repintado sólo mira lo que toca el encuadre: si el patrón se comprobara ahí, una figura lejana
+// lanzaría recién cuando la vista llegue a ella, desde el ciclo de vista.
+test('un patrón que no cabe lanza al resolver el estilo, aunque la figura quede fuera del encuadre', () => {
+  const lejos = () => tables([square(150, 60, 0.05)])
+  assert.throws(() => mount(lejos(), { styleOf: () => ({ dash: Array(18).fill(1) }) }), RangeError, 'el alta')
+  const { layer } = mount(lejos())
+  assert.equal(layer.drawnPartCount, 0, 'la figura está fuera del encuadre')
+  assert.throws(() => layer.setStyleOf(() => ({ dash: Array(9).fill(1) })), RangeError)
+})
+
+// El estilo se publica entero o nada: una figura que lanza en medio no deja a las de antes con el
+// estilo nuevo y a las de después con el viejo.
+test('un styleOf que lanza a mitad de las figuras deja el estilo entero como estaba', () => {
+  const spy = newSpy(), trazos = []
+  currentGl = new Proxy(editGl(spy), { get: (t, p) => (p === 'uniform4fv' ? (_loc, rgba) => trazos.push([...rgba]) : t[p]) })
+  const layer = new PolygonGpuLayer({
+    host: anfitrion().host, pane: 'gpu', geometry: tables([square(0, 0, 0.01), square(0.02, 0, 0.01), square(0.04, 0, 0.01)]),
+    styleOf: () => ({ color: '#ff0000' }),
+  })
+  assert.throws(() => layer.setStyleOf(id => (id === 1 ? { dash: Array(17).fill(1) } : { color: '#0000ff' })), RangeError)
+  trazos.length = 0
+  layer.redraw()
+  assert.deepEqual(trazos.map(c => c.slice(0, 3)), [[1, 0, 0], [1, 0, 0], [1, 0, 0]])
+})
+
+test('setGeometry() cambia la figura sin tomar otro contexto y repinta', () => {
+  const { layer, spy } = mount(ONE_RING())
+  const subidas = spy.texImages.length
+  assert.equal(drawsOf(spy, () => layer.setGeometry(tables([square(0, 0, 0.1), square(0.5, 0, 0.1)], [1, 1]))) > 0, true)
+  assert.equal(spy.texImages.length, subidas + 1, 'sube la textura nueva')
+  assert.equal(layer.ringCount, 2)
+  assert.equal(spy.released, 0, 'el contexto sigue siendo el mismo')
+})
+
 /* ── 11. Montada sobre un Source, donde está la capa de Leaflet ── */
 
 const ANILLO_A = [[0, 0], [0, 0.05], [0.05, 0.05], [0, 0]]
