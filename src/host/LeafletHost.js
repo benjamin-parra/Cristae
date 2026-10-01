@@ -11,8 +11,7 @@ import { TILE_FILTER } from './styles.js'
 // Las facetas son `camera` —estado, comandos, proyección, política de animación del zoom y ciclo de
 // vista—, `surface`, los nodos donde dibujan las capas, `tiles`, el proveedor de la capa base con la
 // retención de su imagen y su atribución, e `input`, la entrada del contenedor y el arrastre del mapa.
-// `substrate` es el Leaflet y el mapa para lo que todavía dibuja con Leaflet: los sustratos vectoriales y
-// glify, y nada más. `map` queda para `getLeafletMap()`.
+// `map` queda para glify, que se cuelga del mapa, y para `getLeafletMap()`.
 
 // El ciclo de vista, con un solo emisor: cada tipo tiene un oyente en el mapa, y los suscriptores del
 // anfitrión se reparten ese lugar en el orden en que llegaron. `zoomlevelschange` avisa que cambiaron los
@@ -363,7 +362,6 @@ const hostOf = (map, leaflet, ownsMap, zoomPolicy) => {
     surface,
     tiles,
     input,
-    substrate: Object.freeze({ L: leaflet, map }),
     map,
     // Un mapa adoptado sigue vivo: el anfitrión sólo le devuelve lo que le tomó y le saca lo que le puso.
     destroy() {

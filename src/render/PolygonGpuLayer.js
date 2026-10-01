@@ -28,10 +28,10 @@ const project = (lat, lng, out) => {
 
 /* ── Puente desde un Source: anillos en arrays → las tablas que dibuja la capa ── */
 
-// `ringsOf` entrega lo mismo que acepta `L.polygon`: un anillo `[[lat,lng],…]`, un polígono con sus
-// agujeros, o un multipolígono. Cada POLÍGONO es una parte —sus anillos componen entre sí y abren el
-// agujero—, y las piezas de un multipolígono son partes distintas de la misma entidad, para que se
-// apilen en vez de restarse. Las tablas van en [lng, lat]; los anillos vienen al revés.
+// `ringsOf` entrega un anillo `[[lat,lng],…]`, un polígono con sus agujeros, o un multipolígono. Cada
+// POLÍGONO es una parte —sus anillos componen entre sí y abren el agujero—, y las piezas de un
+// multipolígono son partes distintas de la misma entidad, para que se apilen en vez de restarse. Las
+// tablas van en [lng, lat]; los anillos vienen al revés.
 const polygonsOf = rings =>
   !Array.isArray(rings[0]?.[0])   ? [[rings]]
   : Array.isArray(rings[0][0][0]) ? rings
@@ -91,8 +91,8 @@ export class PolygonGpuLayer {
   #visible = true
   #view    = { zoom: 0, center: { x: 0, y: 0 }, size: { x: 0, y: 0 } }
 
-  // Las opciones son las de un path de Leaflet, con sus defaults, para que la capa entre en lugar de
-  // `L.polygon` sin traducir nada en el llamador.
+  // Las opciones de trazo y relleno (`color`, `weight`, `opacity`, `fillColor`, `fillOpacity`) son las de
+  // la gramática de la librería; `styleOf` las pisa por entidad.
   constructor({
     host, pane, geometry = null, source = null, interactive = false, idOf = null,
     color = '#3388ff', weight = 3, opacity = 1,
@@ -101,7 +101,7 @@ export class PolygonGpuLayer {
     this.#camera      = host.camera
     this.#source      = source
     this.#interactive = interactive
-    // Con Source, los accessors mandan: es lo que permite montarla donde está la capa de Leaflet.
+    // Con Source, los accessors mandan: el consumidor declara `idOf`/`styleOf` en un solo lugar.
     this.#idOf    = idOf ?? source?.accessors?.idOf ?? null
     this.#styleOf = styleOf ?? source?.accessors?.styleOf ?? null
     this.#base    = { color, weight, opacity, fillColor, fillOpacity }
@@ -167,7 +167,7 @@ export class PolygonGpuLayer {
 
   // El estilo se resuelve por parte y se guarda: `styleOf` puede depender de la selección o de un
   // filtro, y reevaluarlo por frame lo llamaría una vez por polígono en cada repintado.
-  // Con Source, `styleOf` e `idOf` reciben la ENTIDAD, igual que en la capa de Leaflet.
+  // Con Source, `styleOf` e `idOf` reciben la ENTIDAD, que es lo que el consumidor conoce.
   #subject(parteId, owner = this.#owner, items = this.#items) {
     if (!owner) return parteId
     // Con Source el dueño es la ENTIDAD; con tablas del lector, el índice de la FEATURE. En los dos
@@ -258,7 +258,7 @@ export class PolygonGpuLayer {
     return this.restyle()
   }
 
-  // Contrato de la capa hermana de Leaflet: el motor invoca las dos.
+  // Contrato de toda capa del motor: la llama al rehabilitarla, para que se ponga al día.
   refresh() { return this.restyle() }
 
   applyFocus(ids, dim = this.#focus.dim) {
@@ -339,11 +339,11 @@ export class PolygonGpuLayer {
 
   #hitsAt(sample) {
     if (!this.#index) return []
-    // Todas las que contienen el punto, como la capa de Leaflet: con polígonos superpuestos, quedarse
-    // con la primera esconde la de abajo.
+    // Todas las que contienen el punto: con polígonos superpuestos, quedarse con la primera esconde la
+    // de abajo.
     const partes = partsAtPoint(this.#index, sample.lng, sample.lat, this.#hits)
     // Una entidad con varias piezas —un multipolígono— aporta una parte por pieza: se responde UNA vez
-    // por entidad, como `idsFor` en el sustrato de Leaflet.
+    // por entidad.
     const vistos = new Set()
     return partes.reduce((out, parte) => {
       const sujeto = this.#subject(parte)

@@ -1,5 +1,5 @@
-// Relleno de polígonos por stencil (`RingStore` + `EditFillLayer`) contra el `L.polygon` de
-// `PolygonLayer`, sobre la misma geometría.
+// Relleno de polígonos por stencil (`RingStore` + `EditFillLayer`) contra un `L.polygon` de
+// Leaflet pintado a mano, sobre la misma geometría.
 
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'

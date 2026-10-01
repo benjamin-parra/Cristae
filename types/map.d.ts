@@ -86,16 +86,17 @@ export const shapeRenderers: Record<
 // ── Polígonos (addPolygonLayer / <cristae-polygon-layer>) ───────────────────
 export interface PolygonAccessors<T> extends Pick<SourceAccessors<T>, "hashOf"> {
   idOf     : (g: T) => string | number;
-  /** Anillos Leaflet `[[lat,lng],…]` o multi-anillo `[[[lat,lng],…],…]`. */
+  /** Anillo `[[lat,lng],…]` o multi-anillo `[[[lat,lng],…],…]`. */
   ringsOf  : (g: T) => number[][] | number[][][];
-  /** Opciones de `L.polygon` (color, fillColor, weight, opacity, …), salvo `interactive`, que se ignora:
-   *  el picking es por índice. */
+  /** Estilo por entidad, con el vocabulario de la capa: `color`, `weight`, `opacity`, `fillColor`,
+   *  `fillOpacity` y `dash`. `fill` y `stroke` son de la capa, no de la figura; `interactive` se
+   *  ignora: el picking es por índice. */
   styleOf? : (g: T) => Record<string, unknown>;
 }
 
 // ── Líneas (addLineLayer / <cristae-line-layer>) ────────────────────────────
 // GPU (glify.Lines) + gradiente per-vértice por bufferSubData + picking CPU nearest-segment.
-// `dash` lo dibujan los backends `gpu` y `leaflet`; `glify` no (ver docs/lines.md).
+// `dash` lo dibuja el backend `gpu`; `glify` no (ver docs/lines.md).
 export interface LineAccessors<T> extends Pick<SourceAccessors<T>, "hashOf"> {
   idOf       : (l: T) => string | number;
   /** Vértices del path en orden, cada uno en cualquiera de las formas de `LatLngPoint`. Dos encodings
@@ -104,7 +105,7 @@ export interface LineAccessors<T> extends Pick<SourceAccessors<T>, "hashOf"> {
    *  multi-parte sigue siendo UNA entidad: un id, un estilo, un hit. */
   pathOf     : (l: T) => LatLngPath;
   /** Estilo PLANO por línea. `color` = `"#RRGGBB"` o `[r,g,b,a]` (0..1); `weight` en px de pantalla.
-   *  `dash` (patrón `stroke-dasharray` en px) y `cap` los dibujan los backends `gpu` y `leaflet`;
+   *  `dash` (patrón `stroke-dasharray` en px) y `cap` los dibuja el backend `gpu`;
    *  `glify` los ignora. En `gpu` el patrón corre continuo a lo largo de cada parte y no depende del
    *  zoom; admite hasta 16 valores ya repetidos (los impares cuentan doble), y por dónde sale el
    *  error de uno más largo lo dice docs/lines.md.
@@ -400,11 +401,8 @@ export interface PointHandle<T = unknown> {
 
 // ── Configs y handles de las demás capas ────────────────────────────────────
 export interface PolygonLayerConfig<T> {
-  /** Sustrato, leído al montar. `'gpu'` (default) rellena por stencil en una textura y toma UN contexto
-   *  WebGL de los ~16 del navegador; `'leaflet'` monta un path por figura y no toma ninguno — conviene
-   *  con pocas figuras o con varias capas de polígonos en la misma página. */
-  backend?     : 'leaflet' | 'gpu';
-  /** Opciones de path por default de la capa (las pisa `styleOf`). Sólo las usa el sustrato `gpu`. */
+  /** Estilo de la capa: `styleOf` pisa por entidad todo salvo `stroke` y `fill`, que prenden o apagan
+   *  el trazo y el relleno de la capa entera. */
   color?       : string;
   weight?      : number;
   opacity?     : number;
@@ -419,14 +417,14 @@ export interface PolygonLayerConfig<T> {
   data?        : T[];
   /** Ruta `source` (el consumidor posee la Source; el motor sólo lee). Se lee al montar. */
   source?      : CristaeSource<T>;
-  /** Ruta `geometry`: las tablas del lector (`areasOf`), sin materializar un array. Implica
-   *  `backend: 'gpu'` —un `L.polygon` no las sabe leer— y no admite mutación: no hay Source. */
+  /** Ruta `geometry`: las tablas del lector (`areasOf`), sin materializar un array. No admite
+   *  mutación: no hay Source. */
   geometry?    : PolygonGpuGeometry;
   /** Id de la entidad. Sale de `accessors.idOf` cuando lo hay; por la ruta `geometry` recibe el índice
    *  de la FEATURE, y omitirlo ya identifica por feature (la geometría trae su `owner`). */
   idOf?        : (subject: T | number) => string | number;
-  /** Estilo por entidad. Mismo criterio que `idOf` para el sujeto que recibe. El sustrato `gpu`
-   *  entiende además `dash`, un patrón de trazo en px de pantalla (`null` o ausente: continuo). */
+  /** Estilo por entidad, con el vocabulario de `PolygonAccessors.styleOf`. Mismo criterio que `idOf`
+   *  para el sujeto que recibe. */
   styleOf?     : (subject: T | number) => Record<string, unknown>;
   pane?        : string;
   z?           : number;
@@ -439,9 +437,10 @@ export interface PolygonHandle<T = unknown> {
   readonly source? : CristaeReadSource<T> | null;
   set(items: T[]): void;
   setVisible(visible: boolean): void;
-  /** Sólo sobre el sustrato `'gpu'`: el de Leaflet reproyecta solo y reevalúa `styleOf` con la Source. */
-  redraw?(): void;
-  style?(options: Record<string, unknown>): void;
+  /** Repinta con la vista vigente. */
+  redraw(): void;
+  /** Cambia el estilo de la capa —las claves de `styleOf`— y reevalúa `styleOf` por entidad. */
+  style(options: Record<string, unknown>): void;
 }
 
 // ── Círculos en METROS (addCircleLayer) — dibujados en la GPU, escalan con el zoom ──
@@ -555,10 +554,8 @@ export interface LineLayerConfig<T> {
   /** Sustrato del trazo, leído al montar. `glify` (default) da picking y gradiente por vértice, pero el
    *  grosor sale de una brocha que barre `(4w+1)²` veces por feature y por frame. `gpu` dibuja un quad
    *  por segmento —grosor real, una pasada, sin picking ni gradiente— y toma UN contexto WebGL.
-   *  `gpu` y `leaflet` dibujan dash. Ver docs/lines.md. */
-  backend?     : 'glify' | 'gpu' | 'leaflet';
-  /** Alias de `backend: 'leaflet'`. */
-  vector?      : boolean;
+   *  Sólo `gpu` dibuja dash. Ver docs/lines.md. */
+  backend?     : 'glify' | 'gpu';
 }
 
 export interface HtmlLayerConfig<T> {
@@ -732,7 +729,7 @@ export class MapEngine {
 
   addPointLayer<T>(config: PointLayerConfig<T>): PointHandle<T>;
   addPolygonLayer<T>(config: PolygonLayerConfig<T>): PolygonHandle<T>;
-  /** @deprecated Una sola puerta: `addPolygonLayer({ geometry, backend: 'gpu' })`. Se retira en 1.0. */
+  /** @deprecated Una sola puerta: `addPolygonLayer({ geometry })`. Se retira en 1.0. */
   addPolygonGpuLayer(config: PolygonGpuLayerConfig): PolygonGpuHandle;
   addLineLayer<T>(config: LineLayerConfig<T>): LineHandle<T>;
   addHtmlLayer<T>(config: HtmlLayerConfig<T>): HtmlHandle<T>;
@@ -800,10 +797,10 @@ export class MapEngine {
 
 export class CristaeMap extends HTMLElement {}
 export class CristaePointLayer extends HTMLElement {}
-export class CristaePolygonLayer extends HTMLElement {
-  backend: 'leaflet' | 'gpu';
+export class CristaePolygonLayer extends HTMLElement {}
+export class CristaeLineLayer extends HTMLElement {
+  backend: 'glify' | 'gpu';
 }
-export class CristaeLineLayer extends HTMLElement {}
 export class CristaeHtmlLayer extends HTMLElement {}
 export class CristaeLabelLayer extends HTMLElement {}
 export class CristaeCluster extends HTMLElement {}
@@ -837,7 +834,7 @@ export interface PolygonGpuLayerConfig {
   geometry     : PolygonGpuGeometry;
   pane?        : string;
   z?           : number;
-  /** Opciones de path de Leaflet, con sus mismos defaults. */
+  /** Estilo de la capa; el default de cada opción va a su lado. */
   color?       : string;   // trazo — '#3388ff'
   weight?      : number;   // ancho del trazo en px — 3
   opacity?     : number;   // opacidad del trazo — 1

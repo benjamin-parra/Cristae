@@ -399,7 +399,7 @@ test('el encuadre del harness deja anillos adentro y afuera, o el descarte no pr
   assert.equal(mount(tables([square(EAST_EDGE + 20, 0, 0.05)])).layer.drawnRingCount, 0)
 })
 
-/* ── 8. Contorno: la capa dibuja borde, como el path de Leaflet que reemplaza ── */
+/* ── 8. Contorno: la capa dibuja borde ── */
 
 test('con el contorno prendido, cada anillo dibujado agrega UN draw sobre el relleno', () => {
   const geometria = tables([square(0, 0, 0.05), square(0.2, 0, 0.05)])
@@ -487,9 +487,8 @@ test('style() mueve el default de la capa y respeta lo que styleOf pisa', () => 
   assert.ok(layer.style({ color: '#0000ff', weight: 4 }) !== undefined, 'aplica y repinta')
 })
 
-// Un `styleOf` que sólo cambia `color` mueve también el relleno, como en un path de Leaflet: `fillColor`
-// sin declarar sigue al color vigente, no al de la capa. El relleno fija su color con `uniform4f` y el
-// trazo con `uniform4fv`.
+// Un `styleOf` que sólo cambia `color` mueve también el relleno: `fillColor` sin declarar sigue al
+// color vigente, no al de la capa. El relleno fija su color con `uniform4f` y el trazo con `uniform4fv`.
 test('sin fillColor, el relleno sigue al color que pone styleOf', () => {
   const spy = newSpy(), fills = []
   currentGl = new Proxy(editGl(spy), { get: (t, p) => (p === 'uniform4f' ? (_loc, ...rgba) => fills.push(rgba) : t[p]) })
@@ -548,7 +547,7 @@ test('setGeometry() cambia la figura sin tomar otro contexto y repinta', () => {
   assert.equal(spy.released, 0, 'el contexto sigue siendo el mismo')
 })
 
-/* ── 11. Montada sobre un Source, donde está la capa de Leaflet ── */
+/* ── 11. Montada sobre un Source ── */
 
 const ANILLO_A = [[0, 0], [0, 0.05], [0.05, 0.05], [0, 0]]
 const ANILLO_B = [[0, 0.02], [0, 0.07], [0.05, 0.07], [0, 0.02]]
@@ -637,7 +636,7 @@ test('una reingesta que falla deja la capa coherente, no dibujando contra una te
   assert.ok(drawsOf(spy, () => layer.redraw()) > 0, 'y sigue dibujando')
 })
 
-test('un multipolígono con piezas solapadas contesta UNA vez, como el sustrato de Leaflet', () => {
+test('un multipolígono con piezas solapadas contesta UNA vez', () => {
   const partida = [[ANILLO_A], [ANILLO_B]]                 // una entidad, dos piezas que se pisan
   const src = fuente([{ id: 'zona-partida', rings: partida }])
   const { layer } = conFuente(src, { interactive: true })
@@ -709,12 +708,6 @@ test('`addPolygonLayer({ geometry })` monta el sustrato GPU sin declararlo', () 
   assert.equal(handle.source, null, 'la geometría tipada es inmutable: no hay Source que exponer')
   assert.ok(map.getPane('cristae-polygon-areas'), 'y el pane es el de la puerta única')
   assert.equal(engine.getLayer('areas').interactive, true, 'con el default de la puerta única')
-})
-
-// Un `L.polygon` no sabe leer tablas: degradar en silencio dejaría un mapa en blanco sin diagnóstico.
-test('pedir geometría tipada sobre el sustrato de Leaflet falla ruidoso', () => {
-  const { engine } = conMotor()
-  assert.throws(() => engine.addPolygonLayer({ id: 'x', geometry: ONE_RING(), backend: 'leaflet' }), /geometry/)
 })
 
 test('`addPolygonGpuLayer` delega y conserva su pane y su `interactive` histórico', () => {

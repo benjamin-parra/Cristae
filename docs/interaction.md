@@ -165,12 +165,9 @@ resuelven sólo si algún participante reconoció el píxel.
 ## El cursor del contenedor
 
 `engine/Interaction.js` es el **único** que escribe `container.style.cursor`, y sólo cuando el valor
-efectivo cambia. Ninguna capa le compite: todas crean sus objetos Leaflet con `interactive: false`, así
-que no hay un hijo `.leaflet-interactive` que imponga su `pointer`. Los polígonos de Leaflet, que
-reciben el estilo del consumidor, se lo dan a Leaflet sólo a través de `pathStyle` (`render/focus.js`),
-que le fija `interactive: false` encima: el `interactive` de un `styleOf` se ignora. Las líneas, los
-marcadores y las patas del cluster lo llevan en literal, porque a Leaflet no le pasan el estilo del
-consumidor. Gana la primera fila que aplica:
+efectivo cambia. Ninguna capa le compite: todas dibujan en su propia superficie o con nodos sin
+puntero, así que no hay un hijo que imponga su `pointer`. El `interactive` de un `styleOf` se ignora.
+Gana la primera fila que aplica:
 
 | # | Cuando | Cursor |
 |---|---|---|

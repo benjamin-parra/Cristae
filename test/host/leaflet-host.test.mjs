@@ -381,7 +381,7 @@ test('el motor suelta su anfitrión al destruirse', () => {
 test('el motor suelta su anfitrión aunque el dueño haya removido el mapa antes', () => {
   const map    = L.map(contenedor()).setView(VISTA.center, VISTA.zoom)
   const engine = new MapEngine({ host: adoptLeafletHost(map), glify: null })
-  engine.addPolygonLayer({ id: 'zonas', backend: 'leaflet', pane: 'overlayPane', accessors: { idOf: it => it.id, ringsOf: it => it.rings } })
+  engine.addHtmlLayer({ id: 'zonas', pane: 'overlayPane', accessors: { idOf: it => it.id, positionOf: it => it } })
 
   map.remove()
   assert.doesNotThrow(() => engine.destroy())

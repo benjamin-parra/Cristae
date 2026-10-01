@@ -66,18 +66,20 @@ layer.accessors = {
 layer.data = rutas                              // el elemento posee la Source interna
 ```
 `data` (el elemento posee la Source) y `source` (una `Source` compartida del consumidor) son las dos
-entradas de dato, como en `<cristae-point-layer>`. `interactive`/`visible` son atributos; `accessors`/
-`data`/`source` son props (funciones/objetos).
+entradas de dato, como en `<cristae-point-layer>`. `interactive`/`visible`/`backend` son atributos;
+`accessors`/`data`/`source` son props (funciones/objetos).
 
 ### Sustrato — `backend`
 
-Tres formas de poner los mismos vértices en pantalla. Se lee al montar.
+Dos formas de poner los mismos vértices en pantalla, con el mismo contrato (accessors, handle). Se
+lee al montar; en el elemento, con el atributo (`<cristae-line-layer backend="gpu">`).
 
-| `backend` | Grosor | Picking | Gradiente | `dash` | Contextos WebGL |
-|---|---|---|---|---|---|
-| `glify` *(default)* | brocha: `(4w+1)²` pasadas por feature y por frame | ✅ nearest-segment | ✅ por vértice | ❌ | comparte el de glify |
-| `gpu` | **un quad por segmento**, una pasada, con uniones por miter | ❌ | ❌ | ✅ | toma UNO de los ~16 |
-| `leaflet` (`vector: true`) | path SVG | ✅ | ❌ | ✅ | ninguno |
+| `backend` | Grosor | Picking | Gradiente | `dash` | Foco por ítem | Contextos WebGL |
+|---|---|---|---|---|---|---|
+| `glify` *(default)* | brocha: `(4w+1)²` pasadas por feature y por frame | ✅ nearest-segment | ✅ por vértice | ❌ | ✅ exacto, en el alfa por vértice | comparte el de glify |
+| `gpu` | **un quad por segmento**, una pasada, con uniones por miter | ❌ | ❌ | ✅ | ✅ exacto | toma UNO de los ~16 |
+
+Regla: **gradiente o picking → `glify`; dash o un recorrido largo → `gpu`**.
 
 `gpu` es el mismo `StrokePass` que dibuja el contorno de los polígonos, con `closed: false`: los
 vértices viven en una textura y el vertex shader arma el quad desde `gl_VertexID`, así que panear y
@@ -89,7 +91,9 @@ sin picking ni gradiente, que siguen siendo de `glify`.
 engine.addLineLayer({ id: 'ruta', backend: 'gpu', accessors, data })
 ```
 
-Pedir `interactive: true` sobre `gpu` **falla ruidoso** en vez de dejar una capa que no contesta.
+Pedir `interactive: true` sobre `gpu` **falla ruidoso** en vez de dejar una capa que no contesta, y
+un `backend` que no es ninguno de los dos lanza nombrando los válidos. `vector`, el flag que elegía el
+trazo con dash, también lanza: su reemplazo es `backend: 'gpu'`.
 
 ### Multi-parte — una línea con huecos sigue siendo UNA entidad
 
@@ -110,11 +114,11 @@ El path y cada parte pueden ser cualquier iterable, y un vértice, cualquiera de
 > es lo correcto; el hueco se ve como hueco. Las partes de < 2 vértices se descartan (no hay segmento).
 
 Multi-parte **no** es multi-entidad: un id, un estilo, y **un solo hit** (gana la parte más cercana,
-que el hit reporta como `partIndex` + `segmentIndex`). En el backend GL sale como un `MultiLineString`
-(glify emite una tirada de vértices por parte, contiguas y en orden); en el Leaflet, como un
-`L.polyline` multi-path. `scalarOf(item, vertexIndex)` indexa la **entrada** de `pathOf` — con el
-encoding plano los cortes ocupan índice, con el anidado los índices corren concatenados — así un array
-paralelo de escalares nunca se desincroniza.
+que el hit reporta como `partIndex` + `segmentIndex`). En glify sale como un `MultiLineString`
+(una tirada de vértices por parte, contiguas y en orden); en `gpu`, como una parte por tramo.
+`scalarOf(item, vertexIndex)` indexa la **entrada** de `pathOf` — con el encoding plano los cortes
+ocupan índice, con el anidado los índices corren concatenados — así un array paralelo de escalares
+nunca se desincroniza.
 
 Para **decorar** una línea multi-parte hay que respetar sus huecos. `sampleAlong` ya los respeta y
 reparte sus muestras sobre el largo total; `toParts` está exportado para decorar por parte sin
@@ -178,23 +182,7 @@ como en cualquier capa. El hit-test nativo de glify se apaga (`sensitivity:0`); 
   no hacer una instancia por línea.)
 - **Apilado** por orden de hijos en el light DOM.
 
-## Dos backends: GL (glify) vs Leaflet (`vector`)
-
-`addLineLayer({ vector: true })` (o `<cristae-line-layer vector>`) usa un **backend Leaflet**
-(`L.polyline`) en vez de glify. Mismo contrato (accessors, handle, hit `kind:'line'` nearest-segment),
-distinto sustrato:
-
-| | GL (default) | Leaflet (`vector: true`) |
-|---|---|---|
-| Sustrato | glify.Lines (WebGL) | `L.polyline` |
-| `dash` | ✗ en `glify` (ignora `styleOf.dash`); ✓ en `gpu` | **✓ dibuja `styleOf.dash`** (ej. `[6,6]`) |
-| Gradiente `scalarOf` | ✓ | ✗ (color plano) |
-| Volumen / tiempo real | ✓ (buffer GPU) | pocas líneas |
-| Reproyección | el motor (path incremental) | Leaflet nativo |
-| Contexto WebGL | +1 | **0** (no abre contexto) |
-| Foco por ítem (`focus-ids`) | ✓ exacto — el factor se pliega en el **alfa por vértice** | ✓ exacto (opacidad del path) |
-
-Regla: **gradiente o picking con volumen → `glify`; dash con volumen o un recorrido largo → `gpu`; pocas líneas con picking y dash → `vector`**.
+## Trazo: patrones y decoración
 
 ### Patrones de trazo — un solo eje (`dash`), no un flag por patrón
 
@@ -212,7 +200,7 @@ patrones tradicionales son todos el mismo eje (generalidad por composición, no 
 Con `cap:'butt'` (default) un tramo de largo 1 sale como un cuadradito, no como un punto — por eso el
 punteado y el raya-punto piden `cap:'round'`.
 
-`dash` y `cap` los dibujan `gpu` y `leaflet`; `glify` los ignora. En `gpu` el patrón se mide en px de
+`dash` y `cap` los dibuja `gpu`; `glify` los ignora. En `gpu` el patrón se mide en px de
 pantalla y corre **continuo a lo largo de cada parte**, sin reiniciarse en los vértices, y no cambia al
 hacer zoom: lo que crece con el zoom es la longitud de la línea, no el período. Un número impar de
 valores se repite, como en `stroke-dasharray`, y uno inválido —vacío, con un valor negativo o
@@ -259,6 +247,6 @@ decide cuántas, con qué ícono y cuándo recalcularlas (p. ej. al cambiar el z
   el grosor (8 px → 225 pasadas por feature y por frame): no escala. **El grosor real por triángulos ya
   no es futuro: es el sustrato `gpu`** (abajo). `glify` sigue siendo el default porque es el único que
   resuelve picking y gradiente por vértice.
-- **`dash` en el backend `glify`**: `gl.LINES` no lo soporta → usar `backend: 'gpu'` o `vector: true`.
+- **`dash` en el backend `glify`**: `gl.LINES` no lo soporta → usar `backend: 'gpu'`.
 - **Track vivo (`extend`)**: crecer una línea por la punta hoy pasa por rebuild coalescido; el append
   incremental [0-alloc] al tail es una etapa posterior.

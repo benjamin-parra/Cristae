@@ -19,17 +19,16 @@ test('`source` sola alcanza para montar: la Source ya trae sus accessors', () =>
   assert.equal(capa({}).mountReady(), false, 'sin ninguna de las dos, difiere')
 })
 
-test('`source` y `backend` llegan al alta del motor', () => {
+test('`source` llega al alta del motor', () => {
   const source = {}
-  const cfg = capa({ id: 'zonas', source, backend: 'gpu' }).mountLayer(eco)
+  const cfg = capa({ id: 'zonas', source }).mountLayer(eco)
   assert.equal(cfg.source, source, 'la MISMA Source, no una copia')
-  assert.equal(cfg.backend, 'gpu', 'el sustrato declarado llega al alta')
+  assert.equal('backend' in cfg, false, 'el polígono no elige sustrato: es siempre el GPU')
 })
 
-test('sin declararlos, el alta los recibe ausentes y el motor aplica sus defaults', () => {
+test('sin declararla, el alta la recibe ausente y el motor crea la suya', () => {
   const cfg = capa({ id: 'zonas', accessors, data: [{ id: 'z1' }] }).mountLayer(eco)
   assert.equal(cfg.source, undefined, 'sin source → el motor crea la suya con los accessors')
-  assert.equal(cfg.backend, undefined, "backend ausente → el motor hace backend = 'leaflet'")
 })
 
 // Tercera entrada de dato: las tablas del lector. Es la que cierra el hueco declarativo — antes la

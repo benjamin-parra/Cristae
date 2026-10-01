@@ -3,14 +3,14 @@ import { Cluster } from './Cluster.js'
 // ClusterFold — orquestación del fold de cluster (SPECS §8.3): clusteriza el conjunto UNIÓN de varios
 // hosts en UN solo supercluster y reparte el MISMO set `suppressed` (ref estable, mutado in place) a
 // TODOS los hosts y a sus ligados (labels + overlays, que leen `host.suppressed`). Vive fuera de
-// MapEngine y NO toca sus privados: pide los servicios del motor (panes, capas, focus, bus, emit,
-// proyección) por el `bridge` acotado que le pasa `MapEngine.addClusterFold`. La API que expone (el
-// objeto `control` + el descriptor de retorno) es idéntica a la que devolvía el motor.
+// MapEngine y NO toca sus privados: pide los servicios del motor (capas, focus, bus, emit, proyección)
+// por el `bridge` acotado que le pasa `MapEngine.addClusterFold`. La API que expone (el objeto
+// `control` + el descriptor de retorno) es idéntica a la que devolvía el motor.
 //
-// El bridge expone: `camera` y `surface` (las facetas del anfitrión), `substrate` (el Leaflet y el mapa de
-// las patas del spider), `layerOf(id)`, `nextOrder()`, `overlayZ(order, extra)` (z de las capas del fold,
-// sobre los labels), `subAccent` (acento default de la traza), `makeBubbleSink`, `subClusterIconSet`,
-// `addPointLayer`, `removeLayer`, `resyncBound`, `focus`, `unfocusAll`, `emit`, `busOn`, `destroying()`.
+// El bridge expone: `camera` (la faceta del anfitrión), `layerOf(id)`, `nextOrder()`,
+// `overlayZ(order, extra)` (z de las capas del fold, sobre los labels), `subAccent` (acento default de
+// la traza), `makeBubbleSink`, `subClusterIconSet`, `addPointLayer`, `addLineLayer(cfg, order)`,
+// `removeLayer`, `resyncBound`, `focus`, `unfocusAll`, `emit`, `busOn`, `destroying()`.
 
 // Ventana de coalescido del re-index del cluster ante moves de POSICIÓN (no estructurales).
 // `cluster.index` (Supercluster.load) es O(n log n) + ~4 allocs/punto y resetea la firma → fuerza
@@ -150,16 +150,19 @@ export function createClusterFold(bridge, targets, { radius, maxZoom, minPoints,
     },
     iconSet: subIconSet, interactive: true, z: bridge.overlayZ(base.order, 8), capture: true,   // sobre labels(+200); ocluye lo de abajo
   })
-  const legsPane = `${foldId}-legs`
-  // Líneas DETRÁS de la burbuja (+5) y de los marcadores (+7): look canónico spiderfy. Si fueran
-  // encima, con muchas patas tapan el centro y la burbuja dim queda ilegible.
-  bridge.surface.mount(legsPane, bridge.overlayZ(base.order, 4), { pointer: false })   // sobre labels(+200); las líneas no pican
-  const { L, map } = bridge.substrate
-  const legGroup   = L.layerGroup([], { pane: legsPane }).addTo(map)
-  const setLegs    = segs => {
-    legGroup.clearLayers()
-    for (const s of segs)
-      L.polyline(s.pts, { pane: legsPane, color: s.color, weight: s.weight, opacity: s.opacity ?? 0.7, interactive: false }).addTo(legGroup)
+  // Patas y trazas en UNA capa de líneas, creada con la primera expansión: un pliegue que nunca se abre
+  // no paga el contexto WebGL. Van DETRÁS de la burbuja (+5) y de los marcadores (+7): look canónico
+  // spiderfy. Si fueran encima, con muchas patas tapan el centro y la burbuja dim queda ilegible. Sin
+  // picking: las patas no responden al puntero.
+  const legsId = `${foldId}:legs`
+  let legsHandle = null
+  let legSeq = 0   // un id nuevo por trazo y por ensamblado: se recalculan enteros, y la Source compara por id
+  const setLegs = legs => {
+    if (legs.length) legsHandle ??= bridge.addLineLayer({
+      id: legsId, backend: 'gpu', z: bridge.overlayZ(base.order, 4),   // sobre labels(+200)
+      accessors: { idOf: s => s.id, pathOf: s => s.pts, styleOf: s => s },
+    }, base.order)
+    legsHandle?.set(legs)
   }
   // Recalcula espiral (px del contenedor → latlng) + marcadores + líneas desde cluster.expandedGroups.
   // Sin expansión → vacía capa y líneas. Colapsa en zoomstart, así que nunca queda con el pixel-radius
@@ -199,7 +202,7 @@ export function createClusterFold(bridge, targets, { radius, maxZoom, minPoints,
           // `accent`, si no los defaults. Las secciones se distinguen por opacidad (hojas 0.6 / sub 0.55).
           // La librería NO deriva colores: recibe el que corresponda ya resuelto.
           const color = cfg.lineColor ?? cfg.accent ?? (leaf ? bridge.subAccent : '#94a3b8')
-          bands.push({ pts: runPts, color, weight: 12, opacity: leaf ? 0.6 : 0.55 })
+          bands.push({ id: ++legSeq, pts: runPts, color, weight: 12, opacity: leaf ? 0.6 : 0.55 })
         }
         runType = null; runPts = null
       }
@@ -216,7 +219,7 @@ export function createClusterFold(bridge, targets, { radius, maxZoom, minPoints,
           leafLL.set(slot.id, { lat: ll.lat, lng: ll.lng })
           type = slot.group != null ? 'bloom' : 'base'
         }
-        segs.push({ pts, color: '#94a3b8', weight: 1.2, opacity: 0.45 })   // pata al centro: tenue, secundaria
+        segs.push({ id: ++legSeq, pts, color: '#94a3b8', weight: 1.2, opacity: 0.45 })   // pata al centro: tenue, secundaria
         if (type !== runType) { flushRun(); runType = type; runPts = [] }
         runPts.push([ll.lat, ll.lng])
       })
@@ -480,11 +483,10 @@ export function createClusterFold(bridge, targets, { radius, maxZoom, minPoints,
       offSubClick?.()
       if (reindexTimer != null) { clearTimeout(reindexTimer); reindexTimer = null }   // cancela re-index diferido pendiente
       unsubs.forEach(u => u()); offZoom(); offZoomStart(); sink.dispose()
-      // Sesión spider: las capas se llevan su pane; las líneas y el suyo se sueltan acá.
+      // Sesión spider: cada capa se lleva su pane.
       bridge.removeLayer(spiderId)
       bridge.removeLayer(spiderSubId)
-      legGroup.remove()
-      bridge.surface.unmount(legsPane)
+      legsHandle && bridge.removeLayer(legsId)
       // Teardown del engine: TODO se está removiendo, así que des-suprimir el host y
       // refrescarlo (+ resyncear sus labels/overlays ligados) es trabajo inútil y peligroso
       // — rebuildearía glify sobre un canvas que se destruye.

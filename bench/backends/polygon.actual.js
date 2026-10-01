@@ -1,7 +1,7 @@
-// Polígonos — paths SVG de Leaflet (`L.polygon`), no GPU.
+// Polígonos — relleno por stencil y contorno en la GPU, un solo canvas.
 // Dos costos distintos que el guion tiene que separar:
 //   · FLUSH con el mismo conteo → camino "rápido" (#patch)… que igual REINDEXA O(n·vértices) el
-//     índice geométrico completo. El fast-path no evita el reindex: sólo evita recrear los paths.
+//     índice geométrico completo. El fast-path no evita el reindex: sólo evita rearmar las tablas de anillos.
 //   · ALTA o BAJA de UN polígono → el guard de conteo falla y cae a rebuild total.
 // Por eso `paso` cicla 3 tiempos: un flush plano y un par alta/baja. Medir sólo el flush plano
 // subestimaría la capa; medir sólo la baja escondería que ni el camino barato lo es.
@@ -81,7 +81,7 @@ const ondular = t => {
 
 export default {
   id      : 'polygon',
-  backend : 'leaflet-vector',
+  backend : 'gpu-stencil',
 
   montar: contexto => {
     ctx = contexto

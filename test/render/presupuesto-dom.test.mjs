@@ -5,10 +5,10 @@
 // Corre en `npm test`, sin navegador y en milisegundos: el banco dice cuánto TARDA, esto dice cuánto
 // OCUPA, y sólo el segundo puede correr en CI por cada commit.
 //
-// La unidad es el NODO, no el `L.marker` creado. El contador se alimenta por igual del `document` del
-// harness y de los dobles de Leaflet (ver `contadorNodos`), así que cuando una capa cambie sus handles
-// de `L.marker` a nodos propios —o a GPU— sigue midiendo lo mismo. Contando marcadores, en cambio, el 0
-// llegaría solo con el remake y el guard se volvería decorativo justo cuando empieza a importar.
+// La unidad es el NODO, no el objeto de la capa que lo cuelga. El contador se alimenta del `document`
+// del harness (ver `contadorNodos`), así que cuando una capa cambie cómo arma sus nodos —propios o en
+// GPU— sigue midiendo lo mismo. Contando objetos de la capa, en cambio, el 0 llegaría solo con el
+// remake y el guard se volvería decorativo justo cuando empieza a importar.
 //
 // Los DOS ejes hacen falta: crear y tirar 800 nodos por edición deja `vivos` clavado y cuesta igual que
 // tener 800 vivos —sólo el flujo lo ve—, y 800 vivos que nadie recrea son invisibles al flujo.
@@ -23,7 +23,7 @@
 //   · agregar UN vértice                  →     1 vivo y CERO ops de DOM  (eran 1.600: 799 bajas + 801 altas)
 //   polígono editable  ·    400 vértices  →     1 nodo vivo    (era 800, con el midpoint del cierre)
 //   atlas de handles   ·      N editores  →     5 nodos vivos  (era 5 POR editor)
-//   capa de polígonos  ·    200 features  →   200 nodos vivos   (los "200 paths + 0 markers" de la unidad vieja)
+//   capa de polígonos  ·    200 features  →     1 nodo vivo    (era 200: un path SVG por feature; ahora el canvas GPU)
 //   capa de círculos   ·    200 features  →     1 nodo vivo    (era 200: un `L.circle` por círculo; ahora el canvas GPU)
 //   capa de marcadores HTML · 200 marcas  →   401 nodos vivos  (la raíz + envoltorio e icono por marca)
 //   capa de puntos     · 10.000 ítems     →     0 nodos vivos, 1 capa GL   ← BLINDA lo que ya está bien
@@ -38,9 +38,9 @@
 // banco `EditHandleDom` los caracteriza aislado y `editable-geometry.test.mjs` mide su CABLEADO —que el
 // hover los monte y que salir y `destroy` los devuelvan—, que es lo que este presupuesto no puede ver.
 //
-// El presupuesto de la capa de polígonos NO depende de los vértices de cada feature (es un path por
-// feature): lo que escala con la geometría es el reindex O(n·vértices) por flush, y eso lo mide el
-// banco, no este archivo.
+// El presupuesto de la capa de polígonos NO depende de las features ni de sus vértices (es el canvas de
+// su superficie): lo que escala con la geometría es rehacer el store en cada cambio del Source, y eso lo
+// mide el banco, no este archivo.
 
 import '../../test-helpers/engine-stub.mjs'
 import { makeMap, makeLeaflet, makeEditGl, makeGlify, makeIconSet, conGlDeEdicion, contadorNodos, decorarElementos } from '../../test-helpers/engine-stub.mjs'
@@ -50,7 +50,7 @@ import { createSource } from '../../src/data/Source.js'
 import { defineEditIconSet } from '../../src/render/EditHandleLayer.js'
 import { EditableGeometry } from '../../src/render/EditableGeometry.js'
 import { adoptLeafletHost } from '../../src/host/LeafletHost.js'
-import { PolygonLayer } from '../../src/render/PolygonLayer.js'
+import { PolygonGpuLayer } from '../../src/render/PolygonGpuLayer.js'
 import { CircleLayer } from '../../src/render/CircleLayer.js'
 import { PointLayer } from '../../src/render/PointLayer.js'
 import { HtmlLayer } from '../../src/render/HtmlLayer.js'
@@ -91,12 +91,11 @@ const cuadrado = (lat, lng) => [[lat - 1, lng - 1], [lat - 1, lng + 1], [lat + 1
 // Monta una capa reactiva sobre una Source ya asentada. El contador se abre ANTES de construirla: mide
 // los nodos de la capa, no los que el harness ya tenía puestos.
 const montar = async (crear, accessors, items) => {
-  const L = makeLeaflet()
   const contador = contadorNodos()
   const source = createSource(accessors)
   source.set(items)
   await flush()
-  const capa = crear({ L, map: makeMap(), pane: 'p', source })
+  const capa = crear({ map: makeMap(), pane: 'p', source })
   await flush()
   return { capa, contador }
 }
@@ -179,19 +178,24 @@ test('un polígono de CUATRO anillos cuesta el mismo 1: el presupuesto no escala
   ed.destroy()
 })
 
-/* ── Capas vectoriales de Leaflet: un path SVG por feature ── */
+/* ── Capas vectoriales de la GPU: un canvas, no un nodo por feature ── */
 
-test('capa de polígonos de 200 features → 200 nodos vivos', async () => {
+// Los 200 polígonos son anillos de UNA superficie, y el único nodo es su canvas: no escala con la cantidad
+// de features ni con los vértices de cada uno.
+test('capa de polígonos de 200 features → 1 nodo DOM vivo', async () => {
   const items = Array.from({ length: FEATURES }, (_, i) => ({ id: i, rings: cuadrado(i * 0.5, i * 0.5) }))
+  glVigente = makeEditGl()
   const { capa, contador } = await montar(
-    opciones => new PolygonLayer(opciones),
+    opciones => new PolygonGpuLayer({ host: adoptLeafletHost(opciones.map), ...opciones }),
     { idOf: it => it.id, ringsOf: it => it.rings },
     items,
   )
 
-  assert.equal(capa.count, FEATURES, 'los 200 features quedaron montados')
-  assert.equal(contador.vivos, 200, 'LÍNEA BASE — un nodo por feature: los 4 vértices viajan DENTRO del path')
-  assert.equal(contador.creados, 200, 'sin churn: montó una vez, no rebuildeó')
+  assert.equal(contador.vivos, EDITABLE, 'LÍNEA BASE — el canvas de la superficie, y nada más')
+  assert.equal(contador.creados, EDITABLE, 'sin churn: montó una vez, no rebuildeó')
+
+  capa.destroy()
+  assert.equal(contador.vivos, 0, 'destroy devuelve el canvas')
 })
 
 // Los 200 círculos son anillos de UNA textura, y el único nodo es el canvas de su superficie: no escala

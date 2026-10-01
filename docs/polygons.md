@@ -1,15 +1,15 @@
-# Polígonos — los dos sustratos y cuándo usar cada uno
+# Polígonos — dibujo en GPU
 
-> Pieza de [Cristae](../MODELO.md). La capa de polígonos dibuja con **`L.polygon`** (un path por
-> figura) o **en GPU** (relleno por stencil y contorno, todo en una textura). Los dos consumen el
-> mismo `Source`, los mismos accessors y contestan el mismo picking.
+> Pieza de [Cristae](../MODELO.md). La capa de polígonos dibuja **en GPU**: relleno por stencil y
+> contorno, todo en una textura. Consume un `Source` con sus accessors, o las tablas del lector, y
+> contesta picking por índice.
 
 ```js
-engine.addPolygonLayer({ id: 'geocercas', data, accessors, backend: 'gpu' })
+engine.addPolygonLayer({ id: 'geocercas', data, accessors })
 ```
 
 ```html
-<cristae-polygon-layer id="geocercas" interactive backend="gpu"></cristae-polygon-layer>
+<cristae-polygon-layer id="geocercas" interactive></cristae-polygon-layer>
 ```
 
 La Source puede ser del consumidor y compartirse con otra vista —una tabla, un segundo mapa—; el
@@ -19,37 +19,38 @@ elemento la toma por propiedad, igual que la capa de puntos, y con ella viajan l
 document.querySelector('#geocercas').source = geocercas
 ```
 
-`backend` y `source` se leen **al montar**: reasignarlos no remonta la capa.
+`source` se lee **al montar**: reasignarla no remonta la capa.
 
 ---
 
-## Cuál elegir
+## Costo
 
-| | `leaflet` | `gpu` (default) |
-|---|---|---|
-| sustrato | un `L.polygon` por figura | stencil + textura, un contexto WebGL |
-| escala cómoda | decenas o cientos de figuras | miles |
-| reproyección | la hace Leaflet | el pane traslada el canvas; repinta en vista asentada |
-| costo por repintado | O(figuras) nodos DOM | una paridad por anillo + una cobertura por polígono, **sólo de lo que toca el viewport** |
-| contexto WebGL | ninguno | **uno**, del techo de ~16 del navegador |
+| Aspecto | Polígonos |
+|---|---|
+| escala cómoda | miles de figuras |
+| reproyección | el pane traslada el canvas; repinta en vista asentada |
+| costo por repintado | una paridad por anillo + una cobertura por polígono, **sólo de lo que toca el viewport** |
+| contexto WebGL | **uno por capa**, del techo de ~16 del navegador |
 
-El `gpu` es el default porque el perfil habitual de esta capa es el volumen. Pero el costo que hay que
-tener en la cabeza no es el de dibujo sino el de **contexto**: cada capa GPU abre el suyo, y el
-navegador da unos ~16 en total; pasado el techo empieza a evictar los viejos. Con pocas figuras —o con
-varias capas de polígonos en la misma página— `leaflet` no tiene rival: no toma contexto y reproyecta
-solo.
+El costo que hay que tener en la cabeza no es el de dibujo sino el de **contexto**: cada capa abre el
+suyo, y el navegador da unos ~16 en total; pasado el techo empieza a evictar los viejos. Con varias
+capas de polígonos en la misma página conviene juntarlas en una, con un `styleOf` que las distinga.
+No hay sustrato que elegir: `addPolygonLayer` rechaza un `backend`, y el elemento no tiene el atributo.
 
 ## Estilo
 
-Las opciones son las de un path de Leaflet, con sus mismos defaults — `color` `#3388ff`, `weight` 3,
-`opacity` 1, `fillColor` = `color`, `fillOpacity` 0.2, `stroke` y `fill` en `true`; el sustrato `gpu`
-agrega `dash`, un patrón de trazo en píxeles de pantalla (`null` o ausente, trazo continuo). Un
-`color` que pone `styleOf` mueve también el relleno, salvo que el mismo estilo o la capa fijen
-`fillColor`. El `styleOf` de los accessors recibe **la entidad** y pisa esos defaults por figura; `applyFocus(ids, dim)` atenúa lo
-que queda fuera del foco. `interactive` es la excepción y se ignora: el picking es por índice, y los
-eventos salen por `cristae:click`/`cristae:hover` con `interactive` en la capa; un path interactivo para
-Leaflet pondría su propio `pointer` encima del cursor del mapa. El estilo se resuelve **una vez por
-polígono**, no por frame: cuando la selección o el filtro lo mueven, se reevalúa con `refresh()`.
+Las opciones son las de la gramática de la librería: `color` `#3388ff`, `weight` 3, `opacity` 1,
+`fillColor` = `color`, `fillOpacity` 0.2 y `dash`, un patrón de trazo en píxeles de pantalla (`null` o
+ausente, trazo continuo) con las reglas del de las
+[líneas](lines.md#patrones-de-trazo--un-solo-eje-dash-no-un-flag-por-patrón). Un `color` que pone
+`styleOf` mueve también el relleno, salvo que el mismo estilo o la capa fijen `fillColor`. El `styleOf`
+de los accessors recibe **la entidad** y pisa esos defaults por figura; `applyFocus(ids, dim)` atenúa lo
+que queda fuera del foco. `stroke` y `fill` (en `true`) prenden o apagan el trazo y el relleno **de la
+capa entera** y no se pisan por figura: una figura sin relleno lleva `fillOpacity: 0`, y una sin borde,
+`opacity: 0` o `weight: 0`. `interactive` es la excepción y se ignora: el picking es por índice, y los
+eventos salen por `cristae:click`/`cristae:hover` con `interactive` en la capa. El estilo se resuelve
+**una vez por polígono**, no por frame: cuando la selección o el filtro lo mueven, se reevalúa con
+`refresh()`.
 
 ## Agujeros contra solapes
 
@@ -61,8 +62,7 @@ contesta **una vez** por entidad.
 
 ## Geometría tipada, sin Source
 
-La misma puerta acepta las tablas CSR del [lector](geojson.md) sin pasar por arrays. `geometry` implica
-el sustrato `gpu` —un `L.polygon` no las sabe leer, y pedir esa combinación falla ruidoso—:
+La misma puerta acepta las tablas CSR del [lector](geojson.md) sin pasar por arrays:
 
 ```js
 engine.addPolygonLayer({ id: 'geocercas', geometry: areasOf(readGeoJson(bytes)) })
@@ -86,7 +86,7 @@ engine.addPolygonGpuLayer({ id: 'geocercas', geometry: areasOf(doc), idOf: f => 
 
 Con tablas armadas a mano, sin `owner`, el sujeto sigue siendo la parte.
 
-## Lo que el sustrato `gpu` todavía no hace
+## Lo que todavía no hace
 
 - **No hay `z` por entidad**: el orden de dibujo es el de la geometría.
 

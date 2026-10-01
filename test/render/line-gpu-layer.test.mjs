@@ -254,6 +254,24 @@ test('un backend desconocido se rechaza nombrando los válidos', () => {
   const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeLeaflet() }), glify: {} })
   assert.throws(
     () => engine.addLineLayer({ id: 'x', backend: 'triangulos', accessors: { idOf: r => r.id, pathOf: r => r.path } }),
-    /glify \| gpu \| leaflet/,
+    /glify \| gpu/,
+  )
+})
+
+// `leaflet` fue un sustrato de líneas: pedirlo ahora no cae en silencio al de glify.
+test("`backend: 'leaflet'` ya no existe: se rechaza como cualquier desconocido", () => {
+  const engine = new MapEngine({ host: adoptLeafletHost(makeMap(), { leaflet: makeLeaflet() }), glify: {} })
+  assert.throws(
+    () => engine.addLineLayer({ id: 'x', backend: 'leaflet', accessors: { idOf: r => r.id, pathOf: r => r.path } }),
+    /backend de líneas desconocido 'leaflet'/,
+  )
+})
+
+// `vector` fue el flag del sustrato con dash: pedirlo no cae en silencio a glify, que no lo dibuja.
+test('`vector` ya no existe: se rechaza nombrando su reemplazo', () => {
+  const engine = new MapEngine({ host: adoptLeafletHost(makeMap(), { leaflet: makeLeaflet() }), glify: {} })
+  assert.throws(
+    () => engine.addLineLayer({ id: 'x', vector: true, accessors: { idOf: r => r.id, pathOf: r => r.path } }),
+    /backend: 'gpu'/,
   )
 })

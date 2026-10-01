@@ -32,10 +32,10 @@ const BYTES = 6
 // path point index del vértice v DE UNA PARTE: v=0→0, v=1,2→1, v=3,4→2, … (interiores duplicados).
 const pathIndexOf = v => (v + 1) >> 1
 
-// `styleOf.weight` es el GROSOR EN PX de pantalla — el mismo significado que en el backend Leaflet.
+// `styleOf.weight` es el GROSOR EN PX de pantalla — el mismo significado que en el sustrato `gpu`.
 // glify no recibe un grosor: recibe el RADIO de una brocha que barre ±w en pasos de 0.5 sobre una
 // línea de 1px, así que rinde 2w+1 px de ancho y (4w+1)² pasadas de dibujo. Sin esta conversión el
-// backend GL dibuja al doble de grosor que el Leaflet con el mismo `styleOf`, y paga 4× las pasadas.
+// backend GL dibuja al doble de grosor que el `gpu` con el mismo `styleOf`, y paga 4× las pasadas.
 const brushRadius = px => Math.max((px - 1) / 2, 0)
 
 export class LineLayer {

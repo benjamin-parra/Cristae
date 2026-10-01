@@ -4,13 +4,16 @@
 // extracción: los mismos asserts deben seguir verdes contra el fold extraído. Cubre lo que Cluster.js
 // (puro) NO cubre: la orquestación del motor por encima del clustering. Corre con:
 //   node --test test/engine/cluster-fold.test.mjs
-import test from 'node:test'
+import test, { after } from 'node:test'
 import assert from 'node:assert/strict'
-import { makeGlify, makeIconSet, makeMap, makeLeaflet, installCanvasStub } from '../../test-helpers/engine-stub.mjs'
+import { conGlDeEdicion, makeEditGl, makeGlify, makeIconSet, makeMap, makeLeaflet, installCanvasStub } from '../../test-helpers/engine-stub.mjs'
 import { MapEngine } from '../../src/engine/MapEngine.js'
 import { adoptLeafletHost } from '../../src/host/LeafletHost.js'
 
 installCanvasStub()
+
+// Las patas de la espiral son una capa de líneas propia: toma su contexto WebGL2 (uno por montaje).
+after(conGlDeEdicion(() => makeEditGl()))
 
 // Cinco puntos MUY juntos cerca de (0,0): a zoom 3 agrupan en UNA burbuja (count 5), pocos para que
 // al expandir sean hojas directas (sin sub-clusters: 5 ≤ splitThreshold 16).
@@ -146,16 +149,50 @@ test('base grande (> splitThreshold): expand particiona en sub-grupos y el paylo
 })
 
 // El fold monta un pane por pieza —las burbujas, las patas de la espiral y sus dos capas de puntos— y
-// ninguno sobrevive a su baja. El de las patas no es de ninguna capa: lo monta y lo suelta el fold.
+// ninguno sobrevive a su baja.
 test('dispose suelta los panes del fold, el de las patas incluido', () => {
   for (const bubble of [undefined, { kind: 'label' }]) {
     const { control, map, bubbles } = mount({ foldOpts: { bubble } })
     const foldId = control.bubbleLayerId.replace(':clusters', '')
-    const panes  = [`${foldId}-bubbles`, `${foldId}-legs`, `cristae-point-${foldId}:spider`, `cristae-point-${foldId}:spider-sub`]
-    bubble || control.expand(bubbles()[0].id)          // la espiral abierta: patas dibujadas en su pane
+    // Las patas nacen con la primera espiral abierta: sin ella no hay pane que soltar.
+    const panes  = [`${foldId}-bubbles`, `cristae-point-${foldId}:spider`, `cristae-point-${foldId}:spider-sub`]
+    bubble || (control.expand(bubbles()[0].id), panes.push(`cristae-line-${foldId}:legs`))
     panes.forEach(pane => assert.ok(map.getPane(pane), `${pane} montado`))
 
     control.dispose()
     panes.forEach(pane => assert.equal(map.getPane(pane), null, `${pane} fuera del registro (burbuja ${bubble?.kind ?? 'point'})`))
   }
+})
+
+// Las patas y la traza que une las hojas son UNA capa de líneas propia, sin picking, que el fold crea con
+// su primera espiral: un fold que nunca se abre no paga un contexto WebGL por ellas.
+test('las patas son una capa de líneas propia: nace con la primera espiral y se vacía al cerrarla', () => {
+  const { engine, control, bubbles } = mount()
+  const legsId = control.bubbleLayerId.replace(':clusters', ':legs')
+  assert.equal(engine.getLayer(legsId), null, 'sin espiral abierta no hay capa')
+
+  control.expand(bubbles()[0].id)
+  const legs = engine.getLayer(legsId)
+  assert.equal(legs.kind, 'line')
+  assert.equal(legs.interactive, false, 'las patas no responden al puntero')
+  const [banda, ...patas] = legs.source.getSnapshot()
+  assert.deepEqual([banda.pts.length, banda.weight, banda.opacity], [5, 12, 0.6], 'la traza une las 5 hojas, detrás')
+  assert.equal(patas.length, 5, 'una pata por hoja')
+  assert.ok(patas.every(p => p.pts.length === 2 && p.weight === 1.2 && p.opacity === 0.45), 'patas tenues del centro a la hoja')
+
+  control.collapseAll()
+  assert.equal(engine.getLayer(legsId), legs, 'la capa se conserva')
+  assert.equal(legs.source.getSnapshot().length, 0, 'sin espiral no hay trazos')
+})
+
+// La capa de patas nace tarde, con la primera espiral: si tomara un orden del contador, el z por defecto
+// de lo que se agregue después dependería de si el usuario ya abrió una.
+test('abrir una espiral no corre el z por defecto de las capas que se agregan después', () => {
+  const zDespues = abrir => {
+    const { engine, control, bubbles } = mount()
+    abrir && control.expand(bubbles()[0].id)
+    engine.addLineLayer({ id: 'despues', backend: 'gpu', accessors: { idOf: r => r.id, pathOf: r => r.path } })
+    return engine.getLayer('despues').zIndex
+  }
+  assert.equal(zDespues(true), zDespues(false))
 })

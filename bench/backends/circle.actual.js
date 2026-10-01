@@ -1,8 +1,8 @@
-// Círculos en metros — `L.circle` de Leaflet: un path SVG por círculo, no GPU.
+// Círculos en metros — teselados en la GPU: una textura de anillos y un solo canvas.
 // Lo que la castiga es el ZOOM del guion: el radio va en METROS, así que cada cambio de escala
-// obliga a reproyectar el radio de TODOS los círculos y reescribir todos los paths. La fase de pan
-// es comparativamente barata (Leaflet traslada el pane) y la fase viva agrega el reconciliador
-// O(n) que la capa corre en cada notificación de la Source para decidir si el set cambió.
+// obliga a reteselar el radio de TODOS los círculos. La fase de pan es comparativamente barata
+// (el pane traslada el canvas) y la fase viva agrega el reconciliador O(n) que la capa corre en
+// cada notificación de la Source para decidir si el set cambió.
 //
 // N = CÍRCULOS.
 
@@ -57,7 +57,7 @@ const armar = (_, i) => {
 
 export default {
   id      : 'circle',
-  backend : 'leaflet-vector',
+  backend : 'gpu-teselado',
 
   montar: contexto => {
     ctx    = contexto

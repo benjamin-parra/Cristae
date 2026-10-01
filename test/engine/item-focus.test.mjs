@@ -6,8 +6,8 @@
 // falsy (presente-vacío: participa, nadie brillante) | undefined (retiro).
 
 import '../../test-helpers/engine-stub.mjs'
-import { makeGlify, makeMap, makeLeaflet, makeIconSet } from '../../test-helpers/engine-stub.mjs'
-import { test } from 'node:test'
+import { conGlDeEdicion, makeEditGl, makeGlify, makeMap, makeLeaflet, makeIconSet } from '../../test-helpers/engine-stub.mjs'
+import { test, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { MapEngine } from '../../src/engine/MapEngine.js'
 import { adoptLeafletHost } from '../../src/host/LeafletHost.js'
@@ -89,12 +89,14 @@ const espiar = () => {
   }
 }
 
+after(conGlDeEdicion(() => makeEditGl()))   // las zonas son polígonos GPU: toman su contexto del harness
+
 const mount = async ({ data = FLOTA(), interactive = false, where = null, zonas = false, cluster = false } = {}) => {
   const glify  = espiar()
   const engine = new MapEngine({ host: adoptLeafletHost(makeMap(), { leaflet: makeLeaflet() }), glify })
   const flota  = engine.addPointLayer({ id: 'flota', accessors, iconSet: makeIconSet(), data, interactive, where })
   engine.addPointLayer({ id: 'otra', accessors, iconSet: makeIconSet(), data: FLOTA() })
-  zonas && engine.addPolygonLayer({ id: 'zonas', backend: 'leaflet', ...ZONAS })
+  zonas && engine.addPolygonLayer({ id: 'zonas', ...ZONAS })
   cluster && engine.addClusterFold([{ id: 'flota' }], { radius: 80, maxZoom: 18, minPoints: 2 })
   await flushRaf()
   return { engine, glify, flota, datos: data }

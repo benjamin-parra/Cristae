@@ -4,8 +4,8 @@ import { makeAutoId } from './autoId.js'
 // <cristae-line-layer> — capa de líneas GL declarativa. Como point-layer, dos entradas de dato:
 // `data` (array → el elemento posee la Source interna) y `source` (Source compartida del consumidor,
 // createSource/defineSource). `accessors` = { idOf, pathOf, styleOf?, scalarOf?, colorRamp?, hashOf? } se
-// asigna por JS (funciones, no atributos). El grosor por brocha de glify y la ausencia de dash en el
-// backend glify son deuda documentada (ver docs/lines.md).
+// asigna por JS (funciones, no atributos). `backend` elige el sustrato al montar (`glify` o `gpu`); el
+// grosor por brocha de glify y la ausencia de dash en ese backend son deuda documentada (ver docs/lines.md).
 export class CristaeLineLayer extends CristaeLayerElement {
 
   // Gramática de composición: entidad hoja que produce `line`.
@@ -17,14 +17,13 @@ export class CristaeLineLayer extends CristaeLayerElement {
     accessors: { type: Object },
     interactive: { type: Boolean },
     visible: { type: Boolean },
-    vector: { type: Boolean },          // backend Leaflet (DASH, reproyecta solo) en vez de GL
+    backend: { type: String },          // sin declarar, el default del motor
   }
 
   constructor() {
     super()
     this.interactive = false
     this.visible     = true
-    this.vector      = false
   }
 
   layerId() { return this.id || (this._auto ??= makeAutoId('line')) }
@@ -40,7 +39,7 @@ export class CristaeLineLayer extends CristaeLayerElement {
       accessors: this.accessors,
       interactive: this.interactive,
       visible: this.visible,
-      vector: this.vector,
+      backend: this.backend,
     })
   }
 

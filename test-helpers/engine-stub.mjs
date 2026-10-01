@@ -1,25 +1,23 @@
 // Stubs para montar un MapEngine o una capa headless en node:test. No es un jsdom ni un Leaflet real:
 // existe lo que las capas y el motor tocan —construcción + addPointLayer + addClusterFold + control.*,
-// más las factories nativas de Leaflet (marker / divIcon / polyline / polygon / rectangle / circle /
-// layerGroup) bajo UNA convención de log, ver makeLeaflet—. El GL/glify reusa el mismo enfoque que
-// test/pointlayer.test.mjs (la capa no lee nada de vuelta salvo el buffer). Los iconSets de
-// burbuja/sub-cluster que arma el fold son los REALES (defineClusterIconSet); rasterizan a un canvas
-// stub cuyo ctx es no-op y cuyos píxeles nunca se leen en CPU (Atlas.tileAt guarda el canvas; sólo se
-// entrega a gl.texImage2D, no-op). Así el harness ejerce el camino real de iconos, no uno paralelo.
+// y del `leaflet` inyectado sólo el constructor de puntos, ver makeLeaflet—. El GL/glify reusa el
+// mismo enfoque que test/pointlayer.test.mjs (la capa no lee nada de vuelta salvo el buffer). Los
+// iconSets de burbuja/sub-cluster que arma el fold son los REALES (defineClusterIconSet); rasterizan a
+// un canvas stub cuyo ctx es no-op y cuyos píxeles nunca se leen en CPU (Atlas.tileAt guarda el
+// canvas; sólo se entrega a gl.texImage2D, no-op). Así el harness ejerce el camino real de iconos, no
+// uno paralelo.
 //
 // Globals de módulo (se ejecutan al EVALUAR este helper, ANTES que el árbol de MapEngine): el anfitrión
 // hace `import L from 'leaflet'` por top-level (no por inyección), y la carga de Leaflet real toca
-// window/navigator/document. Shim mínimo para que el módulo evalúe en node — Leaflet real NO se usa en
-// el fold (L va inyectado por makeLeaflet). Mismo `document` sirve para el canvas que rasteriza
+// window/navigator/document. Shim mínimo para que el módulo evalúe en node — Leaflet real NO se usa:
+// el anfitrión recibe el doble de makeLeaflet. Mismo `document` sirve para el canvas que rasteriza
 // defineClusterIconSet. El test importa este helper ANTES que MapEngine, así el shim ya está.
 
 /* ── Registro de nodos DOM (alimenta el presupuesto; ver contadorNodos abajo) ── */
 
-// El harness no monta nodos: los DECLARA. Dos entradas alimentan el registro y el contador no distingue
-// cuál — el `document` del shim (todo lo que sale de createElement/createElementNS) y los dobles de
-// Leaflet, donde un `L.marker` es el div de su icono y un path vectorial es su <path>. Por eso el
-// presupuesto no miente cuando una capa deja de usar `L.marker`: si pasa a colgar nodos por su cuenta los
-// cuenta igual, y si no cuelga ninguno mide 0 sin que haya que tocar el test.
+// El harness no monta nodos: los DECLARA. El registro se alimenta del `document` del shim —todo lo que
+// sale de createElement/createElementNS—, así que el presupuesto cuenta los nodos que una capa cuelga
+// sin importar cómo los arme, y si no cuelga ninguno mide 0 sin que haya que tocar el test.
 const registro = { serie: 0, muertes: [] }
 
 // Un nodo nace numerado y devuelve su baja, idempotente (quitarlo dos veces no descuenta dos).
@@ -525,96 +523,10 @@ export const makeDragging = ({ activo = true } = {}) => {
   return h
 }
 
-// Toda coordenada se normaliza a {lat,lng} —venga par o objeto— como hace Leaflet al construir.
-const toLatLng = ll => (Array.isArray(ll) ? { lat: ll[0], lng: ll[1] } : { lat: ll.lat, lng: ll.lng })
-
-// `L` COMPLETO bajo UNA convención de log (antes cada test se armaba su propio doble y convivían dos
-// nombres para lo mismo). Cada factory apila su instancia en el array de su naturaleza —en orden de
-// creación— y cada instancia cuenta sus mutaciones en `<mutador>Calls` y guarda su último estado
-// (`latlng` / `latlngs` / `radius` / `style` / `opacity`). Con eso una capa se caracteriza sin doble
-// local: cuántos nodos creó, de qué naturaleza y qué se le tocó después.
-export const makeLeaflet = () => {
-  const log = { markers: [], paths: [], icons: [], clearLayers: 0, addLayer: 0 }
-
-  // Molde único de path vectorial: expone TODOS los mutadores de path y cada capa usa los suyos
-  // (polygon → setLatLngs, circle → setLatLng/setRadius) contra los mismos campos. `style` es el último
-  // estilo recibido y `opts`, las opciones vivas: `setStyle` se funde en ellas, como el `setOptions` de
-  // Leaflet, que es lo que después lee su renderer.
-  const path = (tipo, { latlngs = null, latlng = null, opts = {} }) => {
-    const morir = nodoDom()
-    const p = {
-      tipo, opts, latlngs, latlng,
-      style:   { ...opts },
-      radius:  opts.radius,
-      removed: false,
-      setStyleCalls: 0, setLatLngsCalls: 0, setLatLngCalls: 0, setRadiusCalls: 0,
-      setStyle(s)    { p.setStyleCalls++;   p.style   = s; Object.assign(opts, s); return p },
-      setLatLngs(ll) { p.setLatLngsCalls++; p.latlngs = ll;                        return p },
-      setLatLng(ll)  { p.setLatLngCalls++;  p.latlng  = toLatLng(ll);              return p },
-      setRadius(r)   { p.setRadiusCalls++;  p.radius  = r;                         return p },
-      getLatLngs: () => p.latlngs,
-      getLatLng:  () => p.latlng,
-      getRadius:  () => p.radius,
-      addTo(g) { g.addLayer?.(p); return p },
-      remove()  { p.removed = true; morir() },
-    }
-    log.paths.push(p)
-    return p
-  }
-
-  // Marcador con handlers propios: `fire` los dispara como haría Leaflet ante el gesto real
-  // (drag / dragend / dblclick / click), que es como el test ejerce una edición.
-  const marker = (latlng, opts = {}) => {
-    const handlers = new Map()
-    const morir = nodoDom()
-    const m = {
-      opts, handlers,
-      latlng:  toLatLng(latlng),
-      icon:    opts.icon ?? null,
-      opacity: opts.opacity ?? 1,
-      removed: false,
-      setLatLngCalls: 0, setOpacityCalls: 0,
-      on(type, cb)  { (handlers.get(type) ?? handlers.set(type, []).get(type)).push(cb); return m },
-      fire(type, e) { handlers.get(type)?.forEach(cb => cb(e)); return m },
-      setLatLng(ll) { m.setLatLngCalls++;  m.latlng  = toLatLng(ll); return m },
-      setOpacity(o) { m.setOpacityCalls++; m.opacity = o;            return m },
-      getLatLng: () => m.latlng,
-      addTo(g) { g.addLayer?.(m); return m },
-      remove()  { m.removed = true; morir() },
-    }
-    log.markers.push(m)
-    return m
-  }
-
-  return {
-    log,
-    marker,
-    // El constructor con que el anfitrión le pasa los puntos al mapa.
-    LatLng: class { constructor(lat, lng) { this.lat = lat; this.lng = lng } },
-    divIcon(opts = {}) {
-      const icon = { isDivIcon: true, ...opts }
-      log.icons.push(icon)
-      return icon
-    },
-    polyline:  (latlngs, opts) => path('polyline',  { latlngs, opts }),
-    polygon:   (latlngs, opts) => path('polygon',   { latlngs, opts }),
-    rectangle: (bounds,  opts) => path('rectangle', { latlngs: bounds, opts }),
-    circle:    (latlng,  opts) => path('circle',    { latlng: toLatLng(latlng), opts }),
-    layerGroup: (iniciales = [], opts = {}) => {
-      // Vaciar el grupo —o quitarlo del mapa— da de baja los nodos de sus hijos, como el onRemove real.
-      const vaciar = () => { g.layers.forEach(l => l.remove?.()); g.layers.length = 0 }
-      const g = {
-        opts,
-        layers: [...iniciales],
-        addTo: () => g,
-        addLayer(l)   { log.addLayer++;    g.layers.push(l); return g },
-        clearLayers() { log.clearLayers++; vaciar();         return g },
-        remove: vaciar,
-      }
-      return g
-    },
-  }
-}
+// El `leaflet` que el anfitrión consulta al adoptar un mapa: el constructor con que le pasa los puntos.
+export const makeLeaflet = () => ({
+  LatLng: class { constructor(lat, lng) { this.lat = lat; this.lng = lng } },
+})
 
 // Presupuesto de nodos DOM en DOS ejes, porque contestan preguntas distintas y ninguno implica al otro:
 //   · `vivos` (ESTADO) — cuántos nodos mantiene vivos el navegador AHORA por culpa de la capa; es lo que
@@ -625,7 +537,7 @@ export const makeLeaflet = () => {
 // para aislar el costo de un gesto sin perder el estado acumulado. Medir desde el origen en vez de en
 // absoluto es lo que impide que un test herede los nodos que otro dejó montados.
 // Es la contraparte barata del banco: mide la COTA estructural sin navegador, sin reloj y sin medirse a
-// sí misma. La NATURALEZA de cada nodo no es asunto suyo (por eso no miente) — para eso está `L.log`.
+// sí misma. La NATURALEZA de cada nodo no es asunto suyo, y por eso no miente.
 export const contadorNodos = () => {
   const origen = registro.serie
   let marca = origen, marcaBajas = registro.muertes.length

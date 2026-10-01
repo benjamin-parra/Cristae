@@ -8,10 +8,10 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
 ## [Sin publicar]
 
 ### Agregado
-- **El sustrato `gpu` de los polígonos dibuja `dash`.** `styleOf.dash` es un patrón en píxeles de
-  pantalla que corre continuo a lo largo del anillo; con `null` o ausente el trazo es continuo. Lo
-  consumen también los círculos en metros. Ver [`docs/polygons.md`](docs/polygons.md#estilo).
-  *Migración*: ninguna — antes `gpu` ignoraba el campo.
+- **Los polígonos dibujan `dash`.** `styleOf.dash` es un patrón en píxeles de pantalla que corre
+  continuo a lo largo del anillo; con `null` o ausente el trazo es continuo. Lo consumen también los
+  círculos en metros. Ver [`docs/polygons.md`](docs/polygons.md#estilo).
+  *Migración*: ninguna — antes la capa GPU ignoraba el campo.
 - **El sustrato `gpu` de las líneas dibuja `dash` y `cap`.** `styleOf.dash` es un patrón
   `stroke-dasharray` en píxeles de pantalla que corre continuo a lo largo de cada parte, sin
   reiniciarse en los vértices ni cambiar con el zoom; `cap` (`butt`, `round`, `square`) redondea o
@@ -23,6 +23,9 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   conserva lo que dibujaba; uno inválido deja la línea sólida.
   Ver [`docs/lines.md`](docs/lines.md#patrones-de-trazo--un-solo-eje-dash-no-un-flag-por-patrón).
   *Migración*: ninguna — antes `gpu` ignoraba ambos campos; `glify` los sigue ignorando.
+- **`<cristae-line-layer>` elige su sustrato con el atributo `backend`** (`glify` | `gpu`), el mismo
+  eje que `addLineLayer`; sin él, `glify`. Ver [`docs/lines.md`](docs/lines.md).
+  *Migración*: reemplaza a la prop `vector` (ver *Eliminado*): `vector` pasa a `backend="gpu"`.
 - **`cristae/geometry` — distancias en metros, con el modelo de la Tierra que se pida.**
   `distance(pointA, pointB, …)` mide el recorrido por los puntos, y `distance(path)` un path plano o
   anidado, con la regla de corte de `toParts`: un punto inválido corta y el hueco no suma; si hubo
@@ -101,6 +104,13 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   el zoom sigue obedeciendo la política de `zoom-animation` ([SPECS §9](SPECS.md)).
 
 ### Cambiado
+- **Las patas de la espiral de un cluster se dibujan con las líneas de la librería.** Las patas al
+  centro y la traza que une las hojas son una capa de líneas `gpu` propia del fold, sin picking, que
+  nace con la primera espiral abierta: un fold que nunca se expande no toma ningún contexto WebGL por
+  ellas. Se arma y se vacía con cada espiral, y se va con el fold.
+  *Migración*: ninguna en la API; el pane de las patas pasa a llamarse `cristae-line-<id>:legs`, y como
+  son una capa, un `focus` sin `kinds` las atenúa con el resto (antes quedaban plenas). Ver
+  [`docs/elements.md`](docs/elements.md).
 - **Los marcadores HTML son nodos DOM propios, no `L.marker`.** `addHtmlLayer` y `<cristae-html-layer>`
   montan una capa en la superficie del anfitrión: cada marcador es un nodo con un `translate3d`
   calculado desde la cámara, así que un pan no reescribe ninguno y un cambio de vista sólo escribe los
@@ -175,13 +185,6 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   pares tiene que estrechar el tipo; los `Editable*Value` tipan lo que entra y toman el tipo de punto
   como parámetro, así que quien guarda lo emitido y lo lee lo tipa con
   `Editable*Value<[number, number]>`, o con `<[number, number] | LatLng>` para la forma de antes.
-- **Polígonos y círculos del sustrato `leaflet` pierden los eventos nativos de su path.** Son
-  `interactive: false` para Leaflet, como las líneas, al nacer y en cada restilo del patch y del foco, y
-  el `interactive` de un `styleOf` se ignora. Su picking es por índice, así que `cristae:click` y
-  `cristae:hover` no cambian: lo que se pierde es escuchar el path mismo, que la doc del sustrato
-  anunciaba como ventaja.
-  *Migración*: quien escuchaba los eventos del `L.polygon` o del `L.circle` —alcanzados por
-  `getLeafletMap()`— los pide al mapa: `interactive` en la capa y `cristae:click` / `cristae:hover`.
 - **El motor crea su mapa o adopta uno: `MapEngineOptions` pierde `leaflet`, `map` y `mapOptions`.**
   `new MapEngine({ container, view })` crea el mapa sobre el contenedor con la vista inicial de `view`
   —`{ center, zoom }`, el centro en cualquier forma de punto— y `destroy()` lo remueve. Un mapa que ya
@@ -243,6 +246,26 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   ya no los trae: va un `<cristae-toolbar>` u otro nodo en el slot de una zona.
 
 ### Eliminado
+- **Los polígonos pierden el sustrato `leaflet`: `backend` sale de `addPolygonLayer` y de
+  `<cristae-polygon-layer>`.** La capa es siempre la GPU. Con él salen `PolygonLayer`, el `L.polygon`
+  por figura y la opción `backend: 'leaflet' | 'gpu'` (y `CristaePolygonLayer.backend` en los tipos).
+  El estilo, de hecho, ya era el de la librería: `color`, `weight`, `opacity`, `fillColor`,
+  `fillOpacity` y `dash`. Ver [`docs/polygons.md`](docs/polygons.md).
+  *Migración*: se quita `backend`. `addPolygonLayer` lo rechaza en vez de ignorarlo; el elemento ya no
+  tiene el atributo, y `backend="leaflet"` se ignora como cualquier atributo desconocido. El `Source`,
+  los accessors y el picking son los mismos. `fill` y `stroke` son de la capa: un `styleOf` ya no los
+  cambia por figura. Para apagar el relleno de una figura, `fillOpacity: 0`; su borde, `opacity: 0` o
+  `weight: 0`. Con varias capas de polígonos en la página, que cada una toma un contexto WebGL, se
+  juntan en una con un `styleOf` que las distinga.
+- **Las líneas pierden el sustrato `leaflet` y la prop `vector`.** `backend` queda en
+  `'glify' | 'gpu'`, y en el elemento lo elige su atributo (ver *Agregado*); pedir `backend: 'leaflet'`
+  lanza como cualquier sustrato desconocido, y `vector` lanza nombrando su reemplazo. Con él salen
+  `LeafletLineLayer` y el `L.polyline`. Ver [`docs/lines.md`](docs/lines.md).
+  *Migración*: `vector: true` pasa a `backend: 'gpu'`, que dibuja `dash` y `cap` pero no resuelve
+  picking; quien necesitaba las dos cosas pone una capa `glify` interactiva y otra `gpu` de trazo.
+- **`pathStyle` y el acceso transitorio al sustrato del anfitrión salen.** El anfitrión ya no expone
+  más que sus facetas: `host.map` queda para glify y `getLeafletMap()`. Nada de lo público los usaba.
+  *Migración*: ninguna.
 - **`LatLngLike` sale de los tipos.** Era el punto de la cámara con el contrato de Leaflet, un par o
   `{ lat, lng }`; la cámara acepta ahora `LatLngPoint` y devuelve `LatLng`.
   *Migración*: `LatLngPoint` para lo que entra, `LatLng` para lo que sale y `[number, number] | LatLng`
@@ -301,11 +324,6 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   cabeza se leía como un anillo simple, y se descartaba entero.
 - **`fitToLayers` ya no desborda la pila con un string entre las coordenadas.** Un string en lo que
   devuelven `positionOf`, `pathOf` o `ringsOf` se abría como iterable, y cada carácter es otro string.
-- **Un polígono o un círculo del sustrato `leaflet` ya no pone su propio `pointer`.** `L.polygon` nacía
-  interactivo para Leaflet, cuyo renderer le marca `leaflet-interactive` al pasarle por encima: el
-  puntero aparecía aunque la capa no fuera interactiva y tapaba el cursor del mapa. El círculo ya nacía
-  con `interactive: false`, pero un `styleOf` que devolviera `interactive: true` lo pisaba. Ahora ninguno
-  lo es para Leaflet, a costa de sus eventos nativos (en *Cambiado*).
 - **Con `'in-only'`, alejar durante un acercamiento animado ya no salta para después volver.** Mientras
   dura un zoom animado, Leaflet ignora el pedido de otro, pero la política juzgaba el alejamiento antes
   y lo negaba: el mapa saltaba al zoom pedido y, al terminar la transición, volvía al destino del
@@ -314,11 +332,9 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
 - **Un encuadre por capa sin posiciones ya no cambia el zoom.** `camera.fitToLayer` y `followBounds`
   con `maxZoom`, sin ninguna posición válida que encuadrar, no encuadraban pero igual bajaban el zoom a
   `maxZoom`. Ahora no mueven la cámara, como `fitToLayers`.
-- **Quitar una capa suelta su pane entero, y un pane que ya era del mapa se queda.** Una capa del
-  sustrato `leaflet` —polígonos, círculos o líneas— que se volvía a montar con el mismo id no se veía:
-  Leaflet guarda por nombre de pane el renderer que dibuja sus paths, el pane se quitaba sin él, y los
-  paths nuevos iban al lienzo del nodo viejo, fuera del documento; el renderer, además, seguía
-  redibujándose en cada movimiento. Ahora se va con su pane. El de las patas de la espiral de un cluster
+- **Quitar una capa suelta su pane entero, y un pane que ya era del mapa se queda.** Un pane se
+  quitaba sin soltar lo que Leaflet guarda por su nombre, y una capa que se volvía a montar con el mismo
+  id no se veía. Ahora se va con su pane. El de las patas de la espiral de un cluster
   quedaba colgado en el mapa al quitar el cluster, igual que el de sus burbujas cuando son etiquetas y el
   del overlay de realce al destruirlo; ahora se sueltan, como el de un alta que lanza —un iconSet sin
   registrar, unos `accessors` sin `idOf`, una rampa de calor que falla—, que quedaba en el mapa aunque la

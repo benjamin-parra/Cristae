@@ -258,7 +258,9 @@ queda brillante sobre un marcador atenuado.
 
 **El eje por capa EXIME.** `engine.focus(idsDeCapa, { opacity, kinds })` es el otro eje —atenúa capas
 enteras, no ítems—, y la capa que nombra queda plena **y fuera** del eje por ítem. Es lo que necesita el
-spider de un cluster: no declara ítems y no puede atenuarse a sí mismo. Los dos ejes los resuelve un
+spider de un cluster: no declara ítems y no puede atenuarse a sí mismo. Sus patas son una capa de
+líneas: el foco del fold las deja plenas porque sólo atenúa marcadores, etiquetas y overlays, y uno sin
+`kinds` las atenúa con el resto. Los dos ejes los resuelve un
 solo punto, así que no hay orden de llamadas que produzca un estado intermedio raro. La atenuación del
 eje por ítem es fija; el `opacity` es del eje por capa.
 
@@ -324,10 +326,9 @@ Dos entradas de dato **simétricas**:
 | `id` | string | atributo |
 | `interactive` | boolean (default `true`) | atributo |
 | `visible` | boolean (default `true`) | atributo |
-| `backend` | `'gpu'` (default) \| `'leaflet'` | atributo |
 | `data` | `Item[]` (ruta A) | **prop** |
 | `source` | `Source` (ruta B/C) | **prop** |
-| `geometry` | tablas del lector (`areasOf`) | **prop** — implica `backend="gpu"` |
+| `geometry` | tablas del lector (`areasOf`) | **prop** |
 | `accessors` | `{ idOf, ringsOf, styleOf?, hashOf? }` | **prop** |
 
 Tres entradas de dato. Las dos primeras son las de la capa de puntos: `.data` (el elemento posee la
@@ -335,14 +336,11 @@ Source) y `.source` (la posee el consumidor y la comparte entre vistas); por `so
 viajan con ella. La tercera es `.geometry` — las tablas del lector (`areasOf`), sin materializar un
 array —, que trae su propia identidad: sin `accessors`, cada figura responde por su feature.
 
-`backend` elige el sustrato: `gpu` (default) rellena por stencil en una textura y toma **un contexto
-WebGL** de los ~16 del navegador; `leaflet` monta un path por figura y no toma ninguno, que es lo que
-conviene con pocas figuras o con varias capas de polígonos en la misma página.
+La capa dibuja en GPU —relleno por stencil en una textura— y toma **un contexto WebGL** de los ~16 del
+navegador: con varias capas de polígonos en la misma página conviene juntarlas en una.
 
-`backend` y `source` se leen **al montar**: reasignarlos no remonta la capa. Es la diferencia con la
-capa de puntos, donde `source` sí se reengancha en caliente. Los dos sustratos consumen el mismo
-Source y contestan el mismo picking; la comparación y los límites del sustrato GPU están en
-[`polygons.md`](polygons.md).
+`source` se lee **al montar**: reasignarla no remonta la capa. Es la diferencia con la capa de puntos,
+donde `source` sí se reengancha en caliente. Los límites del sustrato están en [`polygons.md`](polygons.md).
 
 ### `<cristae-label-layer>` — etiquetas canvas
 

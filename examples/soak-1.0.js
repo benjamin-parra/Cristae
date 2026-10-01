@@ -131,7 +131,7 @@ $('restyle').onclick = () => {
   log(`polígono patch → #p2 = ${p2.fill} (sólo el del medio debe recolorear)`)
 }
 
-/* ── 3 · Círculo en METROS (Leaflet-native) ──────────────────────────────────────────────────────
+/* ── 3 · Círculo en METROS (GPU) ─────────────────────────────────────────────────────────────────
    Verificar: al hacer ZOOM IN el círculo CRECE en pantalla (radio en metros, no sprite fijo). */
 const circles    = [{ id: 'c1', lat: CENTER[0], lng: CENTER[1], r: 800 }]
 const circSource = createSource({
@@ -156,12 +156,12 @@ heatSource.set(heatPts)
 $('heat').onclick = e => { const on = e.target.getAttribute('aria-pressed') !== 'true'; heat.setVisible(on); toggle(e.target, on) }
 $('heatR').oninput = e => { heat.setRadius(+e.target.value); $('heatRv').textContent = e.target.value }
 
-/* ── 5 · Edición reactiva (input controlado, Leaflet-native) ─────────────────────────────────────
+/* ── 5 · Edición reactiva (input controlado) ─────────────────────────────────────────────────────
    Verificar: arrastrar un vértice / clic en punto medio (inserta) / dblclick (borra) emiten onChange;
    el conteo de vértices se refleja en la barra de estado. */
 // El editor dibuja la geometría ENTERA en su propia superficie GL —relleno, contorno y handles—, así que
 // no se le ata una capa de display: se vería superpuesta. El estilo va por `style`, con las mismas claves
-// que un `styleOf` de PolygonLayer.
+// que un `styleOf` de polígonos y líneas.
 const editRing = ring([-33.44, -70.598], 0.014)
 engine.addEditableLayer({
   id: 'edit-0', kind: 'polygon', value: editRing, mode: 'edit',

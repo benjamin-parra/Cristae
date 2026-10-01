@@ -44,7 +44,7 @@ const KINDS        = new Set(['polygon', 'rectangle', 'polyline', 'point'])
 const CERRADOS     = new Set(['polygon', 'rectangle'])   // el trazo cierra el anillo, y por eso se rellena
 const CRECEN       = new Set(['polygon', 'polyline'])    // la cantidad de vértices la decide el usuario
 
-// Mismas claves que el `styleOf` de `PolygonLayer`/`LineLayer`.
+// Mismas claves que el `styleOf` de los polígonos y las líneas.
 const ESTILO = { color: '#2563eb', weight: 3, fillColor: '#6366f1', fillOpacity: 0.42 }
 
 const PANE = 'cristae-edit'

@@ -6,8 +6,6 @@ import { PointLayer } from '../render/PointLayer.js'
 import { OBJ_BITS } from '../render/Picking.js'
 import { LineLayer } from '../render/LineLayer.js'
 import { LineGpuLayer } from '../render/LineGpuLayer.js'
-import { LeafletLineLayer } from '../render/LeafletLineLayer.js'
-import { PolygonLayer } from '../render/PolygonLayer.js'
 import { PolygonGpuLayer } from '../render/PolygonGpuLayer.js'
 import { CircleLayer } from '../render/CircleLayer.js'
 import { HeatLayer } from '../render/HeatLayer.js'
@@ -98,7 +96,6 @@ const _liveEngines = new Set()
 export class MapEngine {
 
   #host
-  #substrate                      // el Leaflet y el mapa de los sustratos vectoriales y de glify
   #glify
   #registry
   #bus
@@ -132,7 +129,6 @@ export class MapEngine {
   // adoptado trae los de su dueño.
   constructor({ host, container, view, glify, insets, hoverThrottleMs = 0, zoomAnimation, cursor, ...limits } = {}) {
     this.#host      = host ?? createLeafletHost({ container, view, limits: limitsOf(limits) })
-    this.#substrate = this.#host.substrate
     this.#glify     = glify
     // Sin modo explícito queda el del anfitrión: no anima en un mapa propio, y en uno adoptado no se
     // interviene la política de su dueño.
@@ -205,7 +201,7 @@ export class MapEngine {
     // `where`: membresía por-capa (filtra qué ítems de la Source compartida entran a ESTA capa
     // sin mutar la Source). Otras vistas de la misma Source no se ven afectadas.
     const layer = this.#build(paneName, zIndex, () =>
-      this.#trackGl(new PointLayer({ glify: this.#glify, map: this.#substrate.map, pane: paneName, source, iconSet: set, interactive, where })))
+      this.#trackGl(new PointLayer({ glify: this.#glify, map: this.#host.map, pane: paneName, source, iconSet: set, interactive, where })))
 
     // `where`/`enabled` en el record: si esta capa está clusterizada, el cluster indexa `source ∧ where`
     // de los hosts HABILITADOS (no la Source cruda) → cuenta lo que la capa REALMENTE muestra.
@@ -230,28 +226,22 @@ export class MapEngine {
     return this.#pointHandle(id, record, set)
   }
 
-  /* ── Capas de polígonos (display Leaflet + hit-testing por índice geométrico) ── */
+  /* ── Capas de polígonos (relleno y contorno en GPU + hit-testing por índice geométrico) ── */
 
-  // Polígonos, una sola puerta. Dos ejes independientes:
-  //
-  //   · el SUSTRATO — `backend`: 'gpu' (default; stencil en una textura, UN contexto WebGL de los ~16
-  //     del navegador) o 'leaflet' (un path por figura, sin contexto). Mismo contrato de picking y de
-  //     foco. Ninguno va a #glLayers: el de Leaflet reproyecta solo y el de GPU con sus propios
-  //     moveend/zoomend/resize. Con decenas de figuras y varias capas en la página, 'leaflet' evita
-  //     gastar contextos; el default favorece el volumen, que es el perfil habitual.
-  //   · el DATO — `data`/`source` (entidades con accessors) o `geometry` (las tablas del lector, sin
-  //     materializar un array). La geometría tipada es inmutable: no hay Source que mutar.
+  // Polígonos, una sola puerta. El dibujo es siempre en GPU (stencil en una textura, UN contexto WebGL de
+  // los ~16 del navegador); el eje que se elige es el DATO: `data`/`source` (entidades con accessors) o
+  // `geometry` (las tablas del lector, sin materializar un array). La geometría tipada es inmutable: no
+  // hay Source que mutar. Ninguna va a #glLayers: la capa se repinta con sus propios moveend/zoomend/resize.
   //
   // `idOf`/`styleOf` salen de `accessors` cuando lo hay, así que la ruta tipada los declara en el
-  // MISMO lugar que la reactiva.
+  // MISMO lugar que la reactiva. No hay sustrato que elegir: un `backend` se rechaza en vez de caer al
+  // estilo, donde se ignoraría y daría una capa GPU a quien pedía otra cosa.
   addPolygonLayer(cfg) {
+    if (cfg.backend !== undefined)
+      throw new Error('[cristae] los polígonos se dibujan siempre en GPU y no aceptan `backend`: quitalo (ver *Migración* en el CHANGELOG)')
     const { id, data, accessors, pane, z, source: dado, geometry,
             idOf = accessors?.idOf, styleOf = accessors?.styleOf,
-            interactive = true, visible = true, backend = 'gpu', ...style } = cfg
-    // Un `L.polygon` no sabe leer tablas tipadas. Pedirlo es un error del llamador, no algo que
-    // degradar en silencio a un mapa en blanco.
-    if (geometry && backend !== 'gpu')
-      throw new Error('[cristae] `geometry` sólo la dibuja el sustrato `gpu`')
+            interactive = true, visible = true, ...style } = cfg
     const order    = this.#order++
     const paneName = pane ?? `cristae-polygon-${id}`
     const zIndex   = z ?? (BASE_Z + order * Z_STEP)
@@ -259,10 +249,8 @@ export class MapEngine {
     // Sin `geometry`: dueño motor (data) vs consumidor (cfg.source). Con `geometry` no hay Source.
     const controls = geometry || dado ? null : createSource(accessors)
     const source   = geometry ? null : dado ?? controls
-    // Con puntero: el sustrato leaflet lo oye en su lienzo.
-    const layer    = this.#build(paneName, zIndex, () => backend === 'gpu'
-      ? new PolygonGpuLayer({ host: this.#host, pane: paneName, source, geometry, idOf, styleOf, interactive, ...style })
-      : new PolygonLayer({ ...this.#substrate, pane: paneName, source, interactive }), true)
+    const layer    = this.#build(paneName, zIndex,
+      () => new PolygonGpuLayer({ host: this.#host, pane: paneName, source, geometry, idOf, styleOf, interactive, ...style }))
 
     const record = { kind: 'polygon', source, layer, controls, paneName, zIndex, order, interactive, visible, enabled: true }
     this.#layers.set(id, record)
@@ -273,45 +261,50 @@ export class MapEngine {
 
     if (data && controls) controls.set(data)
     this.#flushPendingBinds()
-    const handle = { id, source, set: items => controls?.set(items), setVisible: v => this.setLayerVisibility(id, v) }
-    // Repintar y reestilar a mano sólo existen sobre GPU: el sustrato de Leaflet reproyecta solo y su
-    // estilo se reevalúa por `styleOf` cuando la Source cambia.
-    if (backend === 'gpu') Object.assign(handle, {
-      redraw: () => record.layer.redraw(),
-      style : options => record.layer.style(options),
-    })
-    return handle
+    return {
+      id,
+      source,
+      set       : items => controls?.set(items),
+      setVisible: v => this.setLayerVisibility(id, v),
+      redraw    : () => record.layer.redraw(),
+      style     : options => record.layer.style(options),
+    }
   }
 
-  /** @deprecated Una sola puerta: `addPolygonLayer({ geometry, backend: 'gpu' })`. Se retira en 1.0. */
+  /** @deprecated Una sola puerta: `addPolygonLayer({ geometry })`. Se retira en 1.0. */
   addPolygonGpuLayer({ id, pane, interactive = false, ...cfg }) {
-    return this.addPolygonLayer({ ...cfg, id, interactive, backend: 'gpu', pane: pane ?? `cristae-polygon-gpu-${id}` })
+    return this.addPolygonLayer({ ...cfg, id, interactive, pane: pane ?? `cristae-polygon-gpu-${id}` })
   }
 
   /* ── Capas de líneas (GL glify.Lines + hit-testing nearest-segment CPU) ── */
 
+  // `vector` fue el flag del sustrato con dash: se rechaza nombrando su reemplazo en vez de ignorarse,
+  // que daría glify sin dash a quien pedía otra cosa.
   addLineLayer(cfg) {
-    const { id, data, accessors, interactive = false, pane, z, visible = true, vector = false } = cfg
-    // Sustrato del trazo. `vector: true` sigue significando Leaflet; `backend` lo hace explícito y suma
-    // `gpu`, que da el grosor por quads (ver docs/lines.md).
-    const backend = cfg.backend ?? (vector ? 'leaflet' : 'glify')
-    const order    = this.#order++
+    if (cfg.vector !== undefined)
+      throw new Error("[cristae] las líneas ya no aceptan `vector`: el trazo con dash es `backend: 'gpu'` (ver *Migración* en el CHANGELOG)")
+    return this.#addLine(cfg, this.#order++)
+  }
+
+  // `order` llega de afuera para la capa que nace tarde —las patas del fold usan el de su host—: si
+  // tomara uno del contador, correría el z por defecto de las capas que se agreguen después.
+  #addLine(cfg, order) {
+    const { id, data, accessors, interactive = false, pane, z, visible = true, backend = 'glify' } = cfg
     const paneName = pane ?? `cristae-line-${id}`
     const zIndex   = z ?? (BASE_Z + order * Z_STEP)
 
     // `controls` = Source que posee el motor (ruta A/data); con `cfg.source` el dueño es el consumidor.
     const controls = cfg.source ? null : createSource(accessors)
     const source   = cfg.source ?? controls
-    // Backend: GL (glify, #trackGl para reproyectar en move/zoom) o Leaflet (DASH, reproyecta solo →
-    // NO va a #glLayers). Mismo contrato de hit (kind 'line', nearest-segment) en ambos.
+    // Sustrato del trazo: glify (#trackGl para reproyectar en move/zoom; con picking nearest-segment) o
+    // `gpu`, que da el grosor por quads y se repinta con sus propios moveend/zoomend/resize (ver docs/lines.md).
     if (backend === 'gpu' && interactive)
       throw new Error('[cristae] el sustrato `gpu` de líneas no resuelve picking: usá `glify` si la capa es interactiva')
     const sustratos = {
-      leaflet: () => new LeafletLineLayer({ ...this.#substrate, pane: paneName, source, interactive }),
-      gpu:     () => new LineGpuLayer({ host: this.#host, pane: paneName, source }),
-      glify:   () => this.#trackGl(new LineLayer({ glify: this.#glify, map: this.#substrate.map, pane: paneName, source, interactive })),
+      gpu:   () => new LineGpuLayer({ host: this.#host, pane: paneName, source }),
+      glify: () => this.#trackGl(new LineLayer({ glify: this.#glify, map: this.#host.map, pane: paneName, source, interactive })),
     }
-    if (!sustratos[backend]) throw new Error(`[cristae] backend de líneas desconocido '${backend}' (glify | gpu | leaflet)`)
+    if (!sustratos[backend]) throw new Error(`[cristae] backend de líneas desconocido '${backend}' (glify | gpu)`)
     const layer = this.#build(paneName, zIndex, sustratos[backend])
 
     const record = { kind: 'line', source, layer, controls, paneName, zIndex, order, interactive, visible, enabled: true }
@@ -375,7 +368,7 @@ export class MapEngine {
     const controls = cfg.source ? null : createSource(accessors)
     const source   = cfg.source ?? controls
     // Se repinta con sus propios moveend/zoomend/resize, así que no va a #glLayers.
-    const layer    = this.#build(paneName, zIndex, () => new CircleLayer({ host: this.#host, pane: paneName, source, interactive }), true)
+    const layer    = this.#build(paneName, zIndex, () => new CircleLayer({ host: this.#host, pane: paneName, source, interactive }))
 
     const record = { kind: 'circle', source, layer, controls, paneName, zIndex, order, interactive, visible, enabled: true }
     this.#layers.set(id, record)
@@ -417,10 +410,10 @@ export class MapEngine {
     }
   }
 
-  /* ── Edición de geometría como INPUT CONTROLADO (Leaflet-native): value entra, cambios salen por
-       onChange. No es capa de Source, y DIBUJA la geometría entera —relleno, contorno y handles— en su
-       propia superficie GL: no se le ata un display aparte, que se vería superpuesto. `style` toma las
-       mismas claves que un `styleOf` de PolygonLayer/LineLayer. ── */
+  /* ── Edición de geometría como INPUT CONTROLADO: value entra, cambios salen por onChange. No es capa
+       de Source, y DIBUJA la geometría entera —relleno, contorno y handles— en su propia superficie GL:
+       no se le ata un display aparte, que se vería superpuesto. `style` toma las mismas claves que un
+       `styleOf` de polígonos y líneas. ── */
 
   addEditableLayer(cfg) {
     const { id, kind = 'polygon', value = null, mode = 'edit', style, onChange, onCommit, pane, z } = cfg
@@ -496,8 +489,6 @@ export class MapEngine {
   #foldBridge() {
     return {
       camera:            this.#host.camera,
-      surface:           this.#host.surface,
-      substrate:         this.#substrate,                                                      // las patas del spider son paths de Leaflet
       layerOf:           id => this.#layers.get(id),
       nextOrder:         () => this.#order++,
       overlayZ:          (order, extra) => BASE_Z + order * Z_STEP + LABEL_Z_OFFSET + extra,   // z de las capas del fold: sobre los labels (+200)
@@ -505,6 +496,7 @@ export class MapEngine {
       makeBubbleSink:    (bubble, pane, order, foldId, interactive) => this.#makeBubbleSink(bubble, pane, order, foldId, interactive),
       subClusterIconSet: accent => this.#subClusterIconSet(accent),
       addPointLayer:     cfg => this.addPointLayer(cfg),
+      addLineLayer:      (cfg, order) => this.#addLine(cfg, order),
       removeLayer:       id => this.removeLayer(id),
       resyncBound:       id => this.#resyncBound(id),
       focus:             (ids, options) => this.focus(ids, options),
@@ -545,7 +537,7 @@ export class MapEngine {
 
     const set   = this.#resolveIconSet(iconSet)
     const layer = this.#build(paneName, zIndex, () => this.#trackGl(new PointLayer({
-      glify: this.#glify, map: this.#substrate.map, pane: paneName, source: host.source,
+      glify: this.#glify, map: this.#host.map, pane: paneName, source: host.source,
       accessors, iconSet: set, interactive: false, where: membresia,
     })))
     layer.suppressed = host.suppressed ?? null               // hereda la supresión del cluster (si la hay)
@@ -676,7 +668,7 @@ export class MapEngine {
     record.source   = source
     record.controls = null
     record.layer    = this.#trackGl(new PointLayer({
-      glify: this.#glify, map: this.#substrate.map, pane: record.paneName, source, iconSet: record.iconSet, interactive: record.interactive, where: record.where,
+      glify: this.#glify, map: this.#host.map, pane: record.paneName, source, iconSet: record.iconSet, interactive: record.interactive, where: record.where,
     }))
     if (!record.enabled) record.layer.enabled = false   // el swap conserva el gate de la entidad deshabilitada
     if (record.interactive) {
@@ -1012,17 +1004,17 @@ export class MapEngine {
     set.onAtlasRefresh?.(() => this.#forEachGlLayer(l => l.refresh?.()))
   }
 
-  // Sin puntero salvo que se pida: el picking es propio, no del nodo que queda bajo el cursor.
-  #mount(name, zIndex, pointer = false) {
-    return this.#host.surface.mount(name, zIndex, { pointer })
+  // Sin puntero: el picking es propio, no del nodo que queda bajo el cursor.
+  #mount(name, zIndex) {
+    return this.#host.surface.mount(name, zIndex, { pointer: false })
   }
 
   // Una capa entra con su pane: se monta y la capa se construye colgada de él. Lo que valida la
   // configuración —la Source, el iconSet, el sustrato— va antes, y lanza sin haber montado nada. Lo que
   // lanza al construir —un sustrato GPU sin WebGL2, que el consumidor puede degradar a otro, o su propio
   // código— deja la capa sin registro ni `removeLayer` que suelte el pane: se suelta acá.
-  #build(paneName, zIndex, create, pointer = false) {
-    this.#mount(paneName, zIndex, pointer)
+  #build(paneName, zIndex, create) {
+    this.#mount(paneName, zIndex)
     try {
       return create()
     } catch (error) {
@@ -1041,8 +1033,9 @@ export class MapEngine {
   // destacar un subconjunto (p. ej. el spider al expandir un cluster). `unfocus(ids)` las saca del
   // conjunto brillante (se re-atenúan); `unfocusAll()` restaura todo. La capa nombrada queda EXENTA
   // también del eje de foco por ítem.
-  // Idempotente (recomputa desde cero). Cubre por id de capa; los panes sin capa (líneas del spider) no
-  // se tocan → quedan a opacidad plena junto al foco. `kinds` acota QUÉ capas se atenúan (por kind:
+  // Idempotente (recomputa desde cero). Cubre por id de capa, y las patas del spider son una capa de
+  // líneas más: el foco del fold las deja plenas porque sólo atenúa marcadores, etiquetas y overlays,
+  // pero uno sin `kinds` las atenúa junto con el resto. `kinds` acota QUÉ capas se atenúan (por kind:
   // 'point'/'label'/'polygon'…); null = todas. Ej: atenuar sólo marcadores dejando las geocercas de
   // contexto intactas → `focus(ids, { kinds: ['point', 'label'] })`.
   focus(ids, { opacity = 0.3, kinds = null } = {}) {
@@ -1189,7 +1182,7 @@ export class MapEngine {
       hashOf: b => `${b.count}:${b.expanded ? 'd' : b.marked ? 'm' : ''}:${b.lat}:${b.lng}`,
     }, iconSet.variants)
     const layer = this.#build(bubblePane, zIndex, () =>
-      this.#trackGl(new PointLayer({ glify: this.#glify, map: this.#substrate.map, pane: bubblePane, source: controls, iconSet, interactive })))
+      this.#trackGl(new PointLayer({ glify: this.#glify, map: this.#host.map, pane: bubblePane, source: controls, iconSet, interactive })))
     this.#layers.set(siblingId, {
       kind: 'point', source: controls, layer, controls, paneName: bubblePane, order, interactive,
       visible: true, enabled: true,
