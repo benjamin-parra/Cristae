@@ -11,10 +11,12 @@ description: >-
 
 # Cristae — reemplazar un mapa Leaflet/glify (declarativo)
 
-Cristae es un mapa WebGL sobre Leaflet **con shaders propios** (atlas de iconos, rotación, picking GPU)
-y un **path incremental [0-alloc]**: mover/recolorear un punto es O(1) sin reconstruir el buffer. La
-piel es un web component `<cristae-map>`: el **HTML describe el mapa**, y un bloque JS chico solo
-conecta lo que no serializa. Por dentro **es** un `L.Map`, así que el Leaflet de la página sigue sirviendo.
+Cristae es un mapa WebGL **con shaders propios** (atlas de iconos, rotación, picking GPU) y un **path
+incremental [0-alloc]**: mover/recolorear un punto es O(1) sin reconstruir el buffer. La piel es un web
+component `<cristae-map>`: el **HTML describe el mapa**, y un bloque JS chico solo conecta lo que no
+serializa. Leaflet es su **anfitrión** —cámara, tiles y entrada del navegador— y un detalle interno: la API
+habla en valores propios (`{ lat, lng }`, `{ x, y }`, `{ south, west, north, east }`) y no pide saber de
+Leaflet. Un mapa Leaflet que ya existe se entrega al motor con `adoptLeafletHost` (abajo).
 
 > Specifiers: `cristae/map` (mapa) · `cristae/core` (datos) · `cristae/table` (tabla) ·
 > `cristae/geojson` (lector) · `cristae/geometry` (distancias en metros, sobre la esfera o el
@@ -25,9 +27,11 @@ conecta lo que no serializa. Por dentro **es** un `L.Map`, así que el Leaflet d
 
 ## Instalación — cómo cargar Cristae
 
-Tres formas según dónde estés. En todas, **Leaflet viaja dentro del bundle** (sin CDN, sin
-`<script>` extra). Entries: `map` (mapa completo, re-exporta el núcleo) · `table` (`<cristae-table>`,
-no arrastra Leaflet) · `core` (solo datos).
+Tres formas según dónde estés. Con npm o con los aliases del monorepo, `leaflet` y `lit` son
+**peerDependencies**: los instala el proyecto. En el bundle de `dist/cristae/` (formas 2 y 3) **viajan
+adentro** (sin CDN, sin `<script>` extra), y su Leaflet es el de Cristae: un mapa que ya existe en la página
+se adopta pasando el suyo (`adoptLeafletHost(map, { leaflet })`). Entries: `map` (mapa completo, re-exporta
+el núcleo) · `table` (`<cristae-table>`, no arrastra Leaflet) · `core` (solo datos).
 
 **1) Dentro de este monorepo** — se usan los aliases Vite ya configurados:
 
@@ -271,7 +275,7 @@ map.camera.zoomIn(); map.camera.zoomOut()       // botones +/− (el zoom NO can
 ```
 
 La cámara además **proyecta** coordenadas ↔ píxeles del contenedor, para anclar overlays HTML propios
-(p. ej. una tarjeta al hacer click) sin bajar al `L.Map` crudo:
+(p. ej. una tarjeta al hacer click) sin bajar al mapa de Leaflet:
 
 ```js
 const { x, y } = map.camera.latLngToContainerPoint([lat, lng])   // dónde cae el punto, en px del contenedor
@@ -306,14 +310,14 @@ const latlng   = map.camera.containerPointToLatLng([x, y])
 
 ---
 
-## Ciclo de vida — `<cristae-map>` ES un `L.Map`
+## Ciclo de vida — `<cristae-map>` posee su mapa
 
-El elemento **posee** un `L.Map` y su contexto WebGL, así que es un recurso con ciclo de vida, no un
+El elemento **posee** su motor, con el mapa que lo hospeda y su contexto WebGL, así que es un recurso con ciclo de vida, no un
 `<div>` reposicionable. **Desconectarlo del DOM lo destruye** (`disconnectedCallback` → `engine.destroy()`):
 `node.remove()`, reparentarlo, o un `innerHTML` en un ancestro matan el mapa. Al reconectar se **re-monta
 solo**, pero con un motor **nuevo**. De ahí dos reglas:
 
-- **No conviene cachear `engine`/`camera`/`getLeafletMap()`** en una variable: tras un reattach apuntan a la
+- **No conviene cachear `engine`/`camera`** en una variable: tras un reattach apuntan a la
   instancia muerta. Se lee siempre el getter vivo (`map.camera.flyTo(...)`, `map.engine.…`).
 - **Si el layout reconstruye el DOM** (tabs, acordeones), lo demás se inserta **alrededor** del nodo vivo;
   no se debe desconectar el mapa para reposicionarlo.
@@ -359,11 +363,11 @@ solo**, pero con un motor **nuevo**. De ahí dos reglas:
 
 ## Si no se puede ir 100% declarativo
 
-- **Migración incremental — envolver el `L.Map`:** no se usa el web component; se usa el motor headless
-  sobre el mapa adoptado. `new MapEngine({ host: adoptLeafletHost(map, { leaflet: L }) })` **no crea
-  ni destruye** el `L.Map` (los controles/capas Leaflet siguen vivos; SPECS §6); se migra capa por capa.
-  `engine.getLeafletMap()` devuelve el `L.Map` crudo (también `map.engine.getLeafletMap()` desde el web
-  component).
+- **Migración incremental — adoptar el mapa Leaflet que ya existe:** no se usa el web component; se usa el
+  motor headless sobre ese mapa. `adoptLeafletHost(map, { leaflet: L })` es **el único punto de
+  integración** con un Leaflet ajeno: el motor **no crea ni destruye** el mapa (los controles y capas
+  Leaflet siguen vivos; SPECS §6), y se migra capa por capa. `engine.getLeafletMap()` está **fuera de
+  contrato** (SPECS §6).
 - **Headless puro** (otro framework, SSR): `MapEngine` es la API completa; `<cristae-map>` es ~200 LOC
   de piel encima. `engine.addPointLayer({ id, source, iconSet, interactive })`, `engine.on('click',
   'fleet', cb)`, `engine.setTileProvider({ url })`. El motor es framework-agnostic y testeable sin DOM.
@@ -372,7 +376,7 @@ solo**, pero con un motor **nuevo**. De ahí dos reglas:
 import { MapEngine, adoptLeafletHost, defineIconSet, createSource } from 'cristae/map'
 import L from 'leaflet'
 
-const map    = L.map('map').setView([-35.5, -71.5], 6)   // el mapa propio + controles + capas Leaflet
+const map    = L.map('map').setView([-35.5, -71.5], 6)   // un mapa Leaflet que ya existe, con sus controles y capas
 const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: L }) })
 await engine.ready
 const fleet = createSource({ idOf: m => m.id, positionOf: m => ({ lat: m.lat, lng: m.lng }) })

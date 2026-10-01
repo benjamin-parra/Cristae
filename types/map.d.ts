@@ -1,4 +1,4 @@
-// Tipos del entry `cristae/map` (mapa WebGL sobre Leaflet, con shaders propios).
+// Tipos del entry `cristae/map` (mapa WebGL con shaders propios, hospedado en Leaflet).
 // Importarlo REGISTRA los custom elements <cristae-*> (side effect). Mantener
 // sincronizado con src/index.js; el núcleo de datos vive en ./core.d.ts y la geometría pura
 // que re-exporta, en ./geometry.d.ts.

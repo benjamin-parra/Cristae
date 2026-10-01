@@ -7,7 +7,7 @@ El point-layer rasteriza sprites a un atlas GPU (canvas) — perfecto para **mil
 tiempo real, pero **no rinde HTML arbitrario** (un heroicon SVG, un glifo de fuente FontAwesome, una
 letra con CSS). Para eso está `HtmlLayer`: monta un nodo por marcador con el HTML del consumidor. Su nicho son
 los **badges de dominio de baja/media cardinalidad** (inicio/fin, evento, parada) que hoy los
-consumidores dibujan a mano abriendo `getLeafletMap()` — justo la fuente de esa deuda.
+consumidores dibujan a mano sobre el mapa de Leaflet — justo la fuente de esa deuda.
 
 **Regla**: pocos marcadores con HTML rico → `html-layer`. Muchos / tiempo real → `point-layer` GPU.
 

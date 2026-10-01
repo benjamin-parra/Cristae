@@ -1,6 +1,6 @@
 # Tiles — proveedor y retención de imagen durante el zoom
 
-> Pieza de [Cristae](../MODELO.md). Capa de presentación sobre Leaflet, ortogonal al
+> Pieza de [Cristae](../MODELO.md). La faceta `tiles` del anfitrión, ortogonal al
 > [atlas de iconos](./atlas.md) y al [pipeline de interacción](./interaction.md): no toca
 > WebGL ni el dominio, solo el DOM de tiles. Resuelve un único defecto visual del zoom.
 

@@ -260,6 +260,7 @@ new MapEngine({ host: adoptLeafletHost(map, { leaflet? }), … }) → engine
 | `destroy()` | acción | O(layers) | cancela rAF pendientes, quita listeners, libera bindings y suelta el mapa (abajo) |
 | `ready: Promise` | — | — | resuelve cuando el mapa tiene vista, y no si el motor se destruye antes; la señal `ready` sale en el mismo momento |
 
+- **Leaflet es el anfitrión.** El motor lo usa para la cámara, la superficie donde dibujan las capas, los tiles y la entrada cruda del navegador —lo que costaría rehacer—; el dibujo, el picking, el cursor, los controles y el ruteo del puntero son de Cristae. Es un detalle interno: ningún valor de la API es un objeto suyo (§0), y `adoptLeafletHost` es el único punto de integración con un Leaflet ajeno.
 - **El mapa:** sin `host`, el motor crea su propio mapa sobre `container` —con `preferCanvas`, sin el fundido de tiles ni la animación de marcadores de Leaflet y sin controles: el zoom y la atribución los dibuja `<cristae-map>`, y sin él la atribución la da `getTileAttribution()` ([`docs/tiles.md`](./docs/tiles.md#la-atribución))—, con la vista inicial de `view` (default `[0, 0]`, zoom 2) y los límites de la cámara (§9), y `destroy()` lo remueve. Con `host` trabaja sobre un mapa que ya existe, adoptado con `adoptLeafletHost(map, { leaflet })`: el mapa sigue siendo de quien lo creó, y `destroy()` le quita los listeners del ciclo de vista y del arrastre, la política de zoom de §9 y la capa de tiles que le puso, con el pane de su retención, le devuelve los límites de la cámara que tenía si el motor le puso los suyos (§9), y lo deja vivo. Un mapa adoptado es de un solo motor. `leaflet` es el Leaflet que construyó el mapa (default: el de Cristae): con dos copias en la página, las capas del motor tienen que salir de la del mapa.
 - **`getLeafletMap()` está fuera de contrato.** El mapa de Leaflet es el anfitrión del motor y un detalle suyo: lo que se haga con el mapa crudo —un control, un evento, un pane— no tiene garantía entre versiones, y Cristae no lo prueba. Sigue devolviéndolo, y avisa por consola la primera vez que se lo pide cada motor. Se retira en 1.0; lo que se bajaba a buscar ahí lo dan la cámara (§9), los tiles (`setTileProvider`), el cursor (`setCursor`) y las señales del motor.
 - **Sin globals:** el motor no lee ni escribe `window.L`, y `<cristae-map>` no registra plugins: los puntos, las líneas y los polígonos se dibujan con la superficie WebGL de cada capa ([`docs/render.md`](./docs/render.md)), y el Leaflet que usa el mapa propio es el de Cristae.
@@ -291,7 +292,7 @@ new MapEngine({ host: adoptLeafletHost(map, { leaflet? }), … }) → engine
 
 ### 7.2 Métodos (acción → imperativo)
 
-`addPointLayer`, `addPolygonLayer`, `addLabelLayer`, `removeLayer`, `getLayer`, `attachSource`, cámara (§9), `createIcon`, `registerIconSet`, `syncSize()`, `invalidateCanvas()`, `getLeafletMap()`, `destroy()`, `ready`.
+`addPointLayer`, `addPolygonLayer`, `addLabelLayer`, `removeLayer`, `getLayer`, `attachSource`, cámara (§9), `createIcon`, `registerIconSet`, `syncSize()`, `invalidateCanvas()`, `destroy()`, `ready`.
 
 - **`syncSize()`**: resize del contenedor — `map.invalidateSize()` + reajuste del FBO de picking + **redibujo de las capas de puntos** (`invalidateSize()` solo emite `move`/`moveend` si el resize desplaza el centro, así que un resize simétrico limpiaría el canvas de la capa sin redibujarlo). Llamado por el `ResizeObserver` interno del elemento; el consumer raramente lo necesita.
 - **`invalidateCanvas()`**: reposiciona y redibuja todas las capas de puntos. Escape hatch manual: con `<cristae-map>`, resize y show-tras-`display:none` ya se auto-curan vía el observer → `syncSize()`; este método es para el motor headless (sin elemento, sin observer) o el raro show sin cambio de tamaño. Varios motores en la página son independientes: cada capa tiene su contexto, así que `destroy()` de uno no toca a los demás.
@@ -299,8 +300,8 @@ new MapEngine({ host: adoptLeafletHost(map, { leaflet? }), … }) → engine
 ### 7.3 Lifecycle
 
 - **Montaje:** `firstUpdated` monta el motor (guard `#mounted`). En **reconexión** tras un `disconnectedCallback`, `connectedCallback` **re-monta** (firstUpdated no re-dispara) con un motor **nuevo**; las capas hijas montan solas (su `connectedCallback` vuelve a pedir montaje y, como el del mapa corre primero, ya encuentran el motor).
-- **Destrucción:** `disconnectedCallback` → `engine.destroy()` (el mapa es propio del motor: `L.Map.remove()` + contexto WebGL). Desconectar el elemento del DOM (`remove`/reparent/`innerHTML` en un ancestro) **destruye el mapa** — no es un `<div>` reposicionable.
-- **No cachear handles:** `engine`/`camera`/`getLeafletMap()` son getters vivos sobre el motor **actual**; tras un re-mount son otra instancia. El consumidor lee siempre el getter, nunca una copia.
+- **Destrucción:** `disconnectedCallback` → `engine.destroy()` (el mapa es propio del motor: lo remueve y suelta el contexto WebGL). Desconectar el elemento del DOM (`remove`/reparent/`innerHTML` en un ancestro) **destruye el mapa** — no es un `<div>` reposicionable.
+- **No cachear handles:** `engine`/`camera` son getters vivos sobre el motor **actual**; tras un re-mount son otra instancia. El consumidor lee siempre el getter, nunca una copia.
 - **Readiness:** `ready` es una promesa **one-shot por instancia** (creada en construcción → disponible síncrona; resuelve al primer motor listo). El evento `cristae:ready` se **re-emite en cada (re)montaje** — es la señal para reenganchar tras un reattach.
 - `ResizeObserver` sobre el host → `engine.syncSize()` (`invalidateSize` + `syncPickingSize`). El consumidor **no** llama resize a mano; crear oculto (`display:none`) y mostrar después se sincroniza solo.
 - **Apilado:** orden de los hijos en light DOM = orden de render (atrás→adelante); atributo `z` opcional. El motor deriva los panes; el consumidor no toca z-index (MODELO §6).
@@ -570,7 +571,7 @@ La **ley** (MODELO §5.4) formalizada como contrato que un implementador debe cu
 | thrashing `center`/`zoom` ↔ gesto | no existe prop reactiva de centro; `initial-*` uncontrolled + cámara imperativa (§7.1/§9) |
 | "volver a X" no funciona (idempotencia) | no aplica: recentrar es acción (`flyTo`/`panTo`/`followPoint`), nunca prop (MODELO §5.4) |
 | `window.L` global / orden de `<script>` | el motor no lee ni escribe globals; el mapa propio usa el Leaflet de Cristae y uno adoptado trae el suyo (§6) |
-| doble-montaje StrictMode | guard `#mounted` + reuse de `L.map` (§7.3) |
+| doble-montaje StrictMode | guard `#mounted` (§7.3) |
 | shader recompila al crecer iconos | dims son uniforms, no literales GLSL (§4.2) |
 | ítem enfocado que se dibuja donde la capa no tiene nada (clusterizado / filtrado / sin posición) | el foco viaja **en el vértice** del ítem dibujado, no en una lista de ids aparte: un id sin slot no existe (§8 intro) |
 
@@ -586,7 +587,7 @@ La **ley** (MODELO §5.4) formalizada como contrato que un implementador debe cu
 | `prerender()` rechaza | `ready` rechaza; la capa sigue con IconSet por defecto |
 | predicado de filtro / callback que lanza | `safe` lo aísla; se reporta, no se rompe la capa |
 | `destroy()` con rAF/patch en vuelo | cancelar el rAF, drenar o descartar el pending de forma limpia |
-| Leaflet de versión/instancia distinta | guard en runtime → error claro al construir |
+| Leaflet de otra versión que la probada | sin guard en runtime: el rango `peerDependencies` y los tests de contrato de `test/host` —uno por cada privado de Leaflet que el anfitrión toca— dicen qué se probó; el mapa ajeno trae su `leaflet` (§6) |
 | filtro recompilado con el mismo `id` (cambio de modo) | reconciliar por `deps`: mismo `id` + `deps` distinto = replace + re-evalúa; `deps` igual = no-op (§8.1). Reconciliar solo por `id` dejaría el predicado viejo activo |
 | capa con 0 ítems | render vacío válido (no caso especial) |
 
@@ -600,7 +601,7 @@ La **ley** (MODELO §5.4) formalizada como contrato que un implementador debe cu
 4. **Estado → reactivo; acción → método.** Sin terceros casos (§11).
 5. **Cero-alloc en caliente.** (§13.)
 6. **El atlas se reusa y se le agrega; nunca se reconstruye desde cero** salvo regrow por capacidad.
-7. **Una sola instancia de Leaflet**, inyectada.
+7. **Leaflet vive sólo en el anfitrión** (`src/host/`): fuera de él nada importa Leaflet ni toca un privado suyo, y ningún valor de la API es un objeto de Leaflet. Un mapa adoptado trae su propio Leaflet (§6).
 
 > Si una decisión de implementación obliga a violar una invariante, **es la implementación la que está mal**, no la invariante. Volver a MODELO.md/SPECS.md antes de improvisar.
 

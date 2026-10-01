@@ -267,7 +267,7 @@ Toda **entrada declarativa** del componente —atributo o propiedad— es **reac
 | Primitiva | Es | Config genérica |
 |---|---|---|
 | **point-layer** | puntos GL (rota si hay `headingOf`) | `idOf, positionOf, headingOf?, sizeOf?, variantOf?`; `visible, opacity, interactive, pane` |
-| **polygon-layer** | zonas (Leaflet polygons) | `idOf, ringsOf, styleOf?, hoverStyleOf?`; `visible, opacity, interactive` |
+| **polygon-layer** | zonas (polígonos GL) | `idOf, ringsOf, styleOf?, hoverStyleOf?`; `visible, opacity, interactive` |
 | **label-layer** | etiquetas canvas — **standalone o attachment** | `textOf, colorOf?, offset, font, visible`; `source` propio **o** `bindTo: <layerId>` |
 | **cluster** | *attachment* sobre point-layer | `{ radius, maxZoom, minPoints, iconSet }` |
 
@@ -411,7 +411,7 @@ Hit = {
 
 ## 9. Cámara / centrado (nuevo en `MapWidget`/`Camera`)
 
-Hoy hay que entrar a `.leaflet`. Cristae expone una API de cámara de primera clase (el "centrado" requerido):
+Cristae expone una API de cámara de primera clase (el "centrado" requerido):
 
 ```js
 camera.setView(latlng, zoom)        camera.panTo(latlng)
@@ -436,7 +436,7 @@ camera.getCenter() / getZoom() / getBounds()
 
 ## 11. Lifecycle del web component (Shadow + light DOM + slots)
 
-- **Shadow DOM** = superficie de render: `<div>` del `L.map`, panes, canvases GL, canvas de labels. CSS de Leaflet inyectado con `adoptedStyleSheets` (constructable stylesheet) → panes encapsulados.
+- **Shadow DOM** = superficie de render: `<div>` del mapa, panes, canvases GL, canvas de labels. CSS de Leaflet inyectado con `adoptedStyleSheets` (constructable stylesheet) → panes encapsulados.
 - **Light DOM** = lo explícito: las **capas como elementos hijos** (`<cristae-point-layer>`, …) viven en light DOM, inspeccionables, y exponen su handle/props. (Su render real ocurre en el shadow; el hijo es solo declaración + canal de datos.)
 - **Slots** = UI del host por encima del mapa: `<slot name="overlay">` para sidebar/tooltip/controles. El host proyecta su chrome; el mapa va debajo.
 - `connectedCallback` → crea/monta el motor, que crea su mapa sobre el `<div>` del shadow (idempotente, guard `#mounted`; un re-montaje es un motor y un mapa nuevos). `disconnectedCallback` → `destroy()`, que remueve el mapa. **`ResizeObserver`** sobre el host → `engine.syncSize()` (`invalidateSize` + `syncPickingSize`). **`VisibilityGuard`** (ya incluido) pausa render en `display:none`.
@@ -448,7 +448,7 @@ camera.getCenter() / getZoom() / getBounds()
 
 **Mapa (props reactivas / atributos):** `tile`, `theme` (vía CSS vars), `world-copies`, `no-zoom-control`, `viewport-insets`, `hover-throttle`, `cursor`, `zoom-animation`, los límites de la cámara (`min-zoom`, `max-zoom`, `max-bounds`, `max-bounds-viscosity`), `stale-tolerance-px`. **No reactivas (solo al montar):** `initial-center`, `initial-zoom` — el viewport vivo es imperativo (§9).
 
-**Mapa (métodos):** `addPointLayer(cfg)→handle`, `addPolygonLayer(cfg)→handle`, `addLabelLayer(cfg)→handle`, `removeLayer(id)`, `getLayer(id)`, `attachSource(id, source)`, cámara (§9), `createIcon(descriptor)`, `registerIconSet(name, set)`, `getLeafletMap()` (escape hatch — el `L.map` crudo), `destroy()`, `ready: Promise`.
+**Mapa (métodos):** `addPointLayer(cfg)→handle`, `addPolygonLayer(cfg)→handle`, `addLabelLayer(cfg)→handle`, `removeLayer(id)`, `getLayer(id)`, `attachSource(id, source)`, cámara (§9), `createIcon(descriptor)`, `registerIconSet(name, set)`, `getLeafletMap()` (fuera de contrato, SPECS §6), `destroy()`, `ready: Promise`.
 
 **Capa (props/métodos):** `visible`, `opacity`, `interactive`, `data` / `source` (Source compartida) / `set`/`patch`/`move`/`remove`, `accessors`, `iconSet` (reactivo → reseed+rebuild), `preloadIcons(variants)`, `filters`/`addFilter`/`removeFilter`, `refresh()`; cluster/label como hijos o `attachCluster`/`attachLabel`.
 
@@ -463,9 +463,9 @@ camera.getCenter() / getZoom() / getBounds()
 > Todos **estructurales** (terminología, fronteras, esquema). Los **algoritmos** de supercluster y de picking **no** se reescriben. Los puntos dibujan desde su propio VBO, y el path incremental (`move`/recolor) escribe su slot por `bufferSubData` (§17.5).
 
 1. **Atlas como valor append-only + `GpuAtlasBinding` por contexto** (§7.2): `Atlas` inmutable-por-generación con capacidad fija e índice/encoding estables (CPU, sin WebGL); binding por capa con cursor (`uploaded` / identidad de objeto) que hace `texSubImage2D` en append y `texImage2D` en regrow; dims → uniforms. **Elimina `#dirty`** (booleano consume-once). *(El cambio más profundo; habilita reuse+append, arregla la corrupción de marcadores existentes y el 2º-mapa-en-blanco.)*
-2. **API de cámara** en `MapWidget`/`Camera` (§9) — hoy inexistente (solo `.leaflet`).
+2. **API de cámara** en `MapWidget`/`Camera` (§9) — ya existe; el mapa de Leaflet no se toca.
 3. **Reconfig runtime de cluster** (`radius/maxZoom/minPoints`) — hoy solo en constructor.
-4. **Eventos `viewportchange` / `interactionstart|end`** en el `EventBus` — hoy hay que usar `.leaflet.on`.
+4. **Eventos `viewportchange` / `interactionstart|end`** en el `EventBus` — ya existen; no se escuchan sobre el mapa de Leaflet.
 5. **`hover` con `added/removed`** (deltas) en el `EventBus` — generaliza el ref-counting de la app.
 6. **Hit `kind: 'point'|'polygon'`** (no `'glify'|'leaflet'`).
 7. **`viewport-insets`** configurable; eliminar `document.querySelector('.wl-left-scroll'/'.wl-shell')` del pan/fit (des-acople del DOM de la app).
@@ -475,7 +475,7 @@ camera.getCenter() / getZoom() / getBounds()
 11. **`LabelLayer` unificada** standalone+attachment, `textOf` genérico (elimina `place/vehicle` label especializados y sus sprite builders de dominio).
 12. **Eliminar `WorkerPool` global; fan-out síncrono cero-alloc** (§16-2, §17): el fan-out de listeners pasa a `safeDispatch(listeners, data, onError)` (`try/catch` centralizado en `safe`, sin array de tareas ni clausuras). Resuelve a la vez el cuelgue por excepción (hoy un listener que lanza mata el slot) y la asignación por-emit de `notifyChanges`. El coalescing ya vive en el `Emitter`/rAF, así que el pool no aporta.
 13. **Erradicar singletons mutables de módulo** (§16-3/4): `connection.js thresholds`, `WorkerPool.instance`, `window.L` → estado por-instancia / inyectado. (La config de dominio, como umbrales, sale al recipe.)
-14. **`leaflet-edgebuffer` lazy/opt-in** contra el `L` provisto (§16-5): eliminar el `await import` top-level (vuelve async el módulo y parchea `L` global al evaluarse).
+14. **`leaflet-edgebuffer` lazy/opt-in** contra el `L` provisto (§16-5): eliminar el `await import` top-level (vuelve async el módulo y parchea `L` global al evaluarse). Hecho: el plugin ya no se carga.
 15. **Defaults neutros** (§16-6): quitar de `#initMap` el center Santiago `[-33.45,-70.65]`, zoom, URL OSM y `maxZoom` horneados → config con defaults neutros.
 16. **`destroy()` en stores/emitters** (§16-7/8): `ComposableStore.destroy()` quita su listener del padre (hoy leak en `reactiveCompose`); `IntervalEmitter.destroy()` cancela el rAF pendiente; cap de intervalo configurable, no `[0,1000]` fijo.
 17. **Diferir `patch()` durante zoom** (§16-9): hoy `rebuild` se difiere pero `patch` se descarta (se pierde un update que llega durante el zoom).

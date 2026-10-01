@@ -192,7 +192,8 @@ const source = createSource({
   variantOf: v => v.estado,
 })
 
-// `host`: el anfitrión del mapa (`createLeafletHost` / `adoptLeafletHost`).
+// `host`: el anfitrión del mapa, `adoptLeafletHost(map, { leaflet })`. Con `<cristae-map>` la capa se
+// pide con `el.engine.addPointLayer` y no se construye a mano.
 const layer = new PointLayer({ host, pane: 'cristae-point-flota', source, iconSet, interactive: true })
 
 // Alta del set → rebuild (O(n), una vez).

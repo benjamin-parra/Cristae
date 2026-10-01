@@ -100,7 +100,7 @@ Contenedor. Monta el `MapEngine`, expone cámara/engine y reenvía los eventos d
 > «Zoom out». `no-zoom-control` lo quita; para reemplazarlo con uno propio —con otros textos, por
 > ejemplo—, se usa un `<cristae-toolbar>` en un slot del overlay con items que llamen
 > `camera.zoomIn()`/`camera.zoomOut()`. La hoja del shadow root no trae la de los controles de Leaflet: uno
-> agregado con `getLeafletMap().addControl(…)` queda sin posición ni estilo.
+> agregado al mapa de Leaflet —fuera de contrato— queda sin posición ni estilo.
 
 > **`tile`:** objeto reactivo; reasignarlo **re-provee** los tiles
 > ([`tiles.md`](./tiles.md#el-proveedor-lo-pone-el-anfitrión)). Las opciones extra van tal cual a
@@ -112,7 +112,7 @@ Contenedor. Monta el `MapEngine`, expone cámara/engine y reenvía los eventos d
 
 Acceso (getters/métodos): `el.engine`, `el.camera` (ver *Cámara* abajo), `el.ready`, `el.on(event,
 [layerId], cb)`, `el.getLayer(id)`, `el.invalidateCanvas()`. `el.engine` es la **escotilla de bajo
-nivel** para lo no declarativo (`createIcon`, `getLeafletMap()`, etc.). Compartir una Source es
+nivel** para lo no declarativo (`createIcon`, `registerIconSet`, etc.). Compartir una Source es
 declarativo (prop `.source` de la capa); `engine.attachSource` es el interno que ese setter usa,
 no API de consumidor.
 
@@ -171,7 +171,7 @@ filtro por capa; el resto (`viewportchange`, `interaction*`) son del mapa.
 ## Cámara — `el.camera`
 
 Tras montar, **todo movimiento es acción** (no hay prop reactiva de centro; `initial-center`/`initial-zoom`
-solo fijan la vista inicial). Es la **única** vía recomendada de viewport — evita bajar a `getLeafletMap()`.
+solo fijan la vista inicial). Es la **única** vía de viewport dentro del contrato: no hace falta bajar al mapa de Leaflet.
 
 | Método | Notas |
 |---|---|
@@ -225,8 +225,7 @@ aunque se declaren antes, y la puerta del puntero les da la pulsación por el mi
 <cristae-point-layer></cristae-point-layer>          <!-- z automático -->
 ```
 
-Panes nativos de Leaflet que conviven en el mismo mapa: tiles `200` · overlay `400` · shadow `500` ·
-marker `600` · tooltip `650` · popup `700`.
+Los tiles del mapa van en `200`: una capa con `z` menor queda debajo de ellos.
 
 Los modificadores (`<cristae-cluster>`, `<cristae-overlay>`) no los aceptan: sus capas las crea la
 gramática. Imperativo equivalente: `engine.setLayerZ(id, z)`.
@@ -570,7 +569,7 @@ mapEl.addEventListener('cristae:ready', () => {
 5. Cambios de props **después** del montaje se reenvían al handle: `data → controls.set`,
    `source → attachSource`, `visible → setVisible`, config de cluster → `setConfig`.
 6. Quitar una **capa** del DOM (`disconnectedCallback`) la desmonta (`removeLayer`). Quitar el
-   **`<cristae-map>`** destruye el motor entero (`engine.destroy()` → `L.Map.remove()` + contexto WebGL).
+   **`<cristae-map>`** destruye el motor entero (`engine.destroy()`: suelta el mapa y el contexto WebGL).
    Los demás `<cristae-map>` de la página no se enteran: cada motor tiene sus propios contextos.
 7. **Reconexión:** si el `<cristae-map>` vuelve al DOM, se **re-monta** con un motor **nuevo** (las capas
    hijas montan solas). Por eso `el.engine`/`el.camera` son getters vivos y **no deben cachearse**:

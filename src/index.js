@@ -1,6 +1,6 @@
 // Entry del MAPA (`cristae/map`): motor headless (MapEngine) + web components <cristae-*> de mapa.
-// Importar este módulo registra los custom elements de mapa y arrastra Leaflet. La tabla NO
-// vive acá — es `cristae/table` (no arrastra Leaflet). El núcleo de datos es `cristae/core`.
+// Importar este módulo registra los custom elements de mapa y arrastra Leaflet, su anfitrión interno
+// (SPECS §6). La tabla NO vive acá — es `cristae/table` (no arrastra Leaflet). El núcleo de datos es `cristae/core`.
 // Re-exporta la superficie del núcleo por conveniencia (un consumidor de mapa también crea Sources).
 
 import { grammar } from './element/composite.js'
@@ -52,7 +52,7 @@ define('cristae-toolbar', CristaeToolbar)
 define('cristae-popup', CristaePopup)
 
 export { MapEngine } from './engine/MapEngine.js'
-export { adoptLeafletHost } from './host/LeafletHost.js'   // un L.Map existente, para el motor
+export { adoptLeafletHost } from './host/LeafletHost.js'   // un mapa de Leaflet existente, para el motor
 export { defineIconSet, defineClusterIconSet, IconSet, prerenderFonts } from './atlas/IconSet.js'
 export { shapePresetIconSet, RENDERERS as shapeRenderers } from './atlas/shape-presets.js'   // presets de forma agnósticos
 export { defineSource, createSource, makeFilter, makeListener } from './data/index.js'   // núcleo

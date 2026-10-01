@@ -1,11 +1,11 @@
 # Cristae
 
 Web components de alto rendimiento para **datos en tiempo real**: una tabla virtual y un mapa WebGL
-(sobre Leaflet, con shaders propios) sobre un **núcleo de datos reactivo** compartido. Miles de
+con shaders propios, hospedado en Leaflet, sobre un **núcleo de datos reactivo** compartido. Miles de
 updates/seg con hot-path *zero-alloc*. Piel declarativa `<cristae-*>` + motor headless `MapEngine`.
 
 > El nombre viene de las *cristae* mitocondriales —los pliegues de la membrana interna donde se
-> produce la energía—: una membrana (envoltura declarativa sobre Leaflet) que además es el
+> produce la energía—: una membrana (envoltura declarativa del mapa) que además es el
 > sitio de potencia.
 
 ## Instalación (vía GitHub)
@@ -14,9 +14,19 @@ updates/seg con hot-path *zero-alloc*. Piel declarativa `<cristae-*>` + motor he
 npm install github:benjamin-parra/Cristae   # o: git+https://github.com/benjamin-parra/Cristae.git#v0.1.0
 ```
 
-`leaflet` y `lit` son **peerDependencies** (los provee el consumidor; Leaflet debe ser una sola
-instancia). `supercluster` y `geographiclib-geodesic` viajan como dependencias normales; la última
-sólo la usa el elipsoide de `cristae/geometry` ([geometría](docs/geometry.md)).
+`leaflet` y `lit` son **peerDependencies** (los provee el consumidor). `supercluster` y
+`geographiclib-geodesic` viajan como dependencias normales; la última sólo la usa el elipsoide de
+`cristae/geometry` ([geometría](docs/geometry.md)). Se publica sólo como UMD: un bundler que sirve
+Cristae desde la fuente sin pre-empaquetarla (Vite con `optimizeDeps.exclude: ['cristae']`) la
+pre-empaqueta aparte, con `optimizeDeps.include: ['cristae > geographiclib-geodesic']`.
+
+## Leaflet
+
+Leaflet es el **anfitrión** del mapa —cámara, tiles y entrada del navegador— y un detalle interno: la API
+habla en valores propios (`{ lat, lng }`, `{ x, y }`, `{ south, west, north, east }`) y las capas se dibujan
+con la superficie WebGL de Cristae. Un mapa Leaflet que ya existe se entrega al motor con
+`adoptLeafletHost(map, { leaflet })`, el único punto de integración con un Leaflet ajeno
+([SPECS §6](SPECS.md)), donde también consta que `engine.getLeafletMap()` está fuera de contrato.
 
 ## Uso mínimo
 
@@ -54,7 +64,7 @@ import { createSource, defineIconSet } from 'cristae/map'
 
 ## Build de la librería self-contained
 
-`node build.mjs` produce `dist/cristae/` (ESM + UMD con todo bundleado, skill y `llms.txt`) para
+`node build.mjs` produce `dist/cristae/` (ESM + UMD con todo bundleado, Leaflet incluido, skill y `llms.txt`) para
 consumo sin npm/CDN. El código fuente vive bajo [`src/`](src/).
 
 ## Limitaciones conocidas
