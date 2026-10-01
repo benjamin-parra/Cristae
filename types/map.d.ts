@@ -274,8 +274,9 @@ export interface EngineSignals {
 }
 
 // ── Marcadores HTML (addHtmlLayer / <cristae-html-layer>) ───────────────────
-// L.divIcon sobre Leaflet — GL-safe (NO abre otro contexto WebGL). Nicho: badges de dominio con HTML
-// arbitrario (heroicon / glifo de fuente) + popup. COMPLEMENTA el point-layer GPU, no lo reemplaza.
+// Nodos DOM propios sobre la superficie del anfitrión — GL-safe (NO abre otro contexto WebGL). Nicho:
+// badges de dominio con HTML arbitrario (heroicon / glifo de fuente) + popup. COMPLEMENTA el point-layer
+// GPU, no lo reemplaza.
 export interface HtmlAccessors<T> extends Pick<SourceAccessors<T>, "hashOf"> {
   idOf         : (m: T) => string | number;
   positionOf   : (m: T) => { lat: number; lng: number };

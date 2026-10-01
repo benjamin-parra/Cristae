@@ -336,7 +336,7 @@ export class MapEngine {
     }
   }
 
-  /* ── Capa de marcadores HTML (L.divIcon; GL-safe, complementa el point-layer GPU) ── */
+  /* ── Capa de marcadores HTML (nodos DOM propios; GL-safe, complementa el point-layer GPU) ── */
 
   addHtmlLayer(cfg) {
     const { id, data, accessors, interactive = false, pane, z, visible = true } = cfg
@@ -346,7 +346,7 @@ export class MapEngine {
 
     const controls = cfg.source ? null : createSource(accessors)
     const source   = cfg.source ?? controls
-    const layer    = this.#build(paneName, zIndex, () => new HtmlLayer({ ...this.#substrate, pane: paneName, source, interactive }))
+    const layer    = this.#build(paneName, zIndex, () => new HtmlLayer({ host: this.#host, pane: paneName, source, interactive }))
 
     const record = { kind: 'html', source, layer, controls, paneName, zIndex, order, interactive, visible, enabled: true }
     this.#layers.set(id, record)

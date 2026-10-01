@@ -101,6 +101,16 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   el zoom sigue obedeciendo la política de `zoom-animation` ([SPECS §9](SPECS.md)).
 
 ### Cambiado
+- **Los marcadores HTML son nodos DOM propios, no `L.marker`.** `addHtmlLayer` y `<cristae-html-layer>`
+  montan una capa en la superficie del anfitrión: cada marcador es un nodo con un `translate3d`
+  calculado desde la cámara, así que un pan no reescribe ninguno y un cambio de vista sólo escribe los
+  que se movieron. Un tick de datos reutiliza el nodo por id. El foco atenúa por opacidad, el hit
+  sigue siendo por proximidad y la capa no captura el puntero; `classNameOf`, `sizeOf` y `anchorOf`
+  conservan su semántica. Durante el zoom animado cada marcador viaja a su destino sin escalar su
+  contenido, y en un pinch o un `flyTo` sigue a la vista cuadro a cuadro. Un tick que no cambia nada no
+  escribe ningún estilo. Ver [`docs/html-layer.md`](docs/html-layer.md).
+  *Migración*: ninguna en la API; el nodo del icono ya no es el elemento del `divIcon` de Leaflet, así
+  que un CSS que lo apuntaba por `.leaflet-marker-icon` debe apuntar a la clase de `classNameOf`.
 - **Los círculos en metros se dibujan en la GPU, y su borde coincide con el hit a cualquier latitud.**
   `addCircleLayer` deja de montar un `L.circle` por círculo: cada uno es un anillo de vértices que el
   relleno de polígonos sube a una textura y compone por stencil, así que 200 círculos son un nodo y no

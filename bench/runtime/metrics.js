@@ -17,8 +17,9 @@ const CAP_TESTIGOS   = 24
 const CAP_INTENTOS   = 120    // frames que se reintenta atribuir un contexto antes de darlo por ajeno
 
 // Familias que delatan el backend real de una capa: `path` = vector SVG de Leaflet,
-// `.leaflet-marker-icon` = un nodo por ítem, `canvas` = GL o canvas-2d.
-const SELECTORES = ['path', '.leaflet-marker-icon', '.leaflet-interactive', 'canvas']
+// `.leaflet-marker-icon` = un `L.marker` por ítem, `.cristae-html-layer > div` = un nodo por marcador
+// HTML, `canvas` = GL o canvas-2d.
+const SELECTORES = ['path', '.leaflet-marker-icon', '.cristae-html-layer > div', '.leaflet-interactive', 'canvas']
 
 const TIPOS_GL = ['webgl', 'webgl2', 'experimental-webgl']
 

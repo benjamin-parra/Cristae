@@ -25,6 +25,7 @@
 //   atlas de handles   ·      N editores  →     5 nodos vivos  (era 5 POR editor)
 //   capa de polígonos  ·    200 features  →   200 nodos vivos   (los "200 paths + 0 markers" de la unidad vieja)
 //   capa de círculos   ·    200 features  →     1 nodo vivo    (era 200: un `L.circle` por círculo; ahora el canvas GPU)
+//   capa de marcadores HTML · 200 marcas  →   401 nodos vivos  (la raíz + envoltorio e icono por marca)
 //   capa de puntos     · 10.000 ítems     →     0 nodos vivos, 1 capa GL   ← BLINDA lo que ya está bien
 //
 // El único nodo de la geometría editable es CONSTANTE —no escala con el trazo, ni con los anillos—: el
@@ -52,6 +53,7 @@ import { adoptLeafletHost } from '../../src/host/LeafletHost.js'
 import { PolygonLayer } from '../../src/render/PolygonLayer.js'
 import { CircleLayer } from '../../src/render/CircleLayer.js'
 import { PointLayer } from '../../src/render/PointLayer.js'
+import { HtmlLayer } from '../../src/render/HtmlLayer.js'
 
 const VERTICES = 400        // un recorrido real; es la unidad de N de `editable` en el banco
 const FEATURES = 200        // geocercas de una operación mediana
@@ -208,6 +210,27 @@ test('capa de círculos de 200 features → 1 nodo DOM vivo', async () => {
 
   capa.destroy()
   assert.equal(contador.vivos, 0, 'destroy devuelve el canvas')
+})
+
+// Cada marca es un envoltorio (posición, foco) con su icono (clase y tamaño del consumidor), más la raíz de
+// la capa. Un tick de datos con las mismas marcas reconcilia por id y no crea ni tira ningún nodo.
+test('capa de marcadores HTML de 200 marcas → 401 nodos vivos y sin churn al reconciliar', async () => {
+  const items = Array.from({ length: FEATURES }, (_, i) => ({ id: i, lat: i * 0.5, lng: i * 0.5 }))
+  const contador = contadorNodos()
+  const source = createSource({ idOf: it => it.id, positionOf: it => ({ lat: it.lat, lng: it.lng }), htmlOf: () => '<b></b>' })
+  source.set(items)
+  await flush()
+  const capa = new HtmlLayer({ host: adoptLeafletHost(makeMap()), pane: 'p', source })
+
+  assert.equal(contador.vivos, 2 * FEATURES + 1, 'LÍNEA BASE — la raíz y dos nodos por marca')
+
+  contador.marcar()
+  source.set(items.map(it => ({ ...it })))
+  await flush()
+  assert.equal(contador.creados, 0, 'reconciliar por id reutiliza los nodos: ni altas...')
+  assert.equal(contador.destruidos, 0, '...ni bajas')
+
+  capa.destroy()
 })
 
 /* ── Puntos GL: el passthrough que la librería promete, blindado ── */
