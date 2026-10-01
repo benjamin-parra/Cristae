@@ -95,7 +95,7 @@ export interface PolygonAccessors<T> extends Pick<SourceAccessors<T>, "hashOf"> 
 
 // ── Líneas (addLineLayer / <cristae-line-layer>) ────────────────────────────
 // GPU (glify.Lines) + gradiente per-vértice por bufferSubData + picking CPU nearest-segment.
-// `dash` y el grosor real por triángulos NO están (deuda documentada — ver docs/lines.md).
+// `dash` lo dibujan los backends `gpu` y `leaflet`; `glify` no (ver docs/lines.md).
 export interface LineAccessors<T> extends Pick<SourceAccessors<T>, "hashOf"> {
   idOf       : (l: T) => string | number;
   /** Vértices del path en orden, cada uno en cualquiera de las formas de `LatLngPoint`. Dos encodings
@@ -104,10 +104,12 @@ export interface LineAccessors<T> extends Pick<SourceAccessors<T>, "hashOf"> {
    *  multi-parte sigue siendo UNA entidad: un id, un estilo, un hit. */
   pathOf     : (l: T) => LatLngPath;
   /** Estilo PLANO por línea. `color` = `"#RRGGBB"` o `[r,g,b,a]` (0..1); `weight` en px de pantalla.
-   *  `dash` (patrón `stroke-dasharray` en px) y `cap` SÓLO los dibuja el backend Leaflet
-   *  (`vector:true`); el backend GL los ignora. Un solo eje `dash` cubre todos los patrones
-   *  tradicionales: `[8,6]` guiones · `[1,6]`+`cap:'round'` punteado · `[12,5,1,5]`+`cap:'round'`
-   *  raya-punto (línea de eje). */
+   *  `dash` (patrón `stroke-dasharray` en px) y `cap` los dibujan los backends `gpu` y `leaflet`;
+   *  `glify` los ignora. En `gpu` el patrón corre continuo a lo largo de cada parte y no depende del
+   *  zoom; admite hasta 16 valores ya repetidos (los impares cuentan doble), y por dónde sale el
+   *  error de uno más largo lo dice docs/lines.md.
+   *  Un solo eje `dash` cubre todos los patrones tradicionales: `[8,6]` guiones · `[1,6]`+`cap:'round'`
+   *  punteado · `[12,5,1,5]`+`cap:'round'` raya-punto (línea de eje). */
   styleOf?   : (l: T) => {
     color?   : string | number[];
     weight?  : number;
@@ -551,9 +553,9 @@ export interface LineLayerConfig<T> {
   /** Sustrato del trazo, leído al montar. `glify` (default) da picking y gradiente por vértice, pero el
    *  grosor sale de una brocha que barre `(4w+1)²` veces por feature y por frame. `gpu` dibuja un quad
    *  por segmento —grosor real, una pasada, sin picking ni gradiente— y toma UN contexto WebGL.
-   *  `leaflet` es el único con dash real. Ver docs/lines.md. */
+   *  `gpu` y `leaflet` dibujan dash. Ver docs/lines.md. */
   backend?     : 'glify' | 'gpu' | 'leaflet';
-  /** Alias de `backend: 'leaflet'` (dash real). */
+  /** Alias de `backend: 'leaflet'`. */
   vector?      : boolean;
 }
 

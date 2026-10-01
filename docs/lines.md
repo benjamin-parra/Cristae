@@ -76,7 +76,7 @@ Tres formas de poner los mismos vértices en pantalla. Se lee al montar.
 | `backend` | Grosor | Picking | Gradiente | `dash` | Contextos WebGL |
 |---|---|---|---|---|---|
 | `glify` *(default)* | brocha: `(4w+1)²` pasadas por feature y por frame | ✅ nearest-segment | ✅ por vértice | ❌ | comparte el de glify |
-| `gpu` | **un quad por segmento**, una pasada, con uniones por miter | ❌ | ❌ | ❌ | toma UNO de los ~16 |
+| `gpu` | **un quad por segmento**, una pasada, con uniones por miter | ❌ | ❌ | ✅ | toma UNO de los ~16 |
 | `leaflet` (`vector: true`) | path SVG | ✅ | ❌ | ✅ | ninguno |
 
 `gpu` es el mismo `StrokePass` que dibuja el contorno de los polígonos, con `closed: false`: los
@@ -187,14 +187,14 @@ distinto sustrato:
 | | GL (default) | Leaflet (`vector: true`) |
 |---|---|---|
 | Sustrato | glify.Lines (WebGL) | `L.polyline` |
-| `dash` | ✗ (ignora `styleOf.dash`) | **✓ dibuja `styleOf.dash`** (ej. `[6,6]`) |
+| `dash` | ✗ en `glify` (ignora `styleOf.dash`); ✓ en `gpu` | **✓ dibuja `styleOf.dash`** (ej. `[6,6]`) |
 | Gradiente `scalarOf` | ✓ | ✗ (color plano) |
 | Volumen / tiempo real | ✓ (buffer GPU) | pocas líneas |
 | Reproyección | el motor (path incremental) | Leaflet nativo |
 | Contexto WebGL | +1 | **0** (no abre contexto) |
 | Foco por ítem (`focus-ids`) | ✓ exacto — el factor se pliega en el **alfa por vértice** | ✓ exacto (opacidad del path) |
 
-Regla: **dash / pocas líneas → `vector`; gradiente / volumen → GL**.
+Regla: **gradiente o picking con volumen → `glify`; dash con volumen o un recorrido largo → `gpu`; pocas líneas con picking y dash → `vector`**.
 
 ### Patrones de trazo — un solo eje (`dash`), no un flag por patrón
 
@@ -211,6 +211,19 @@ patrones tradicionales son todos el mismo eje (generalidad por composición, no 
 
 Con `cap:'butt'` (default) un tramo de largo 1 sale como un cuadradito, no como un punto — por eso el
 punteado y el raya-punto piden `cap:'round'`.
+
+`dash` y `cap` los dibujan `gpu` y `leaflet`; `glify` los ignora. En `gpu` el patrón se mide en px de
+pantalla y corre **continuo a lo largo de cada parte**, sin reiniciarse en los vértices, y no cambia al
+hacer zoom: lo que crece con el zoom es la longitud de la línea, no el período. Un número impar de
+valores se repite, como en `stroke-dasharray`, y uno inválido —vacío, con un valor negativo o
+no finito, o de suma cero— deja la línea sólida. Admite hasta 16 valores ya repetidos: más es un
+`RangeError` que la capa levanta al tomar los datos, nunca en un repintado, y la capa queda como
+estaba. Los datos le llegan por el `Source`, así que el error sale por el canal de un suscriptor que
+lanza —consola, sin cortar a los demás—; sólo el alta sobre un `Source` que ya trae datos lo lanza al
+llamador. Sin `dash`, `cap` redondea o cuadra las dos puntas de cada parte; las
+uniones intermedias siguen siendo miter. La distancia acumulada vive en una textura R32F que se sube
+la primera vez que una línea pide dash, así que una capa que no lo usa no paga ni memoria ni subida, y
+el conteo de draws no cambia: un `drawArrays` por parte.
 
 ### Flechas de dirección — se COMPONEN, no son una propiedad del trazo
 
@@ -246,6 +259,6 @@ decide cuántas, con qué ícono y cuándo recalcularlas (p. ej. al cambiar el z
   el grosor (8 px → 225 pasadas por feature y por frame): no escala. **El grosor real por triángulos ya
   no es futuro: es el sustrato `gpu`** (abajo). `glify` sigue siendo el default porque es el único que
   resuelve picking y gradiente por vértice.
-- **`dash` en el backend GL**: `gl.LINES` no lo soporta → usar `vector: true` para líneas punteadas.
+- **`dash` en el backend `glify`**: `gl.LINES` no lo soporta → usar `backend: 'gpu'` o `vector: true`.
 - **Track vivo (`extend`)**: crecer una línea por la punta hoy pasa por rebuild coalescido; el append
   incremental [0-alloc] al tail es una etapa posterior.

@@ -35,6 +35,7 @@ class RingView {
   get texture()      { return this.#store.texture }
   get textureWidth() { return this.#store.textureWidth }
   get anchor()       { return this.#store.anchorOf(this.#ring) }
+  get arcTexture()   { return this.#store.arcTexture }
   get rev()          { return 0 }
   get firstVertex()  { return this.#first }
   get lastVertex()   { return this.#first + this.#count - 1 }
@@ -58,6 +59,7 @@ export class RingStore {
   #gl
   #rel     = new Float32Array(0)
   #texture = null
+  #arcs    = null
   #width   = 1
   #rows    = 1
   #count   = 0
@@ -91,6 +93,26 @@ export class RingStore {
   get rev()          { return 0 }              // inmutable: nada que resincronizar
   get ringCount()    { return this.#vertexAt.length - 1 }
   get vertexCount()  { return this.#count }
+
+  // Largo acumulado del anillo hasta cada vértice, en world0 px, en una textura R32F con el mismo
+  // direccionamiento que `texture`: lo que necesita el trazo para que un patrón de dash siga continuo a
+  // través de los vértices. Se arma al primer pedido —un relleno o un trazo sólido nunca lo piden— y
+  // cada anillo arranca en cero. El cierre implícito de un anillo no lleva entrada: es el último tramo
+  // y el trazo lo mide en el propio segmento.
+  get arcTexture() {
+    if (this.#arcs || !this.#texture) return this.#arcs
+    const rel  = this.#rel
+    const data = new Float32Array(this.#width * this.#rows)
+    for (let r = 0, rings = this.ringCount; r < rings; r++) {
+      let acc = 0
+      for (let i = this.#vertexAt[r] + 1, end = this.#vertexAt[r + 1]; i < end; i++) {
+        const dx = rel[i * 2] - rel[i * 2 - 2]
+        const dy = rel[i * 2 + 1] - rel[i * 2 - 1]
+        data[i] = acc += Math.sqrt(dx * dx + dy * dy)
+      }
+    }
+    return this.#arcs = this.#texImage(this.#gl.R32F, this.#gl.RED, data)
+  }
 
   anchorOf(ring) { return { x: this.#anchors[ring * 2], y: this.#anchors[ring * 2 + 1] } }
 
@@ -149,7 +171,8 @@ export class RingStore {
 
   destroy() {
     this.#texture && this.#gl.deleteTexture(this.#texture)
-    this.#texture = null
+    this.#arcs && this.#gl.deleteTexture(this.#arcs)
+    this.#texture = this.#arcs = null
     this.#views   = null
     return this
   }
@@ -272,14 +295,21 @@ export class RingStore {
     this.#rows  = Math.max(1, Math.ceil(this.#count / this.#width))
     if (this.#rows > max)
       throw new Error(`[cristae] ${this.#count} vértices no entran en una textura de ${max}×${max}`)
-    const data  = new Float32Array(this.#width * this.#rows * 2)
+    const data = new Float32Array(this.#width * this.#rows * 2)
     data.set(this.#rel)
-    this.#texture = gl.createTexture()
-    gl.bindTexture(gl.TEXTURE_2D, this.#texture)
+    this.#texture = this.#texImage(gl.RG32F, gl.RG, data)
+  }
+
+  // Una textura float32 de `#width` × `#rows` texels, muestreada por índice exacto.
+  #texImage(internalFormat, format, data) {
+    const gl      = this.#gl
+    const texture = gl.createTexture()
+    gl.bindTexture(gl.TEXTURE_2D, texture)
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RG32F, this.#width, this.#rows, 0, gl.RG, gl.FLOAT, data)
+    gl.texImage2D(gl.TEXTURE_2D, 0, internalFormat, this.#width, this.#rows, 0, format, gl.FLOAT, data)
+    return texture
   }
 }

@@ -289,7 +289,7 @@ export interface CristaeLineLayerProps<T = unknown> extends CristaeDataLayerProp
   accessors?   : LineAccessors<T>;
   interactive? : boolean;
   visible?     : boolean;
-  /** Backend Leaflet-nativo (dash real) en vez de GL. */
+  /** Backend Leaflet-nativo en vez de GL. */
   vector?      : boolean;
 }
 export declare function CristaeLineLayer<T = unknown>(

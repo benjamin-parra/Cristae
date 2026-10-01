@@ -5,7 +5,7 @@ import { makeAutoId } from './autoId.js'
 // `data` (array → el elemento posee la Source interna) y `source` (Source compartida del consumidor,
 // createSource/defineSource). `accessors` = { idOf, pathOf, styleOf?, scalarOf?, colorRamp?, hashOf? } se
 // asigna por JS (funciones, no atributos). El grosor por brocha de glify y la ausencia de dash en el
-// backend GL son deuda documentada (ver docs/lines.md).
+// backend glify son deuda documentada (ver docs/lines.md).
 export class CristaeLineLayer extends CristaeLayerElement {
 
   // Gramática de composición: entidad hoja que produce `line`.

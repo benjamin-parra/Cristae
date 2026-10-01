@@ -4,7 +4,7 @@ import { focusFactor } from './focus.js'
 // Backend LEAFLET de la capa de líneas (`vector: true` en addLineLayer). Hermano de LineLayer (GL):
 // misma interfaz de ciclo de vida y mismo contrato de hit (kind 'line', nearest-segment), pero dibuja
 // con `L.polyline` en vez de glify. Elección de backend por el motor:
-//   · GL (LineLayer)      → volumen / gradiente per-vértice / tiempo real; NO dibuja dash.
+//   · GL (LineLayer)      → volumen / gradiente per-vértice / tiempo real; NO dibuja dash (el sustrato `gpu` sí).
 //   · Leaflet (este)      → pocas líneas, DASH real, reproyección nativa; sin gradiente ni volumen GL.
 // Es el mismo patrón que polygon-layer (Leaflet-nativo) — Leaflet reproyecta solo en pan/zoom.
 

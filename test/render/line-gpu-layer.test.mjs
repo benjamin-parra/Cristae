@@ -68,9 +68,9 @@ const fakeSource = (items, styleOf = null) => ({
   subscribe  : () => () => {},
 })
 
-const mount = ({ items = [{ id: 1, path: recorrido(50) }], styleOf = null, map = makeMap() } = {}) => {
+const mount = ({ items = [{ id: 1, path: recorrido(50) }], styleOf = null, map = makeMap(), envolver = gl => gl } = {}) => {
   const spy = newSpy()
-  currentGl = editGl(spy)
+  currentGl = envolver(editGl(spy))
   const layer = new LineGpuLayer({ host: adoptLeafletHost(map), pane: 'gpu-line', source: fakeSource(items, styleOf) })
   return { layer, map, spy }
 }
@@ -107,6 +107,91 @@ test('cada PARTE es su propia pasada (un track con baches no se une)', () => {
   const conBache = [{ id: 1, path: [[0, 0], [0, 0.001], [NaN, NaN], [0, 0.003], [0, 0.004]] }]
   const { layer, spy } = mount({ items: conBache })
   assert.equal(drawsOf(spy, () => layer.redraw()), 2, 'dos tramos → dos pasadas, sin recta fantasma entre ellos')
+})
+
+/* ── 1b. dash y tapa: cada tramo lleva el suyo ── */
+
+// Lo que el trazo le pide a la GPU en cada draw: patrón y tapa vigentes en ese instante.
+const espiarTrazos = () => {
+  const uniform = {}
+  const trazos  = []
+  const propio  = {
+    getUniformLocation : (_programa, nombre) => ({ nombre }),
+    uniform1i          : (loc, v) => (uniform[loc.nombre] = v),
+    drawArrays         : () => trazos.push({ dashCount: uniform.dashCount, cap: uniform.cap }),
+  }
+  return { trazos, envolver: gl => new Proxy(gl, { get: (t, p) => propio[p] ?? t[p] }) }
+}
+
+test('el dash y la tapa de styleOf llegan al trazo, y un tramo sin ellos no hereda los del anterior', () => {
+  const items = [
+    { id: 1, path: recorrido(5),    estilo: { dash: [6, 6], cap: 'round' } },
+    { id: 2, path: recorrido(5, 1), estilo: { weight: 2 } },
+    { id: 3, path: recorrido(5, 2), estilo: { dash: [1, 6, 1], cap: 'square' } },
+  ]
+  const { trazos, envolver } = espiarTrazos()
+  const { layer } = mount({ items, styleOf: item => item.estilo, envolver })
+  trazos.length = 0
+  layer.redraw()
+  assert.deepEqual(trazos, [
+    { dashCount: 2, cap: 1 },
+    { dashCount: 0, cap: 0 },
+    { dashCount: 6, cap: 2 },
+  ])
+})
+
+test('un patrón mutado en sitio y publicado con set se vuelve a leer', () => {
+  const patron = [8, 6]
+  const items  = [{ id: 1, path: recorrido(5), estilo: { dash: patron } }]
+  const { trazos, envolver } = espiarTrazos()
+  const { layer } = mount({ items, styleOf: item => item.estilo, envolver })
+  layer.redraw()
+  patron.push(2)
+  trazos.length = 0
+  layer.set(items)
+  assert.deepEqual(trazos.map(t => t.dashCount), [6], '[8, 6, 2] se repite: seis valores')
+})
+
+test('el dash no cambia el conteo de draws: sigue siendo uno por tramo', () => {
+  const items = [{ id: 1, path: recorrido(50), estilo: { dash: [1, 6], cap: 'round' } }]
+  const { layer, spy } = mount({ items, styleOf: item => item.estilo })
+  assert.equal(drawsOf(spy, () => layer.redraw()), 1)
+})
+
+// El patrón se comprueba al resolver el estilo: el error sale de quien cargó los datos, no de un
+// repintado que corre dentro del ciclo de vista y cortaría a los demás oyentes.
+test('un patrón que no cabe lanza al cargar los datos y deja la capa como estaba', () => {
+  const largo = [{ id: 2, path: recorrido(5), estilo: { dash: Array(18).fill(1) } }]
+  assert.throws(() => mount({ items: largo, styleOf: item => item.estilo }), RangeError, 'el alta')
+  const { layer, map, spy } = mount({ styleOf: item => item.estilo })
+  const subidas = spy.texImages.length
+  assert.throws(() => layer.set(largo), RangeError)
+  assert.equal(spy.texImages.length, subidas, 'el store no se rehízo')
+  assert.equal(drawsOf(spy, () => map.fire('moveend')), 1, 'la vista sigue repintando el recorrido de antes')
+})
+
+// Por el motor los datos entran por el Source, que reparte a sus suscriptores aislados: el error sale
+// por el reporte del Source, no al llamador, y la capa sigue dibujando lo que tenía.
+test('por el motor, un patrón que no cabe se reporta desde el Source y la capa conserva lo anterior', async t => {
+  const errores  = []
+  const original = console.error
+  console.error = (...a) => errores.push(a)
+  t.after(() => (console.error = original))
+  const spy = newSpy()
+  currentGl = editGl(spy)
+  const engine = new MapEngine({ host: adoptLeafletHost(makeMap(), { leaflet: makeLeaflet() }), glify: {} })
+  const handle = engine.addLineLayer({
+    id       : 'ruta',
+    backend  : 'gpu',
+    data     : [{ id: 1, path: recorrido(5) }],
+    accessors: { idOf: r => r.id, pathOf: r => r.path, styleOf: r => r.estilo },
+  })
+  const reparto = () => new Promise(resolve => setTimeout(resolve, 5))
+  await reparto()
+  assert.doesNotThrow(() => handle.set([{ id: 2, path: recorrido(5), estilo: { dash: Array(18).fill(1) } }]))
+  await reparto()
+  assert.match(String(errores[0]?.[1]), /hasta 16 valores/)
+  assert.equal(drawsOf(spy, () => engine.getLayer('ruta').layer.redraw()), 1, 'el recorrido de antes')
 })
 
 /* ── 2. Vista asentada, visibilidad y baja ── */

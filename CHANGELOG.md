@@ -8,6 +8,17 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
 ## [Sin publicar]
 
 ### Agregado
+- **El sustrato `gpu` de las líneas dibuja `dash` y `cap`.** `styleOf.dash` es un patrón
+  `stroke-dasharray` en píxeles de pantalla que corre continuo a lo largo de cada parte, sin
+  reiniciarse en los vértices ni cambiar con el zoom; `cap` (`butt`, `round`, `square`) redondea o
+  cuadra cada trazo del patrón o, sin dash, las dos puntas de la parte. El patrón se mide en el
+  fragment shader contra una distancia con signo, y la distancia acumulada de cada vértice vive en
+  una textura R32F que se sube la primera vez que alguna línea pide dash, así que quien no lo usa no
+  paga memoria ni subida. Sigue siendo un `drawArrays` por parte y el dibujo no reserva memoria.
+  Un patrón con más de 16 valores ya repetidos es un `RangeError` que el `Source` reporta, y la capa
+  conserva lo que dibujaba; uno inválido deja la línea sólida.
+  Ver [`docs/lines.md`](docs/lines.md#patrones-de-trazo--un-solo-eje-dash-no-un-flag-por-patrón).
+  *Migración*: ninguna — antes `gpu` ignoraba ambos campos; `glify` los sigue ignorando.
 - **`cristae/geometry` — distancias en metros, con el modelo de la Tierra que se pida.**
   `distance(pointA, pointB, …)` mide el recorrido por los puntos, y `distance(path)` un path plano o
   anidado, con la regla de corte de `toParts`: un punto inválido corta y el hueco no suma; si hubo

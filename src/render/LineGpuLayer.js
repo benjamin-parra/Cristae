@@ -1,12 +1,15 @@
 import { EditSurface } from './EditSurface.js'
 import { RingStore } from './RingStore.js'
-import { StrokePass } from './StrokePass.js'
+import { StrokePass, ownDash } from './StrokePass.js'
 import { projX0, projY0, readView } from './project.js'
 import { toParts } from '../geometry/polyline.js'
 
 // Líneas ESTÁTICAS con grosor REAL: el trazo sale del mismo `StrokePass` que el contorno de polígonos
 // —un quad por segmento, expandido en el vertex shader desde una textura de posiciones— en vez de la
 // brocha de glify, que barre la línea `(4w+1)²` veces por feature y por frame.
+//
+// `styleOf` puede traer `dash` —un patrón en píxeles de pantalla que corre continuo a lo largo de cada
+// parte— y `cap` para las tapas de cada trazo del patrón o, sin dash, de las dos puntas de la parte.
 //
 // El perfil es el de una geometría histórica: pocas entidades, muchos vértices, sin feed en vivo. Sin
 // picking ni gradiente por vértice — eso vive en el backend glify (`LineLayer`).
@@ -72,13 +75,21 @@ export class LineGpuLayer {
 
   #ingest(items) {
     const { tablas, partes } = tablasDe(items, this.#source.accessors.pathOf)
+    // El estilo queda con la forma del trazo, y `dash`/`cap` siempre explícitos: el trazo conserva lo que
+    // no se le dice, y el tramo siguiente heredaría el patrón del anterior. Se resuelve antes de tocar el
+    // store, así un patrón inválido deja la capa como estaba.
+    const tramos = partes.map(({ item }) => {
+      const s = { ...this.#base, ...(this.#styleOf?.(item) ?? null) }
+      return {
+        arena  : null,
+        estilo : { color: s.color, width: s.weight, opacity: s.opacity, dash: ownDash(s.dash ?? null), cap: s.cap ?? 'butt' },
+      }
+    })
     const anterior = this.#store
     this.#store = new RingStore({ gl: this.#gl, project, rings: tablas })
     anterior?.destroy()
-    this.#tramos = partes.map(({ item }, r) => ({
-      arena  : this.#store.viewOf(r),
-      estilo : { ...this.#base, ...(this.#styleOf?.(item) ?? null) },
-    }))
+    tramos.forEach((tramo, r) => (tramo.arena = this.#store.viewOf(r)))
+    this.#tramos = tramos
   }
 
   redraw() {
@@ -91,7 +102,7 @@ export class LineGpuLayer {
     let pintado = false
     for (let k = 0; k < this.#tramos.length; k++) {
       const tramo = this.#tramos[k]
-      this.#stroke.style({ color: tramo.estilo.color, width: tramo.estilo.weight, opacity: tramo.estilo.opacity })
+      this.#stroke.style(tramo.estilo)
       pintado = this.#stroke.draw([tramo], view) || pintado
     }
     return pintado

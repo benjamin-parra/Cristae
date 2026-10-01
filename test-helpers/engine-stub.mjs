@@ -81,7 +81,7 @@ const GL_CONSTS = {
   ARRAY_BUFFER: 1, DYNAMIC_DRAW: 2, TEXTURE_2D: 3, RGBA: 4, UNSIGNED_BYTE: 5, TEXTURE0: 6,
   LINEAR: 7, CLAMP_TO_EDGE: 8, TEXTURE_MIN_FILTER: 9, TEXTURE_MAG_FILTER: 10,
   TEXTURE_WRAP_S: 11, TEXTURE_WRAP_T: 12, CURRENT_PROGRAM: 13,
-  NEAREST: 14, RG: 15, RG32F: 16, FLOAT: 17, STATIC_DRAW: 18,
+  NEAREST: 14, RG: 15, RG32F: 16, FLOAT: 17, STATIC_DRAW: 18, R32F: 19, RED: 20, TEXTURE1: 21,
   // Enums reales: el pase de picking los COMPARA (el status del fence) y los ADJUNTA (el destino), así
   // que no pueden caer al no-op del Proxy —que devolvería una función distinta en cada lectura—.
   POINTS: 0x0000, RGBA8: 0x8058, COLOR_ATTACHMENT0: 0x8CE0, DEPTH_ATTACHMENT: 0x8D00,

@@ -15,6 +15,19 @@
 //
 // `closed` distingue anillo de polilínea: un path abierto tiene un segmento menos y dos extremos sin
 // vecino, donde no hay bisectriz y el quad se corta plano.
+//
+// El DASH es un patrón en píxeles de pantalla que corre a lo largo del anillo y no se reinicia en los
+// vértices. La posición sobre el anillo sale de una segunda textura con el largo acumulado por vértice
+// (la del store, en world0 px: no depende del zoom, y `scale` la baja a pantalla), más el largo del
+// propio segmento, que se mide en el shader. Cada segmento lleva su coordenada LOCAL —cuánto avanzó
+// desde su origen— y la fase del patrón en ese origen: restar el largo acumulado en el vertex shader
+// deja en el varying sólo números chicos, y la precisión de la interpolación no se degrada con el
+// largo del recorrido. El patrón vive en el fragment shader como distancia firmada: cada trazo del
+// patrón es un tramo del eje con su tapa, y la unión de todos los que rozan al fragmento da el
+// contorno, así la tapa redonda de un trazo cruza al período vecino sin casos aparte.
+//
+// La TAPA (`cap`) vale para cada trazo del patrón y, sin dash, para los dos extremos de una polilínea
+// abierta: el quad se estira `halfWidth` más allá del extremo y el fragment shader la recorta.
 
 import { toRGBA } from './color.js'
 import { blendOver } from './EditSurface.js'
@@ -23,23 +36,53 @@ import { sharedProgram } from './gl-programs.js'
 // Medio píxel de borde a cada lado: el quad se expande lo mismo para que la rampa entre entera.
 export const FEATHER = 0.5
 
-const UNIFORMS = ['matrix', 'positions', 'texGeom', 'pixel', 'halfWidth', 'color', 'first', 'count', 'closed']
+// Valores del patrón que caben en el uniform, ya con los impares repetidos (`[a, b, c]` es `[a, b, c,
+// a, b, c]`: así lo define `stroke-dasharray`, que es el vocabulario del patrón).
+const MAX_DASH = 16
+const CAPS     = { butt: 0, round: 1, square: 2 }
+
+// Un patrón que no cabe en el uniform es un error del estilo, no del dibujo: las capas lo comprueban al
+// resolver el estilo, para que lance desde quien cargó los datos y nunca desde un repintado.
+const dashLength = dash => {
+  const n = Array.isArray(dash) ? dash.length : 0
+  if (n * (n & 1 ? 2 : 1) > MAX_DASH)
+    throw new RangeError(`[cristae] dash admite hasta ${MAX_DASH} valores (los impares cuentan doble) y recibió ${n}`)
+  return n
+}
+
+// El patrón que guarda una capa es una COPIA: el trazo lo reconoce por identidad, y el arreglo del
+// consumidor puede mutarse en sitio antes del `set` que lo publica.
+export const ownDash = dash => (dashLength(dash) ? dash.slice() : null)
+
+// «Sin límite» de un extremo que no existe; se pisa con cualquier distancia real.
+const FAR = 1e9
+
+const UNIFORMS = ['matrix', 'positions', 'arcs', 'texGeom', 'pixel', 'scale', 'halfWidth', 'color', 'first', 'count',
+                  'closed', 'dash', 'dashCount', 'period', 'cap']
 
 const VERTEX = `#version 300 es
 precision highp float;
 
 uniform mat4      matrix;
 uniform sampler2D positions;
+uniform sampler2D arcs;       // largo acumulado por vértice, en world0 px; sólo se lee con dash
 uniform ivec2     texGeom;    // (máscara, corrimiento): índice de vértice → texel
 uniform vec2      pixel;      // unidades de clip por píxel CSS
+uniform float     scale;      // píxeles CSS por world0 px
 uniform float     halfWidth;
 uniform int       first;      // primer vértice del anillo
 uniform int       count;      // vértices del rango
 uniform int       closed;     // 1 = el último segmento cierra contra el primero; 0 = polilínea abierta
+uniform int       dashCount;  // 0 = trazo continuo
+uniform float     period;     // largo de una vuelta del patrón, en píxeles
+uniform int       cap;        // 0 = butt · 1 = round · 2 = square
 
 out float dist;               // distancia firmada al eje, en píxeles
+out float along;              // avance sobre el eje desde el origen del segmento, en píxeles
+flat out vec4 frame;          // (fase del patrón en el origen, largo previo a esa vuelta, inicio y fin del trazo)
 
 const float FEATHER = ${FEATHER};
+const float FAR     = ${FAR.toExponential()};
 const vec2  QUAD[6] = vec2[6](vec2(0.0, -1.0), vec2(1.0, -1.0), vec2(0.0, 1.0),
                               vec2(0.0,  1.0), vec2(1.0, -1.0), vec2(1.0, 1.0));
 
@@ -85,28 +128,75 @@ void main() {
   bool conPrev = closed == 1 || edge > 0;
   bool conPost = closed == 1 || next + 1 < count;
 
+  // Una punta libre se estira lo que su tapa necesite; con dash, la rampa del borde del primer y el
+  // último trazo también necesita su medio píxel.
+  float reach = cap == 0 ? (dashCount > 0 ? FEATHER : 0.0) : halfWidth + FEATHER;
+  vec2  tipA  = conPrev ? pa : pa - d1 * reach;
+  vec2  tipB  = conPost ? pb : pb + d1 * reach;
+
   float side = quad.y * (halfWidth + FEATHER);
   vec2  offA = conPrev ? miter(dirOf(pa - pixelAt(first + prev)), d1) : n1;
   vec2  offB = conPost ? miter(d1, dirOf(pixelAt(first + post) - pb)) : n1;
+  vec2  pos  = mix(tipA, tipB, quad.x) + mix(offA, offB, quad.x) * side;
+
+  float arc   = dashCount > 0 ? texelFetch(arcs, ivec2((first + edge) & texGeom.x, (first + edge) >> texGeom.y), 0).r * scale : 0.0;
+  float phase = dashCount > 0 ? mod(arc, period) : 0.0;
   dist        = side;
-  gl_Position = vec4((mix(pa, pb, quad.x) + mix(offA, offB, quad.x) * side) * pixel, 0.0, 1.0);
+  along       = dot(pos - pa, d1);
+  frame       = vec4(phase, arc - phase, conPrev ? -FAR : phase, conPost ? FAR : phase + length(pb - pa));
+  gl_Position = vec4(pos * pixel, 0.0, 1.0);
 }`
 
 // El relleno por stencil da bordes duros: el AA lo aporta el contorno, como una rampa de un píxel
-// sobre la distancia al eje.
+// sobre la distancia firmada al trazo.
 const FRAGMENT = `#version 300 es
 precision highp float;
+precision highp int;
 
 uniform float halfWidth;
 uniform vec4  color;
+uniform float dash[${MAX_DASH}];   // (trazo, hueco) alternados
+uniform int   dashCount;
+uniform float period;
+uniform int   cap;
 
-in  float dist;
-out vec4  fragColor;
+in      float dist;
+in      float along;
+flat in vec4  frame;
+out     vec4  fragColor;
 
 const float FEATHER = ${FEATHER};
+const float FAR     = ${FAR.toExponential()};
+
+// Distancia firmada del fragmento al trazo que cubre el tramo [lo, hi] del eje, con la tapa pedida.
+float shape(float lo, float hi, float at) {
+  float beyond = max(lo - at, at - hi);
+  float lateral = abs(dist);
+  return cap == 1 ? length(vec2(max(beyond, 0.0), lateral)) - halfWidth
+                  : max(lateral - halfWidth, beyond - (cap == 2 ? halfWidth : 0.0));
+}
 
 void main() {
-  fragColor = vec4(color.rgb, color.a * (1.0 - smoothstep(halfWidth - FEATHER, halfWidth + FEATHER, abs(dist))));
+  float at = frame.x + along;
+  float sd = FAR;
+  if (dashCount == 0)
+    sd = cap == 0 ? abs(dist) - halfWidth : shape(frame.z, frame.w, at);
+  else {
+    // El trazo de una vuelta vecina puede rozar al fragmento (la tapa redonda cruza el límite del
+    // período), así que se prueban tres vueltas. Uno que arranca antes del origen del anillo, o
+    // después de su fin, no existe.
+    float lap = floor(at / period);
+    for (int m = -1; m <= 1; m++) {
+      float start = (lap + float(m)) * period;
+      for (int i = 0; i < ${MAX_DASH}; i += 2) {
+        if (i >= dashCount) break;
+        if (frame.y + start >= 0.0 && start <= frame.w && (dash[i] > 0.0 || cap != 0))
+          sd = min(sd, shape(start, min(start + dash[i], frame.w), at));
+        start += dash[i] + dash[i + 1];
+      }
+    }
+  }
+  fragColor = vec4(color.rgb, color.a * (1.0 - smoothstep(-FEATHER, FEATHER, sd)));
 }`
 
 const strokeProgram = gl => sharedProgram(gl, 'stroke', () => {
@@ -127,25 +217,51 @@ const strokeProgram = gl => sharedProgram(gl, 'stroke', () => {
 export class StrokePass {
 
   #gl; #program; #uniform; #vao; #closed
-  #width   = 3
-  #opacity = 1
-  #hex     = null
-  #rgba    = null
+  #width      = 3
+  #opacity    = 1
+  #hex        = null
+  #rgba       = null
+  #capName    = 'butt'
+  #dashSource = null                     // el arreglo de la capa: su identidad evita renormalizar por trazo
+  #dash       = new Float32Array(MAX_DASH)
+  #dashCount  = 0
+  #period     = 1
 
-  constructor({ gl, color = '#3388ff', width = 3, opacity = 1, closed = true }) {
+  constructor({ gl, color = '#3388ff', width = 3, opacity = 1, closed = true, dash = null, cap = 'butt' }) {
     const { program, uniform } = strokeProgram(gl)
     this.#gl      = gl
     this.#program = program
     this.#uniform = uniform
     this.#vao     = gl.createVertexArray()
     this.#closed  = closed
-    this.style({ color, width, opacity })
+    this.style({ color, width, opacity, dash, cap })
   }
 
-  style({ color = this.#hex, width = this.#width, opacity = this.#opacity } = {}) {
+  // `dash` es el patrón `[trazo, hueco, …]` en píxeles de pantalla, o `null` para continuo. Uno que no
+  // sea un patrón —vacío, con un valor negativo o no finito, o de suma cero— se dibuja continuo; uno
+  // que no cabe en el uniform es un error, no un recorte silencioso. `cap` es 'butt' | 'round' |
+  // 'square', y cualquier otro valor es 'butt'. Se llama por trazo: no asigna, y un `dash` que es el
+  // mismo arreglo de la llamada anterior no se vuelve a leer.
+  style({ color = this.#hex, width = this.#width, opacity = this.#opacity, dash = this.#dashSource, cap = this.#capName } = {}) {
+    if (dash !== this.#dashSource) {
+      const n    = dashLength(dash)
+      const laps = n & 1 ? 2 : 1
+      let sum = 0
+      let ok  = n > 0
+      for (let i = 0; i < n; i++) {
+        ok  = ok && dash[i] >= 0 && dash[i] < Infinity
+        sum += dash[i]
+      }
+      ok = ok && sum > 0
+      for (let i = 0; ok && i < n * laps; i++) this.#dash[i] = dash[i % n]
+      this.#dashCount  = ok ? n * laps : 0
+      this.#period     = ok ? sum * laps : 1
+      this.#dashSource = dash
+    }
     this.#hex     = color
     this.#width   = width
     this.#opacity = opacity
+    this.#capName = cap
     this.#rgba    = toRGBA(color, opacity)
     return this
   }
@@ -156,13 +272,24 @@ export class StrokePass {
     if (!rings.length || this.#width <= 0) return false
     const gl = this.#gl, u = this.#uniform
     const primera = rings[0].arena
+    // El store arma sus arcos al primer pedido y la textura nueva queda ligada a la unidad activa: se
+    // pide ANTES de ligar las del dibujo.
+    const arcs = this.#dashCount > 0 ? primera.arcTexture : null
     gl.useProgram(this.#program)
     gl.uniform2f(u.pixel, 2 / view.size.x, 2 / view.size.y)
+    gl.uniform1f(u.scale, 2 ** view.zoom)
     gl.uniform1f(u.halfWidth, this.#width / 2)
     gl.uniform4fv(u.color, this.#rgba)
     gl.uniform1i(u.positions, 0)
+    gl.uniform1i(u.arcs, 1)
     gl.uniform1i(u.closed, this.#closed ? 1 : 0)
+    gl.uniform1i(u.cap, CAPS[this.#capName] ?? 0)
+    gl.uniform1i(u.dashCount, this.#dashCount)
+    gl.uniform1f(u.period, this.#period)
+    gl.uniform1fv(u.dash, this.#dash)
     gl.uniform2i(u.texGeom, primera.textureWidth - 1, Math.log2(primera.textureWidth))
+    gl.activeTexture(gl.TEXTURE1)
+    gl.bindTexture(gl.TEXTURE_2D, arcs)
     gl.activeTexture(gl.TEXTURE0)
     gl.bindTexture(gl.TEXTURE_2D, primera.texture)
     blendOver(gl)
