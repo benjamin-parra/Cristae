@@ -1,4 +1,4 @@
-# Geometría — `distance`, áreas y cajas
+# Geometría — `distance`, áreas, terreno y cajas
 
 > Pieza de [Cristae](../MODELO.md). Entry propio (`cristae/geometry`), sin efectos: no importa el
 > motor, el [Source](./data.md) ni Leaflet, y sirve suelto en Node o en un worker. Trae también
@@ -10,6 +10,9 @@
 | `area(model?, zona)` | m² de un anillo, un polígono con huecos o un multipolígono |
 | `perimeter(model?, zona)` | m de todos los bordes de la zona, huecos incluidos, cada anillo cerrado |
 | `diameter(model?, zona)` | m entre los dos vértices más lejanos de la zona |
+| `terrain(model?, source, bounds, options?)` | carga las alturas de una caja desde tiles de altura: `Promise<Terrain>` |
+| `terrainPresets` | datos: `{ aws, mapterhorn }`, dos proveedores públicos, como `tilePresets` |
+| `relief(terrain, zona, breaks?)` | altura y pendiente de una zona, y m² de superficie por clase de pendiente |
 | `sphere(radius = 6371008.8)` | modelo esférico, con haversine; sin radio es el modelo por defecto |
 | `ellipsoid(semiMajorAxis, flattening)` | modelo elipsoidal: la geodésica por el problema inverso de Karney |
 | `WGS84` | `ellipsoid(6378137, 1 / 298.257223563)` |
@@ -17,9 +20,10 @@
 | `boundsPad(bounds, ratio)` · `boundsContain(bounds, point)` · `boundsCenter(bounds)` | agrandar, contener y centrar una caja |
 
 `ellipsoid` y `WGS84` traen la dependencia `geographiclib-geodesic`, que entra sólo al bundle de quien
-los importa: las medidas de zona tampoco la cargan si no se les pasa el elipsoide. Por eso
-`cristae/map` re-exporta `distance`, `sphere`, `toParts` y `sampleAlong`, y no el elipsoide; el
-prearmado `esm/geometry.js`, en cambio, la trae siempre.
+los importa: las medidas de zona tampoco la cargan si no se les pasa el elipsoide. Lo mismo vale para
+el cargador de tiles de `terrain` y `relief`: no entra a quien no los importa, y `terrainPresets`
+solo son datos. Por eso `cristae/map` re-exporta `distance`, `sphere`, `toParts` y `sampleAlong`, y
+no el elipsoide ni el terreno; el prearmado `esm/geometry.js`, en cambio, los trae siempre.
 
 ## Formas de llamada
 
@@ -131,6 +135,134 @@ La esfera de radio medio y WGS84 difieren en área según la latitud (un cuadrad
 
 Para una cifra que se compara con un catastro o un SIG, `area(WGS84, zona)`.
 
+## Terreno
+
+```js
+import { boundsOf, relief, terrain, terrainPresets, WGS84 } from 'cristae/geometry'
+
+const t = await terrain(WGS84, terrainPresets.aws, boundsOf(zona), { signal })
+t.cellSize                      // m, el lado de una celda en el centro de la caja
+relief(t, zona, [0.15, 0.3])    // ver «Relieve»
+```
+
+`terrain(model?, source, bounds, options?)` carga las alturas de una caja desde tiles XYZ de altura y
+devuelve un **terreno**: las alturas, inmutables, con la caja (`bounds`, copiada), el `zoom`, el
+`cellSize` y la `attribution` de la fuente. El modelo base va primero y es opcional, como en
+`distance`: con él se miden el ancho, el alto y el área de cada celda, así que la pendiente queda en
+metros sobre ese modelo y no hereda la escala de Mercator. Es lo único asíncrono del entry, y todo
+error llega como rechazo; qué rechaza y con qué, [SPECS §18](../SPECS.md). Para un multipolígono la
+caja es `boundsOf(zona.flat())`: `boundsOf` lee paths planos o anidados de un nivel.
+
+- **Las fuentes son datos.** `terrainPresets.aws` son los PNG Terrarium de AWS (z12 con tiles de 256,
+  hasta z15) y `terrainPresets.mapterhorn` los WebP Terrarium de Mapterhorn (z11 con tiles de 512,
+  hasta z17 donde hay cobertura; en muchas regiones llega a menos, y un zoom sin cobertura rechaza
+  con «ningún tile»). Los dos cargan la misma grilla, 2²⁰ píxeles por vuelta, así que sus cifras se
+  comparan celda a celda: 1,24″ por celda, 38 m en el ecuador y ~30 m a 37°, cerca del 1″ de SRTM y
+  de Copernicus GLO-30. Pedir Mapterhorn a z12 cuadruplica los tiles sin agregar información. Un
+  preset se ajusta con spread, `{ ...terrainPresets.aws, zoom: 14 }`, y una fuente propia se arma con
+  `url` (`{z}`, `{x}` e `{y}`), `encoding` (`terrarium` o `mapbox`, el Terrain-RGB) y `zoom`, y
+  opcionalmente `maxZoom`, `tileSize` y `attribution`. Terrain-RGB de Mapbox pide token: va como
+  fuente propia, con la key en la plantilla.
+- **`zoom` es el que se carga y `maxZoom` el techo del proveedor**, como en `tilePresets`. El zoom es
+  fijo: la misma zona da la misma pendiente sea cual sea la caja cargada. Pedir más que el techo
+  rechaza con `RangeError` en vez de terminar sin datos.
+- **`maxTiles`** (32 por defecto) acota la carga: si la caja pide más, rechaza antes de pedir ninguno.
+  Un terreno ocupa 4 B por celda de la caja con su margen: con el tope, 8 MiB en tiles de 256 y
+  32 MiB en tiles de 512.
+- **`signal`** cancela: la promesa rechaza con `signal.reason` y se abortan los pedidos en vuelo.
+- **`fetch`** reemplaza al global y es la única puerta para la autenticación, una URL firmada, un
+  proxy, los reintentos (la librería no reintenta) o un caché propio:
+
+  ```js
+  terrain(fuentePropia, caja, {
+    fetch: (url, init) => fetch(url, { ...init, headers: { Authorization: `Bearer ${token}` } }),
+  })
+  ```
+
+  Un 404 o un 204 es un tile sin dato. Cualquier otro estado no OK rechaza, un 401 y un 403
+  incluidos: una autenticación vencida no puede volverse «sin dato» en silencio.
+- **Dónde corre.** El PNG se decodifica dentro de la librería con `DecompressionStream`, así que
+  AWS anda igual en el navegador, en un worker y en Node ≥ 20; un navegador sin él (Safari < 16.4,
+  Firefox < 113) rechaza con un mensaje de entorno. El WebP lo decodifica la plataforma
+  (`createImageBitmap` y `OffscreenCanvas`): en Node rechaza, y también en un navegador que altera
+  los píxeles que lee (protección anti-fingerprinting), lo que se verifica la primera vez con un
+  canario. La fuente portable es AWS.
+- **Un terreno no cruza hilos**: sus núcleos son clausuras. Para no bloquear la interfaz se importa
+  `cristae/geometry` en el worker y se devuelven los números.
+- **El terreno es el caché de su caja**: se carga una caja que cubra todas las zonas y se reusa.
+  Entre cargas sirve el caché HTTP, y uno propio va en `fetch`.
+- **Atribución.** `cristae/geometry` no dibuja: quien muestra las cifras muestra `t.attribution` junto
+  a ellas. Sobre un mapa de Cristae, se suma a la del tile, que ya se pinta en la esquina:
+
+  ```js
+  mapa.tile = { ...tilePresets.osm, attribution: `${tilePresets.osm.attribution} · ${t.attribution}` }
+  ```
+
+Lo que no llega —un tile 404 o 204, un píxel de alfa 0— queda sin dato, y no se rellena con el tile
+padre: mezclar resoluciones aparentaría un detalle que no hay.
+
+## Lo que el DEM permite afirmar
+
+1. **Los DEM libres son de superficie (DSM).** SRTM y Copernicus GLO-30 miden lo primero que ve el
+   radar: en un bosque, el dosel. La altura, la pendiente y el área de superficie de un bosque
+   describen las copas, y el borde de un claro aparece como un escalón de la altura de los árboles.
+2. **La resolución acota lo que se puede afirmar.** Con 30 m por celda, una zona de una hectárea son
+   ~11 celdas, y una de menos de una celda hereda el valor de las que toca. `relief(…).cells` dice
+   cuántas entraron y `t.cellSize` cuánto mide cada una. La pendiente mira 60 m, así que suaviza una
+   ladera más corta.
+3. **Sobre el mar los proveedores difieren**: Mapterhorn no tiene tile (404, que suma a `noData`) y
+   AWS da 0 m, que parece un dato.
+4. **Exactitud vertical publicada**: SRTM, 16 m absoluta al 90 % (especificación de la misión);
+   Copernicus GLO-30, menos de 4 m absoluta al 90 % (Copernicus DEM Product Handbook).
+5. **Las aristas de una zona son geodésicas** y la capa dibuja rectas en Mercator. Se separan en
+   ≈ L²·tan φ/(8R): 1,5 cm en un lado de 1 km y 1,5 m en uno de 10 km, a 37°.
+6. **Un corte de pendiente tiene una banda gris.** Con alturas enteras, el redondeo de ±0,5 m desvía
+   la pendiente con celdas de 30 m en ~0,004 (0,4 puntos de %) típicos y hasta ~0,019 en el peor
+   caso.
+
+## Relieve
+
+```js
+const r = relief(t, zona, [0.15, 0.3])
+// { cells, elevation: { min, max, mean }, slope: { min, max, mean, areas: [3 clases] }, noData }
+```
+
+`relief(terrain, zona, breaks?)` describe la altura y la pendiente de la zona sobre un terreno. El
+nombre junta las dos: no es sólo la amplitud (máximo − mínimo), que en geomorfología también se llama
+así. La zona se lee como en `area`, y el cálculo lo hace el terreno, así que sirve con uno cargado por
+otra copia de la librería.
+
+- **Unidades.** Las alturas en m; la pendiente como **razón** (m/m), la magnitud SI: % = 100·p y
+  grados = atan(p)·180/π. No hay opción de unidades: los grados no promedian lineal con el área.
+- **La pendiente de una celda** es la de Horn sobre sus 8 vecinas, con el ancho y el alto de cada fila
+  medidos con el modelo base: es el defecto de `gdaldem slope` y de ArcGIS, así que las cifras se
+  cruzan en QGIS. Una celda tiene dato si sus 9 alturas lo tienen: la pegada a un tile sin dato pierde
+  la pendiente aunque tenga altura, y cuenta como sin dato.
+- **Ponderación.** Cada celda pesa el área que la zona le cubre: las celdas del borde pesan su
+  fracción, y una zona menor que una celda hereda la altura y la pendiente de las que toca. Mínimo y
+  máximo son de celda, no interpolados, como en las estadísticas zonales de GDAL; las medias van
+  ponderadas por área, y la de la pendiente es la de la razón, no la del ángulo. `cells` cuenta las
+  celdas con dato que la zona toca.
+- **Clases.** `breaks` son cortes de pendiente en razón, finitos, ≥ 0 y estrictamente crecientes, sin
+  valor por defecto: `[0.15, 0.3]` da [0, 0,15), [0,15, 0,3) y [0,3, ∞), y una pendiente igual a un
+  corte cae en la clase de arriba. Sin cortes hay una sola clase.
+- **`slope.areas` son m² de SUPERFICIE**, sobre el relieve: cada m² horizontal con pendiente p aporta
+  √(1 + p²) m² a su clase. Un catastro informa áreas horizontales: la total es `area(base, zona)`, y
+  la horizontal con dato, `area(base, zona) − noData`.
+- **`noData`** son los m² HORIZONTALES de la zona que caen en celdas sin dato: sin alturas no hay
+  relieve que medir. Con `noData = 0`, `Σ slope.areas` es el área de superficie de la zona.
+- **Bordes.** Una zona vacía no tiene celdas: alturas y pendientes `NaN`, áreas y `noData` en 0. Un
+  vértice que no es punto, o que cae fuera de `t.bounds`, da todos los campos `NaN`. El detalle está
+  en [SPECS §18](../SPECS.md).
+
+Un caso: la parte empinada de una zona, con un corte en 30 %.
+
+```js
+const r        = relief(t, zona, [0.3])
+const empinada = r.slope.areas[1]                         // m² de superficie con pendiente ≥ 30 %
+const fraccion = empinada / (r.slope.areas[0] + empinada) // sobre la superficie con dato
+```
+
 ## Cajas
 
 ```js
@@ -179,6 +311,21 @@ esfera, porque en zonas continentales con miles de vértices en el casco el cost
 llamadas. Una zona de más de 45° de radio angular, unos 10 000 km de ancho, se mide sobre todos los
 pares: n(n−1)/2 llamadas. Con el elipsoide el corte llega antes, tanto más cuanto más achatado: con
 WGS84, en 44,6°. Dónde y por qué, [SPECS §18](../SPECS.md).
+
+Con el terreno, el tiempo de `terrain` es el de la red: contra AWS, un tile en frío tardó 2,8 s
+(DNS y TLS incluidos) y una caja de 30 tiles 3,6 s, con seis pedidos en vuelo. La CPU es la de
+decodificar, de 6 a 11 ms por PNG de 256 (mediana 8 ms), y armar el mosaico y las tablas por fila
+suma poco: 30 tiles servidos por un `fetch` local, unos 100 ms con la esfera o con WGS84. `relief`
+asigna un acumulador de 8 B por celda de la caja de la zona y recorre las celdas que la zona toca:
+
+| Celdas que toca la zona | `relief` |
+|---|---|
+| 300 × 300 | 13 ms |
+| 1 000 × 1 000 | 65-110 ms |
+
+La cobertura de la zona es lo de menos (6,5 ms en 1 000 × 1 000); el resto es la pendiente de cada
+celda. El número de vértices pesa lo que pesa `area` sobre la base: con la esfera, 200 o 10 000 en
+300 × 300 celdas dan lo mismo, y con WGS84 los 10 000 suman unos 30 ms.
 
 `sampleAlong` reparte sus muestras por largo en pantalla (EPSG:3857), para decorar: no quedan
 equidistantes en metros.

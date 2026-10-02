@@ -13,6 +13,12 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   `distance`: m² y m sobre la esfera, el elipsoide o WGS84. El área es exacta para aristas geodésicas
   y no depende del sentido de giro. Ver [`docs/geometry.md`](docs/geometry.md#áreas-perímetro-y-diámetro).
   *Migración*: ninguna.
+- **`cristae/geometry` carga terreno y describe su relieve.** `terrain(model?, source, bounds)` carga
+  las alturas de una caja desde tiles Terrarium o Terrain-RGB (`terrainPresets.aws`,
+  `terrainPresets.mapterhorn`), y `relief(terreno, zona, breaks)` da la altura mínima, máxima y media,
+  la pendiente y el área de superficie por clase de pendiente, con la parte sin dato aparte. El
+  terreno no entra al bundle de quien no lo importa. Ver [`docs/geometry.md`](docs/geometry.md#terreno).
+  *Migración*: ninguna.
 - **Los polígonos dibujan `dash`.** `styleOf.dash` es un patrón en píxeles de pantalla que corre
   continuo a lo largo del anillo; con `null` o ausente el trazo es continuo. Lo consumen también los
   círculos en metros. Ver [`docs/polygons.md`](docs/polygons.md#estilo).

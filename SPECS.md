@@ -519,6 +519,8 @@ La **ley** (MODELO §5.4) formalizada como contrato que un implementador debe cu
 | `distance` (§18) | — | — | O(vértices), una pasada; un path de arrays no se copia, otro iterable se materializa una vez |
 | `area` · `perimeter` (§18) | — | — | O(vértices); cada anillo se copia una vez a un `Float64Array` |
 | `diameter` (§18) | — | — | O(n log n) + O(h·(1 + γh/2π)) llamadas al modelo; O(n²) si la zona pasa de 45° de radio angular |
+| `terrain` (§18) | — | — | O(tiles) pedidos de red, a lo sumo 6 en vuelo, + O(píxeles) de decodificación + O(filas) llamadas al modelo base |
+| `relief` (§18) | — | — | O(vértices + celdas de la caja de la zona); asigna 8 B por celda de esa caja |
 
 **Objetivo de estado estable** (miles de updates/seg): la ruta caliente —`move`/recolor → encode → `bufferSubData` → draw— es **O(1) por elemento y [0-alloc]**, *bajo precondición de set sin cambios* (id con slot vigente) — path incremental, MODELO §17.5. Es la única garantía de alloc incondicional. Si una implementación asigna por elemento en esta ruta, está mal. **El rebuild NO tiene esa garantía:** `set`/filtro/cluster reescribe y re-sube el buffer entero, O(n), y aloca cuando el set crece. El coalescing acota la *tasa* a ≤1 rebuild/flush de rAF, **no** el costo: si el set cambia cada frame se paga O(n)/frame. Mantener barato el rebuild es responsabilidad del *uso* (que el set cambie poco), no del scheduler (MODELO §17 intro).
 
@@ -554,7 +556,7 @@ La **ley** (MODELO §5.4) formalizada como contrato que un implementador debe cu
 | eventos | `hover` emite el set vigente de cada resolución y `hover:start`/`hover:end` sus cambios; `click` entrega hits ordenados; una pulsación quieta sale por `click` con su hit y, en el vacío, por `map:click`, y el `click` que dispara Leaflet no cuenta; cursor automático; sobre el Leaflet real, ningún payload lleva una instancia de Leaflet |
 | lifecycle | StrictMode doble-mount ⇒ 1 motor; `destroy()` cancela rAF y quita listeners (sin leak) |
 | lector GeoJSON (§17) | corpus de conformidad contra un **oráculo diferencial** sobre `JSON.parse`, nunca contra la implementación; las cuatro formas de entrada dan salidas idénticas byte a byte; fuzzer de mutación sin lectura fuera de rango ni excepción cruda; ausencia de grafo (conteo de asignaciones, no milisegundos) |
-| geometría (§18) | referencias independientes (radios a mano, fórmulas distintas, valores publicados del elipsoide), nunca la misma haversine; las formas de llamada y de punto miden lo mismo; los bordes de §18.1; el tree-shaking del elipsoide, empaquetando; el octante y la banda contra fórmulas cerradas; geographiclib con f = 0 como implementación independiente de la esfera, anillos polares incluidos; el diámetro contra la fuerza bruta; una segunda copia empaquetada |
+| geometría (§18) | referencias independientes (radios a mano, fórmulas distintas, valores publicados del elipsoide), nunca la misma haversine; las formas de llamada y de punto miden lo mismo; los bordes de §18.1; el tree-shaking del elipsoide, empaquetando; el octante y la banda contra fórmulas cerradas; geographiclib con f = 0 como implementación independiente de la esfera, anillos polares incluidos; el diámetro contra la fuerza bruta; el terreno con stubs de `fetch`, PNG sintéticos, un tile real de fixture y rampas de pendiente conocida; una segunda copia empaquetada; el tree-shaking del terreno |
 
 ---
 
@@ -995,6 +997,9 @@ ninguna lectura fuera de rango, ningún camino sin terminación, ninguna excepci
 | `area` | `(model?, polygon) → number` | O(vértices) | m²; región menor por anillo. |
 | `perimeter` | `(model?, polygon) → number` | O(vértices) | m; cada anillo cerrado, huecos incluidos. |
 | `diameter` | `(model?, polygon) → number` | O(n log n) + O(h·(1 + γh/2π)) llamadas al modelo | Horizontal; todos los pares si ρ ≥ 45°. |
+| `terrain` | `(model?, source, bounds, options?) → Promise<Terrain>` | O(tiles) de red + O(píxeles) | Lo único asíncrono; todo error es un rechazo. |
+| `terrainPresets` | `{ aws, mapterhorn }` | — | Datos, como `tilePresets`. |
+| `relief` | `(terrain, polygon, breaks?) → Relief` | O(vértices + celdas de la caja de la zona) | Alturas en m, pendiente en razón, áreas de superficie por clase. |
 | `sphere` | `(radius = 6371008.8) → EarthModel` | O(1) | El modelo por defecto de `distance`. |
 | `ellipsoid` | `(semiMajorAxis, flattening) → EarthModel` | O(1) | Geodésica por el inverso de Karney. |
 | `WGS84` | `EarthModel` | — | `ellipsoid(6378137, 1 / 298.257223563)`. |
@@ -1042,9 +1047,36 @@ copia de la librería sirve en otra. Las marcas se agregan entre versiones y sus
 |---|---|---|---|
 | `Symbol.for('cristae.geometry.model')` | `(lat1, lng1, lat2, lng2) → number` | todo modelo | los metros entre dos puntos válidos, en grados |
 | `Symbol.for('cristae.geometry.area')` | `(coords: Float64Array, count: number) → number` | `sphere(r)`, `ellipsoid(a, f)`, `WGS84` | `coords` intercala `[lat₀, lng₀, lat₁, lng₁, …]` en grados, y sus primeros `count ≥ 3` vértices son puntos válidos; la arista del último al primero está implícita. Devuelve los m² sin signo de la menor de las dos regiones que separa el anillo, en [0, A₀/2] (A₀, el área total del modelo). Sólo lee `coords`, y sólo durante la llamada |
+| `Symbol.for('cristae.geometry.relief')` | `(polygons: Float64Array[][], breaks: Float64Array) → Relief` | sólo los terrenos | `polygons[p][0]` es el exterior y lo que sigue son sus huecos; cada anillo es un `Float64Array` intercalado de largo exacto 2·n, con n ≥ 1 y todos sus vértices válidos. `breaks` ya viene validado. Devuelve un objeto nuevo y no retiene ni muta los argumentos |
 
 Un modelo sin la marca de área —de una copia anterior a las áreas, o de otra implementación— sigue
-sirviendo a `distance`, `perimeter` y `diameter`.
+sirviendo a `distance`, `perimeter` y `diameter`. Un terreno se reconoce por la marca de relieve:
+`diameter` lo rechaza como modelo y `terrain` como base. `relief` se despacha por esa marca, porque el
+cálculo necesita las alturas, que viven en la clausura de la copia que cargó el terreno: su layout no
+es contrato.
+
+Un **terreno** son las alturas de una caja leídas de tiles XYZ en Web Mercator, a `source.zoom`: con
+N = `tileSize`·2^zoom píxeles por vuelta, cada píxel es una celda cuyo valor rige en su centro. La
+carga cubre la caja con un margen de 2 celdas por lado, acotado a la fila 0 y a la N − 1, y pide los
+tiles que tocan esa ventana, con la `x` envuelta módulo 2^zoom en la URL. Terrarium es
+`R·256 + G + B/256 − 32768` y Terrain-RGB `−10000 + (R·65536 + G·256 + B)·0,1`; un píxel de alfa 0,
+o un tile que responde 404 o 204, no tiene dato. Por fila, el modelo base mide el ancho y el alto de
+dos celdas y el área de una, en la latitud de los centros. `cellSize` es la mitad del ancho de dos
+celdas en la fila del medio de la ventana. Un punto está en el terreno si su latitud cae en
+[south, north] y su longitud cae en [west, east], tal cual o llevada a [west, west + 360) con un
+múltiplo de 360: una longitud de la caja, la de su borde este incluida, no se desplaza, y la de una
+zona escrita envuelta da lo mismo que sumarle 360 al desenvolverla.
+
+El **relieve** de una zona pondera cada celda por la fracción de su área que la zona cubre, con las
+aristas rectas en Mercator: por polígono el exterior suma y los huecos restan, sea cual sea su giro,
+y una celda cuenta si su cobertura pasa de 10⁻⁹. Una celda tiene dato si sus 9 alturas lo tienen, y
+su pendiente es la de Horn con los pasos de su fila. `cells` cuenta las celdas con dato; la altura y
+la pendiente dan el mínimo y el máximo de celda y la media ponderada por el área cubierta. La clase
+de una celda es la cantidad de cortes ≤ p, así que las clases son [breaks[k−1], breaks[k]). Con A el
+área de la zona sobre la base —exterior menos huecos, por polígono—, w el peso de una celda y W la
+suma de los pesos de todas las celdas que cuentan, `slope.areas[k]` es Σ w·√(1 + p²)·A/W sobre las
+celdas con dato de la clase k (superficie), y `noData` es Σ w·A/W sobre las celdas sin dato
+(horizontal). Sin celdas con dato, las áreas son 0 y `noData` es A.
 
 ### 18.1 Bordes
 
@@ -1056,6 +1088,9 @@ sirviendo a `distance`, `perimeter` y `diameter`.
 | un modelo inválido a mitad de un track | las fábricas validan al construir |
 | la librería geodésica en el bundle de quien no usa el elipsoide | ni `distance` ni las medidas de zona importan `ellipsoid.js`, y ningún módulo del entry figura en `sideEffects` |
 | la composición de una zona —exterior menos huecos, suma de partes— atada al protocolo entre copias | el núcleo de área va por anillo; la composición vive en `area` |
+| el terreno en el bundle de quien no lo importa | ningún módulo de medida importa `terrain.js`; `terrainPresets` son datos |
+| un terreno como base de otro | `terrain` lo rechaza al construir |
+| el layout del ráster como contrato entre copias | `relief` se despacha por la marca del terreno, que calcula con lo que guarda en su clausura |
 
 **Que SÍ requieren manejo:**
 
@@ -1097,6 +1132,34 @@ sirviendo a `distance`, `perimeter` y `diameter`.
 | un hueco más grande que su exterior | el área sale negativa, sin acotar: el signo delata la geometría |
 | dos partes que se solapan | el solape cuenta dos veces, como lo apila la capa |
 | un anillo que se corta a sí mismo | suma sus lóbulos con signo; corregir geometría es del consumidor |
+| `terrain`: la base no es un modelo que mide áreas, o es un terreno | rechaza `TypeError('[terrain] el modelo base tiene que medir áreas y no ser un terreno')` |
+| `terrain`: `source` no es un objeto, o su `url` no lleva `{z}`, `{x}` e `{y}` | rechaza `TypeError('[terrain] source.url tiene que llevar {z}, {x} e {y}')` |
+| `terrain`: `attribution` que no es string | rechaza `TypeError` |
+| `terrain`: `encoding` que no es `terrarium` ni `mapbox` | rechaza `RangeError('[terrain] encoding desconocido: …')` |
+| `terrain`: `maxZoom` fuera de los enteros de [0, 24], `zoom` fuera de los de [0, maxZoom], `tileSize` o `maxTiles` que no es un entero ≥ 1 | rechaza `RangeError`, con el campo y el valor |
+| `terrain`: `bounds` que no es una caja | rechaza `TypeError('[terrain] bounds no es una caja')` |
+| `terrain`: una caja más allá de ±85,0511287798066° | rechaza `RangeError('[terrain] los tiles no cubren más allá de ±85,0511°')` |
+| `terrain`: la caja pide más de `maxTiles` | rechaza `RangeError('[terrain] la caja pide K tiles a z=Z; el tope es M: …')` sin llamar a `fetch` |
+| `terrain`: la señal abortada, antes o durante la carga | rechaza con `signal.reason` y aborta lo que está en vuelo; antes, sin llamar a `fetch` |
+| `terrain`: un tile responde 404 o 204 | no es error: sus celdas quedan sin dato, sin rellenarlas con el tile padre |
+| `terrain`: otro estado no OK (401, 403, 5xx…) | rechaza `Error('[terrain] <url> respondió <status>')` y aborta lo demás |
+| `terrain`: `fetch` o la lectura del cuerpo rechaza sin abort | rechaza `Error('[terrain] <url> no respondió', { cause })` y aborta lo demás |
+| `terrain`: bytes que no son un PNG legible de 8 bits RGB o RGBA, ni un WebP | rechaza `Error('[terrain] <url> no es un tile legible: <motivo>')` |
+| `terrain`: un tile que no mide `tileSize` × `tileSize` | rechaza `Error('[terrain] <url> mide W×H; se esperaban T×T')` |
+| `terrain`: PNG sin `DecompressionStream` (Safari < 16.4, Firefox < 113) | rechaza `Error('[terrain] este entorno no decodifica PNG: le falta DecompressionStream')` |
+| `terrain`: WebP sin `createImageBitmap` u `OffscreenCanvas` (Node), o en un navegador que altera los píxeles que lee | rechaza con el mensaje de entorno o el del canario, que recomiendan una fuente PNG |
+| `terrain`: todos los tiles responden 404 o 204 | rechaza `Error('[terrain] ningún tile de la caja trae datos a z=Z')` |
+| `relief`: el primer argumento no trae la marca de relieve | `TypeError('[relief] el primer argumento tiene que ser un terreno: …')` |
+| `relief`: `breaks` que no es `undefined` ni un array | `TypeError('[relief] breaks tiene que ser un array de cortes')` |
+| `relief`: un corte no finito, < 0 o fuera de orden estrictamente creciente, una ranura vacía incluida | `RangeError('[relief] breaks: …')` |
+| `relief` de una zona nula, vacía o de anillos de 1 o 2 vértices, aunque caigan fuera de `terrain.bounds` | `cells: 0`, alturas y pendientes `NaN`, `areas` en 0 y `noData` 0 |
+| `relief` con un vértice inválido, o una zona que no es array | todos los campos `NaN` y `cells: 0`, con `breaks.length + 1` áreas |
+| `relief` con un vértice de un anillo de 3 o más fuera de `terrain.bounds` | todos los campos `NaN` y `cells: 0`: lo que mide queda dentro de la caja |
+| una celda sin dato bajo la zona, o pegada a una sin dato | suma su área horizontal a `noData` |
+| una zona menor que una celda | pesa su fracción y hereda la altura y la pendiente de las celdas que toca |
+| una pendiente igual a un corte | cae en la clase de arriba |
+| dos partes que se solapan, en `relief` | la celda pesa la suma de sus coberturas, como `area` cuenta el solape dos veces |
+| un hueco fuera de su exterior, en `relief` | la celda con cobertura negativa no cuenta |
 
 ### 18.2 Test
 
@@ -1116,3 +1179,14 @@ dos giros a 10⁻¹²; `perimeter` contra `distance` del anillo cerrado y contra
 y zonas de casi 90° de ancho en el elipsoide, y su costo con un modelo que cuenta llamadas; un modelo de
 otra versión y uno de terceros; una segunda copia empaquetada del entry que intercambia modelos con la
 primera; empaquetar las medidas no trae la librería geodésica.
+
+El terreno, con un `fetch` de stub que arma cada tile con una altura conocida en el centro de cada
+píxel: los tiles pedidos con el margen, también sobre el antimeridiano; cada rechazo de §18.1 sin
+llamar a `fetch` cuando es previo a la carga; el 404 sin dato y el 403 que aborta; la cancelación
+antes y durante. El relieve: rampas en metros de pendiente conocida, norte–sur en Terrarium y en
+Terrain-RGB, diagonal sobre la esfera y sobre un elipsoide achatado, y sobre celdas de cientos de km;
+las clases de superficie √(1 + p²) en una rampa de 0,3; la altura de una celda sola, la del tile real
+contra PIL y la media de un rectángulo y de un polígono con hueco; `noData` contra la fracción de
+celdas contadas a mano y contra el recorte a mano de un triángulo; el invariante de las áreas y
+`noData` contra el área de la base en terreno plano; una segunda copia empaquetada que describe un
+terreno de la primera; empaquetar `terrainPresets` solo no trae el cargador.

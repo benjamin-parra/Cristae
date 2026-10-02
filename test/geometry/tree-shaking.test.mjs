@@ -1,7 +1,8 @@
-// La librería geodésica entra sólo al bundle de quien importa `ellipsoid` o `WGS84`. Se empaqueta con
-// esbuild, como lo haría un consumidor, y se busca en la salida un método que sólo tiene esa librería.
-// Si alguien agrega los módulos de geometría a `sideEffects`, o hace que `distance` o las medidas de
-// zona importen el elipsoide, estos tests suenan.
+// La librería geodésica entra sólo al bundle de quien importa `ellipsoid` o `WGS84`, y el cargador de
+// tiles, sólo al de quien importa `terrain` o `relief`. Se empaqueta con esbuild, como lo haría un
+// consumidor, y se busca en la salida un nombre que sólo tiene cada pieza. Si alguien agrega los
+// módulos de geometría a `sideEffects`, o hace que `distance` o las medidas de zona importen el
+// elipsoide o el terreno, estos tests suenan.
 // Corre con: node --test test/geometry/tree-shaking.test.mjs
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -10,8 +11,10 @@ import { build } from 'esbuild'
 
 const raiz = fileURLToPath(new URL('../../', import.meta.url))
 
-// `InverseStart` es un método del prototipo de la geodésica: sobrevive a cualquier minificación.
-const MARCA = 'InverseStart'
+// `InverseStart` es un método del prototipo de la geodésica, y `DecompressionStream` un global que sólo
+// nombra el decodificador de tiles: los dos sobreviven a cualquier minificación.
+const MARCA   = 'InverseStart'
+const TERRENO = 'DecompressionStream'
 
 const empaquetar = async contents => (await build({
   stdin    : { contents, resolveDir: raiz, sourcefile: 'consumidor.js' },
@@ -22,16 +25,30 @@ const empaquetar = async contents => (await build({
   logLevel : 'silent',
 })).outputFiles[0].text
 
-test('quien importa distance y sphere de cristae/geometry no carga la librería geodésica', async () => {
+test('quien importa distance y sphere de cristae/geometry no carga la librería geodésica ni el terreno', async () => {
   const js = await empaquetar("export { distance, sphere, toParts, sampleAlong } from './src/geometry/index.js'")
   assert.ok(js.includes('Symbol.for'), 'el bundle trae distance')
   assert.ok(!js.includes(MARCA))
+  assert.ok(!js.includes(TERRENO))
 })
 
-test('quien mide zonas con area, perimeter o diameter tampoco la carga', async () => {
+test('quien mide zonas con area, perimeter o diameter tampoco los carga', async () => {
   const js = await empaquetar("export { area, perimeter, diameter } from './src/geometry/index.js'")
   assert.ok(js.includes('cristae.geometry.area'), 'el bundle trae las medidas')
   assert.ok(!js.includes(MARCA))
+  assert.ok(!js.includes(TERRENO))
+})
+
+test('quien importa terrain y relief carga el decodificador, y no la librería geodésica', async () => {
+  const js = await empaquetar("export { terrain, relief } from './src/geometry/index.js'")
+  assert.ok(js.includes(TERRENO))
+  assert.ok(!js.includes(MARCA))
+})
+
+test('terrainPresets solo son datos: no traen el cargador', async () => {
+  const js = await empaquetar("export { terrainPresets } from './src/geometry/index.js'")
+  assert.ok(js.includes('elevation-tiles-prod'), 'el bundle trae los presets')
+  assert.ok(!js.includes(TERRENO))
 })
 
 test('quien importa WGS84 o ellipsoid sí la carga', async () => {
@@ -46,8 +63,9 @@ test('quien importa sólo ellipsoid no construye WGS84', async () => {
   assert.ok((await empaquetar("export { WGS84 } from './src/geometry/index.js'")).includes('ellipsoid(6378137'), 'la marca sirve')
 })
 
-test('el entry del mapa no la carga: su grafo no llega al elipsoide', async () => {
+test('el entry del mapa no los carga: su grafo no llega al elipsoide ni al terreno', async () => {
   const js = await empaquetar("export * from './src/index.js'")
   assert.ok(js.includes('cristae-map'), 'el bundle trae el mapa')
   assert.ok(!js.includes(MARCA))
+  assert.ok(!js.includes(TERRENO))
 })

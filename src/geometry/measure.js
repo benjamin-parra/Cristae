@@ -37,7 +37,7 @@ const levelOf = (list, depth) => {
 // una arista que no existe, así que uno solo invalida la zona. Un anillo o un polígono nulo o vacío no
 // aporta, y un exterior nulo o vacío se lleva sus huecos sin leerlos. En la posición de un anillo o de
 // un polígono, lo que no es array, ni nulo, ni `[]` invalida la zona.
-const foldRings = (polygon, step, acc) => {
+export const foldRings = (polygon, step, acc) => {
   if (polygon == null) return acc
   if (!Array.isArray(polygon)) return null
   const level = levelOf(polygon, 1)
@@ -79,16 +79,19 @@ const measureArgs = (name, args) => {
   return { model: args.length === 2 ? args[0] : byDefault, polygon }
 }
 
-// Por polígono, el exterior menos sus huecos, y los polígonos se suman, todo sobre un solo total. Un
-// anillo de menos de tres vértices no encierra nada y no llega al núcleo, que exige tres.
+// El paso de `foldRings` que suma el área de una zona con el núcleo `AREA` de un modelo: por polígono el
+// exterior suma y los huecos restan, y los polígonos se suman, todo sobre un solo total. Un anillo de
+// menos de tres vértices no encierra nada y no llega al núcleo, que exige tres. Lo comparten `area` y el
+// relieve, que reparte ese total entre sus celdas.
+export const areaStep = core => (total, coords, count, hole) =>
+  count < 3 ? total : hole ? total - core(coords, count) : total + core(coords, count)
+
 export const area = (...args) => {
   const { model, polygon } = measureArgs('area', args)
   const core = model[AREA]
   if (typeof core !== 'function')
     throw new TypeError('[area] este modelo no mide áreas: viene de una versión de Cristae anterior a las áreas, o de otra implementación')
-  const sum = (total, coords, count, hole) =>
-    count < 3 ? total : hole ? total - core(coords, count) : total + core(coords, count)
-  return foldRings(polygon, sum, 0) ?? NaN
+  return foldRings(polygon, areaStep(core), 0) ?? NaN
 }
 
 // Cada arista con el núcleo del modelo, la de cierre al final, y los anillos seguidos sobre un solo

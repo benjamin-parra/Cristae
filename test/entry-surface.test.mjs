@@ -38,6 +38,7 @@ const gEllipsoid = await import('../src/geometry/ellipsoid.js')
 const gPolyline = await import('../src/geometry/polyline.js')
 const gBounds = await import('../src/geometry/bounds.js')
 const gMeasure = await import('../src/geometry/measure.js')
+const gTerrain = await import('../src/geometry/terrain.js')
 
 // `table/` SÍ registra el custom element al importarse: se stubea el registry para observar
 // la definición sin DOM. El stub va después de los imports de arriba, a propósito.
@@ -204,31 +205,34 @@ test('el lector no registra ningún custom element', () => {
 
 // ── geometry: la medida, los modelos y el contrato de path, sin la regla interna ──
 
-// Trece nombres. `foldRuns`, `foldPart`, `foldArgs`, `iterable`, `coordOf`, `isPlace`, `hasPointShape` e
-// `isPoint` son la regla de corte y de punto que comparten `toParts`, `distance`, `boundsOf` y
-// `fitToLayers`, y los editores leen con `coordOf` e `isPoint`, la cámara con `isPlace` y el anfitrión
-// con `coordOf` y `hasPointShape`; `emptyBounds`, `growBounds`, `growRun` y `readBounds`, la caja y su
-// lector, que comparten las cajas, los encuadres del motor y la cámara; `arcMeters`, `makeModel` y
-// `checkLength`, el núcleo de la esfera y la fábrica de modelos que comparten las medidas y el picking
-// de círculos; `MODEL`, `isModel` y `byDefault`, la marca de modelo y el modelo por defecto que
-// comparten `distance` y las medidas de zona, y `AREA` y `RELIEF`, las marcas que leen esas medidas;
-// `foldRings` y `measureArgs`, el lector de zonas y el de argumentos de esas medidas, y `decodeTile`, el
-// decodificador de tiles de altura que usará el terreno: si salen del entry, alguien los usa y ya no se
-// pueden mover.
+// Dieciséis nombres. `foldRuns`, `foldPart`, `foldArgs`, `iterable`, `coordOf`, `isPlace`,
+// `hasPointShape` e `isPoint` son la regla de corte y de punto que comparten `toParts`, `distance`,
+// `boundsOf` y `fitToLayers`, y los editores leen con `coordOf` e `isPoint`, la cámara con `isPlace` y
+// el anfitrión con `coordOf` y `hasPointShape`; `emptyBounds`, `growBounds`, `growRun` y `readBounds`,
+// la caja y su lector, que comparten las cajas, los encuadres del motor y la cámara; `arcMeters`,
+// `makeModel` y `checkLength`, el núcleo de la esfera y la fábrica de modelos que comparten las medidas
+// y el picking de círculos; `MODEL`, `isModel` y `byDefault`, la marca de modelo y el modelo por
+// defecto que comparten `distance` y las medidas de zona, y `AREA` y `RELIEF`, las marcas que leen esas
+// medidas y el terreno; `foldRings` y `areaStep`, el lector de zonas y la suma de su área, que comparten
+// esas medidas y `relief`, y `measureArgs`, el de sus argumentos; y `decodeTile`, el decodificador de
+// tiles de altura del terreno: si salen del entry, alguien los usa y ya no se pueden mover.
 const GEOMETRY = {
-  WGS84         : 'object',
-  area          : 'function',
-  boundsCenter  : 'function',
-  boundsContain : 'function',
-  boundsOf      : 'function',
-  boundsPad     : 'function',
-  diameter      : 'function',
-  distance      : 'function',
-  ellipsoid     : 'function',
-  perimeter     : 'function',
-  sampleAlong   : 'function',
-  sphere        : 'function',
-  toParts       : 'function',
+  WGS84          : 'object',
+  area           : 'function',
+  boundsCenter   : 'function',
+  boundsContain  : 'function',
+  boundsOf       : 'function',
+  boundsPad      : 'function',
+  diameter       : 'function',
+  distance       : 'function',
+  ellipsoid      : 'function',
+  perimeter      : 'function',
+  relief         : 'function',
+  sampleAlong    : 'function',
+  sphere         : 'function',
+  terrain        : 'function',
+  terrainPresets : 'object',
+  toParts        : 'function',
 }
 
 test('cristae/geometry expone la medida, los modelos y el contrato de path — nada de lo que comparten por dentro', () => {
@@ -243,6 +247,7 @@ test('cada export de cristae/geometry es el MISMO valor que define su módulo', 
     toParts: gPolyline, sampleAlong: gPolyline,
     boundsOf: gBounds, boundsPad: gBounds, boundsContain: gBounds, boundsCenter: gBounds,
     area: gMeasure, perimeter: gMeasure, diameter: gMeasure,
+    terrain: gTerrain, terrainPresets: gTerrain, relief: gTerrain,
   }
   assert.deepEqual(Object.keys(origen).sort(), Object.keys(GEOMETRY).sort())
   for (const [k, mod] of Object.entries(origen))

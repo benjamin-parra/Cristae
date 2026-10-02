@@ -1,6 +1,6 @@
-// Tipos del entry `cristae/geometry` (funciones puras sobre puntos, paths y zonas en grados).
-// Sin efectos: no toca DOM, Leaflet, Lit ni el núcleo de datos. `cristae/map` re-exporta
-// `distance`, `sphere`, `toParts` y `sampleAlong` desde acá. Mantener sincronizado con
+// Tipos del entry `cristae/geometry` (funciones puras sobre puntos, paths y zonas en grados, y la carga
+// de un terreno). Sin efectos: no toca DOM, Leaflet, Lit ni el núcleo de datos. `cristae/map`
+// re-exporta `distance`, `sphere`, `toParts` y `sampleAlong` desde acá. Mantener sincronizado con
 // src/geometry/index.js.
 
 /** Un par `[lat, lng]` en grados: un array, donde lo que siga —una altura— se ignora, o una vista
@@ -59,6 +59,68 @@ export type BoundsLike = Bounds | readonly [LatLngPoint, LatLngPoint];
  *  inmutable y opaco. */
 export type EarthModel = { readonly __earthModel: unique symbol };
 
+/** De dónde salen las alturas. Es un dato, como `tilePresets`: se pasa tal cual o con spread y
+ *  overrides (`{ ...terrainPresets.aws, zoom: 14 }`). */
+export interface TerrainSource {
+  /** Plantilla XYZ con `{z}`, `{x}` y `{y}`; la `y` crece hacia el sur. */
+  readonly url          : string;
+  /** `terrarium`: h = R·256 + G + B/256 − 32768. `mapbox` (Terrain-RGB): h = −10000 + (R·65536 + G·256 + B)·0,1. */
+  readonly encoding     : 'terrarium' | 'mapbox';
+  /** El zoom al que se cargan las alturas: entero en [0, maxZoom]. */
+  readonly zoom         : number;
+  /** El zoom más alto que sirve el proveedor, como en `tilePresets`. Sin él, el techo es 24. */
+  readonly maxZoom?     : number;
+  /** El lado del tile en píxeles: un entero ≥ 1, 256 por defecto. */
+  readonly tileSize?    : number;
+  /** Lo que el proveedor pide mostrar junto a lo que se calcula con sus datos. */
+  readonly attribution? : string;
+}
+
+export interface TerrainOptions {
+  /** El tope de tiles por carga, 32 por defecto. Si la caja pide más, rechaza con `RangeError` antes
+   *  de pedir ninguno. */
+  readonly maxTiles? : number;
+  /** Cancela la carga: la promesa rechaza con `signal.reason`. */
+  readonly signal?   : AbortSignal;
+  /** Reemplaza al `fetch` global. Sirve para un servidor con autenticación, URLs firmadas, reintentos,
+   *  un caché propio o un stub. */
+  readonly fetch?    : (url: string, init: { signal: AbortSignal }) =>
+    Promise<Pick<Response, 'ok' | 'status' | 'arrayBuffer'>>;
+}
+
+/** Las alturas de una caja, ya cargadas: el primer argumento de `relief`. Es inmutable y no se
+ *  transfiere entre hilos. */
+export type Terrain = EarthModel & {
+  readonly __terrain   : unique symbol;
+  /** La caja pedida, copiada y congelada. */
+  readonly bounds      : Bounds;
+  /** El zoom de los tiles: `source.zoom`. */
+  readonly zoom        : number;
+  /** El lado en m de una celda en el centro de la caja, medido con el modelo base. */
+  readonly cellSize    : number;
+  /** `source.attribution`, o `''` si la fuente no trae. */
+  readonly attribution : string;
+};
+
+/** El relieve de una zona. Las alturas van en m y las pendientes como razón (m/m), la tangente del ángulo. */
+export interface Relief {
+  /** Las celdas del DEM con dato que la zona toca. Con 0, alturas y pendientes son `NaN`. */
+  readonly cells     : number;
+  /** De las celdas con dato: mínimo y máximo de celda, y media ponderada por área. */
+  readonly elevation : { readonly min: number; readonly max: number; readonly mean: number };
+  readonly slope     : {
+    readonly min   : number;
+    readonly max   : number;
+    readonly mean  : number;
+    /** El área DE SUPERFICIE (m², sobre el relieve) de cada clase de pendiente: `breaks.length + 1`
+     *  valores, la clase k es [breaks[k−1], breaks[k]), con 0 abajo e ∞ arriba. */
+    readonly areas : readonly number[];
+  };
+  /** El área HORIZONTAL (m²) de la zona que cae en celdas sin dato: sin alturas no hay relieve que
+   *  medir. La parte horizontal con dato es `area(base, polygon) − noData`. */
+  readonly noData    : number;
+}
+
 // El argumento de path de las funciones de puntos variádicos, `distance` y `boundsOf`: un punto solo
 // cuenta como un path de un punto.
 type PathArgument = LatLngPath | PointOrHole;
@@ -115,6 +177,22 @@ export function perimeter(model: EarthModel, polygon: LatLngPolygon | null | und
  *  con un terreno: mide en horizontal. Con un modelo de otra implementación, ver SPECS §18. */
 export function diameter(polygon: LatLngPolygon | null | undefined): number;
 export function diameter(model: EarthModel, polygon: LatLngPolygon | null | undefined): number;
+
+/** Proveedores públicos, sin key ni cuenta. Son datos y no un camino de código. */
+export const terrainPresets: { readonly aws: TerrainSource; readonly mapterhorn: TerrainSource };
+
+/** Carga las alturas de `bounds` y devuelve un terreno apoyado en `model`, que por defecto es la
+ *  esfera de radio medio. Es lo único asíncrono del entry: todo error llega como rechazo. Un tile 404
+ *  o 204 no es error: sus celdas quedan sin dato. Ver docs/geometry.md. */
+export function terrain(source: TerrainSource, bounds: BoundsLike, options?: TerrainOptions): Promise<Terrain>;
+export function terrain(model: EarthModel, source: TerrainSource, bounds: BoundsLike, options?: TerrainOptions): Promise<Terrain>;
+
+/** El relieve de la zona sobre un terreno. `breaks` son los cortes de pendiente, como razón, finitos,
+ *  ≥ 0 y en orden estrictamente creciente. Una zona vacía no tiene celdas, y un anillo de 1 o 2
+ *  vértices no cuenta, aunque caiga fuera de la caja; un vértice que no es punto, o fuera de
+ *  `terrain.bounds`, da todos los campos `NaN`. Lanza `TypeError` si `terrain` no es un terreno o
+ *  `breaks` no es un array, y `RangeError` con un corte inválido. Ver docs/geometry.md. */
+export function relief(terrain: Terrain, polygon: LatLngPolygon | null | undefined, breaks?: readonly number[]): Relief;
 
 /** Una esfera de radio `radius` en metros, con haversine. Sin argumento es el modelo por defecto de
  *  `distance`; otro radio sirve para reproducir las cifras de un sistema que mide con él. Lanza
