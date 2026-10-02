@@ -212,8 +212,9 @@ test('el lector no registra ningún custom element', () => {
 // `checkLength`, el núcleo de la esfera y la fábrica de modelos que comparten las medidas y el picking
 // de círculos; `MODEL`, `isModel` y `byDefault`, la marca de modelo y el modelo por defecto que
 // comparten `distance` y las medidas de zona, y `AREA` y `RELIEF`, las marcas que leen esas medidas;
-// `foldRings` y `measureArgs`, el lector de zonas y el de argumentos de esas medidas: si salen del
-// entry, alguien los usa y ya no se pueden mover.
+// `foldRings` y `measureArgs`, el lector de zonas y el de argumentos de esas medidas, y `decodeTile`, el
+// decodificador de tiles de altura que usará el terreno: si salen del entry, alguien los usa y ya no se
+// pueden mover.
 const GEOMETRY = {
   WGS84         : 'object',
   area          : 'function',
