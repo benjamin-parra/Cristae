@@ -1,4 +1,4 @@
-# Geometría — `distance`, los modelos y las cajas
+# Geometría — `distance`, áreas y cajas
 
 > Pieza de [Cristae](../MODELO.md). Entry propio (`cristae/geometry`), sin efectos: no importa el
 > motor, el [Source](./data.md) ni Leaflet, y sirve suelto en Node o en un worker. Trae también
@@ -7,6 +7,9 @@
 | API | Qué es |
 |---|---|
 | `distance(…)` | el largo de un recorrido o de un path, siempre en metros |
+| `area(model?, zona)` | m² de un anillo, un polígono con huecos o un multipolígono |
+| `perimeter(model?, zona)` | m de todos los bordes de la zona, huecos incluidos, cada anillo cerrado |
+| `diameter(model?, zona)` | m entre los dos vértices más lejanos de la zona |
 | `sphere(radius = 6371008.8)` | modelo esférico, con haversine; sin radio es el modelo por defecto |
 | `ellipsoid(semiMajorAxis, flattening)` | modelo elipsoidal: la geodésica por el problema inverso de Karney |
 | `WGS84` | `ellipsoid(6378137, 1 / 298.257223563)` |
@@ -14,8 +17,9 @@
 | `boundsPad(bounds, ratio)` · `boundsContain(bounds, point)` · `boundsCenter(bounds)` | agrandar, contener y centrar una caja |
 
 `ellipsoid` y `WGS84` traen la dependencia `geographiclib-geodesic`, que entra sólo al bundle de quien
-los importa. Por eso `cristae/map` re-exporta `distance`, `sphere`, `toParts` y `sampleAlong`, y no el
-elipsoide; el prearmado `esm/geometry.js`, en cambio, la trae siempre.
+los importa: las medidas de zona tampoco la cargan si no se les pasa el elipsoide. Por eso
+`cristae/map` re-exporta `distance`, `sphere`, `toParts` y `sampleAlong`, y no el elipsoide; el
+prearmado `esm/geometry.js`, en cambio, la trae siempre.
 
 ## Formas de llamada
 
@@ -75,6 +79,58 @@ El picking de `addCircleLayer` mide con la esfera por defecto, sin opción de mo
 dibuja sobre esa misma esfera —cada vértice a `radius` metros del centro según `arcMeters`—: el borde
 y el hit coinciden a cualquier latitud.
 
+## Áreas, perímetro y diámetro
+
+```js
+import { area, diameter, perimeter, WGS84 } from 'cristae/geometry'
+
+const zona = [
+  [[-37.00, -73.00], [-37.00, -72.98], [-36.98, -72.98], [-36.98, -73.00]],     // exterior
+  [[-36.995, -72.995], [-36.995, -72.99], [-36.99, -72.99], [-36.99, -72.995]], // hueco
+]
+area(zona)                  // m², esfera de radio medio
+area(WGS84, zona)           // m², elipsoide
+perimeter(WGS84, zona)      // m, el exterior y el hueco, cada uno cerrado
+diameter(WGS84, zona)       // m, los dos vértices más lejanos
+```
+
+Una **zona** se escribe como la lee `ringsOf` en la [capa de polígonos](./polygons.md): un anillo
+`[p, …]`, un polígono `[exterior, ...huecos]` o un multipolígono `[polígono, …]`, con los puntos en
+cualquiera de sus cuatro formas. El anillo cierra solo, y repetir el primer punto al final no cambia
+nada. Hay una diferencia a favor de la medida: un anillo de objetos `{ lat, lng }` se mide, mientras
+que la capa no lo reconoce como polígono. Qué nivel tiene una zona, qué mide una vacía o una con un
+vértice inválido y qué lanza lo fija [SPECS §18](../SPECS.md).
+
+- **El modelo va primero y es opcional**, como en `distance`. Las aristas son las geodésicas del
+  modelo —círculos máximos en la esfera, geodésicas en el elipsoide—, así que el área y el perímetro
+  miden los mismos bordes que `distance`. El área es exacta para esas aristas. Un modelo de una copia
+  de Cristae anterior a las áreas sirve a `perimeter` y `diameter`, pero no a `area`, que lanza.
+- **El sentido de giro no importa.** De cada anillo cuenta la menor de las dos regiones que separa,
+  así que una región de más de medio planeta no se puede expresar. El rol lo da la posición: el
+  primer anillo de un polígono es el exterior.
+- **Huecos y partes.** Por polígono, el exterior menos sus huecos; los polígonos de un multipolígono
+  se suman. Con geometría válida se componen como los pinta la capa: XOR dentro de un polígono, OR
+  entre partes. La región no es la misma, porque la capa traza rectas en grados y las aristas de la
+  medida son geodésicas: la diferencia crece con la zona, de 10⁻⁶ en una caja de 1° a 0,25 % en una de
+  10° entre 50° y 60° N. Con geometría inválida es el valor de la fórmula: un hueco más grande que su
+  exterior da un área negativa, que delata el error, y dos partes que se solapan cuentan el solape dos
+  veces, como lo apila la capa (ver [agujeros contra solapes](./polygons.md#agujeros-contra-solapes)).
+  Corregir la geometría es cosa del consumidor.
+- **Antimeridiano.** Las medidas aceptan la figura con la longitud envuelta o sin envolver, y miden lo
+  mismo. La capa, en cambio, dibuja `179 → −179` por el lado largo: una figura que cruza el
+  antimeridiano se escribe sin envolver, con el este pasado de 180, como las cajas.
+- **El diámetro es horizontal** y sólo mira vértices: es la mayor distancia del modelo entre dos de
+  ellos. Con un modelo de otra implementación, qué distancia lo deja exacto lo fija
+  [SPECS §18](../SPECS.md).
+
+La esfera de radio medio y WGS84 difieren en área según la latitud (un cuadrado de 0,01°):
+
+| Latitud | 0° | 20° | 30° | 37° | 45° | 60° | 70° | 80° | 89° |
+|---|---|---|---|---|---|---|---|---|---|
+| esfera − WGS84 | +0,449 % | +0,292 % | +0,113 % | −0,038 % | −0,222 % | −0,557 % | −0,735 % | −0,851 % | −0,891 % |
+
+Para una cifra que se compara con un catastro o un SIG, `area(WGS84, zona)`.
+
 ## Cajas
 
 ```js
@@ -104,6 +160,25 @@ Un path de arrays se lee en su lugar, en una pasada; otro iterable (un `Set`, un
 materializa una vez. Con pares no asigna por vértice, aunque el proceso mezcle formas de punto. Con
 vistas tipadas u objetos, según las formas que el proceso ya haya leído, V8 puede encajonar cada
 componente: medido entre 0 y ~130 B por vértice.
+
+Las medidas de zona leen cada anillo una vez a un `Float64Array` propio: `area` y `perimeter` asignan
+16 B por vértice y por llamada, y `diameter`, que además proyecta y ordena, 84 B. `area` con WGS84
+asigna además un acumulador de la librería geodésica por anillo. Con un círculo de 10 000 vértices y
+2 km:
+
+| Medida | esfera | WGS84 |
+|---|---|---|
+| `area` | 2,1 ms | 33 ms |
+| `perimeter` | 1,7 ms | 39 ms |
+| `diameter` | 15 ms | 76 ms |
+
+`diameter` no mide todos los pares: busca el par sobre el casco de la zona, en O(n log n) más unas
+llamadas al modelo por vértice del casco que crecen con lo ancha que es la zona. En ese círculo de
+2 km son 1,5 por vértice; el mismo círculo a 3 000 km hace 1 138 por vértice y tarda 2,6 s con la
+esfera, porque en zonas continentales con miles de vértices en el casco el costo crece como 0,11·h²
+llamadas. Una zona de más de 45° de radio angular, unos 10 000 km de ancho, se mide sobre todos los
+pares: n(n−1)/2 llamadas. Con el elipsoide el corte llega antes, tanto más cuanto más achatado: con
+WGS84, en 44,6°. Dónde y por qué, [SPECS §18](../SPECS.md).
 
 `sampleAlong` reparte sus muestras por largo en pantalla (EPSG:3857), para decorar: no quedan
 equidistantes en metros.

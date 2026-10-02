@@ -1,7 +1,7 @@
 // La librería geodésica entra sólo al bundle de quien importa `ellipsoid` o `WGS84`. Se empaqueta con
 // esbuild, como lo haría un consumidor, y se busca en la salida un método que sólo tiene esa librería.
-// Si alguien agrega los módulos de geometría a `sideEffects`, o hace que `distance` importe el
-// elipsoide, estos tests suenan.
+// Si alguien agrega los módulos de geometría a `sideEffects`, o hace que `distance` o las medidas de
+// zona importen el elipsoide, estos tests suenan.
 // Corre con: node --test test/geometry/tree-shaking.test.mjs
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -25,6 +25,12 @@ const empaquetar = async contents => (await build({
 test('quien importa distance y sphere de cristae/geometry no carga la librería geodésica', async () => {
   const js = await empaquetar("export { distance, sphere, toParts, sampleAlong } from './src/geometry/index.js'")
   assert.ok(js.includes('Symbol.for'), 'el bundle trae distance')
+  assert.ok(!js.includes(MARCA))
+})
+
+test('quien mide zonas con area, perimeter o diameter tampoco la carga', async () => {
+  const js = await empaquetar("export { area, perimeter, diameter } from './src/geometry/index.js'")
+  assert.ok(js.includes('cristae.geometry.area'), 'el bundle trae las medidas')
   assert.ok(!js.includes(MARCA))
 })
 

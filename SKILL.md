@@ -19,8 +19,8 @@ habla en valores propios (`{ lat, lng }`, `{ x, y }`, `{ south, west, north, eas
 Leaflet. Un mapa Leaflet que ya existe se entrega al motor con `adoptLeafletHost` (abajo).
 
 > Specifiers: `cristae/map` (mapa) · `cristae/core` (datos) · `cristae/table` (tabla) ·
-> `cristae/geojson` (lector) · `cristae/geometry` (distancias en metros, sobre la esfera o el
-> elipsoide WGS84, y cajas en grados).
+> `cristae/geojson` (lector) · `cristae/geometry` (distancias, áreas, perímetros y diámetros en
+> metros, sobre la esfera o el elipsoide WGS84, y cajas en grados).
 > Detalle de cada elemento en [`docs/elements.md`](./docs/elements.md).
 
 ---

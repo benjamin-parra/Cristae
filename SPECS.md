@@ -517,6 +517,8 @@ La **ley** (MODELO §5.4) formalizada como contrato que un implementador debe cu
 | ascenso CSR del lector (§17) | O(log n) **[0-alloc]** | — | — |
 | `propertiesOf` (§17) | — | O(largo del rango) | — |
 | `distance` (§18) | — | — | O(vértices), una pasada; un path de arrays no se copia, otro iterable se materializa una vez |
+| `area` · `perimeter` (§18) | — | — | O(vértices); cada anillo se copia una vez a un `Float64Array` |
+| `diameter` (§18) | — | — | O(n log n) + O(h·(1 + γh/2π)) llamadas al modelo; O(n²) si la zona pasa de 45° de radio angular |
 
 **Objetivo de estado estable** (miles de updates/seg): la ruta caliente —`move`/recolor → encode → `bufferSubData` → draw— es **O(1) por elemento y [0-alloc]**, *bajo precondición de set sin cambios* (id con slot vigente) — path incremental, MODELO §17.5. Es la única garantía de alloc incondicional. Si una implementación asigna por elemento en esta ruta, está mal. **El rebuild NO tiene esa garantía:** `set`/filtro/cluster reescribe y re-sube el buffer entero, O(n), y aloca cuando el set crece. El coalescing acota la *tasa* a ≤1 rebuild/flush de rAF, **no** el costo: si el set cambia cada frame se paga O(n)/frame. Mantener barato el rebuild es responsabilidad del *uso* (que el set cambie poco), no del scheduler (MODELO §17 intro).
 
@@ -552,7 +554,7 @@ La **ley** (MODELO §5.4) formalizada como contrato que un implementador debe cu
 | eventos | `hover` emite el set vigente de cada resolución y `hover:start`/`hover:end` sus cambios; `click` entrega hits ordenados; una pulsación quieta sale por `click` con su hit y, en el vacío, por `map:click`, y el `click` que dispara Leaflet no cuenta; cursor automático; sobre el Leaflet real, ningún payload lleva una instancia de Leaflet |
 | lifecycle | StrictMode doble-mount ⇒ 1 motor; `destroy()` cancela rAF y quita listeners (sin leak) |
 | lector GeoJSON (§17) | corpus de conformidad contra un **oráculo diferencial** sobre `JSON.parse`, nunca contra la implementación; las cuatro formas de entrada dan salidas idénticas byte a byte; fuzzer de mutación sin lectura fuera de rango ni excepción cruda; ausencia de grafo (conteo de asignaciones, no milisegundos) |
-| geometría (§18) | referencias independientes (radios a mano, fórmulas distintas, valores publicados del elipsoide), nunca la misma haversine; las formas de llamada y de punto miden lo mismo; los bordes de §18.1; el tree-shaking del elipsoide, empaquetando |
+| geometría (§18) | referencias independientes (radios a mano, fórmulas distintas, valores publicados del elipsoide), nunca la misma haversine; las formas de llamada y de punto miden lo mismo; los bordes de §18.1; el tree-shaking del elipsoide, empaquetando; el octante y la banda contra fórmulas cerradas; geographiclib con f = 0 como implementación independiente de la esfera, anillos polares incluidos; el diámetro contra la fuerza bruta; una segunda copia empaquetada |
 
 ---
 
@@ -982,7 +984,7 @@ ninguna lectura fuera de rango, ningún camino sin terminación, ninguna excepci
 
 ## 18. Geometría — `cristae/geometry`
 
-> Entry sin efectos, como `cristae/geojson`: funciones puras sobre puntos y paths en grados, no
+> Entry sin efectos, como `cristae/geojson`: funciones puras sobre puntos, paths y zonas en grados, no
 > piezas del mapa. Se contrata acá; la guía de uso y el costo medido están en
 > [`docs/geometry.md`](./docs/geometry.md). `toParts` y `sampleAlong` viajan en el entry con el
 > contrato de [`docs/lines.md`](./docs/lines.md).
@@ -990,6 +992,9 @@ ninguna lectura fuera de rango, ningún camino sin terminación, ninguna excepci
 | API | Firma | Complejidad | Notas |
 |---|---|---|---|
 | `distance` | `(model?, pointA, pointB, ...points)` · `(model?, path) → number` | O(vértices), una pasada | Siempre metros. |
+| `area` | `(model?, polygon) → number` | O(vértices) | m²; región menor por anillo. |
+| `perimeter` | `(model?, polygon) → number` | O(vértices) | m; cada anillo cerrado, huecos incluidos. |
+| `diameter` | `(model?, polygon) → number` | O(n log n) + O(h·(1 + γh/2π)) llamadas al modelo | Horizontal; todos los pares si ρ ≥ 45°. |
 | `sphere` | `(radius = 6371008.8) → EarthModel` | O(1) | El modelo por defecto de `distance`. |
 | `ellipsoid` | `(semiMajorAxis, flattening) → EarthModel` | O(1) | Geodésica por el inverso de Karney. |
 | `WGS84` | `EarthModel` | — | `ellipsoid(6378137, 1 / 298.257223563)`. |
@@ -1009,6 +1014,38 @@ Una **caja** es una `Bounds` `{ south, west, north, east }` cuyas esquinas `(sou
 que reciben `boundsPad`, `boundsContain`, `boundsCenter` y `camera.fitBounds` (§9). Con lo demás, las
 tres primeras dan `null` o `false`.
 
+Una **zona** es un anillo `[p, …]`, un polígono `[exterior, ...huecos]` o un multipolígono
+`[polígono, …]`, con arrays en cada nivel y los vértices en cualquier forma de punto. El nivel lo
+decide la profundidad del primer vértice —lo que no es un array, o un array cuya lat o lng no es un
+objeto—, en orden de lectura y saltando lo nulo y `[]`: a la primera la zona es un anillo, a la segunda
+un polígono y a la tercera un multipolígono. Una lista sin vértices, como `[null, null]`, no decide, y
+una zona donde nada decide no aporta. Dentro de un anillo cada vértice, una ranura vacía de un array
+disperso incluida, tiene que ser punto: el anillo no se corta como un path, porque saltar el vértice
+uniría a sus vecinos con una arista que no existe. Un anillo o un polígono nulo o vacío no aporta, y
+un exterior nulo o vacío se lleva sus huecos sin leerlos. El primer anillo de cada polígono es el
+exterior, sea cual sea su giro. El área de un polígono es |exterior| − Σ |hueco|, la de un
+multipolígono la suma de sus polígonos, y cada anillo cuenta la menor de las dos regiones que separa;
+un anillo de 1 o 2 vértices no encierra nada. `perimeter` suma todas las aristas de todos los anillos,
+la de cierre incluida, sobre un solo total en el orden de lectura: con un anillo es, bit a bit,
+`distance` del anillo cerrado. `diameter` es el máximo de la distancia del modelo entre dos vértices
+cualesquiera de la zona. Lo busca en el casco de la zona, y mide todos los pares en una zona de 45° o
+más de radio angular ρ, o de cot 2ρ ≤ 2·A, con A cuánto se aparta de 1 la razón entre la escala
+norte–sur y la este–oeste del modelo en el ecuador. Fuera de esos casos es exacto sólo si la distancia
+es la geodésica de un elipsoide de revolución, como la de `sphere` y `ellipsoid`: en la esfera está
+demostrado, y en el elipsoide el umbral se midió contra la fuerza bruta con achatamientos de 1/298 a
+0,95, donde la última falla está en cot 2ρ = 0,76·A.
+
+El **protocolo de modelo** son marcas en el registro global de símbolos, así que un modelo de una
+copia de la librería sirve en otra. Las marcas se agregan entre versiones y sus firmas no cambian:
+
+| Marca | Firma | La traen | Contrato |
+|---|---|---|---|
+| `Symbol.for('cristae.geometry.model')` | `(lat1, lng1, lat2, lng2) → number` | todo modelo | los metros entre dos puntos válidos, en grados |
+| `Symbol.for('cristae.geometry.area')` | `(coords: Float64Array, count: number) → number` | `sphere(r)`, `ellipsoid(a, f)`, `WGS84` | `coords` intercala `[lat₀, lng₀, lat₁, lng₁, …]` en grados, y sus primeros `count ≥ 3` vértices son puntos válidos; la arista del último al primero está implícita. Devuelve los m² sin signo de la menor de las dos regiones que separa el anillo, en [0, A₀/2] (A₀, el área total del modelo). Sólo lee `coords`, y sólo durante la llamada |
+
+Un modelo sin la marca de área —de una copia anterior a las áreas, o de otra implementación— sigue
+sirviendo a `distance`, `perimeter` y `diameter`.
+
 ### 18.1 Bordes
 
 **Eliminados por arquitectura** — no chequear:
@@ -1017,7 +1054,8 @@ tres primeras dan `null` o `false`.
 |---|---|
 | un modelo de otra copia de la librería no se reconoce | la marca va en el registro global de símbolos, no es una clase |
 | un modelo inválido a mitad de un track | las fábricas validan al construir |
-| la librería geodésica en el bundle de quien no usa el elipsoide | `distance` no importa `ellipsoid.js`, y ningún módulo del entry figura en `sideEffects` |
+| la librería geodésica en el bundle de quien no usa el elipsoide | ni `distance` ni las medidas de zona importan `ellipsoid.js`, y ningún módulo del entry figura en `sideEffects` |
+| la composición de una zona —exterior menos huecos, suma de partes— atada al protocolo entre copias | el núcleo de área va por anillo; la composición vive en `area` |
 
 **Que SÍ requieren manejo:**
 
@@ -1042,6 +1080,23 @@ tres primeras dan `null` o `false`.
 | una `Bounds` invertida | no se reordena: nombra sus lados, así que no es una caja |
 | un `L.LatLngBounds` o cualquier objeto con métodos en vez de lados | no es una caja |
 | un ratio que invierte la caja, o no finito | `boundsPad` da `null` |
+| una zona `null`, `undefined`, `[]`, `[[]]` o `[null]` | `area`, `perimeter` y `diameter` dan 0 |
+| un anillo de 1 vértice | 0 en las tres medidas |
+| un anillo de 2 vértices a distancia d | `area` 0, `perimeter` 2d (ida y vuelta), `diameter` d |
+| el primer vértice repetido al final | mide igual que sin repetir |
+| un vértice inválido en cualquier anillo de la zona | `NaN` en las tres medidas |
+| una zona que no es array ni nula (`{ lat, lng }`, un `Set`, `42`), o lo que no es array, ni nulo, ni `[]` en la posición de un anillo o de un polígono | `NaN` |
+| un modelo o una función como zona; más de dos argumentos; dos y el primero no es modelo | `TypeError('[area] recibe (model?, polygon): …')`, con el nombre de cada medida |
+| `area` con un modelo sin la marca de área | `TypeError('[area] este modelo no mide áreas: …')` |
+| `diameter` con un modelo que trae `Symbol.for('cristae.geometry.relief')`, la marca de un terreno | `TypeError('[diameter] mide en horizontal: …')` |
+| el sentido de giro de cualquier anillo | no cuenta: los anillos se miden sin signo y el rol lo da la posición |
+| un anillo que rodea un polo | se corrige por su giro neto y mide la región polar que encierra |
+| un vértice en un polo | vale con cualquier longitud |
+| una zona que cruza el antimeridiano | mide lo mismo escrita con la longitud envuelta o sin envolver; la capa la dibuja bien sólo sin envolver |
+| una arista con \|Δλ\| = 180° exacto | pasa por un polo y es ambigua: vale lo que dé la fórmula, sin contrato |
+| un hueco más grande que su exterior | el área sale negativa, sin acotar: el signo delata la geometría |
+| dos partes que se solapan | el solape cuenta dos veces, como lo apila la capa |
+| un anillo que se corta a sí mismo | suma sus lóbulos con signo; corregir geometría es del consumidor |
 
 ### 18.2 Test
 
@@ -1050,3 +1105,14 @@ WGS84 contra valores publicados (a·π/180, el cuadrante meridiano, Flinders Pea
 medida y la misma caja por puntos variádicos, por un path plano y por uno anidado, en las cuatro formas
 de punto; un par de esquinas en cualquier orden; cada borde de §18.1; empaquetar sólo `distance` no
 trae la librería geodésica.
+
+Las medidas de zona: el octante y una banda de 1° contra fórmulas cerradas, en la esfera y en WGS84;
+anillos polares, anillos que se superponen a sí mismos, polígonos sembrados y mil cuadriláteros
+irregulares de pocas hectáreas, en los dos giros, contra la geographiclib con f = 0, una
+implementación independiente de la esfera; el antimeridiano escrito de las dos formas; huecos,
+partes, cierre repetido y formas de punto con resultados idénticos, sobre anillos irregulares, y los
+dos giros a 10⁻¹²; `perimeter` contra `distance` del anillo cerrado y contra el perímetro de
+`PolygonArea`; `diameter` contra la fuerza bruta, en círculos sesgados de 1 a 3 000 km, nubes al azar
+y zonas de casi 90° de ancho en el elipsoide, y su costo con un modelo que cuenta llamadas; un modelo de
+otra versión y uno de terceros; una segunda copia empaquetada del entry que intercambia modelos con la
+primera; empaquetar las medidas no trae la librería geodésica.

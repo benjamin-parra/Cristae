@@ -1,7 +1,6 @@
-// Búsqueda binaria del PUNTO DE PARTICIÓN sobre un array ordenado ascendente. Pura y sin dominio:
-// la comparten las dos capas de hit-test (polígonos, líneas) para saltar en O(log n) los items cuyo
-// bbox queda del todo a un lado del punto de consulta. Un solo bucle; el BORDE del rango (estricto vs
-// inclusivo) lo fija el comparador que pasa cada caller, así que las dos semánticas viven en un lugar.
+// Búsqueda binaria del PUNTO DE PARTICIÓN sobre un array ordenado ascendente, en O(log n). Pura y sin
+// dominio. Un solo bucle; el BORDE del rango (estricto vs inclusivo) lo fija el comparador que pasa
+// cada caller, así que las dos semánticas viven en un lugar.
 
 // Índice del primer elemento que ya NO queda "antes" del punto, según `before(item, value)`. `arr` debe
 // estar ordenado de modo que `before` sea monótono sobre él (true…true false…false). Devuelve `lo` en

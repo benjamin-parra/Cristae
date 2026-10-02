@@ -1,4 +1,4 @@
-// Tipos del entry `cristae/geometry` (funciones puras sobre puntos y paths en grados).
+// Tipos del entry `cristae/geometry` (funciones puras sobre puntos, paths y zonas en grados).
 // Sin efectos: no toca DOM, Leaflet, Lit ni el núcleo de datos. `cristae/map` re-exporta
 // `distance`, `sphere`, `toParts` y `sampleAlong` desde acá. Mantener sincronizado con
 // src/geometry/index.js.
@@ -26,6 +26,15 @@ type PointOrHole = LatLngPoint | null | undefined;
  *  normaliza `toParts`. */
 export type LatLngPath = Iterable<PointOrHole> | Iterable<Iterable<PointOrHole> | null | undefined>;
 
+/** Una zona en grados, como la acepta `ringsOf` en la capa de polígonos: un anillo `[p, …]`, un
+ *  polígono `[exterior, ...huecos]` o un multipolígono `[polígono, …]`. Los niveles son arrays y los
+ *  puntos van en cualquiera de sus cuatro formas. El anillo cierra solo: repetir el primer punto al
+ *  final no cambia nada. El sentido de giro no importa. Un vértice que no es punto da `NaN`. */
+export type LatLngPolygon =
+  | readonly PointOrHole[]
+  | readonly (readonly PointOrHole[] | null | undefined)[]
+  | readonly (readonly (readonly PointOrHole[] | null | undefined)[] | null | undefined)[];
+
 /** Una posición en grados, como la devuelven la cámara, los eventos y `boundsCenter`. */
 export interface LatLng {
   lat : number;
@@ -46,7 +55,8 @@ export interface Bounds {
  *  cuya caja es la de los dos puntos. */
 export type BoundsLike = Bounds | readonly [LatLngPoint, LatLngPoint];
 
-/** Un modelo de la Tierra para `distance`, hecho con `sphere` o `ellipsoid`: inmutable y opaco. */
+/** Un modelo de la Tierra para `distance` y las medidas de zona, hecho con `sphere` o `ellipsoid`:
+ *  inmutable y opaco. */
 export type EarthModel = { readonly __earthModel: unique symbol };
 
 // El argumento de path de las funciones de puntos variádicos, `distance` y `boundsOf`: un punto solo
@@ -86,6 +96,25 @@ export function distance(path: PathArgument): number;
 export function distance(model: EarthModel, pointA: PointOrHole, pointB: PointOrHole, ...points: PointOrHole[]): number;
 /** El path, medido con `model`. */
 export function distance(model: EarthModel, path: PathArgument): number;
+
+/** Área en m² de la zona: por polígono, el exterior menos sus huecos, y los polígonos se suman. Las
+ *  aristas son geodésicas del modelo; sin modelo, la esfera de radio medio. De cada anillo cuenta la
+ *  menor de las dos regiones que separa. Una zona nula, vacía o sin anillos mide 0. Un vértice que no
+ *  es punto, o una zona que no es array, da `NaN`. Lanza `TypeError` si el modelo no va primero, si
+ *  llega sin construir, si sobra un argumento o si el modelo no mide áreas. Ver docs/geometry.md. */
+export function area(polygon: LatLngPolygon | null | undefined): number;
+export function area(model: EarthModel, polygon: LatLngPolygon | null | undefined): number;
+
+/** Largo en m de todos los bordes de la zona, huecos incluidos, con cada anillo cerrado. Los bordes y
+ *  los errores son los de `area`, salvo el del modelo sin áreas: cualquier modelo sirve. */
+export function perimeter(polygon: LatLngPolygon | null | undefined): number;
+export function perimeter(model: EarthModel, polygon: LatLngPolygon | null | undefined): number;
+
+/** La mayor distancia en m entre dos vértices de la zona, medida con el modelo. Con menos de dos
+ *  vértices distintos, 0. Los bordes y los errores son los de `perimeter`, y además lanza `TypeError`
+ *  con un terreno: mide en horizontal. Con un modelo de otra implementación, ver SPECS §18. */
+export function diameter(polygon: LatLngPolygon | null | undefined): number;
+export function diameter(model: EarthModel, polygon: LatLngPolygon | null | undefined): number;
 
 /** Una esfera de radio `radius` en metros, con haversine. Sin argumento es el modelo por defecto de
  *  `distance`; otro radio sirve para reproducir las cifras de un sistema que mide con él. Lanza

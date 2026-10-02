@@ -8,6 +8,11 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
 ## [Sin publicar]
 
 ### Agregado
+- **`cristae/geometry` mide zonas.** `area`, `perimeter` y `diameter` aceptan un anillo, un polígono
+  con huecos o un multipolígono en cualquier forma de punto, con el modelo opcional primero, como
+  `distance`: m² y m sobre la esfera, el elipsoide o WGS84. El área es exacta para aristas geodésicas
+  y no depende del sentido de giro. Ver [`docs/geometry.md`](docs/geometry.md#áreas-perímetro-y-diámetro).
+  *Migración*: ninguna.
 - **Los polígonos dibujan `dash`.** `styleOf.dash` es un patrón en píxeles de pantalla que corre
   continuo a lo largo del anillo; con `null` o ausente el trazo es continuo. Lo consumen también los
   círculos en metros. Ver [`docs/polygons.md`](docs/polygons.md#estilo).
