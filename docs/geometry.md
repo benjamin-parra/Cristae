@@ -13,6 +13,7 @@
 | `terrain(model?, source, bounds, options?)` | carga las alturas de una caja desde tiles de altura: `Promise<Terrain>` |
 | `terrainPresets` | datos: `{ aws, mapterhorn }`, dos proveedores públicos, como `tilePresets` |
 | `relief(terrain, zona, breaks?)` | altura y pendiente de una zona, y m² de superficie por clase de pendiente |
+| `elevation(terrain, point)` | la altura del terreno en un punto, en m, bilineal; `NaN` fuera de la caja o sin dato |
 | `sphere(radius = 6371008.8)` | modelo esférico, con haversine; sin radio es el modelo por defecto |
 | `ellipsoid(semiMajorAxis, flattening)` | modelo elipsoidal: la geodésica por el problema inverso de Karney |
 | `WGS84` | `ellipsoid(6378137, 1 / 298.257223563)` |
@@ -21,9 +22,10 @@
 
 `ellipsoid` y `WGS84` traen la dependencia `geographiclib-geodesic`, que entra sólo al bundle de quien
 los importa: las medidas de zona tampoco la cargan si no se les pasa el elipsoide. Lo mismo vale para
-el cargador de tiles de `terrain` y `relief`: no entra a quien no los importa, y `terrainPresets`
-solo son datos. Por eso `cristae/map` re-exporta `distance`, `sphere`, `toParts` y `sampleAlong`, y
-no el elipsoide ni el terreno; el prearmado `esm/geometry.js`, en cambio, los trae siempre.
+el cargador de tiles de `terrain`, `relief` y `elevation`: no entra a quien no los importa, y
+`terrainPresets` solo son datos. Por eso `cristae/map` re-exporta `distance`, `sphere`, `toParts` y
+`sampleAlong`, y no el elipsoide ni el terreno; el prearmado `esm/geometry.js`, en cambio, los trae
+siempre.
 
 ## Formas de llamada
 
@@ -138,11 +140,13 @@ Para una cifra que se compara con un catastro o un SIG, `area(WGS84, zona)`.
 ## Terreno
 
 ```js
-import { boundsOf, relief, terrain, terrainPresets, WGS84 } from 'cristae/geometry'
+import { area, boundsOf, elevation, relief, terrain, terrainPresets, WGS84 } from 'cristae/geometry'
 
 const t = await terrain(WGS84, terrainPresets.aws, boundsOf(zona), { signal })
 t.cellSize                      // m, el lado de una celda en el centro de la caja
 relief(t, zona, [0.15, 0.3])    // ver «Relieve»
+elevation(t, punto)             // m, bilineal sobre la grilla
+area(t, zona)                   // m² de superficie (ver «Medir sobre el relieve»)
 ```
 
 `terrain(model?, source, bounds, options?)` carga las alturas de una caja desde tiles XYZ de altura y
@@ -250,7 +254,8 @@ otra copia de la librería.
   √(1 + p²) m² a su clase. Un catastro informa áreas horizontales: la total es `area(base, zona)`, y
   la horizontal con dato, `area(base, zona) − noData`.
 - **`noData`** son los m² HORIZONTALES de la zona que caen en celdas sin dato: sin alturas no hay
-  relieve que medir. Con `noData = 0`, `Σ slope.areas` es el área de superficie de la zona.
+  relieve que medir. Con `noData = 0`, `Σ slope.areas` es el área de superficie de la zona,
+  `area(t, zona)`.
 - **Bordes.** Una zona vacía no tiene celdas: alturas y pendientes `NaN`, áreas y `noData` en 0. Un
   vértice que no es punto, o que cae fuera de `t.bounds`, da todos los campos `NaN`. El detalle está
   en [SPECS §18](../SPECS.md).
@@ -262,6 +267,39 @@ const r        = relief(t, zona, [0.3])
 const empinada = r.slope.areas[1]                         // m² de superficie con pendiente ≥ 30 %
 const fraccion = empinada / (r.slope.areas[0] + empinada) // sobre la superficie con dato
 ```
+
+## Medir sobre el relieve
+
+```js
+distance(t, a, b)    // m sobre la superficie
+area(t, zona)        // m² de superficie
+perimeter(t, zona)   // m sobre la superficie
+elevation(t, punto)  // m sobre el nivel del DEM
+```
+
+**El terreno es un modelo.** Pasado en el lugar del modelo a `distance`, `area` o `perimeter`, mide
+sobre el relieve en vez de sobre el plano del modelo base. `diameter` lo rechaza con `TypeError`: el
+diámetro de una zona es una medida horizontal. El terreno no se pasa como base de otro terreno.
+
+- **`distance`** sigue el tramo en línea recta en Mercator, no por la geodésica, con una altura
+  bilineal cada media celda. Sobre una rampa de pendiente s da la distancia de la base por √(1 + s²)
+  en el sentido de la pendiente, y la de la base a lo largo de una curva de nivel. En terreno plano da
+  la de la base con un error relativo ≤ 10⁻¹², no bit a bit, y el redondeo puede dejarla debajo. La
+  recta en Mercator se aparta de la geodésica lo que dice el punto 5 de «Lo que el DEM permite
+  afirmar»: menos que una celda hasta decenas de km. `perimeter` suma `distance` de cada arista.
+- **`area`** es el área de la base por el factor medio de superficie √(1 + p²) de las celdas que la
+  zona cubre, ponderado por cobertura, con la pendiente de Horn de `relief`. En terreno plano es la
+  de la base bit a bit; sobre una zona menor que una celda rige la pendiente de las que toca.
+- **`elevation`** lee la grilla con interpolación bilineal entre los centros de celda: el valor de un
+  píxel rige en su centro. Un vecino sin dato da `NaN` aunque el punto caiga justo en el centro de
+  una celda con dato.
+- **`NaN` y no un cálculo parcial** si un extremo de `distance` o un vértice de `area` cae fuera de
+  `t.bounds`, o si el tramo o la zona toca una celda sin dato: una cifra parcial parecería completa.
+  La fila de celdas pegada al límite de la proyección, ±85,0511°, no tiene vecina hacia el polo: su
+  pendiente es sin dato, y su media celda exterior no tiene altura.
+- **Es de otra copia.** Como `relief`, el terreno se lee por sus marcas
+  (`Symbol.for('cristae.geometry.model' | 'area' | 'elevation' | 'relief')`): el de una copia de la
+  librería mide en otra con las mismas cifras.
 
 ## Cajas
 
@@ -320,12 +358,27 @@ asigna un acumulador de 8 B por celda de la caja de la zona y recorre las celdas
 
 | Celdas que toca la zona | `relief` |
 |---|---|
-| 300 × 300 | 13 ms |
-| 1 000 × 1 000 | 65-110 ms |
+| 300 × 300 | 8-12 ms |
+| 1 000 × 1 000 | 90-120 ms |
 
-La cobertura de la zona es lo de menos (6,5 ms en 1 000 × 1 000); el resto es la pendiente de cada
-celda. El número de vértices pesa lo que pesa `area` sobre la base: con la esfera, 200 o 10 000 en
-300 × 300 celdas dan lo mismo, y con WGS84 los 10 000 suman unos 30 ms.
+La cobertura de la zona es lo de menos (unos 15 ms en 1 000 × 1 000); el resto es la pendiente de
+cada celda. El número de vértices pesa lo que pesa `area` sobre la base: con la esfera, 200 o 10 000
+en 300 × 300 celdas dan lo mismo, y con WGS84 los 10 000 suman unos 30 ms.
+
+Medir con el terreno, en una caja de 13 × 13 km a z12 de tiles de 256 (~430 × 430 celdas), una
+corrida de 2 000 a 200 000 llamadas según la medida:
+
+| Con el terreno | Costo |
+|---|---|
+| `distance`, 10 km (unos 660 pasos) | 32 µs (0,7 µs la esfera sola) |
+| `perimeter`, anillo de 4 vértices de 13 km | 0,12 ms |
+| `area`, la caja entera | 15 ms |
+| `elevation` | 0,3 µs |
+
+El bucle de `distance` sobre el terreno no asigna: sólo usa números locales, y con la esfera como base
+2 millones de llamadas no hacen crecer el montón en proporción. La distancia de la base, una por
+tramo, asigna lo que asigne ese modelo: con el elipsoide, el resultado de la geodésica. `area` recorre
+las celdas que la zona toca como `relief`.
 
 `sampleAlong` reparte sus muestras por largo en pantalla (EPSG:3857), para decorar: no quedan
 equidistantes en metros.

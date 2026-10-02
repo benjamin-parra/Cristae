@@ -521,6 +521,8 @@ La **ley** (MODELO §5.4) formalizada como contrato que un implementador debe cu
 | `diameter` (§18) | — | — | O(n log n) + O(h·(1 + γh/2π)) llamadas al modelo; O(n²) si la zona pasa de 45° de radio angular |
 | `terrain` (§18) | — | — | O(tiles) pedidos de red, a lo sumo 6 en vuelo, + O(píxeles) de decodificación + O(filas) llamadas al modelo base |
 | `relief` (§18) | — | — | O(vértices + celdas de la caja de la zona); asigna 8 B por celda de esa caja |
+| `elevation` (§18) | — | — | O(1) **[0-alloc]** |
+| `distance` con un terreno (§18) | — | — | O(L) pasos de media celda por tramo, **[0-alloc]** en el bucle de pasos; la distancia del modelo base, una por tramo, asigna lo que asigne ese modelo (la esfera, nada). `area` y `perimeter` con un terreno, como `relief` y como `distance` por arista |
 
 **Objetivo de estado estable** (miles de updates/seg): la ruta caliente —`move`/recolor → encode → `bufferSubData` → draw— es **O(1) por elemento y [0-alloc]**, *bajo precondición de set sin cambios* (id con slot vigente) — path incremental, MODELO §17.5. Es la única garantía de alloc incondicional. Si una implementación asigna por elemento en esta ruta, está mal. **El rebuild NO tiene esa garantía:** `set`/filtro/cluster reescribe y re-sube el buffer entero, O(n), y aloca cuando el set crece. El coalescing acota la *tasa* a ≤1 rebuild/flush de rAF, **no** el costo: si el set cambia cada frame se paga O(n)/frame. Mantener barato el rebuild es responsabilidad del *uso* (que el set cambie poco), no del scheduler (MODELO §17 intro).
 
@@ -1000,6 +1002,7 @@ ninguna lectura fuera de rango, ningún camino sin terminación, ninguna excepci
 | `terrain` | `(model?, source, bounds, options?) → Promise<Terrain>` | O(tiles) de red + O(píxeles) | Lo único asíncrono; todo error es un rechazo. |
 | `terrainPresets` | `{ aws, mapterhorn }` | — | Datos, como `tilePresets`. |
 | `relief` | `(terrain, polygon, breaks?) → Relief` | O(vértices + celdas de la caja de la zona) | Alturas en m, pendiente en razón, áreas de superficie por clase. |
+| `elevation` | `(terrain, point) → number` | O(1) **[0-alloc]** | m, bilineal entre centros de celda; `NaN` si el punto no es válido, sale de la caja o toca una celda sin dato. |
 | `sphere` | `(radius = 6371008.8) → EarthModel` | O(1) | El modelo por defecto de `distance`. |
 | `ellipsoid` | `(semiMajorAxis, flattening) → EarthModel` | O(1) | Geodésica por el inverso de Karney. |
 | `WGS84` | `EarthModel` | — | `ellipsoid(6378137, 1 / 298.257223563)`. |
@@ -1045,13 +1048,15 @@ copia de la librería sirve en otra. Las marcas se agregan entre versiones y sus
 
 | Marca | Firma | La traen | Contrato |
 |---|---|---|---|
-| `Symbol.for('cristae.geometry.model')` | `(lat1, lng1, lat2, lng2) → number` | todo modelo | los metros entre dos puntos válidos, en grados |
-| `Symbol.for('cristae.geometry.area')` | `(coords: Float64Array, count: number) → number` | `sphere(r)`, `ellipsoid(a, f)`, `WGS84` | `coords` intercala `[lat₀, lng₀, lat₁, lng₁, …]` en grados, y sus primeros `count ≥ 3` vértices son puntos válidos; la arista del último al primero está implícita. Devuelve los m² sin signo de la menor de las dos regiones que separa el anillo, en [0, A₀/2] (A₀, el área total del modelo). Sólo lee `coords`, y sólo durante la llamada |
+| `Symbol.for('cristae.geometry.model')` | `(lat1, lng1, lat2, lng2) → number` | todo modelo | los metros entre dos puntos válidos, en grados. Un terreno los mide sobre el relieve, y da `NaN` con un extremo fuera de su caja o un tramo que toca una celda sin dato |
+| `Symbol.for('cristae.geometry.area')` | `(coords: Float64Array, count: number) → number` | `sphere(r)`, `ellipsoid(a, f)`, `WGS84`, los terrenos | `coords` intercala `[lat₀, lng₀, lat₁, lng₁, …]` en grados, y sus primeros `count ≥ 3` vértices son puntos válidos; la arista del último al primero está implícita. Devuelve los m² sin signo de la menor de las dos regiones que separa el anillo, en [0, A₀/2] (A₀, el área total del modelo). Un terreno devuelve esa área de su modelo base por el factor de superficie, que puede pasar de A₀/2, o `NaN` con un vértice fuera de su caja o una celda que cuenta sin dato. Sólo lee `coords`, y sólo durante la llamada |
+| `Symbol.for('cristae.geometry.elevation')` | `(lat: number, lng: number) → number` | sólo los terrenos | la altura en m en un punto válido, bilineal entre los centros de celda; `NaN` fuera de la caja o con un vecino sin dato |
 | `Symbol.for('cristae.geometry.relief')` | `(polygons: Float64Array[][], breaks: Float64Array) → Relief` | sólo los terrenos | `polygons[p][0]` es el exterior y lo que sigue son sus huecos; cada anillo es un `Float64Array` intercalado de largo exacto 2·n, con n ≥ 1 y todos sus vértices válidos. `breaks` ya viene validado. Devuelve un objeto nuevo y no retiene ni muta los argumentos |
 
 Un modelo sin la marca de área —de una copia anterior a las áreas, o de otra implementación— sigue
-sirviendo a `distance`, `perimeter` y `diameter`. Un terreno se reconoce por la marca de relieve:
-`diameter` lo rechaza como modelo y `terrain` como base. `relief` se despacha por esa marca, porque el
+sirviendo a `distance`, `perimeter` y `diameter`. Un terreno es un modelo —trae `model` y `area`— que
+además trae `elevation` y `relief`, y se reconoce por la marca de relieve: `diameter` lo rechaza
+como modelo y `terrain` como base. `relief` y `elevation` se despachan por sus marcas, porque el
 cálculo necesita las alturas, que viven en la clausura de la copia que cargó el terreno: su layout no
 es contrato.
 
@@ -1078,6 +1083,15 @@ suma de los pesos de todas las celdas que cuentan, `slope.areas[k]` es Σ w·√
 celdas con dato de la clase k (superficie), y `noData` es Σ w·A/W sobre las celdas sin dato
 (horizontal). Sin celdas con dato, las áreas son 0 y `noData` es A.
 
+Como **modelo**, el terreno mide sobre el relieve. Su `model` ubica los extremos en la grilla en
+(u, v), en celdas desde el centro de la primera, y recorre el tramo en línea recta en píxeles con
+n = máx(1, ⌈2·L⌉) pasos, con L el largo en celdas. Con D los metros del modelo base entre los extremos
+y d = D/n, suma Σ √(d² + Δz²) sobre las alturas bilineales de cada paso. Su `area` es la del modelo
+base por Σ w·√(1 + p²) / Σ w, con la cobertura y la pendiente de Horn del relieve, y sin celdas que
+cuenten es la del modelo base. En terreno plano las dos sumas coinciden y el área es la de la base bit
+a bit. `elevation` es la bilineal de las cuatro celdas que rodean al punto, con el valor de cada píxel
+en su centro. Los `NaN` de las tres están en §18.1.
+
 ### 18.1 Bordes
 
 **Eliminados por arquitectura** — no chequear:
@@ -1090,6 +1104,7 @@ celdas con dato de la clase k (superficie), y `noData` es Σ w·A/W sobre las ce
 | la composición de una zona —exterior menos huecos, suma de partes— atada al protocolo entre copias | el núcleo de área va por anillo; la composición vive en `area` |
 | el terreno en el bundle de quien no lo importa | ningún módulo de medida importa `terrain.js`; `terrainPresets` son datos |
 | un terreno como base de otro | `terrain` lo rechaza al construir |
+| un terreno de otra copia de la librería | `distance`, `area`, `perimeter` y `elevation` lo leen por sus marcas |
 | el layout del ráster como contrato entre copias | `relief` se despacha por la marca del terreno, que calcula con lo que guarda en su clausura |
 
 **Que SÍ requieren manejo:**
@@ -1149,6 +1164,11 @@ celdas con dato de la clase k (superficie), y `noData` es Σ w·A/W sobre las ce
 | `terrain`: PNG sin `DecompressionStream` (Safari < 16.4, Firefox < 113) | rechaza `Error('[terrain] este entorno no decodifica PNG: le falta DecompressionStream')` |
 | `terrain`: WebP sin `createImageBitmap` u `OffscreenCanvas` (Node), o en un navegador que altera los píxeles que lee | rechaza con el mensaje de entorno o el del canario, que recomiendan una fuente PNG |
 | `terrain`: todos los tiles responden 404 o 204 | rechaza `Error('[terrain] ningún tile de la caja trae datos a z=Z')` |
+| `elevation`: el primer argumento no trae la marca de elevación | `TypeError('[elevation] el primer argumento tiene que ser un terreno: …')` |
+| `elevation` con un punto que no es un punto, fuera de `terrain.bounds` o junto a una celda sin dato | `NaN` |
+| `distance` o `perimeter` con un terreno, con un extremo fuera de la caja o un tramo que toca una celda sin dato | `NaN` |
+| `area` con un terreno, con un vértice fuera de la caja o una celda que cuenta sin dato | `NaN`, salvo en un anillo de 1 o 2 vértices: no encierra nada y aporta 0 sin consultar el terreno |
+| la fila de celdas pegada a ±85,0511°, el límite de la proyección, sin vecina hacia el polo | su pendiente es sin dato (`noData` en `relief`, `NaN` en `area`), y su media celda exterior no tiene altura (`NaN` en `elevation` y `distance`) |
 | `relief`: el primer argumento no trae la marca de relieve | `TypeError('[relief] el primer argumento tiene que ser un terreno: …')` |
 | `relief`: `breaks` que no es `undefined` ni un array | `TypeError('[relief] breaks tiene que ser un array de cortes')` |
 | `relief`: un corte no finito, < 0 o fuera de orden estrictamente creciente, una ranura vacía incluida | `RangeError('[relief] breaks: …')` |
@@ -1190,3 +1210,17 @@ contra PIL y la media de un rectángulo y de un polígono con hueco; `noData` co
 celdas contadas a mano y contra el recorte a mano de un triángulo; el invariante de las áreas y
 `noData` contra el área de la base en terreno plano; una segunda copia empaquetada que describe un
 terreno de la primera; empaquetar `terrainPresets` solo no trae el cargador.
+
+El terreno como modelo: terreno plano contra la base (`area` bit a bit, `distance` y `perimeter` a
+10⁻¹², con la esfera y con WGS84); una rampa de 0,3 contra la distancia de la base por √(1 + s²) a lo
+largo de un meridiano y la de la base a lo largo de un paralelo, y contra el área de la base por
+√(1 + s²), también en una zona menor que una celda; un quiebre de pendiente de 0,1 a 0,4 en un centro
+de celda, contra la suma de las dos partes del tramo por su √(1 + s²) (meridiano, paralelo y
+perímetro), que atrapa un muestreo más grueso que media celda y la grilla corrida en cualquiera de los
+dos ejes; el mismo quiebre contra el factor de Horn calculado a mano por fila y ponderado por
+cobertura·área, con una fila cubierta en un décimo; `Σ slope.areas = area(t, zona)` con `noData = 0`, a
+10⁻¹² con un anillo y a 10⁻⁶ con un hueco; un elipsoide de achatamiento 0,2 sobre su propia rampa,
+contra el área de esa base por √(1 + s²); los `NaN` por cada lado de la caja, a menos de una celda y
+dentro del mosaico, y por un 404; `diameter` que lo rechaza; `elevation` contra una rampa diagonal,
+donde medio píxel de corrimiento en cualquier eje da metros; y una segunda copia que mide con un
+terreno de la primera.

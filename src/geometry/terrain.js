@@ -1,6 +1,7 @@
-// Terreno: las alturas de una caja, cargadas de tiles de altura XYZ, y el relieve de una zona sobre
-// ellas. Es lo único asíncrono del entry y lo único que toca la red, siempre por el `fetch` que se le
-// pase. Ningún módulo de medida lo importa, así que no entra al bundle de quien no lo usa.
+// Terreno: las alturas de una caja, cargadas de tiles de altura XYZ. Es un modelo de medida (distancia
+// y área sobre el relieve), y de él se lee el relieve de una zona. Es lo único asíncrono del entry y lo
+// único que toca la red, siempre por el `fetch` que se le pase. Ningún módulo de medida lo importa, así
+// que no entra al bundle de quien no lo usa.
 //
 // La grilla es la de los tiles en Web Mercator: N = tileSize·2^zoom píxeles por vuelta, y cada píxel es
 // una celda cuyo valor rige en su centro. El mosaico cubre la caja con un margen de 2 celdas, que le da
@@ -9,7 +10,8 @@
 // sobre ese modelo y no hereda la escala de Mercator. Lo que no llega —un tile 404 o 204, un píxel de
 // alfa 0— queda NaN y no se rellena con el tile padre: mezclar resoluciones aparentaría un detalle que
 // no hay.
-import { AREA, MODEL, RELIEF, byDefault, isModel } from './geodesic.js'
+import { AREA, ELEVATION, MODEL, RELIEF, byDefault, isModel } from './geodesic.js'
+import { coordOf, isPoint } from '../data/path.js'
 import { areaStep, foldRings } from './measure.js'
 import { readBounds } from './bounds.js'
 import { decodeTile } from './raster.js'
@@ -58,11 +60,25 @@ const blankRelief = (classes, value) => ({
   noData    : value,
 })
 
+// La altura bilineal de la grilla en (u, v), en celdas desde el centro de la primera. Un vecino sin
+// dato da NaN aunque su peso sea 0 (0·NaN), y una lectura fuera del mosaico —sólo en la fila de borde
+// polar— también, porque `heights[k]` ahí es undefined. Pura y sin asignaciones: el camino de `distance`.
+const bilinear = (heights, W, u, v) => {
+  const i   = Math.floor(u)
+  const j   = Math.floor(v)
+  const fu  = u - i
+  const fv  = v - j
+  const k   = j * W + i
+  const top = heights[k] + (heights[k + 1] - heights[k]) * fu
+  const bot = heights[k + W] + (heights[k + W + 1] - heights[k + W]) * fu
+  return top + (bot - top) * fv
+}
+
 // El modelo base, si viene, va primero, como en `distance`. Un terreno también se lee en ese lugar,
-// para rechazarlo: no es una base, porque sus medidas no son horizontales. Todo error llega como
+// para rechazarlo: no es una base, porque sus medidas ya son sobre el relieve. Todo error llega como
 // rechazo, y lo síncrono se valida antes de mirar la señal y antes del primer pedido.
 export const terrain = async (...args) => {
-  const base = isModel(args[0]) || args[0]?.[RELIEF] ? args.shift() : byDefault
+  const base = isModel(args[0]) ? args.shift() : byDefault
   if (typeof base[AREA] !== 'function' || base[RELIEF])
     throw new TypeError('[terrain] el modelo base tiene que medir áreas y no ser un terreno')
   const [source, bounds, options = {}] = args
@@ -91,10 +107,15 @@ export const terrain = async (...args) => {
   // Lleva la longitud a [west, west + 360), porque la caja no envuelve, restando un múltiplo de 360: una
   // longitud de la caja queda tal cual, y la de otra copia repite la suma de quien desenvolvió la caja,
   // así que su borde este no sale un ulp al este. Justo debajo de west + 360 puede caer un ulp al oeste
-  // de west: por eso `relief` mira los dos lados.
+  // de west: por eso `boxed`, el único chequeo de caja, mira los dos lados.
   const inBox = lng => lng - 360 * Math.floor((lng - west) / 360)
+  const boxed = (lat, lng) => lat >= south && lat <= north && lng >= west && lng <= east
   const px0   = Math.floor(X(west)) - 2
   const py0   = Math.max(0, Math.floor(Y(north)) - 2)
+  // La posición en la grilla, en celdas desde el centro de la primera: el valor de un píxel rige en su
+  // centro.
+  const gridU = lng => X(lng) - px0 - 0.5
+  const gridV = lat => Y(lat) - py0 - 0.5
   const W     = Math.ceil(X(east)) + 2 - px0
   const H     = Math.min(N, Math.ceil(Y(south)) + 2) - py0
   const tx0   = Math.floor(px0 / size)
@@ -170,22 +191,25 @@ export const terrain = async (...args) => {
   }
   if (!served) throw new Error(`[terrain] ningún tile de la caja trae datos a z=${zoom}`)
 
-  // El relieve de una zona ya leída (`polygons[p][0]` es el exterior y lo que sigue sus huecos). La
-  // cobertura exacta por acumulación (Levien, font-rs) da por celda la fracción que la zona cubre, en
-  // O(celdas que cruza el borde + celdas de su caja): cada arista suma en su fila, y la cobertura es la
-  // suma corrida. Con k = 1 un anillo suma −S, su shoelace en píxeles, así que cada uno entra con el
-  // signo que hace sumar al exterior y restar al hueco, sea cual sea su giro. La cobertura sólo
-  // pondera: el área absoluta es la del modelo base, A, repartida entre las celdas en proporción a su
-  // peso. Un anillo de menos de tres vértices no encierra nada: como en `area`, aporta 0 aunque caiga
-  // fuera, así que no entra al chequeo de la caja, y en la cobertura su shoelace es 0 exacto y se salta.
-  const reliefCore = (polygons, breaks) => {
-    const addRing = areaStep(base[AREA])
-    let total     = 0
-    let lngMin    = Infinity
-    let lngMax    = -Infinity
-    let latMin    = Infinity
-    let latMax    = -Infinity
-    let longest   = 0
+  // La cobertura de una zona ya leída (`polygons[p][0]` es el exterior y lo que sigue sus huecos), por
+  // acumulación exacta (Levien, font-rs): da por celda la fracción que la zona cubre, en O(celdas que
+  // cruza el borde + celdas de su caja), porque cada arista suma en su fila y la cobertura es la suma
+  // corrida. Con k = 1 un anillo suma −S, su shoelace en píxeles, así que cada uno entra con el signo
+  // que hace sumar al exterior y restar al hueco, sea cual sea su giro. Llama `visit(w, h, p)` por cada
+  // celda que cuenta, con su peso w = cobertura·`cellArea`, su altura y su pendiente de Horn con los
+  // pasos de su fila, la razón m/m. Una celda con dato tiene sus 9 alturas: si falta alguna, p es NaN,
+  // y una pegada a un tile sin dato pierde la pendiente aunque tenga altura. Devuelve `false`, sin
+  // visitar nada, si algún vértice cae fuera de la caja. Un anillo de menos de tres vértices no encierra
+  // nada: como en `area`, aporta 0 aunque caiga fuera, así que no entra al chequeo de la caja, y en la
+  // cobertura su shoelace es 0 exacto y se salta. Quien visita suma en los campos de un objeto y no en
+  // `let` capturados: V8 guarda en una caja nueva cada double que una clausura reescribe, y una
+  // asignación por celda duplica el costo.
+  const eachCell = (polygons, visit) => {
+    let lngMin  = Infinity
+    let lngMax  = -Infinity
+    let latMin  = Infinity
+    let latMax  = -Infinity
+    let longest = 0
     for (const rings of polygons)
       for (let r = 0; r < rings.length; r++) {
         const coords = rings[r]
@@ -194,16 +218,15 @@ export const terrain = async (...args) => {
         for (let i = 0; i < coords.length; i += 2) {
           const lat = coords[i]
           const lng = inBox(coords[i + 1])
-          if (!(lat >= south && lat <= north && lng >= west && lng <= east)) return blankRelief(breaks.length + 1, NaN)
+          if (!boxed(lat, lng)) return false
           lngMin = Math.min(lngMin, lng)
           lngMax = Math.max(lngMax, lng)
           latMin = Math.min(latMin, lat)
           latMax = Math.max(latMax, lat)
         }
         longest = Math.max(longest, coords.length)
-        total   = addRing(total, coords, coords.length / 2, r > 0)
       }
-    if (!longest) return blankRelief(breaks.length + 1, 0)
+    if (!longest) return true
 
     const bx0    = Math.floor(X(lngMin)) - px0
     const by0    = Math.floor(Y(latMax)) - py0
@@ -273,20 +296,6 @@ export const terrain = async (...args) => {
         }
       }
 
-    // Una celda con dato tiene sus 9 alturas: la pendiente de Horn, con los pasos de su fila, es la
-    // razón m/m. Una celda pegada a un tile sin dato pierde la pendiente aunque tenga altura, y cuenta
-    // como sin dato. Cada clase suma el peso de superficie de su celda, w·√(1 + p²); lo sin dato, el
-    // horizontal.
-    const bins = new Float64Array(breaks.length + 1)
-    let cells  = 0
-    let weight = 0
-    let lost   = 0
-    let sumH   = 0
-    let sumP   = 0
-    let minH   = Infinity
-    let maxH   = -Infinity
-    let minP   = Infinity
-    let maxP   = -Infinity
     for (let j = 0; j < bh; j++) {
       const r   = by0 + j
       let cover = 0
@@ -294,7 +303,6 @@ export const terrain = async (...args) => {
         cover += acc[j * stride + i]
         if (!(cover > DUST)) continue
 
-        const w     = cover * cellArea[r]
         const q     = r * W + bx0 + i
         const above = q - W
         const below = q + W
@@ -304,26 +312,44 @@ export const terrain = async (...args) => {
           + (heights[below + 1] - heights[below - 1]) / ew[r + 1]) / 4
         const gy    = (heights[below - 1] + 2 * heights[below] + heights[below + 1]
           - heights[above - 1] - 2 * heights[above] - heights[above + 1]) / (4 * ns[r])
-        const p     = Math.sqrt(gx * gx + gy * gy)
-        if (Number.isNaN(p + h)) {
-          lost += w
-          continue
-        }
-        let k = 0
-        while (k < breaks.length && breaks[k] <= p) k++
-        bins[k] += w * Math.sqrt(1 + p * p)
-        cells++
-        weight += w
-        sumH   += w * h
-        sumP   += w * p
-        minH    = Math.min(minH, h)
-        maxH    = Math.max(maxH, h)
-        minP    = Math.min(minP, p)
-        maxP    = Math.max(maxP, p)
+        visit(cover * cellArea[r], h, Number.isNaN(h) ? NaN : Math.sqrt(gx * gx + gy * gy))
       }
     }
+    return true
+  }
 
-    const scale = cells ? total / (weight + lost) : 0
+  // El relieve. El área absoluta es la del modelo base, A, repartida entre las celdas en proporción a
+  // su peso w. Cada celda con dato suma a su clase su peso de superficie, w·√(1 + p²); lo sin dato, el
+  // horizontal.
+  const reliefCore = (polygons, breaks) => {
+    const bins   = new Float64Array(breaks.length + 1)
+    const sums   = { cells: 0, weight: 0, lost: 0, sumH: 0, sumP: 0, minH: Infinity, maxH: -Infinity, minP: Infinity, maxP: -Infinity }
+    const inside = eachCell(polygons, (w, h, p) => {
+      if (Number.isNaN(p)) {
+        sums.lost += w
+        return
+      }
+
+      let k = 0
+      while (k < breaks.length && breaks[k] <= p) k++
+      bins[k] += w * Math.sqrt(1 + p * p)
+      sums.cells++
+      sums.weight += w
+      sums.sumH   += w * h
+      sums.sumP   += w * p
+      sums.minH    = Math.min(sums.minH, h)
+      sums.maxH    = Math.max(sums.maxH, h)
+      sums.minP    = Math.min(sums.minP, p)
+      sums.maxP    = Math.max(sums.maxP, p)
+    })
+    if (!inside) return blankRelief(breaks.length + 1, NaN)
+
+    const { cells, weight, lost, sumH, sumP, minH, maxH, minP, maxP } = sums
+
+    const addRing = areaStep(base[AREA])
+    const total   = polygons.reduce((acc, rings) =>
+      rings.reduce((part, coords, r) => addRing(part, coords, coords.length / 2, r > 0), acc), 0)
+    const scale   = cells ? total / (weight + lost) : 0
     return {
       cells,
       elevation : { min: cells ? minH : NaN, max: cells ? maxH : NaN, mean: sumH / weight },
@@ -332,11 +358,64 @@ export const terrain = async (...args) => {
     }
   }
 
+  // El área de un anillo sobre el relieve: la del modelo base, que es exacta, por el factor medio
+  // de superficie de las celdas que cubre, √(1 + p²) ponderado por cobertura. Con una celda que cuenta
+  // y no tiene dato, o con un vértice fuera de la caja, es NaN. En terreno plano el factor es 1 exacto,
+  // porque las dos sumas son la misma, y el área es la de la base bit a bit.
+  const areaCore = (coords, count) => {
+    const ring   = coords.subarray(0, count * 2)
+    const sums   = { weight: 0, surface: 0 }
+    const inside = eachCell([[ring]], (w, h, p) => {
+      sums.weight  += w
+      sums.surface += w * Math.sqrt(1 + p * p)
+    })
+    if (!inside) return NaN
+
+    const flat = base[AREA](ring, count)
+    return sums.weight ? flat * (sums.surface / sums.weight) : flat
+  }
+
+  // La altura en un punto válido, o NaN si cae fuera de la caja.
+  const elevationCore = (lat, lng) => {
+    const l = inBox(lng)
+    return boxed(lat, l) ? bilinear(heights, W, gridU(l), gridV(lat)) : NaN
+  }
+
+  // La distancia sobre el relieve. El tramo se muestrea cada media celda en línea recta en píxeles, o
+  // sea en Mercator, y cada paso suma la hipotenusa de su parte de la distancia de la base y de su
+  // desnivel: sobre una rampa la bilineal es exacta y da la distancia de la base por √(1 + s²) en el
+  // sentido de la pendiente. El tramo en Mercator se aparta del geodésico menos que una celda hasta
+  // decenas de km (docs/geometry.md da la cifra). El bucle es [0-alloc], sólo números locales; la
+  // llamada al modelo base asigna lo que asigne ese modelo (la esfera, nada).
+  const modelCore = (lat1, lng1, lat2, lng2) => {
+    const l1 = inBox(lng1)
+    const l2 = inBox(lng2)
+    if (!(boxed(lat1, l1) && boxed(lat2, l2))) return NaN
+
+    const u1   = gridU(l1)
+    const v1   = gridV(lat1)
+    const du   = gridU(l2) - u1
+    const dv   = gridV(lat2) - v1
+    const n    = Math.max(1, Math.ceil(2 * Math.sqrt(du * du + dv * dv)))
+    const h    = arc(lat1, lng1, lat2, lng2) / n
+    let low    = bilinear(heights, W, u1, v1)
+    let total  = 0
+    for (let k = 1; k <= n; k++) {
+      const high = bilinear(heights, W, u1 + du * k / n, v1 + dv * k / n)
+      total += Math.sqrt(h * h + (high - low) * (high - low))
+      low    = high
+    }
+    return total
+  }
+
   return Object.freeze({
-    [RELIEF] : reliefCore,
-    bounds   : Object.freeze({ south, west, north, east }),
+    [MODEL]     : modelCore,
+    [AREA]      : areaCore,
+    [ELEVATION] : elevationCore,
+    [RELIEF]    : reliefCore,
+    bounds      : Object.freeze({ south, west, north, east }),
     zoom,
-    cellSize : ew[H >> 1] / 2,
+    cellSize    : ew[H >> 1] / 2,
     attribution,
   })
 }
@@ -356,4 +435,12 @@ export const relief = (terrain, polygon, breaks = []) => {
     return list
   }, [])
   return polygons ? core(polygons, Float64Array.from(breaks)) : blankRelief(breaks.length + 1, NaN)
+}
+
+// La altura del terreno en un punto, en metros, bilineal sobre la grilla; NaN si el punto no es válido
+// o cae fuera de la caja. La lee por su marca, así que sirve con un terreno de otra copia.
+export const elevation = (terrain, point) => {
+  const core = terrain?.[ELEVATION]
+  if (typeof core !== 'function') throw new TypeError('[elevation] el primer argumento tiene que ser un terreno: await terrain(…)')
+  return isPoint(point) ? core(coordOf(point, 0), coordOf(point, 1)) : NaN
 }

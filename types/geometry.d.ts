@@ -55,8 +55,8 @@ export interface Bounds {
  *  cuya caja es la de los dos puntos. */
 export type BoundsLike = Bounds | readonly [LatLngPoint, LatLngPoint];
 
-/** Un modelo de la Tierra para `distance` y las medidas de zona, hecho con `sphere` o `ellipsoid`:
- *  inmutable y opaco. */
+/** Un modelo de la Tierra para `distance` y las medidas de zona, hecho con `sphere`, `ellipsoid` o
+ *  `terrain`: inmutable y opaco. */
 export type EarthModel = { readonly __earthModel: unique symbol };
 
 /** De dónde salen las alturas. Es un dato, como `tilePresets`: se pasa tal cual o con spread y
@@ -88,8 +88,10 @@ export interface TerrainOptions {
     Promise<Pick<Response, 'ok' | 'status' | 'arrayBuffer'>>;
 }
 
-/** Las alturas de una caja, ya cargadas: el primer argumento de `relief`. Es inmutable y no se
- *  transfiere entre hilos. */
+/** Las alturas de una caja, ya cargadas: el primer argumento de `relief` y de `elevation`. Es un
+ *  modelo de la Tierra que mide sobre el relieve: pasado a `distance`, `area` o `perimeter` da
+ *  distancias y áreas sobre la superficie, y fuera de su caja o sobre celdas sin dato, `NaN`.
+ *  `diameter` lo rechaza con `TypeError`. Es inmutable y no se transfiere entre hilos. */
 export type Terrain = EarthModel & {
   readonly __terrain   : unique symbol;
   /** La caja pedida, copiada y congelada. */
@@ -113,7 +115,8 @@ export interface Relief {
     readonly max   : number;
     readonly mean  : number;
     /** El área DE SUPERFICIE (m², sobre el relieve) de cada clase de pendiente: `breaks.length + 1`
-     *  valores, la clase k es [breaks[k−1], breaks[k]), con 0 abajo e ∞ arriba. */
+     *  valores, la clase k es [breaks[k−1], breaks[k]), con 0 abajo e ∞ arriba. Sin celdas sin dato,
+     *  su suma es `area(terrain, polygon)`. */
     readonly areas : readonly number[];
   };
   /** El área HORIZONTAL (m²) de la zona que cae en celdas sin dato: sin alturas no hay relieve que
@@ -160,15 +163,19 @@ export function distance(model: EarthModel, pointA: PointOrHole, pointB: PointOr
 export function distance(model: EarthModel, path: PathArgument): number;
 
 /** Área en m² de la zona: por polígono, el exterior menos sus huecos, y los polígonos se suman. Las
- *  aristas son geodésicas del modelo; sin modelo, la esfera de radio medio. De cada anillo cuenta la
- *  menor de las dos regiones que separa. Una zona nula, vacía o sin anillos mide 0. Un vértice que no
- *  es punto, o una zona que no es array, da `NaN`. Lanza `TypeError` si el modelo no va primero, si
- *  llega sin construir, si sobra un argumento o si el modelo no mide áreas. Ver docs/geometry.md. */
+ *  aristas son geodésicas del modelo; sin modelo, la esfera de radio medio. Con un terreno, el área
+ *  de la superficie del relieve, y `NaN` si un vértice cae fuera de su caja o la zona toca una celda
+ *  sin dato. De cada anillo cuenta la menor de las dos regiones que separa, y uno de 1 o 2 vértices
+ *  aporta 0 sin consultar el modelo, aunque caiga fuera de la caja. Una zona nula, vacía o sin
+ *  anillos mide 0. Un vértice que no es punto, o una zona que no es array, da `NaN`. Lanza
+ *  `TypeError` si el modelo no va primero, si llega sin construir, si sobra un argumento o si el
+ *  modelo no mide áreas. Ver docs/geometry.md. */
 export function area(polygon: LatLngPolygon | null | undefined): number;
 export function area(model: EarthModel, polygon: LatLngPolygon | null | undefined): number;
 
-/** Largo en m de todos los bordes de la zona, huecos incluidos, con cada anillo cerrado. Los bordes y
- *  los errores son los de `area`, salvo el del modelo sin áreas: cualquier modelo sirve. */
+/** Largo en m de todos los bordes de la zona, huecos incluidos, con cada anillo cerrado. Con un
+ *  terreno, sobre el relieve. Los bordes y los errores son los de `area`, salvo dos: cualquier modelo
+ *  sirve, y un anillo de 1 o 2 vértices mide sus aristas, ida y vuelta. */
 export function perimeter(polygon: LatLngPolygon | null | undefined): number;
 export function perimeter(model: EarthModel, polygon: LatLngPolygon | null | undefined): number;
 
@@ -193,6 +200,12 @@ export function terrain(model: EarthModel, source: TerrainSource, bounds: Bounds
  *  `terrain.bounds`, da todos los campos `NaN`. Lanza `TypeError` si `terrain` no es un terreno o
  *  `breaks` no es un array, y `RangeError` con un corte inválido. Ver docs/geometry.md. */
 export function relief(terrain: Terrain, polygon: LatLngPolygon | null | undefined, breaks?: readonly number[]): Relief;
+
+/** La altura del terreno en un punto, en m, interpolada bilinealmente entre los centros de celda.
+ *  `NaN` si el punto no es válido, cae fuera de `terrain.bounds`, toca una celda sin dato o cae en la
+ *  media celda pegada al límite de la proyección. Lanza `TypeError` si `terrain` no es un terreno. Ver
+ *  docs/geometry.md. */
+export function elevation(terrain: Terrain, point: LatLngPoint | null | undefined): number;
 
 /** Una esfera de radio `radius` en metros, con haversine. Sin argumento es el modelo por defecto de
  *  `distance`; otro radio sirve para reproducir las cifras de un sistema que mide con él. Lanza

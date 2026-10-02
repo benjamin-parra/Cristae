@@ -11,17 +11,19 @@ import { fileURLToPath } from 'node:url'
 import { deflateSync } from 'node:zlib'
 import { build } from 'esbuild'
 import geodesic from 'geographiclib-geodesic'
-import { terrain, terrainPresets, relief } from '../../src/geometry/terrain.js'
-import { area } from '../../src/geometry/measure.js'
-import { sphere } from '../../src/geometry/geodesic.js'
+import { terrain, terrainPresets, relief, elevation } from '../../src/geometry/terrain.js'
+import { area, perimeter, diameter } from '../../src/geometry/measure.js'
+import { sphere, distance } from '../../src/geometry/geodesic.js'
 import { boundsOf } from '../../src/geometry/bounds.js'
 import { WGS84, ellipsoid } from '../../src/geometry/ellipsoid.js'
 
-const R      = 6371008.8                // radio medio IUGG R1 (m)
-const RAD    = Math.PI / 180
-const MODEL  = Symbol.for('cristae.geometry.model')
-const RELIEF = Symbol.for('cristae.geometry.relief')
-const raiz   = fileURLToPath(new URL('../../', import.meta.url))
+const R         = 6371008.8             // radio medio IUGG R1 (m)
+const RAD       = Math.PI / 180
+const MODEL     = Symbol.for('cristae.geometry.model')
+const AREA      = Symbol.for('cristae.geometry.area')
+const ELEVATION = Symbol.for('cristae.geometry.elevation')
+const RELIEF    = Symbol.for('cristae.geometry.relief')
+const raiz      = fileURLToPath(new URL('../../', import.meta.url))
 
 const cerca = (real, ref, tol, msg) =>
   assert.ok(Math.abs(real - ref) <= tol * Math.abs(ref), `${msg}: ${real} vs ${ref}`)
@@ -564,7 +566,7 @@ test('relief con la caja exacta de la zona desenvuelta: la zona escrita envuelta
   }
 })
 
-test('relief: una longitud un ulp por debajo de west + 360 queda al oeste de la caja', async () => {
+test('relief, elevation y distance: una longitud un ulp por debajo de west + 360 queda al oeste de la caja', async () => {
   // El double más alto con lng − 360 < west: está en [west, west + 360) y fuera de la caja, pero
   // (lng − west) / 360 redondea a 1.
   const zona = centrado(PX, PY, 50)
@@ -577,6 +579,9 @@ test('relief: una longitud un ulp por debajo de west + 360 queda al oeste de la 
   const r = relief(t, [...zona.slice(0, 3), [zona[3][0], lng[0]]])
   assert.equal(r.cells, 0)
   esNaN(r.noData, 'noData')
+  esNaN(elevation(t, [zona[3][0], lng[0]]), 'elevation')
+  esNaN(distance(t, zona[0], [zona[3][0], lng[0]]), 'distance, extremo')
+  esNaN(distance(t, [zona[3][0], lng[0]], zona[0]), 'distance, origen')
 })
 
 test('relief: el primer argumento es un terreno y los cortes son finitos, ≥ 0 y crecientes', async () => {
@@ -589,6 +594,219 @@ test('relief: el primer argumento es un terreno y los cortes son finitos, ≥ 0 
   // eslint-disable-next-line no-sparse-arrays
   for (const cortes of [[0.3, 0.2], [0.2, 0.2], [NaN], [-0.1], [Infinity], ['0.3'], [0.1, , 0.3]])
     assert.throws(() => relief(t, zona, cortes), { name: 'RangeError', message: '[relief] breaks: números finitos ≥ 0, en orden estrictamente creciente' }, String(cortes))
+})
+
+// ── El terreno como modelo ──────────────────────────────────────────────────────────────────
+
+const S03  = Math.sqrt(1.09)                        // √(1 + s²) de una rampa de 0,3
+const S01  = Math.sqrt(1.01)                        // y de las dos partes de un quiebre
+const S04  = Math.sqrt(1.16)
+const LATN = n => latDe(PY + 0.5 - n)               // n celdas al norte del píxel de referencia
+const LNGE = n => lngDe(PX + 0.5 + n)               // n celdas al este
+const ESF  = new geodesic.Geodesic.Geodesic(R, 0)   // la esfera de la base, por la geographiclib
+const geo  = (a, b) => ESF.Inverse(a[0], a[1], b[0], b[1]).s12
+
+// Un quiebre de pendiente en el centro del píxel de referencia, en metros sobre la esfera: 0,1 al sur y
+// 0,4 al norte (`ns`), o 0,1 al oeste y 0,4 al este (`eo`). Con el quiebre en un centro de celda, la
+// bilineal de la grilla es la misma quebrada, así que un tramo que lo cruza mide la suma de sus dos
+// partes por su √(1 + s²); un muestreo más grueso que media celda o la grilla corrida no.
+const quiebre = {
+  ns : lat => 1000 + (lat > LAT0 ? 0.4 : 0.1) * R * (lat - LAT0) * RAD,
+  eo : (lat, lng) => 1000 + (lng > LNG0 ? 0.4 : 0.1) * R * Math.cos(LAT0 * RAD) * (lng - LNG0) * RAD,
+}
+
+test('el terreno es un modelo congelado con las cuatro marcas, y no es una base', async () => {
+  const t = await cargar(mundo(), centrado(PX, PY, 100))
+  assert.ok(Object.isFrozen(t))
+  for (const marca of [MODEL, AREA, ELEVATION, RELIEF]) assert.equal(typeof t[marca], 'function', String(marca))
+  await assert.rejects(terrain(t, FUENTE, cajaDe(centrado(PX, PY, 100)), { fetch: mundo().fetch }),
+    { name: 'TypeError', message: '[terrain] el modelo base tiene que medir áreas y no ser un terreno' })
+})
+
+test('terreno plano: el área es la de la base bit a bit; la distancia y el perímetro, a 1e-12', async () => {
+  const zona = centrado(PX, PY, 500)
+  for (const base of [sphere(), WGS84]) {
+    const t = await cargar(mundo(), zona, base)
+    assert.equal(area(t, zona), area(base, zona))
+    const a = [LATN(-9), LNGE(-7)]
+    const b = [LATN(11), LNGE(10)]
+    cerca(distance(t, a, b), distance(base, a, b), 1e-12, 'distance')
+    cerca(perimeter(t, zona), perimeter(base, zona), 1e-12, 'perimeter')
+  }
+})
+
+test('rampa N–S de 0,3: el área es la de la base por √(1 + s²), también en una zona menor que una celda', async () => {
+  const zona = centrado(PX, PY, 500)
+  const t    = await cargar(rampa(0.3), zona)
+  cerca(area(t, zona), area(zona) * S03, 1e-4, 'área')
+  const chica = centrado(PX, PY, 8)
+  cerca(area(t, chica), area(chica) * S03, 1e-4, 'menor que una celda')
+})
+
+test('rampa: la distancia por un meridiano es H·√(1 + s²) y por un paralelo es H', async () => {
+  const zona = centrado(PX, PY, 500)
+  const t    = await cargar(rampa(0.3), zona)
+  const H    = distance([LATN(-12), LNG0], [LATN(12), LNG0])
+  cerca(distance(t, [LATN(-12), LNG0], [LATN(12), LNG0]), H * S03, 1e-5, 'meridiano')
+  cerca(distance(t, [LATN(12), LNG0], [LATN(-12), LNG0]), H * S03, 1e-5, 'meridiano al revés')
+  cerca(distance(t, [LAT0, LNGE(-12)], [LAT0, LNGE(12)]), distance([LAT0, LNGE(-12)], [LAT0, LNGE(12)]), 1e-5, 'paralelo')
+  assert.equal(distance(t, [LAT0, LNG0], [LAT0, LNG0]), 0)
+})
+
+test('rampa: el perímetro suma los dos lados N–S sobre el relieve y los dos E–O planos', async () => {
+  const zona = centrado(PX, PY, 500)
+  const t    = await cargar(rampa(0.3), zona)
+  const P    = perimeter(t, zona)
+  cerca(P, 1000 * (2 * S03 + 2), 1e-5, 'perímetro')
+  assert.ok(P >= perimeter(zona))
+})
+
+test('un quiebre de 0,1 a 0,4: distance y perimeter suman cada parte del tramo por su √(1 + s²)', async () => {
+  const zona = centrado(PX, PY, 500)
+  const ns   = await cargar(mundo({ h: quiebre.ns }), zona)
+  const eo   = await cargar(mundo({ h: quiebre.eo }), zona)
+  const sur  = [LATN(-12), LNG0]
+  const nor  = [LATN(9.5), LNG0]
+  const cen  = [LAT0, LNG0]
+  const oes  = [LAT0, LNGE(-12)]
+  const est  = [LAT0, LNGE(9.5)]
+  const mer  = geo(sur, cen) * S01 + geo(cen, nor) * S04
+  // 21,5 celdas con el quiebre a 12 de un extremo: sólo los 43 pasos de media celda caen en él; con
+  // menos pasos queda dentro de uno y el error es ≥ 2,7·10⁻⁵ del largo en cada sentido. Media celda
+  // de corrimiento de la grilla pasa media celda de una pendiente a la otra (1,6·10⁻³).
+  cerca(distance(ns, sur, nor), mer, 1e-5, 'meridiano')
+  cerca(distance(ns, nor, sur), mer, 1e-5, 'meridiano al revés')
+  cerca(distance(eo, oes, est), geo(oes, cen) * S01 + geo(cen, est) * S04, 1e-5, 'paralelo')
+  // Los lados N–S del rectángulo cruzan el quiebre; los E–O siguen una curva de nivel.
+  const so = [LATN(-12), LNGE(-5)]
+  const se = [LATN(-12), LNGE(5)]
+  const no = [LATN(9.5), LNGE(-5)]
+  const ne = [LATN(9.5), LNGE(5)]
+  cerca(perimeter(ns, [so, se, ne, no]), 2 * mer + geo(so, se) + geo(no, ne), 1e-5, 'perímetro')
+})
+
+test('un quiebre de 0,1 a 0,4: el área pondera el factor de cada celda por su peso, cobertura·área', async () => {
+  // Diez columnas de las filas PY − 2 a PY + 5, con un décimo de la PY − 2: el peso de cada fila es su
+  // cobertura por R²·Δλ·(sen φ₁ − sen φ₂), y su pendiente, la de Horn a mano sobre las alturas que
+  // decodifica el tile (0,4 al norte del quiebre, 0,1 al sur y la media en su fila).
+  const zona  = rect(latDe(PY + 6), lngDe(PX - 5), latDe(PY - 1.1), lngDe(PX + 5))
+  const t     = await cargar(mundo({ h: quiebre.ns }), zona)
+  const alto  = k => terrariumDe(quiebre.ns(latDe(k + 0.5)))
+  const base  = ESF.Polygon(false)
+  let pesos   = 0
+  let factor  = 0
+  for (let r = PY - 2; r < PY + 6; r++) {
+    const w = (r === PY - 2 ? 0.1 : 1) * R * R * 360 / 2 ** 20 * RAD
+      * (Math.sin(latDe(r) * RAD) - Math.sin(latDe(r + 1) * RAD))
+    const p = (alto(r - 1) - alto(r + 1)) / (R * (latDe(r - 0.5) - latDe(r + 1.5)) * RAD)
+    pesos  += w
+    factor += w * Math.sqrt(1 + p * p)
+  }
+  zona.forEach(([lat, lng]) => base.AddPoint(lat, lng))
+  cerca(area(t, zona), Math.abs(base.Compute(false, true).area) * factor / pesos, 1e-9, 'área')
+  cerca(suma(relief(t, zona).slope.areas), area(t, zona), 1e-12, 'las clases suman el área')
+})
+
+test('con noData = 0, las áreas de relief suman area(t, zona): a 1e-12 con un anillo y a 1e-6 con huecos', async () => {
+  const exterior = centrado(PX, PY, 500)
+  const t        = await cargar(rampa(0.3), exterior)
+  const lejos    = [exterior[0][0], exterior[0][1] - 1]
+  const casos    = [
+    [exterior, 1e-12],
+    [[exterior, centrado(PX, PY - 8, 120).reverse()], 1e-6],
+    [[exterior, [exterior[0], lejos]], 1e-12],
+  ]
+  for (const [zona, tol] of casos) {
+    const r = relief(t, zona, [0.25, 0.35])
+    assert.equal(r.noData, 0)
+    cerca(suma(r.slope.areas), area(t, zona), tol, `invariante a ${tol}`)
+  }
+})
+
+test('base elipsoidal achatada (f = 0,2) sobre su propia rampa: el factor de superficie no cambia y el área escala con la base', async () => {
+  const a   = 6371008.8
+  const f   = 0.2
+  const e2  = f * (2 - f)
+  const ref = new geodesic.Geodesic.Geodesic(a, f)
+  const hE  = (lat, lng) => 1000
+    + 0.2 * a / Math.sqrt(1 - e2 * Math.sin(lat * RAD) ** 2) * Math.cos(lat * RAD) * (lng - LNG0) * RAD
+    + 0.15 * Math.sign(lat - LAT0) * ref.Inverse(LAT0, LNG0, lat, LNG0).s12
+  const zona = centrado(PX, PY, 500)
+  const base = ellipsoid(a, f)
+  const t    = await cargar(mundo({ h: hE }), zona, base)
+  cerca(area(t, zona), area(base, zona) * Math.sqrt(1 + 0.25 ** 2), 1e-4, 'área con el elipsoide')
+  assert.ok(Math.abs(area(base, zona) / area(zona) - 1) > 1e-3, 'la base cambia el área')
+})
+
+test('un extremo fuera de la caja o una celda sin dato bajo la zona dan NaN', async () => {
+  const zona  = centrado(PX, PY, 200)
+  const t     = await cargar(rampa(0.3), zona)
+  const fuera = [LATN(0), LNGE(300)]
+  esNaN(distance(t, [LATN(0), LNGE(0)], fuera), 'extremo fuera')
+  esNaN(distance(t, fuera, [LATN(0), LNGE(0)]), 'origen fuera')
+  esNaN(distance(t, [LATN(0), LNGE(0)], [LATN(2000), LNGE(0)]), 'al norte')
+  // A menos de una celda de cada lado de la caja: fuera de ella, pero dentro del mosaico, donde la
+  // grilla tiene alturas.
+  const { south, west, north, east } = t.bounds
+  const lados = { norte: [north + 2e-4, LNG0], sur: [south - 2e-4, LNG0], oeste: [LAT0, west - 2e-4], este: [LAT0, east + 2e-4] }
+  for (const [lado, punto] of Object.entries(lados)) {
+    esNaN(elevation(t, punto), `elevation al ${lado}`)
+    esNaN(distance(t, [LAT0, LNG0], punto), `extremo al ${lado}`)
+    esNaN(distance(t, punto, [LAT0, LNG0]), `origen al ${lado}`)
+  }
+  esNaN(area(t, centrado(PX, PY, 3000)), 'anillo con vértices fuera')
+  esNaN(perimeter(t, centrado(PX, PY, 3000)), 'perímetro con vértices fuera')
+  assert.equal(area(t, [[LATN(0), LNGE(0)], fuera]), 0, 'un anillo de 2 vértices no encierra nada ni consulta el terreno')
+  esNaN(perimeter(t, [[LATN(0), LNGE(0)], fuera]), 'pero sus aristas sí se miden')
+
+  const x0 = 64 * 4870 - 10
+  const z2 = celdas(x0, PY, x0 + 20, PY + 10)
+  const m  = rampa(0.3, { estados: { 'https://t.test/14/4870/10007.png': 404 } })
+  const t2 = await cargar(m, z2)
+  esNaN(area(t2, z2), 'celda 404 bajo la zona')
+  esNaN(distance(t2, [latDe(PY + 5), lngDe(x0)], [latDe(PY + 5), lngDe(x0 + 15)]), 'tramo que cruza el 404')
+  // Sin celdas a la vista, la distancia entre dos puntos con dato sigue siendo finita.
+  assert.ok(Number.isFinite(distance(t2, [latDe(PY + 5), lngDe(x0 - 4)], [latDe(PY + 5), lngDe(x0 + 1)])))
+})
+
+test('diameter no mide un terreno: lanza TypeError', async () => {
+  const zona = centrado(PX, PY, 100)
+  const t    = await cargar(mundo(), zona)
+  assert.throws(() => diameter(t, zona), { name: 'TypeError' })
+})
+
+// ── elevation ────────────────────────────────────────────────────────────────────────────────
+
+test('elevation lee la grilla bilineal, con el centro del píxel en el centro de la celda', async () => {
+  const zona = centrado(PX, PY, 500)
+  // Rampa diagonal de 0,2 al este y 0,15 al norte: medio píxel de corrimiento en una columna da
+  // 0,2·15 m = 3 m de error, y en una fila, 0,15·15 m = 2,3 m.
+  const h    = (lat, lng) => 1000 + 0.2 * R * Math.cos(lat * RAD) * (lng - LNG0) * RAD + 0.15 * R * (lat - LAT0) * RAD
+  const t    = await cargar(mundo({ h }), zona)
+  for (const [dx, dy] of [[0, 0], [0.5, 0], [0.25, 0.75], [-3.3, 4.6], [7, -2]]) {
+    const lat = latDe(PY + 0.5 + dy)
+    const lng = lngDe(PX + 0.5 + dx)
+    assert.ok(Math.abs(elevation(t, [lat, lng]) - h(lat, lng)) < 0.02, `${dx},${dy}: ${elevation(t, [lat, lng])} vs ${h(lat, lng)}`)
+  }
+  // En el centro exacto de la celda vale el dato de esa celda.
+  cerca(elevation(t, [LAT0, LNG0]), 1000, 1e-12, 'centro de la celda')
+  cerca(elevation(t, { lat: LAT0, lng: LNG0 }), 1000, 1e-12, 'objeto')
+  // Los puntos que no son un punto, o que caen fuera de la caja, son NaN.
+  for (const malo of [null, undefined, [NaN, 0], [91, 0], 5, 'a']) esNaN(elevation(t, malo), String(malo))
+  esNaN(elevation(t, [LATN(0), LNGE(300)]), 'fuera al este')
+  esNaN(elevation(t, [LATN(300), LNGE(0)]), 'fuera al norte')
+  esNaN(elevation(t, [LATN(0), LNGE(0) + 360 + 5]), 'una vuelta más al este')
+})
+
+test('elevation: un vecino sin dato da NaN aun en el centro de la celda, y lo que no es un terreno lanza', async () => {
+  const x0   = 64 * 4870
+  const zona = celdas(x0 - 10, PY, x0 + 5, PY + 10)
+  const t    = await cargar(mundo({ estados: { 'https://t.test/14/4870/10007.png': 404 } }), zona)
+  esNaN(elevation(t, [latDe(PY + 5.5), lngDe(x0 - 0.5)]), 'centro de la celda pegada al 404')
+  esNaN(elevation(t, [latDe(PY + 5.5), lngDe(x0 + 2.5)]), 'celda sin dato')
+  assert.equal(elevation(t, [latDe(PY + 5.5), lngDe(x0 - 5.5)]), 500)
+  for (const malo of [sphere(), WGS84, null, {}])
+    assert.throws(() => elevation(malo, [LAT0, LNG0]), { name: 'TypeError', message: '[elevation] el primer argumento tiene que ser un terreno: await terrain(…)' })
 })
 
 // ── Segunda copia ────────────────────────────────────────────────────────────────────────────
@@ -610,4 +828,14 @@ test('una segunda copia empaquetada describe el relieve de un terreno de la prim
   assert.deepEqual(copia.relief(t, zona, [0.25, 0.35]), relief(t, zona, [0.25, 0.35]))
   const tB = await copia.terrain(sphere(), FUENTE, cajaDe(zona[0]), { fetch: rampa(0.3).fetch })
   assert.deepEqual(relief(tB, zona, [0.25, 0.35]), relief(t, zona, [0.25, 0.35]))
+  // El terreno de una copia mide en la otra, y la bilineal también se lee por la marca.
+  const a = [LATN(-12), LNG0]
+  const b = [LATN(12), LNGE(5)]
+  assert.equal(copia.area(t, zona[0]), area(t, zona[0]))
+  assert.equal(copia.distance(t, a, b), distance(t, a, b))
+  assert.equal(copia.perimeter(t, zona[0]), perimeter(t, zona[0]))
+  assert.equal(area(tB, zona[0]), copia.area(tB, zona[0]))
+  assert.equal(distance(tB, a, b), copia.distance(tB, a, b))
+  assert.equal(copia.elevation(t, [LATN(3), LNGE(2)]), elevation(t, [LATN(3), LNGE(2)]))
+  assert.throws(() => copia.diameter(t, zona[0]), { name: 'TypeError' })
 })

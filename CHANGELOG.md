@@ -17,7 +17,9 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   las alturas de una caja desde tiles Terrarium o Terrain-RGB (`terrainPresets.aws`,
   `terrainPresets.mapterhorn`), y `relief(terreno, zona, breaks)` da la altura mínima, máxima y media,
   la pendiente y el área de superficie por clase de pendiente, con la parte sin dato aparte. El
-  terreno no entra al bundle de quien no lo importa. Ver [`docs/geometry.md`](docs/geometry.md#terreno).
+  terreno es un modelo: pasado a `distance`, `area` o `perimeter`, mide sobre el relieve, y
+  `elevation(terreno, punto)` da su altura en un punto. El terreno no entra al bundle de quien no lo
+  importa. Ver [`docs/geometry.md`](docs/geometry.md#terreno).
   *Migración*: ninguna.
 - **Los polígonos dibujan `dash`.** `styleOf.dash` es un patrón en píxeles de pantalla que corre
   continuo a lo largo del anillo; con `null` o ausente el trazo es continuo. Lo consumen también los

@@ -10,7 +10,7 @@
 
 export { distance, sphere } from './geodesic.js'
 export { area, perimeter, diameter } from './measure.js'
-export { terrain, terrainPresets, relief } from './terrain.js'
+export { terrain, terrainPresets, relief, elevation } from './terrain.js'
 export { boundsOf, boundsPad, boundsContain, boundsCenter } from './bounds.js'
 export { ellipsoid, WGS84 } from './ellipsoid.js'
 export { toParts, sampleAlong } from './polyline.js'

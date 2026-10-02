@@ -24,11 +24,14 @@ export const MEAN_RADIUS = 6371008.8
 // último al primero implícita. Va por anillo y con primitivos para que la composición de una zona
 // —exterior menos huecos, suma de partes— quede en `area` y no en el protocolo. Un modelo sin `AREA`,
 // el de una copia anterior o el de otra implementación, sigue sirviendo a lo que sólo mide tramos.
-// `RELIEF` marca un terreno: lo que mide en horizontal lo rechaza como modelo.
-export const MODEL   = Symbol.for('cristae.geometry.model')
-export const AREA    = Symbol.for('cristae.geometry.area')
-export const RELIEF  = Symbol.for('cristae.geometry.relief')
-export const isModel = value => typeof value?.[MODEL] === 'function'
+// Un terreno es un modelo que además trae `ELEVATION` —`(lat, lng) → m`, la altura en un punto válido— y
+// `RELIEF`, y mide sobre el relieve. `RELIEF` es lo que lo distingue: lo que mide en horizontal lo
+// rechaza como modelo.
+export const MODEL     = Symbol.for('cristae.geometry.model')
+export const AREA      = Symbol.for('cristae.geometry.area')
+export const ELEVATION = Symbol.for('cristae.geometry.elevation')
+export const RELIEF    = Symbol.for('cristae.geometry.relief')
+export const isModel   = value => typeof value?.[MODEL] === 'function'
 
 // Un modelo es inmutable y se valida al construirlo, no en medio de un track: un radio o un semieje
 // es un número finito mayor que 0.
