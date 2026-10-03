@@ -5,7 +5,12 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
 [`docs/versionado.md`](docs/versionado.md) — en `0.x`, el **minor cuenta los cambios medios**
 (capacidad o eje de API nuevo) y el **patch los menores desde el último medio** (fix / perf / revert).
 
-## [Sin publicar]
+## [0.36.0] - 2026-10-03
+
+> Sale como **minor**: Leaflet queda detrás de un anfitrión interno, Cristae dibuja todas sus capas y
+> ya no depende de glify, y `cristae/geometry` suma medidas de zona, terreno y relieve
+> ([`docs/versionado.md`](docs/versionado.md)). Los cambios que rompen la API llevan su *Migración*;
+> lo que se anuncia «se retira en 1.0» sigue funcionando hasta ese salto.
 
 ### Agregado
 - **`cristae/geometry` mide zonas.** `area`, `perimeter` y `diameter` aceptan un anillo, un polígono
