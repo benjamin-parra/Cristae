@@ -11,7 +11,8 @@ import { count, at, geodesic } from '../../src/geometry/curve.js'
 import { sphere, byDefault } from '../../src/geometry/geodesic.js'
 import { WGS84 } from '../../src/geometry/ellipsoid.js'
 import { stepsFor, GROUND } from '../../src/geometry/density.js'
-import { nearest, prepareIndex, toParts } from '../../src/geometry/polyline.js'
+import { nearest, toParts } from '../../src/geometry/polyline.js'
+import { projX0, projY0 } from '../../src/render/project.js'
 
 const MODEL       = Symbol.for('cristae.geometry.model')
 const DESTINATION = Symbol.for('cristae.geometry.destination')
@@ -364,10 +365,18 @@ test('nearest con src devuelve el vértice de la ENTRADA que abre el tramo, no e
     return { from, path: denso, src }
   })
   assert.ok(partes[1].path.length > 3 + 30, 'la segunda parte se densificó')
-  const indice = prepareIndex([{ id: 'ruta', parts: partes }])
+  const indice = {
+    stale  : true,
+    sorted : partes.map(({ path, src }, partIndex) => {
+      const pts = path.map(([lat, lng]) => ({ x: projX0(lng), y: projY0(lat) }))
+      const xs  = pts.map(p => p.x), ys = pts.map(p => p.y)
+      return { id: 'ruta', partIndex, src, pts, bbox: { minX: Math.min(...xs), maxX: Math.max(...xs), minY: Math.min(...ys), maxY: Math.max(...ys) } }
+    }),
+  }
   const [segmentoLargo, ultimo] = [[[20, 0], [25, 12]], [[25, 12], [25, 40]]]
   const primero = 0.5 / count(byDefault, ...ultimo[0], ...ultimo[1])
-  for (const [esperado, [a, b], t] of [[3, segmentoLargo, 0.5], [4, ultimo, 0.5], [4, ultimo, primero]]) {
+  const final   = 1 - 0.5 / count(byDefault, ...segmentoLargo[0], ...segmentoLargo[1])
+  for (const [esperado, [a, b], t] of [[3, segmentoLargo, 0.5], [3, segmentoLargo, final], [4, ultimo, 0.5], [4, ultimo, primero]]) {
     const punto = at(byDefault, ...a, ...b, t, [0, 0])
     const [hit, ...resto] = nearest(punto[0], punto[1], indice, 0.01)
     assert.equal(resto.length, 0)

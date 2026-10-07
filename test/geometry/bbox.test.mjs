@@ -4,7 +4,7 @@
 // Corre con: node --test test/geometry/bbox.test.mjs
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { bboxOfRings, bboxOfPoints, rect, area, intersect } from '../../src/geometry/bbox.js'
+import { bboxOfRings, rect, area, intersect } from '../../src/geometry/bbox.js'
 
 // ── bboxOfRings: anillos [lat,lng] ────────────────────────────────────────────
 
@@ -29,19 +29,6 @@ test('bboxOfRings detecta el multi-anillo por Array.isArray(rings[0][0]) y une t
 test('bboxOfRings: un anillo simple no se confunde con multi-anillo', () => {
   // rings[0][0] === 0 (número, no array) → se trata como anillo único.
   assert.deepEqual(bboxOfRings([[1, 4], [3, 2]]), { minLat: 1, maxLat: 3, minLng: 2, maxLng: 4 })
-})
-
-// ── bboxOfPoints: puntos proyectados {x,y} ────────────────────────────────────
-
-test('bboxOfPoints toma min/max de x e y', () => {
-  assert.deepEqual(
-    bboxOfPoints([{ x: 1, y: 2 }, { x: 5, y: -3 }, { x: 0, y: 10 }]),
-    { minX: 0, maxX: 5, minY: -3, maxY: 10 },
-  )
-})
-
-test('bboxOfPoints con un solo punto: min == max', () => {
-  assert.deepEqual(bboxOfPoints([{ x: 4, y: 9 }]), { minX: 4, maxX: 4, minY: 9, maxY: 9 })
 })
 
 // ── rect / area / intersect ───────────────────────────────────────────────────

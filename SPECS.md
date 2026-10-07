@@ -435,7 +435,7 @@ Todo **acción** (no estado): es la **única** vía de movimiento de viewport tr
 | `setView(latlng, zoom)` / `panTo(latlng)` | O(1) | inmediato; `latlng` en cualquier forma de punto (§18) |
 | `flyTo(latlng, zoom)` | O(1) | vuela si la política de animación del zoom anima el destino (abajo), y si no es un `setView`; el easing es opción de `flyTo`, no un método aparte |
 | `fitBounds(bounds, {insets, maxZoom, animate})` | O(1) | `bounds` es una caja (§18); lo que no lo es no mueve la cámara ni corta el follow. `maxZoom` topa el zoom antes de centrar —uno que no es un número finito no topa, como en los límites—, así que la caja queda en el medio de la región visible también cuando el tope corta. `animate: false` no anima nada; con `true` el paneo anima aunque sea largo. Un cambio de zoom anima sólo si además lo anima la política (abajo) |
-| `fitToLayer(layerId, {insets, maxZoom})` | O(1) con caja propia; O(n) (caja de n puntos) sin ella, o con la `version` de la Source de las formas avanzada y sin emitir, que se dibuja antes | encuadra una capa por la caja que informa de lo que dibuja —la de formas y la de polígonos: la figura entera, no sólo los centros— o, sin ella, por sus posiciones; con el `maxZoom` de `fitBounds`. Lee los accessors de la capa: el error de uno le llega al llamador |
+| `fitToLayer(layerId, {insets, maxZoom})` | O(1) con la caja de la capa de formas o de polígonos; O(n + puntos insertados) con la de líneas curvadas, que densifica otra vez; O(n) (caja de n puntos) sin caja, o con la `version` de la Source de las formas avanzada y sin emitir, que se dibuja antes | encuadra una capa por la caja que informa de lo que dibuja —la de formas y la de polígonos: la figura entera, no sólo los centros; la de líneas, sólo la curva geodésica— o, sin ella, por sus posiciones; con el `maxZoom` de `fitBounds`. Lee los accessors de la capa: el error de uno le llega al llamador |
 | `revealPoint(layerId, id, {zoom})` | O(results·log maxZoom) si clusteriza | enfoca un punto (one-shot) dejándolo **visible individualmente**: si su capa clusteriza, sube el zoom al mínimo que lo desclusteriza. Sin cluster (o si ya está solo) = `setView` |
 | `zoomIn(delta?)` / `zoomOut(delta?)` / `setZoom(zoom)` | O(1) | **ortogonal al follow**: el zoom no cancela un `followPoint` (ajusta escala, no reposiciona) |
 | `panBy(offset, options?)` | O(1) | desplaza por delta en **px** de contenedor; **ortogonal al follow** (ajuste fino). Lo usa el auto-pan del popup (§8.5) |
@@ -1104,9 +1104,11 @@ cumple, y sus bordes medidos, está en docs/geometry.md.
 Los tramos de la curva —`count(model, lat1, lng1, lat2, lng2)` y `at(model, lat1, lng1, lat2, lng2, t, out)`,
 que escribe el `[lat, lng]` del punto a la fracción `t`— no se exportan del entry: los comparten `geodesic`,
 las capas de líneas y de polígonos y los editores, que escriben donde necesitan y interpolan el escalar entre
-los puntos nuevos. El índice de picking de líneas acepta por parte un `src`, la posición en la entrada del
-vértice original que abre cada tramo del path curvado, y `nearest` devuelve ese vértice como `vertexIndex`;
-sin `src` es `from + k`.
+los puntos nuevos. Cada parte del índice de picking de líneas lleva `src`, la posición en la entrada del
+vértice original que abre cada tramo del path que se dibuja, curvado o no, y `nearest` devuelve ese vértice
+como `vertexIndex`. Con curva, la capa de líneas densifica en un solo lugar, del que salen el dibujo, el
+índice y la caja que informa, y la de polígonos curva sus tablas al entrar, con la misma numeración de
+anillos, partes y selección.
 
 El escritor que comparten `ring`, `arc`, las capas de círculos y de formas —que arman con él sus anillos y
 los cierran— y los editores de forma, y el módulo de densidad que da `segmentsFor`, `stepsFor` y las dos

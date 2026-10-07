@@ -10,6 +10,8 @@ import assert from 'node:assert/strict'
 import { LineGpuLayer } from '../../src/render/LineGpuLayer.js'
 import { adoptLeafletHost } from '../../src/host/LeafletHost.js'
 import { createSource } from '../../src/data/Source.js'
+import { byDefault } from '../../src/geometry/geodesic.js'
+import geographiclib from 'geographiclib-geodesic'
 
 let currentGl = null
 
@@ -24,7 +26,7 @@ const recorrido = (n, lat = 0, lng = 0) => Array.from({ length: n }, (_, i) => [
 
 // El trazo lee `first`/`count` y el alfa del color en cada draw: se capturan en el instante.
 // Asienta la ventana del `set` inicial: lo que cada test haga después es el cambio que mide.
-const mount = async ({ items, accessors = {}, source: propia, ...opts } = {}) => {
+const mount = async ({ items, accessors = {}, source: propia, zoom, ...opts } = {}) => {
   const spy  = makePickSpy()
   const vivo = {}
   const trazos = []
@@ -38,7 +40,7 @@ const mount = async ({ items, accessors = {}, source: propia, ...opts } = {}) =>
   currentGl = new Proxy(gl, { get: (t, p) => (p === 'getContextAttributes' ? () => ({ stencil: true }) : propio[p] ?? t[p]) })
   const source = propia ?? createSource({ idOf: r => r.id, pathOf: r => r.path, ...accessors })
   propia || source.set(items ?? [{ id: 1, path: recorrido(50) }])
-  const layer = new LineGpuLayer({ host: adoptLeafletHost(makeMapStub()), pane: 'p', source, ...opts })
+  const layer = new LineGpuLayer({ host: adoptLeafletHost(makeMapStub({ zoom })), pane: 'p', source, ...opts })
   const redraw = () => { trazos.length = 0; layer.redraw(); return trazos.map(t => ({ ...t })) }
   await tick()
   return { layer, source, spy, trazos, redraw }
@@ -264,6 +266,16 @@ test('el índice armado con un append pendiente no lo suma dos veces', async () 
   assert.deepEqual(incremental, layer.resolveClick({ lat: 30.1, lng: 30.1 }))
 })
 
+// Lo que la ventana abierta sumó al path todavía no se dibuja, y el índice que se arma entonces tampoco lo
+// ve: se pica lo que se ve.
+test('el índice armado con un append pendiente no pica lo que todavía no se dibujó', async () => {
+  const { layer, source } = await mount({ items: [{ id: 1, path: recorrido(5) }] })
+  source.append(1, [30, 30], [NaN, NaN], [40, 40], [40.1, 40.1])
+  assert.deepEqual([layer.resolveClick({ lat: 30, lng: 30 }), layer.resolveClick({ lat: 40, lng: 40 })], [[], []])
+  await tick()
+  assert.deepEqual([30, 40].map(v => layer.resolveClick({ lat: v, lng: v })[0]?.vertexIndex), [4, 7])
+})
+
 /* ── Picking ── */
 
 test('el picking devuelve el id, el tramo y el vértice más cercano', async () => {
@@ -290,4 +302,140 @@ test('el picking ve lo agregado y lo patcheado, y deja de ver lo que ya no está
 test('el picking de una capa vacía no falla', async () => {
   const { layer } = await mount({ items: [] })
   assert.deepEqual(layer.resolveClick({ lat: 0, lng: 0 }), [])
+})
+
+/* ── Geodésica ── */
+
+// Las referencias no salen de la capa: la geodésica de la esfera de radio medio la da la geographiclib con
+// f = 0, y el vértice de un círculo máximo entre dos puntos de igual latitud φ separados por Δλ está a
+// medio camino, en tan φv = tan φ / cos(Δλ/2). La capa pica en el plano de Mercator, así que la distancia
+// del hit en px, llevada a metros con la escala de la latitud, es lo que la cuerda se aparta de la curva.
+const R      = 6371008.8
+const RAD    = Math.PI / 180
+const ZOOM   = 8
+const esfera = new geographiclib.Geodesic.Geodesic(R, 0)
+const metros = (px, lat) => px * 2 * Math.PI * R * Math.cos(lat * RAD) / (256 * 2 ** ZOOM)
+const sobre  = (a, b, t) => {
+  const tramo = esfera.InverseLine(a[0], a[1], b[0], b[1])
+  const p     = tramo.Position(tramo.s13 * t)
+  return { lat: p.lat2, lng: p.lon2 }
+}
+
+const A       = [50, 0]
+const B       = [50, 10]
+const VERTICE = { lat: Math.atan(Math.tan(50 * RAD) / Math.cos(5 * RAD)) / RAD, lng: 5 }
+const RECTA   = { lat: 50, lng: 5 }                   // el medio de la recta de Mercator, ~12 km al sur
+
+test('con curva, el tramo largo se dibuja y se pica sobre la geodésica, con el vértice de la entrada', async () => {
+  const { layer, redraw } = await mount({ items: [{ id: 1, path: [[NaN, NaN], A, B] }], zoom: ZOOM })
+  assert.deepEqual(layer.resolveClick(VERTICE), [], 'recta: la curva no está')
+  assert.equal(layer.resolveClick(RECTA)[0]?.vertexIndex, 1)
+
+  layer.setCurve(byDefault)
+  for (let k = 0; k <= 20; k++) {
+    const p     = sobre(A, B, k / 20)
+    const [hit] = layer.resolveClick(p)
+    assert.deepEqual([hit?.id, hit?.partIndex, hit?.vertexIndex], [1, 0, 1], `${k}/20: el corte ocupa el índice 0`)
+    assert.ok(metros(hit.distancePx, p.lat) <= 0.11, `${k}/20: ${metros(hit.distancePx, p.lat)} m de la geodésica`)
+  }
+  assert.deepEqual(layer.resolveClick(RECTA), [], 'el medio de la recta ya no se pica')
+  const [{ count }] = redraw()
+  assert.ok(count > 100, `${count} puntos dibujados`)
+
+  layer.setCurve(null)
+  assert.deepEqual(redraw().map(t => t.count), [2], 'sin curva vuelve a la recta')
+  assert.deepEqual(layer.resolveClick(VERTICE), [])
+})
+
+test('con curva, los puntos insertados interpolan el escalar de los dos vértices', async () => {
+  const valores = []
+  const { layer, redraw } = await mount({
+    items     : [{ id: 1, path: [A, B] }],
+    accessors : { scalarOf: (_item, i) => i * 10, colorRamp: v => (valores.push(v), '#ff0000') },
+  })
+  valores.length = 0
+  layer.setCurve(byDefault)
+  const [{ count }] = redraw()
+  const m = valores.length - 1
+  assert.equal(valores.length, count, 'un color por punto dibujado')
+  valores.forEach((v, k) => assert.ok(Math.abs(v - 10 * k / m) < 1e-9, `el punto ${k} de ${m} lleva ${v}`))
+})
+
+test('un track GPS con curva se dibuja byte a byte igual que sin ella', async () => {
+  const items     = [{ id: 1, path: recorrido(300, -37, -73) }, { id: 2, path: recorrido(300, 60, 10) }]
+  const accessors = { scalarOf: (_item, i) => i, colorRamp: v => [v / 300, 0, 1 - v / 300, 1] }
+  const recto     = await mount({ items, accessors })
+  const curvo     = await mount({ items, accessors })
+  const subidas   = ({ spy }) => [spy.texImages.length, spy.texSubImages.length]
+  const [i0, s0]  = subidas(recto)
+  const [i1, s1]  = subidas(curvo)
+  recto.layer.refresh()
+  curvo.layer.setCurve(byDefault)
+  assert.deepEqual(curvo.spy.texels.slice(i1), recto.spy.texels.slice(i0))
+  assert.deepEqual(curvo.spy.texSubTexels.slice(s1), recto.spy.texSubTexels.slice(s0))
+  assert.ok(recto.spy.texSubTexels.length > s0)
+})
+
+test('con curva, lo agregado a un tramo abierto se curva desde su último vértice', async () => {
+  const valores = []
+  const { layer, source, redraw } = await mount({
+    items     : [{ id: 1, path: [[49, 0], A] }],
+    accessors : { scalarOf: (_item, i) => i, colorRamp: v => (valores.push(v), '#ff0000') },
+    zoom      : ZOOM,
+  })
+  layer.setCurve(byDefault)
+  layer.resolveClick(VERTICE)
+  valores.length = 0
+  source.append(1, B)
+  await tick()
+  const m = valores.length
+  assert.ok(m > 100, `${m} puntos agregados`)
+  valores.forEach((v, k) => assert.ok(Math.abs(v - (1 + (k + 1) / m)) < 1e-9, `el agregado ${k} lleva ${v}`))
+  const incremental = [redraw().map(t => t.count), layer.resolveClick(VERTICE)]
+  assert.equal(incremental[1][0]?.vertexIndex, 1, 'el hit sobre lo agregado da el vértice que abre el tramo')
+  layer.refresh()
+  assert.deepEqual([redraw().map(t => t.count), layer.resolveClick(VERTICE)], incremental, 'igual que reconstruir')
+})
+
+test('con curva, un punto suelto se une a lo agregado por la geodésica', async () => {
+  const { layer, source, redraw } = await mount({ items: [{ id: 1, path: [A] }], zoom: ZOOM })
+  layer.setCurve(byDefault)
+  layer.resolveClick(VERTICE)
+  source.append(1, B)
+  await tick()
+  const incremental = [redraw().map(t => t.count), layer.resolveClick(VERTICE)]
+  assert.ok(incremental[0][0] > 100)
+  assert.equal(incremental[1][0]?.vertexIndex, 0)
+  layer.refresh()
+  assert.deepEqual([redraw().map(t => t.count), layer.resolveClick(VERTICE)], incremental, 'igual que reconstruir')
+})
+
+test('un punto suelto que se une a lo agregado abre el tramo: junto a él se pica su vértice, con y sin curva', async () => {
+  for (const curve of [null, byDefault]) {
+    const { layer, source } = await mount({ items: [{ id: 1, path: [A] }], zoom: ZOOM })
+    layer.setCurve(curve)
+    layer.resolveClick(VERTICE)
+    source.append(1, B)
+    await tick()
+    assert.equal(layer.resolveClick(sobre(A, B, 0.002))[0]?.vertexIndex, 0, `curva ${!!curve}`)
+  }
+})
+
+test('los buffers que crecen conservan el color de lo ya empacado', async () => {
+  const rojo = [255, 0, 0, 255]
+  const { spy } = await mount({
+    items     : [{ id: 1, path: recorrido(40) }],    // más que los 32 puntos con que nacen los buffers
+    accessors : { scalarOf: (_item, i) => i, colorRamp: v => v ? '#0000ff' : '#ff0000' },
+  })
+  const [primera] = spy.texSubTexels.filter(datos => datos instanceof Uint8Array)
+  assert.deepEqual([...primera.subarray(0, 4)], rojo, 'el primer punto sube rojo en la subida que hizo crecer los buffers')
+})
+
+test('la caja de la capa es la de la curva, y sin curva la capa no la informa', async () => {
+  const { layer } = await mount({ items: [{ id: 1, path: [A, B] }, { id: 2, path: [[-20, 3]] }] })
+  assert.equal(layer.bounds, null, 'sin curva encuadra la Source')
+  layer.setCurve(byDefault)
+  const { south, west, north, east } = layer.bounds
+  assert.ok(Math.abs(north - VERTICE.lat) < 1e-4, `norte ${north} contra el vértice ${VERTICE.lat}`)
+  ;[[south, 50], [west, 0], [east, 10]].forEach(([real, ref]) => assert.ok(Math.abs(real - ref) < 1e-9, `${real} vs ${ref}`))
 })

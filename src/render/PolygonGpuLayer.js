@@ -6,6 +6,7 @@ import { projX0, projY0, readView } from './project.js'
 import { prepareRangeIndex, partsAtPoint } from '../geometry/polygon.js'
 import { focusedStyle } from './focus.js'
 import { growBoxOfRange } from '../geometry/bbox.js'
+import { at, count } from '../geometry/curve.js'
 
 // Relleno GPU de polígonos ESTÁTICOS sobre geometría tipada: un `RingStore` sube todos los anillos a UNA
 // textura y un `EditFillLayer` compone su paridad por stencil.
@@ -20,6 +21,9 @@ import { growBoxOfRange } from '../geometry/bbox.js'
 //
 // El XOR del stencil es GLOBAL a la capa: dos anillos superpuestos se cancelan en la intersección. Las
 // figuras que se pisan van en instancias separadas.
+//
+// Con curva, las tablas se densifican sobre la geodésica al entrar, y el relleno, el picking y el encuadre
+// leen las curvadas.
 
 const project = (lat, lng, out) => {
   out[0] = projX0(lng)
@@ -66,6 +70,46 @@ export const tablesFromRings = (items, ringsOf) => {
   return { xy, vertexAt, ringAt, closed, ringCount: anillos, partCount: partes, owner }
 }
 
+// Las tablas con cada arista curvada sobre la geodésica de `model`, también la de cierre: la de un anillo
+// cerrado une dos vértices iguales y queda recta. Anillos, partes, dueños y selección conservan su
+// numeración; sólo cambian `xy` y `vertexAt`. Con selección, los anillos que no se eligieron —líneas y
+// puntos de un documento mixto— pasan rectos: nadie los lee. Una arista con un vértice inválido no tiene
+// cuenta (`NaN`) y queda recta: con 0 tramos el total quedaría corto y el último anillo perdería su cola.
+const curveTables = (geometry, model) => {
+  const { xy, vertexAt, rings: chosen } = geometry
+  const rings  = vertexAt.length - 1
+  const steps  = new Uint32Array(vertexAt[rings])   // por vértice, en cuántos tramos se parte la arista que abre
+  const curved = chosen ? new Uint8Array(rings) : null
+  const next   = (i, r) => i + 1 < vertexAt[r + 1] ? i + 1 : vertexAt[r]
+  let total = 0
+  chosen?.forEach(r => { curved[r] = 1 })
+  for (let r = 0; r < rings; r++)
+    for (let i = vertexAt[r]; i < vertexAt[r + 1]; i++) {
+      const j = next(i, r)
+      steps[i] = (!curved || curved[r]) && count(model, xy[i * 2 + 1], xy[i * 2], xy[j * 2 + 1], xy[j * 2]) || 1
+      total += steps[i]
+    }
+  const dense = new Float64Array(total * 2)
+  const ends  = new Uint32Array(rings + 1)
+  const point = [0, 0]
+  let v = 0
+  for (let r = 0; r < rings; r++) {
+    for (let i = vertexAt[r]; i < vertexAt[r + 1]; i++) {
+      const j = next(i, r)
+      dense[v * 2]     = xy[i * 2]
+      dense[v * 2 + 1] = xy[i * 2 + 1]
+      v++
+      for (let k = 1; k < steps[i]; k++, v++) {
+        at(model, xy[i * 2 + 1], xy[i * 2], xy[j * 2 + 1], xy[j * 2], k / steps[i], point)
+        dense[v * 2]     = point[1]
+        dense[v * 2 + 1] = point[0]
+      }
+    }
+    ends[r + 1] = v
+  }
+  return { ...geometry, xy: dense, vertexAt: ends }
+}
+
 export class PolygonGpuLayer {
 
   #camera; #surface; #gl; #store; #fill
@@ -84,6 +128,8 @@ export class PolygonGpuLayer {
   #items   = null                     // snapshot vigente, cuando la geometría viene de un Source
   #owner   = null                     // parte → índice de su entidad en el snapshot
   #unsub   = null
+  #curve   = null                     // el modelo sobre cuya geodésica se curvan las aristas; null, rectas
+  #plain   = null                     // las tablas tipadas sin curvar, que `setCurve` vuelve a leer
   #interactive = false
   #hits    = []                       // partes bajo el cursor; se reusa entre consultas
   #focus   = { ids: null, dim: 0.3 }
@@ -129,16 +175,19 @@ export class PolygonGpuLayer {
   // Toda la geometría entra por acá, venga de tablas o de un Source: el store se rehace entero, que es
   // el perfil de estas capas —pocas entidades, baja frecuencia de cambio—. Lo nuevo se arma y se estila
   // aparte y reemplaza a lo anterior sólo si resolvió entero: si algo lanza, la capa queda como estaba.
-  #ingest(geometry, items = this.#items) {
+  // Las tablas tipadas sin curvar se retienen sólo si el índice ya retiene tablas, el de una capa
+  // interactiva: sin curva son las mismas.
+  #ingest(geometry, items = this.#items, curve = this.#curve) {
     // `rings` acota lo que se sube a la textura y `parts` lo que entra al índice: con una sola de las
     // dos, el relleno y el picking miran conjuntos distintos y la capa contesta por figuras que no
     // dibujó. Además la pertenencia anillo→polígono se reconstruye de `parts`.
     if ((geometry.rings === undefined) !== (geometry.parts === undefined))
       throw new Error('[cristae] la selección necesita `rings` y `parts` juntas, o ninguna')
-    const store = new RingStore({ gl: this.#gl, project, rings: { ...geometry, ringIds: geometry.rings } })
-    const owner = geometry.owner ?? null
+    const drawn = curve ? curveTables(geometry, curve) : geometry
+    const store = new RingStore({ gl: this.#gl, project, rings: { ...drawn, ringIds: drawn.rings } })
+    const owner = drawn.owner ?? null
     try {
-      const { parts, partBox } = this.#agrupar(store, geometry)
+      const { parts, partBox } = this.#agrupar(store, drawn)
       this.#resolveStyles(parts, owner, items)
       this.#partBox = partBox
     } catch (e) {
@@ -149,8 +198,20 @@ export class PolygonGpuLayer {
     this.#store = store
     this.#owner = owner
     this.#items = items
-    this.#measure(geometry)
-    this.#index = this.#interactive ? prepareRangeIndex(geometry) : null
+    this.#curve = curve
+    this.#plain = this.#interactive && !this.#source ? geometry : null
+    this.#measure(drawn)
+    this.#index = this.#interactive ? prepareRangeIndex(drawn) : null
+  }
+
+  // Curva las aristas sobre la geodésica de `model`, o las vuelve rectas con `null`. Con Source relee sus
+  // anillos; tipada, vuelve a las tablas que retiene, y una no interactiva no las retiene.
+  setCurve(model) {
+    if (!this.#source && !this.#plain)
+      throw new Error('[cristae] una capa de polígonos tipada y no interactiva no retiene sus tablas: no se curva')
+    const items = this.#source?.getSnapshot() ?? this.#items
+    this.#ingest(this.#source ? tablesFromRings(items, this.#source.accessors.ringsOf) : this.#plain, items, model)
+    return this.redraw()
   }
 
   #onChange() {

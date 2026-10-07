@@ -19,6 +19,7 @@ import { adoptLeafletHost } from '../../src/host/LeafletHost.js'
 import { PolygonGpuLayer } from '../../src/render/PolygonGpuLayer.js'
 import { areasOf, readGeoJson } from '../../src/geojson/geojson.js'
 import { projX0 } from '../../src/render/project.js'
+import { MODEL, byDefault } from '../../src/geometry/geodesic.js'
 
 /* ── Dobles: el contexto de edición, el canvas de su pane y un mapa con el registro de Leaflet ── */
 
@@ -755,4 +756,93 @@ test('y NO se descarta cuando el trazo sí entra: el margen sale del ancho', () 
   const { layer } = mount(APENAS_AFUERA(), { weight: 200 })   // margen: (100 + 0.5) / 8 = 12.56 > 1
   layer.redraw()
   assert.equal(layer.drawnPartCount, 1, 'antes se le comía el borde hasta que la figura entraba entera')
+})
+
+/* ── 11. Geodésica: las tablas se curvan al entrar ── */
+
+// El vértice del círculo máximo entre dos puntos de igual latitud φ separados por Δλ cae a medio camino,
+// en tan φv = tan φ / cos(Δλ/2): una referencia cerrada, que no sale de la capa. El triángulo tiene la
+// arista larga de 50° N entre las longitudes 0 y 10, que la recta de Mercator deja al sur del vértice.
+const RAD       = Math.PI / 180
+const CUMBRE    = Math.atan(Math.tan(50 * RAD) / Math.cos(5 * RAD)) / RAD
+const ADENTRO   = { lat: CUMBRE - 0.01, lng: 5 }
+const AFUERA    = { lat: CUMBRE + 0.01, lng: 5 }
+const BAJO      = { lat: 49.9, lng: 5 }
+const TRIANGULO = [[10, 50], [5, 40], [0, 50]]          // en [lng, lat]; la arista larga es la de cierre
+
+const picados = (layer, ...puntos) => puntos.map(p => layer.resolveClick(p).length)
+
+test('con curva, el punto-en-anillo sigue el borde curvado, también en la arista de cierre', () => {
+  for (const anillo of [TRIANGULO, [...TRIANGULO, TRIANGULO[0]]]) {
+    const { layer } = mount(tables([anillo]), { interactive: true })
+    assert.deepEqual(picados(layer, BAJO, ADENTRO), [1, 0], 'recta: la arista va por los 50°')
+    layer.setCurve(byDefault)
+    assert.deepEqual(picados(layer, BAJO, ADENTRO, AFUERA), [1, 1, 0], `curva, ${anillo.length} vértices`)
+    assert.ok(Math.abs(layer.bounds.north - CUMBRE) < 1e-4, `el encuadre llega a la cumbre: ${layer.bounds.north}`)
+    layer.setCurve(null)
+    assert.deepEqual(picados(layer, ADENTRO), [0], 'y vuelve a la recta')
+    assert.equal(layer.bounds.north, 50)
+  }
+})
+
+test('con curva, la selección de rings y parts conserva su numeración', () => {
+  const geo = { ...tables([square(30, 0, 1), TRIANGULO]), rings: Uint32Array.of(1), parts: Uint32Array.of(1) }
+  const { layer } = mount(geo, { interactive: true })
+  layer.setCurve(byDefault)
+  assert.equal(layer.ringCount, 1, 'sólo sube el anillo elegido')
+  assert.deepEqual(layer.resolveClick(ADENTRO).map(h => h.ref), [1])
+  assert.deepEqual(layer.resolveClick({ lat: 0, lng: 30 }), [], 'la parte que no se eligió no pica')
+})
+
+test('con curva, una geometría nueva entra curvada, por setGeometry o por el Source', () => {
+  const { layer } = mount(ONE_RING(), { interactive: true })
+  layer.setCurve(byDefault)
+  layer.setGeometry(tables([TRIANGULO]))
+  assert.deepEqual(picados(layer, ADENTRO), [1])
+
+  const anillo = TRIANGULO.map(([lng, lat]) => [lat, lng])
+  const fuenteViva = fuente([{ id: 'a', rings: ANILLO_A }])
+  const conSource  = conFuente(fuenteViva, { interactive: true }).layer
+  conSource.setCurve(byDefault)
+  fuenteViva.cambiar([{ id: 'b', rings: anillo }])
+  assert.deepEqual(conSource.resolveClick(ADENTRO).map(h => h.id), ['b'])
+})
+
+test('una capa tipada no interactiva no retiene sus tablas y no se curva; la que no entra queda como estaba', () => {
+  assert.throws(() => mount(tables([TRIANGULO])).layer.setCurve(byDefault), /no retiene sus tablas/)
+  const { layer } = mount(tables([TRIANGULO]), { interactive: true, cap: 32 })
+  assert.throws(() => layer.setCurve(byDefault))
+  assert.deepEqual(picados(layer, BAJO, ADENTRO), [1, 0], 'sigue recta')
+  layer.setGeometry(tables([TRIANGULO]))
+  assert.deepEqual(picados(layer, BAJO, ADENTRO), [1, 0], 'y lo que entra después tampoco se curva')
+})
+
+// Un modelo que anota cada tramo que se le pide medir: dice qué aristas se curvaron sin mirar la salida.
+const espia = medidos => ({
+  ...byDefault,
+  [MODEL]: (lat1, lng1, lat2, lng2) => (medidos.push(lng1, lng2), byDefault[MODEL](lat1, lng1, lat2, lng2)),
+})
+
+test('con curva y selección, los anillos que no se eligieron no se curvan', () => {
+  const linea = [[100, 40], [160, 40], [100, 60]]       // la línea de un documento mixto: tramos largos
+  const geo   = { ...tables([linea, TRIANGULO]), rings: Uint32Array.of(1), parts: Uint32Array.of(1) }
+  const { layer } = mount(geo, { interactive: true })
+  const medidos = []
+  layer.setCurve(espia(medidos))
+  assert.ok(medidos.length, 'el triángulo elegido sí se curva')
+  assert.equal(medidos.filter(lng => lng >= 100).length, 0, 'la línea no se recorre: nadie la lee')
+  assert.deepEqual(picados(layer, BAJO, ADENTRO, AFUERA), [1, 1, 0])
+})
+
+// Sobre la geodésica de la arista larga, tan φ = tan φv · cos(λ − 5): el borde a cada longitud.
+const bordeEn = lng => Math.atan(Math.tan(CUMBRE * RAD) * Math.cos((lng - 5) * RAD)) / RAD
+
+test('con curva, un vértice inválido deja intacta la figura que le sigue en las tablas', () => {
+  const roto = square(30, 0, 1).map(([lng, lat], i) => i === 2 ? [lng, NaN] : [lng, lat])
+  const { layer } = mount(tables([roto, TRIANGULO]), { interactive: true })
+  layer.setCurve(byDefault)
+  const borde = [1, 3, 5, 7, 9, 9.9].map(lng => ({ lng, lat: bordeEn(lng) }))
+  assert.deepEqual(borde.map(p => layer.resolveClick({ lng: p.lng, lat: p.lat - 0.003 }).map(h => h.ref)),
+    borde.map(() => [1]), 'adentro del borde curvado, en toda la arista de cierre')
+  assert.deepEqual(borde.map(p => layer.resolveClick({ lng: p.lng, lat: p.lat + 0.003 }).length), borde.map(() => 0))
 })

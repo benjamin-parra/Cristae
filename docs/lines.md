@@ -174,9 +174,31 @@ track disjunto se descartan por separado en el broad-phase) y `nearest` devuelve
 con el dato: un índice local a la parte no dice nada sobre el array paralelo del consumidor.
 
 El índice se arma al primer pedido de hit y se mantiene al día con cada `patch` y `append`, sin
-reconstruirse. Los hits fluyen por el `LayerRegistry` con el desempate estándar
+reconstruirse. Ve lo que se dibuja: lo que `append` sumó en una ventana todavía abierta entra con el
+flush que la cierra. Los hits fluyen por el `LayerRegistry` con el desempate estándar
 (`zIndex desc, order asc, distancePx asc`) — el consumidor escucha `click`/`hover` como en cualquier
 capa.
+
+### Curva geodésica
+
+Con curva, la capa parte cada tramo sobre la geodésica de su modelo con la regla de
+[`geodesic`](geometry.md#geodésica--geodesic): sólo se parte lo que se aparta más de 0,1 m de la recta de
+Mercator, así que un track GPS se dibuja byte a byte igual. La cifra vale en tramos de hasta 1 000 km; en
+uno más largo, como los vuelos de abajo, la cota de `geodesic` se queda corta y la cuerda puede pasarla. De
+una sola densificación salen el dibujo, el picking y la caja:
+
+- **`vertexIndex` sigue en la entrada.** Un hit sobre un punto insertado da el vértice que abre su tramo.
+- **Con `scalarOf`, los puntos insertados interpolan el escalar** entre los dos vértices, y `colorRamp` lo
+  colorea: no se mezclan colores.
+- **`append` curva lo agregado desde el último vértice del path** y sube sólo eso.
+- **La capa informa la caja de la curva**, que es la que encuadran `fitToLayers` y `camera.fitToLayer`;
+  sin curva, el encuadre lee la Source.
+- **Panear y hacer zoom no re-teselan**: la tolerancia está en metros, no en píxeles.
+- **Costo.** Un track GPS paga sólo el prefiltro: 100 000 puntos se rearman en 37 ms en vez de 32. Cada
+  punto insertado cuesta ~0,8 µs en la esfera y ~15 µs en WGS84, y un tramo de miles de kilómetros llega
+  al tope de 4 096: cien vuelos de 9 000 km se rearman en 0,3 s en la esfera y en 6 s en WGS84. El
+  primer hit y la caja densifican otra vez, porque el índice nace al primer pedido y la caja no se
+  retiene.
 
 ---
 

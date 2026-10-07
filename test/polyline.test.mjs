@@ -2,13 +2,20 @@
 // Corre con: node test/polyline.test.mjs
 import { isDeepStrictEqual } from 'node:util'
 import { projX0, projY0 } from '../src/render/project.js'
-import { prepareIndex, nearest, sampleAlong, toParts } from '../src/geometry/polyline.js'
+import { nearest, sampleAlong, toParts } from '../src/geometry/polyline.js'
 
-// Azúcar para las pruebas: mismo call path que las capas — todo entra por `toParts` (que ya descarta
-// las partes sin segmento) y el índice recibe las partes tal cual, con su `from`.
-const idxOf = (items) => prepareIndex(items.map(({ id, path, parts }) => ({
-  id, parts: toParts(parts ?? path),
-})))
+// Azúcar para las pruebas: el índice que arma la capa de líneas para un path recto, con `src` = la
+// posición de cada vértice en la entrada. Todo entra por `toParts`, que ya descarta las partes sin
+// segmento.
+const idxOf = items => ({
+  stale  : true,
+  sorted : items.flatMap(({ id, path, parts }) => toParts(parts ?? path).map(({ from, path: tramo }, partIndex) => {
+    const pts = tramo.map(([lat, lng]) => ({ x: projX0(lng), y: projY0(lat) }))
+    const xs  = pts.map(p => p.x), ys = pts.map(p => p.y)
+    const box = { minX: Math.min(...xs), maxX: Math.max(...xs), minY: Math.min(...ys), maxY: Math.max(...ys) }
+    return { id, partIndex, src: pts.map((_, k) => from + k), pts, bbox: box }
+  })),
+})
 
 let pass = 0, fail = 0
 const ok = (cond, msg) => { if (cond) { pass++ } else { fail++; console.error('  ✗ FAIL:', msg) } }
@@ -25,7 +32,6 @@ ok(projY0(10) < projY0(0), 'projY0 decrece con lat (norte = y menor)')
 
 // ── índice vacío / degenerado ──
 ok(idxOf([]).sorted.length === 0, 'idxOf([]) vacío')
-ok(prepareIndex(null).sorted.length === 0, 'prepareIndex(null) vacío')
 ok(idxOf([{ id: 1, path: [[0, 0]] }]).sorted.length === 0, 'path de 1 punto se descarta (sin segmento)')
 ok(nearest(0, 0, idxOf([]), 1).length === 0, 'nearest sobre índice vacío = []')
 
@@ -350,8 +356,9 @@ const idx2 = idxOf([
     { id: 'B', path: [[0, 4], [0, 5]] },
     { id: 'C', path: [[0, 15], [0, 20]] },
   ])
+  nearest(0, 0, idxO, 1)
   const maxs = idxO.sorted.map((e) => e.bbox.maxX)
-  ok(maxs.every((v, i) => i === 0 || maxs[i - 1] <= v), 'el índice queda ordenado por maxX ascendente')
+  ok(maxs.every((v, i) => i === 0 || maxs[i - 1] <= v), 'el primer nearest deja el índice ordenado por maxX ascendente')
   ok(nearest(0, 9.5, idxO, 0.1).map((h) => h.id).join(',') === 'A', 'la línea bajo el cursor pica (no la saltea el binario)')
 }
 

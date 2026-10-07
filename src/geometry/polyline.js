@@ -13,7 +13,6 @@
 // Módulo puro: sin Leaflet, sin WebGL, testeable con coordenadas conocidas.
 import { projX0, projY0 } from '../render/project.js'
 import { coordOf, isNested, isPoint, iterable, listOf } from '../data/path.js'
-import { bboxOfPoints } from './bbox.js'
 import { lowerBoundBy } from './binary-search.js'
 
 // Distancia² de (px,py) al segmento (ax,ay)-(bx,by), en world0 px. Inline, sin alloc.
@@ -95,30 +94,16 @@ const pushPart = (parts, vertices, first, count, from) => {
  *  `foldRuns`, con cada punto copiado como par `[lat, lng]`, sea cual sea su forma. */
 export const toParts = input => foldRuns(input, pushPart, [])
 
-// items: [{ id, parts }] con las partes tal cual las devuelve `toParts` — una entrada POR PARTE: las
-// de un track disjunto traen bboxes ajustadas y se descartan por separado en el broad-phase. Guarda
-// el `from` de cada parte para que el hit pueda expresarse en el espacio de índices de la ENTRADA (el
-// mismo que recibe `scalarOf`) y no sólo en el local de la parte. Índice inmutable; reconstruir sólo
-// si cambia el set. Proyecta cada vértice a world0 px una vez. O(n·k) al construir.
+// El índice es `{ stale, sorted }`, con una entrada POR PARTE, `{ id, partIndex, src, pts, bbox }`: las de
+// un track disjunto traen bboxes ajustadas y se descartan por separado en el broad-phase. `pts` es el path
+// que se dibuja, en world0 px, y puede estar curvado, con más vértices que los que entraron: `src[k]` es la
+// posición en la ENTRADA del vértice original que abre el tramo `k`, para que el hit se exprese en el
+// espacio de índices de la entrada —el mismo que recibe `scalarOf`— y no en el del path dibujado.
 //
-// Una parte puede ser un path curvado, con más vértices que los que entraron: `src[k]` es la posición en la
-// ENTRADA del vértice original que abre el tramo `k`, y es lo que devuelve el hit. Sin `src`, el tramo `k`
-// abre en `from + k`.
-//
-// El índice se deja MUTAR: quien lo mantiene al día agrega entradas, quita las suyas o estira los `pts`
-// de una y su `bbox`, y marca `stale`. El orden por maxX se restablece al próximo `nearest`, una sola
-// vez por tanda de cambios y no por cambio.
+// Lo arma y lo mantiene al día la capa de líneas: agrega entradas, quita las suyas o estira los `pts` de
+// una con su `src` y su `bbox`, y marca `stale`. El orden por maxX se restablece al próximo `nearest`, una
+// sola vez por tanda de cambios y no por cambio.
 const byMaxX = (a, b) => a.bbox.maxX - b.bbox.maxX
-
-export const prepareIndex = items => ({
-  stale: false,
-  sorted: (items ?? [])
-    .flatMap(({ id, parts }) => parts.map(({ path, from, src }, partIndex) => {
-      const pts = path.map(([lat, lng]) => ({ x: projX0(lng), y: projY0(lat) }))
-      return { id, partIndex, from, src, pts, bbox: bboxOfPoints(pts) }
-    }))
-    .sort(byMaxX),
-})
 
 // Un item se descarta si su bbox.maxX < value: sus previos tienen todo su bbox al oeste de `value`
 // (= px − tol), así que su punto más cercano queda a más de tol. El límite es INCLUSIVO (`< value`,
@@ -196,7 +181,7 @@ export const nearest = (lat, lng, index, tol) => {
     if (best > tol2) continue
     const dist = Math.sqrt(best)
     const prev = out.find(h => h.id === entry.id)   // los hits son pocos (tol ~8px): scan < Map
-    const hit = { id: entry.id, partIndex: entry.partIndex, vertexIndex: entry.src?.[bestSeg] ?? entry.from + bestSeg, dist }
+    const hit = { id: entry.id, partIndex: entry.partIndex, vertexIndex: entry.src[bestSeg], dist }
     if (!prev) out.push(hit)
     else if (dist < prev.dist) Object.assign(prev, hit)
   }

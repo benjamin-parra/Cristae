@@ -9,7 +9,7 @@ import { conGlDeEdicion, makeEditGl, makeMap, makeLeaflet } from '../../test-hel
 import { test, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { MapEngine } from '../../src/engine/MapEngine.js'
-import { MEAN_RADIUS } from '../../src/geometry/geodesic.js'
+import { MEAN_RADIUS, byDefault } from '../../src/geometry/geodesic.js'
 import { adoptLeafletHost } from '../../src/host/LeafletHost.js'
 import { arc } from '../../src/index.js'
 
@@ -104,4 +104,18 @@ test('el borde curvo de una forma es un path de la capa de líneas y el encuadre
   assert.ok(Math.abs(norte - lat) < tol && Math.abs(sur + lat) < tol, `latitud ${sur}…${norte}, esperada ±${lat}`)
   assert.ok(Math.abs(oeste - lng) < tol, `oeste ${oeste}, esperado ${lng}`)
   assert.ok(Math.abs(este - delta / D) <= teselado, `este ${este}, esperado ${delta / D} ± ${teselado}`)
+})
+
+// Con curva, la caja es la que la capa informa de lo que dibuja: el círculo máximo entre dos puntos de 50° N
+// separados por 10° sube hasta tan φv = tan 50° / cos 5°, y la Source sólo llega a los 50°.
+test('una línea curvada sobre la geodésica encuadra la curva, no la recta de la Source', () => {
+  const RAD  = Math.PI / 180
+  const alta = curva => engine => {
+    engine.addLineLayer({ id: 'ruta', accessors: { idOf: r => r.id, pathOf: r => r.path }, data: [{ id: 1, path: [[50, 0], [50, 10]] }] })
+    curva && engine.getLayer('ruta').layer.setCurve(byDefault)
+  }
+  assert.deepEqual(encuadre(alta(false)), [[50, 0, 50, 10]])
+  const [[sur, oeste, norte, este]] = encuadre(alta(true))
+  assert.ok(Math.abs(norte - Math.atan(Math.tan(50 * RAD) / Math.cos(5 * RAD)) / RAD) < 1e-4, `norte ${norte}`)
+  ;[[sur, 50], [oeste, 0], [este, 10]].forEach(([real, ref]) => assert.ok(Math.abs(real - ref) < 1e-9, `${real} vs ${ref}`))
 })
