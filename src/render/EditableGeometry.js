@@ -14,7 +14,9 @@
 // sprites, más el banco `EditHandleDom`, que repone como nodo SÓLO el vecindario bajo el cursor. El gesto
 // lo posee la capa GL: el pase de picking dice qué handle hay bajo el píxel. Lo que se DIBUJA —relleno y
 // contorno— vive aparte, en el contorno de cada trazo, que comparte con él path y arena: por eso el vértice
-// del arrastre le llega como uniform, sin escribir a GPU.
+// del arrastre le llega como uniform, sin escribir a GPU. Con curva (`setCurve`), el contorno de polygon y
+// polyline se deriva de su path, con cada tramo partido sobre la geodésica, y el midpoint de sus manijas
+// cae sobre ella.
 //
 // Almacenamiento: polygon y polyline viven en un `ChunkedPath` —el arena—, donde mover un vértice es O(1)
 // e insertar o borrar toca UN chunk, no el trazo entero. `point` y `rectangle` guardan su estado en pares
@@ -40,6 +42,7 @@
 import { CLICK_TOLERANCE, HANDLE_HELD, HANDLE_NONE, HANDLE_OVER } from '../events/events.js'
 import { ChunkedPath, ROLE } from '../geometry/ChunkedPath.js'
 import { coordOf, isNested, isPoint } from '../data/path.js'
+import { at, count } from '../geometry/curve.js'
 import { pixelsToMeters } from '../geometry/density.js'
 import { bake } from '../geometry/freehand.js'
 import { byDefault } from '../geometry/geodesic.js'
@@ -104,6 +107,8 @@ export class EditableGeometry {
   #perimetro  = null                       // las formas: el anillo que se dibuja, derivado de la forma
   #anillo     = new Float64Array(0)        // ese anillo como [lng, lat, …], reusado entre frames
   #manijas    = null                       // las manijas de la forma, ídem
+  #curva      = null                       // polygon y polyline: el modelo de la geodésica que dibujan, o null
+  #medio      = null                       // el midpoint de sus manijas sobre esa geodésica
   #fill       = null                       // relleno: uno solo, porque el XOR entre anillos es lo que abre el hueco
   #style      = null                       // el vocabulario Leaflet del display que el editor reemplaza
   #paths      = []                         // ChunkedPath por índice de trazo, REUSADOS entre ingestas
@@ -134,6 +139,7 @@ export class EditableGeometry {
   #esquinas = new Int32Array(4)            // los cuatro refs del rectángulo, capturados al tomar el gesto
   #punto    = [0, 0]                       // el píxel que la cámara convierte, reusado en cada frame
   #esquina  = [0, 0]                       // la esquina que devuelve el arrastre de rectángulo
+  #curvo    = [0, 0]                       // el punto de la geodésica que el gesto escribe en el contorno
 
   // El pane se direcciona por NOMBRE: dos editores sobre el mismo mapa comparten el nodo, y la superficie
   // del anfitrión lo sostiene mientras quede uno. El puntero le llega por `join`, que lo suma a la puerta
@@ -191,6 +197,28 @@ export class EditableGeometry {
     this.#invalidar()
     this.#promover(-1, -1)
     this.#draw()
+    this.#informar()
+    trazo && this.#emit()
+  }
+
+  // Curva los tramos de polygon y polyline sobre la geodésica de `model`, o los vuelve rectos con `null`. Los
+  // trazos se montan de nuevo, con el midpoint de las manijas sobre la curva y un contorno propio. Corta el
+  // gesto como `setMode` y, como el valor no cambia, sólo emite tras cortar un trazo a mano alzada, cuyo crudo
+  // ya salió. Un tramo corto o el que da más de media vuelta no se parten, y su midpoint sigue en el promedio.
+  // Los dos midpoints del vértice tomado quedan bajo su vecindario mientras dura el gesto, así que se ubican
+  // al soltar y el frame no paga el modelo.
+  setCurve(model) {
+    if (!CRECEN.has(this.#kind)) throw new Error(`EditableGeometry: el kind "${this.#kind}" no se curva`)
+    const trazo = this.#mano.vivo
+    this.#releaseInteraction()
+    this.#curva = model
+    this.#medio = model && ((lat1, lng1, lat2, lng2, out) => this.#gesto.ref < 0 &&
+      count(this.#geodesica, lat1, lng1, lat2, lng2) > 1 && at(this.#geodesica, lat1, lng1, lat2, lng2, 0.5, out))
+    this.#paths.length = 0
+    this.#trazos.splice(0).forEach(t => this.#soltar(t))
+    this.#contornos.splice(0)
+    this.#geom = this.#ingest(this.#serialize())
+    this.#rebuild()
     this.#informar()
     trazo && this.#emit()
   }
@@ -286,7 +314,7 @@ export class EditableGeometry {
   #trazo(i, coords, closed) {
     const pts  = Array.from(coords, toFinitePair).filter(Boolean)
     const path = this.#paths[i]
-    if (!path) return (this.#paths[i] = new ChunkedPath({ points: pts, closed }))
+    if (!path) return (this.#paths[i] = new ChunkedPath({ points: pts, closed, mid: this.#medio }))
     path.setClosed(closed)
     return path.reset(pts)
   }
@@ -350,6 +378,56 @@ export class EditableGeometry {
       path.moveVertex(ref, xy[2 * i + 1], xy[2 * i])
     for (let k = path.firstChunk; k >= 0; k = path.chunkNext(k))
       arena.writeRange(k, path.chunkFirst(k), path.chunkFirst(k) + path.chunkUsed(k))
+  }
+
+  // El modelo con que se curva. Un trazo a mano alzada rehace la curva en cada muestra, así que mientras dura
+  // se curva con la esfera, como el gesto, y el modelo entra al hornear.
+  get #geodesica() { return this.#mano.vivo ? byDefault : this.#curva }
+
+  // El contorno de un trazo curvo, rehecho entero con el modelo: cada tramo de la entrada, partido en los
+  // segmentos que pide su geodésica. Anota por vértice de la entrada el ref de su punto en el contorno y los
+  // segmentos del tramo que arranca en él, que el gesto congela. Asigna, así que corre al ingerir, en cada
+  // edición discreta y al soltar.
+  #curvar(t) {
+    const { path, contorno: c } = t
+    const model = this.#geodesica
+    const refs  = path.chunkCount * path.entriesPerChunk
+    const pts   = []
+    c.desde  = new Int32Array(refs)
+    c.tramos = new Int32Array(refs)
+    for (let i = 0, v = path.firstVertex; i < path.length; i++, v = path.nextVertex(v)) {
+      const n    = path.nextVertex(v)
+      const lat1 = path.xAt(v), lng1 = path.yAt(v)
+      pts.push([lat1, lng1])
+      if (n < 0) continue
+      const m = c.tramos[v] = count(model, lat1, lng1, path.xAt(n), path.yAt(n))
+      for (let k = 1; k < m; k++) pts.push(at(model, lat1, lng1, path.xAt(n), path.yAt(n), k / m, [0, 0]))
+    }
+    c.path.reset(pts)
+    for (let i = 0, v = path.firstVertex, r = c.path.firstVertex; i < path.length; i++, v = path.nextVertex(v)) {
+      c.desde[v] = r
+      for (let k = 0; k < c.tramos[v]; k++) r = c.path.nextVertex(r)
+    }
+    c.arena.reset()
+  }
+
+  // Los puntos intermedios del tramo `v → n` de un trazo curvo, sobre la geodésica de la esfera. Si `count`
+  // ya no lo parte —más de media vuelta de longitud, extremos que se juntan o antípodas, que `at` no admite,
+  // o un tramo que quedó corto— van sobre la recta de Mercator, que es lo que se dibuja al soltar. [0-alloc]
+  #tramo({ path, contorno: c }, v, n) {
+    const out   = this.#curvo
+    const m     = c.tramos[v]
+    const lat1  = path.xAt(v), lng1 = path.yAt(v)
+    const lat2  = path.xAt(n), lng2 = path.yAt(n)
+    const recto = m > 1 && count(byDefault, lat1, lng1, lat2, lng2) === 1
+    const y1    = projY0(lat1), dy = projY0(lat2) - y1
+    for (let k = 1, r = c.path.nextVertex(c.desde[v]); k < m; k++, r = c.path.nextVertex(r)) {
+      if (recto) {
+        out[0] = Math.atan(Math.sinh(Math.PI * (1 - (y1 + k / m * dy) / 128))) / D
+        out[1] = lng1 + k / m * (lng2 - lng1)
+      } else at(byDefault, lat1, lng1, lat2, lng2, k / m, out)
+      c.path.moveVertex(r, out[0], out[1])
+    }
   }
 
   // Lo menos que mide un radio, en metros a la latitud del centro, para que sus manijas no se pisen.
@@ -710,8 +788,9 @@ export class EditableGeometry {
   // Suelta el puntero SIN asentar y devuelve lo que el gesto tenía tomado (null si no había ninguno). Es
   // el camino de los cortes de AFUERA —`destroy` / `setMode` / `setValue`—, así que pone el espejo GPU al
   // día: el arrastre dejó el arena atrás y lo movido ya salió por `onChange`. Una forma se rehace entera:
-  // sus manijas vuelven a donde la forma las pone y su anillo pasa de la esfera al modelo. Un trazo a mano
-  // alzada vuelve al valor de antes, y sólo `setMode` lo emite.
+  // sus manijas vuelven a donde la forma las pone y su anillo pasa de la esfera al modelo, y un contorno
+  // curvo se rehace con el modelo y su cuenta. Un trazo a mano alzada vuelve al valor de antes, y sólo
+  // `setMode` lo emite.
   #releaseInteraction() {
     this.#mano.devolver && this.#soltarMano(false)
     const g = this.#gesto
@@ -723,8 +802,11 @@ export class EditableGeometry {
     g.movido   = false
     g.devolver = null
     if (tomado.movido) {
+      const { t, ref } = tomado
       this.#invalidar()
-      this.#forma ? this.#refigurar() : tomado.t.arena.writeEntry(tomado.ref)
+      this.#curva && t.path.moveVertex(ref, t.path.xAt(ref), t.path.yAt(ref))   // sus midpoints, ya fuera del gesto
+      this.#forma ? this.#refigurar() : t.arena.writeEntry(ref)
+      this.#curva && this.#curvar(t)
     }
     tomado.t.bank.grab(false)
     devolver()
@@ -772,12 +854,39 @@ export class EditableGeometry {
 
   // La regla de arrastre de cada `kind`, con la posición que le queda al ref arrastrado (o null si no se
   // movió nada): polígono y polilínea mueven su vértice y el punto es su único vértice.
+  //
+  // Con curva, los dos tramos del vértice en el contorno se rehacen con la esfera y los segmentos que tenían
+  // al tomarlo, y se sube sólo lo que va del punto del vértice anterior al último antes del siguiente, con
+  // sus midpoints. Tras el `reset` del contorno sus refs crecen con el trazo, así que ese rango sólo da la
+  // vuelta en el cierre del anillo. [0-alloc]
   #mover(t, ref, p) {
     if (this.#forma) return this.#moverManija(t, ref, p)
     if (this.#kind === 'rectangle') return this.#moverEsquina(t, ref, p)
     if (!t.path.moveVertex(ref, p[0], p[1])) return null
     this.#kind === 'point' && (this.#geom.pt = p)
-    return p
+    if (!this.#curva) return p
+
+    const { path, contorno: c } = t
+    const borde = c.path
+    const prev  = path.prevVertex(ref)
+    const next  = path.nextVertex(ref)
+    borde.moveVertex(c.desde[ref], p[0], p[1])
+    prev >= 0 && this.#tramo(t, prev, ref)
+    next >= 0 && this.#tramo(t, ref, next)
+    const a   = c.desde[prev < 0 ? ref : prev]
+    const b   = next < 0 ? c.desde[ref] : borde.prevVertex(c.desde[next])
+    const fin = borde.chunkOf(b)
+    for (let k = borde.chunkOf(a), lo = borde.localOf(a), vuelta = a > b; ;) {
+      const ultimo = k === fin && !vuelta
+      c.arena.writeRange(k, lo, ultimo ? borde.localOf(b) + 2 : borde.chunkFirst(k) + borde.chunkUsed(k))
+      if (ultimo) return p
+      k = borde.chunkNext(k)
+      if (k < 0) {
+        k      = borde.firstChunk
+        vuelta = false
+      }
+      lo = borde.chunkFirst(k)
+    }
   }
 
   // Arrastre de esquina de rectángulo: la esquina opuesta queda fija y el bounds se recompone por min/max
@@ -923,8 +1032,11 @@ export class EditableGeometry {
 
   // El espejo tras una edición ESTRUCTURAL. Re-ingiere —y con eso vuelve a congelar el ancla— cuando el
   // trazo estrenó contenido: un ancla congelada sobre un trazo vacío no acota nada, y de ahí sale la
-  // precisión de float32. Si no, sube sólo los chunks que se movieron.
-  #espejar(t, reingesta) { reingesta ? t.arena.reset() : t.arena.syncStructure() }
+  // precisión de float32. Si no, sube sólo los chunks que se movieron. Un contorno curvo se rehace entero.
+  #espejar(t, reingesta) {
+    reingesta ? t.arena.reset() : t.arena.syncStructure()
+    this.#curva && this.#curvar(t)
+  }
 
   // point, rectangle y las formas DERIVAN su trazo de su estado y se re-ingieren enteros: en una figura de
   // tamaño fijo eso cuesta lo mismo que actualizarla, y les evita un camino de edición propio.
@@ -934,10 +1046,10 @@ export class EditableGeometry {
     this.#reingerir(this.#trazos[0])
   }
 
-  // El espejo entero de un trazo, y el de su contorno si es derivado.
+  // El espejo entero de un trazo, y el de su contorno si es derivado; el curvo se rehace con el modelo.
   #reingerir(t) {
     t.arena.reset()
-    t.contorno.arena !== t.arena && t.contorno.arena.reset()
+    this.#curva ? this.#curvar(t) : t.contorno.arena !== t.arena && t.contorno.arena.reset()
   }
 
   #dibujables() { return this.#kind === 'polygon' ? this.#geom.rings : [this.#geom.path] }
@@ -957,15 +1069,15 @@ export class EditableGeometry {
 
   // Un trazo en GPU, en su lugar de las dos listas: el espejo del arena, sus handles como sprites, el banco
   // de nodos que repone el vecindario bajo el cursor y su contorno. El contorno es el mismo path con el mismo
-  // arena, salvo en las formas, que dibujan su anillo con un arena propio sin canales de handle. El objeto de
-  // picking es el orden + 1 —el pase descarta el 0—.
+  // arena, salvo en las formas y con curva, que dibujan su anillo o su curva con un path y un arena propios,
+  // sin canales de handle. El objeto de picking es el orden + 1 —el pase descarta el 0—.
   #montar(path, orden) {
     const gl       = this.#gl
     const iconSet  = this.#iconSet
     const arena    = new EditArena({ gl, path, project, ...this.#canales() })
     const picking  = new Picking()
     const handles  = new EditHandleLayer({ gl, arena, path, picking, iconSet })
-    const borde    = this.#perimetro ?? path
+    const borde    = this.#perimetro ?? (this.#curva ? new ChunkedPath({ closed: path.closed }) : path)
     const dibujo   = borde === path ? arena : new EditArena({ gl, path: borde, project })
     const contorno = this.#contornos[orden] = {
       path   : borde,
@@ -977,6 +1089,7 @@ export class EditableGeometry {
       orden, path, arena, picking, handles, contorno,
       bank: new EditHandleDom({ host: this.#host, pane: this.#pane, path, arena, project, iconSet }),
     }
+    this.#curva && this.#curvar(this.#trazos[orden])
   }
 
   // Cada arena se destruye una vez: el del contorno, sólo si no es el del trazo.

@@ -200,6 +200,31 @@ No hay parámetros: las tolerancias son de pantalla.
   el valor que trae, y `destroy`, ninguno. Esos dos no emiten.
 - **Cursor.** No se informa `HANDLE_HELD`: queda el del consumidor.
 
+### Curva geodésica
+
+Con curva, el polígono y la polilínea dibujan cada tramo sobre la geodésica del modelo del mapa, con la
+regla de [`geodesic`](geometry.md#geodésica--geodesic): se parte lo que se aparta más de 0,1 m de la recta
+de Mercator, también la arista de cierre. El relleno sigue al contorno, y la curva vive en el contexto del
+editor: no toma otro.
+
+- **Las manijas quedan en los vértices del `value`**, que no gana puntos. El midpoint de un tramo partido
+  cae sobre la geodésica, así que pulsarlo inserta el vértice sobre la curva. El de un tramo que no se
+  parte, o que da más de media vuelta de longitud, queda en el promedio de sus extremos.
+- **El arrastre** rehace sólo los dos tramos del vértice tomado, con los segmentos que tenían al tomarlo y
+  sobre la esfera por defecto, y sube sólo esos puntos. Un tramo que el arrastre lleva a más de media vuelta
+  de longitud, o a extremos que se juntan, va recto, como quedará al soltar. Al soltar se rehacen con el
+  modelo y su cuenta, y los dos midpoints del vértice, que el gesto tapa, vuelven a la curva.
+- **Insertar, borrar, agregar en `draw` y hornear un trazo a mano alzada** rehacen la curva entera. Mientras
+  dura el trazo, cada muestra también la rehace entera, sobre la esfera por defecto; el modelo entra al
+  hornear.
+- **Panear y hacer zoom no la rehacen**: la tolerancia está en metros, no en píxeles.
+- **Costo.** Cada punto que el arrastre rehace cuesta ~1 µs, entre la geodésica de la esfera y la
+  proyección, y rehacerlo y subirlo no asigna; el frame entero sí, porque convertir el píxel en lugar
+  asigna. Un arrastre que rehace 1 350 puntos cuesta 1,4 ms por frame, y el mismo sin curva, 0,1 ms. Soltar
+  y cada edición discreta rehacen la curva entera con el modelo: 2 000 puntos en ~4 ms sobre la esfera y
+  ~8 ms sobre WGS84. Cada muestra de la mano alzada sobre una curva de 2 000 puntos cuesta ~5 ms, y sin
+  curva, 0,1 ms.
+
 ---
 
 ## Declarativo

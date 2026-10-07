@@ -27,7 +27,7 @@ import { defineEditIconSet, editHandleChannels } from '../../src/render/EditHand
 import { EditableGeometry } from '../../src/render/EditableGeometry.js'
 import { Camera } from '../../src/engine/Camera.js'
 import { WGS84 } from '../../src/geometry/ellipsoid.js'
-import { DESTINATION, HEADING, MEAN_RADIUS, MODEL } from '../../src/geometry/geodesic.js'
+import { DESTINATION, HEADING, MEAN_RADIUS, MODEL, byDefault } from '../../src/geometry/geodesic.js'
 import geographiclib from 'geographiclib-geodesic'
 import { Interaction } from '../../src/engine/Interaction.js'
 import { adoptLeafletHost } from '../../src/host/LeafletHost.js'
@@ -50,9 +50,14 @@ const TILE_VACIO = editHandleChannels(defineEditIconSet()).tiles[ROLE.free]
 // La superficie de edición pide un WebGL2 CON stencil sobre un canvas propio, y el `document` del harness
 // devuelve un contexto no-op. La costura del harness le enchufa el doble de GL del repo —el mismo que
 // ejercen las otras capas de edición—: el canvas lo sigue creando el shim, así que nada más cambia.
+// `contextos` cuenta los que se piden.
 let glVigente = null
+let contextos = 0
 
-after(conGlDeEdicion(() => glVigente))
+after(conGlDeEdicion(() => {
+  contextos++
+  return glVigente
+}))
 
 // `alAsentar` corre dentro de `onCommit` y recibe el editor: es donde un consumidor lo corta —pasa a draw,
 // lo destruye— antes de que llegue el resto de la pulsación.
@@ -1781,13 +1786,14 @@ test('freehand: un lazo que no encierra área se descarta como un cancel', () =>
   esc.ed.destroy()
 })
 
-test('freehand: setMode, setValue o destroy a mitad del trazo devuelven el arrastre y no asientan', () => {
+test('freehand: setMode, setCurve, setValue o destroy a mitad del trazo devuelven el arrastre y no asientan', () => {
   const previo = [[0, 0], [0, 1]]
   const otro   = [[5, 5], [5, 6]]
-  // El último `change` es lo que el consumidor cree que vale: tras setMode, el valor de antes; setValue y
-  // destroy no emiten, y queda el crudo.
+  // El último `change` es lo que el consumidor cree que vale: tras setMode y setCurve, el valor de antes;
+  // setValue y destroy no emiten, y queda el crudo.
   const corte  = [
     ['setMode', esc => esc.ed.setMode('edit'), previo, previo],
+    ['setCurve', esc => esc.ed.setCurve(byDefault), previo, previo],
     ['setValue', esc => esc.ed.setValue(otro), otro, 'crudo'],
     ['destroy', esc => esc.ed.destroy(), previo, 'crudo'],
   ]
@@ -1862,4 +1868,308 @@ test('freehand: el doble click no se consume, así que el mapa hace zoom', () =>
   assert.deepEqual(esc.ed.getValue(), SQUARE)
 
   esc.ed.destroy()
+})
+
+/* ── Curva geodésica: el contorno de polígono y polilínea sobre la geodésica del modelo ── */
+
+// El contorno curvo se lee del espejo GPU: la última ingesta y, encima, las escrituras parciales desde la
+// subida número `desde`. La ingesta llena cada chunk hasta un cuarto de su capacidad, así que el punto `k`
+// vive en el ref ⌊k / por⌋·cap + 2·(k mod por). Devuelve el punto `k` en world0, relativo al punto 0.
+const contornoSubido = (esc, desde = esc.spy.texSubImages.length) => {
+  const spy   = esc.spy
+  const i     = spy.texels.findLastIndex(Boolean)
+  const t     = spy.texels[i].slice()
+  const ancho = spy.texImages[i].width
+  for (let s = desde; s < spy.texSubImages.length; s++) {
+    const { x, y } = spy.texSubImages[s]
+    t.set(spy.texSubTexels[s], (y * ancho + x) * 2)
+  }
+  const cap = esc.ed.paths[0].entriesPerChunk
+  const por = cap >> 2
+  return k => {
+    const ref = Math.floor(k / por) * cap + k % por * 2
+    return [t[2 * ref] - t[0], t[2 * ref + 1] - t[1]]
+  }
+}
+
+const TOL = 1e-5   // px de world0, ~1,5 m: lo que conserva un float32 relativo al ancla
+
+const juntos = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1]) < TOL
+
+// Un [lat, lng] en world0 relativo a `origen`, y de vuelta.
+const relativo = (origen, [lat, lng]) => {
+  const [x, y] = mercator(lat, lng), [x0, y0] = mercator(origen[0], origen[1])
+  return [x - x0, y - y0]
+}
+const lugarDe = (origen, [x, y]) => {
+  const [x0, y0] = mercator(origen[0], origen[1])
+  return [Math.atan(Math.sinh(Math.PI * (1 - (y + y0) / 128))) * 180 / Math.PI, (x + x0) / 256 * 360 - 180]
+}
+
+// El tramo de `a` a `b` que arranca en el punto `o` del contorno: el punto `o` es `a` y los intermedios caen
+// a fracciones iguales de la geodésica de `geod`. Cuántos segmentos son lo dice el primero, por su distancia
+// a `a`; es lo que devuelve, y un tramo largo tiene que partirse (`partido`): si no, un contorno que no se
+// curvó pasaría sin puntos que medir.
+const tramoCurvo = (c, o, a, b, geod, origen, msg, partido = true) => {
+  assert.ok(juntos(c(o), relativo(origen, a)), `${msg}: arranca en su vértice`)
+  const total = geod.Inverse(a[0], a[1], b[0], b[1])
+  const p     = lugarDe(origen, c(o + 1))
+  const m     = Math.round(total.s12 / geod.Inverse(a[0], a[1], p[0], p[1]).s12)
+  assert.ok(m >= 1 && (!partido || m > 1), `${msg}: ${m} segmentos`)
+  for (let k = 1; k < m; k++) {
+    const d = geod.Direct(a[0], a[1], total.azi1, k / m * total.s12, LATITUDE | LONGITUDE | LONG_UNROLL)
+    assert.ok(juntos(c(o + k), relativo(origen, [d.lat2, d.lon2])), `${msg}: punto ${k} de ${m}`)
+  }
+  return m
+}
+
+// El tramo medido sobre `geod` NO es el del contorno: falla en algún punto.
+const fuera = (c, o, a, b, geod, origen) => assert.throws(() => tramoCurvo(c, o, a, b, geod, origen, ''), assert.AssertionError)
+
+// El punto medio de la geodésica de `a` a `b`.
+const medioDe = (geod, a, b) => {
+  const r = geod.Inverse(a[0], a[1], b[0], b[1])
+  const d = geod.Direct(a[0], a[1], r.azi1, r.s12 / 2, LATITUDE | LONGITUDE | LONG_UNROLL)
+  return [d.lat2, d.lon2]
+}
+
+const TRIANGULO = [[40, 1], [40, 3], [41, 2]]
+const GRANDE    = [[40, -10], [40, 10], [50, 0]]   // ~2 000 puntos de contorno: dos chunks
+
+test('con curva, el contorno parte cada tramo sobre la geodésica, también el cierre, y las manijas son los vértices del valor', () => {
+  const esc       = montar({ kind: 'polygon', value: TRIANGULO })
+  const [a, b, d] = TRIANGULO
+  esc.ed.setCurve(byDefault)
+  const c  = contornoSubido(esc)
+  const ab = tramoCurvo(c, 0, a, b, ESFERA, a, 'a → b')
+  const bd = tramoCurvo(c, ab, b, d, ESFERA, a, 'b → c')
+  tramoCurvo(c, ab + bd, d, a, ESFERA, a, 'el cierre')
+
+  assert.equal(esc.ed.paths[0].length, 3, 'las manijas son los tres vértices')
+  assert.deepEqual(esc.ed.getValue(), TRIANGULO)
+  assert.deepEqual([esc.changes.length, esc.commits.length], [0, 0], 'curvar no es una edición')
+  esc.ed.destroy()
+})
+
+test('el midpoint de un tramo curvo cae sobre la geodésica del modelo, y pulsarlo inserta ahí el vértice', () => {
+  const valor = [[40, -10], [40, 10], [10, 170], [10, -170]]
+  const esc   = montar({ kind: 'polyline', value: valor })
+  esc.ed.setCurve(WGS84)
+  const path       = esc.ed.paths[0]
+  const [v0, , v2] = refsDe(path)
+  const medio      = medioDe(ELIPSOIDE, valor[0], valor[1])
+
+  cerca(midDe(path, v0)[0], medio[0], 1e-9, 'lat del midpoint')
+  cerca(midDe(path, v0)[1], medio[1], 1e-9, 'lng del midpoint')
+  assert.ok(Math.abs(midDe(path, v0)[0] - medioDe(ESFERA, valor[0], valor[1])[0]) > 1e-4, 'del modelo, no de la esfera')
+  assert.deepEqual(midDe(path, v2), [10, 0], 'el tramo de más de media vuelta no se curva: su midpoint es el promedio')
+
+  tomar(esc, path.midOf(v0))
+  soltar(esc)
+  cerca(esc.ed.getValue()[1][0], medio[0], 1e-9, 'el vértice insertado')
+  cerca(esc.ed.getValue()[1][1], medio[1], 1e-9, 'el vértice insertado')
+  const c     = contornoSubido(esc)
+  const hasta = tramoCurvo(c, 0, valor[0], medio, ELIPSOIDE, valor[0], 'hasta el insertado')
+  tramoCurvo(c, hasta, medio, valor[1], ELIPSOIDE, valor[0], 'desde el insertado')
+  esc.ed.destroy()
+})
+
+test('el gesto reescribe sólo los dos tramos del vértice, con la esfera y sus segmentos congelados; soltar los rehace con el modelo', () => {
+  const esc       = montar({ kind: 'polygon', value: GRANDE })
+  const spy       = esc.spy
+  const [a, b, d] = GRANDE
+  const ingestas  = () => spy.texImages.length + spy.bufferDatas.length
+  esc.ed.setCurve(WGS84)
+  const path = esc.ed.paths[0]
+  const c0   = contornoSubido(esc)
+  const ab   = tramoCurvo(c0, 0, a, b, ELIPSOIDE, a, 'a → b')
+  const bd   = tramoCurvo(c0, ab, b, d, ELIPSOIDE, a, 'b → c')
+  const da   = tramoCurvo(c0, ab + bd, d, a, ELIPSOIDE, a, 'c → a')
+
+  const antes   = ingestas()
+  const subidas = spy.texSubImages.length
+  const verts   = spy.bufferSubDatas.length
+  tomar(esc, refsDe(path)[1])
+  mover(esc, 45, 12)
+  const b2 = esc.ed.getValue()[1]
+  const c1 = contornoSubido(esc, subidas)
+  assert.notDeepEqual(b2, b, 'el vértice se movió')
+
+  assert.equal(ingestas(), antes, 'el frame no re-ingiere')
+  assert.equal(tramoCurvo(c1, 0, a, b2, ESFERA, a, 'gesto a → b'), ab, 'con los segmentos de antes')
+  assert.equal(tramoCurvo(c1, ab, b2, d, ESFERA, a, 'gesto b → c'), bd)
+  assert.equal(tramoCurvo(c1, ab + bd, d, a, ELIPSOIDE, a, 'el tramo que no toca'), da)
+  fuera(c1, 0, a, b2, ELIPSOIDE, a)
+  const enviadas = spy.bufferSubDatas.slice(verts).reduce((n, s) => n + s.length, 0) / FLOATS_POR_ENTRADA
+  assert.equal(enviadas, 2 * (ab + bd), 'sube los puntos de los dos tramos con sus midpoints, y nada más')
+
+  soltar(esc)
+  const c2  = contornoSubido(esc)
+  const ab2 = tramoCurvo(c2, 0, a, b2, ELIPSOIDE, a, 'al soltar a → b')
+  const v1  = refsDe(path)[1]
+  ;[[midDe(path, path.prevVertex(v1)), medioDe(ELIPSOIDE, a, b2)], [midDe(path, v1), medioDe(ELIPSOIDE, b2, d)]].forEach(([real, esperado], i) =>
+    real.forEach((x, j) => cerca(x, esperado[j], 1e-9, `al soltar, el midpoint ${i} sobre el modelo`)))
+  assert.ok(ingestas() > antes, 'soltar re-ingiere el contorno')
+  assert.notEqual(ab2, ab, 'con la cuenta del tramo nuevo')
+  const bd2 = tramoCurvo(c2, ab2, b2, d, ELIPSOIDE, a, 'al soltar b → c')
+
+  // El vértice 0: su tramo de llegada es el del cierre, que cruza del último chunk al primero.
+  const subidas2 = spy.texSubImages.length
+  tomar(esc, refsDe(path)[0])
+  mover(esc, 41, -11)
+  const a2 = esc.ed.getValue()[0]
+  const c3 = contornoSubido(esc, subidas2)
+  assert.notDeepEqual(a2, a, 'el vértice se movió')
+  assert.equal(tramoCurvo(c3, 0, a2, b2, ESFERA, a2, 'gesto a → b'), ab2)
+  assert.equal(tramoCurvo(c3, ab2, b2, d, ELIPSOIDE, a2, 'el tramo que no toca'), bd2)
+  assert.equal(tramoCurvo(c3, ab2 + bd2, d, a2, ESFERA, a2, 'gesto en el cierre'), da)
+  soltar(esc)
+  esc.ed.destroy()
+})
+
+test('en un anillo de un chunk, el gesto sobre el vértice 0 sube su tramo de llegada, que da la vuelta', () => {
+  const esc       = montar({ kind: 'polygon', value: TRIANGULO })
+  const [a, b, d] = TRIANGULO
+  esc.ed.setCurve(byDefault)
+  const c0 = contornoSubido(esc)
+  const ab = tramoCurvo(c0, 0, a, b, ESFERA, a, 'a → b')
+  const bd = tramoCurvo(c0, ab, b, d, ESFERA, a, 'b → c')
+  const da = tramoCurvo(c0, ab + bd, d, a, ESFERA, a, 'c → a')
+
+  const subidas = esc.spy.texSubImages.length
+  tomar(esc, refsDe(esc.ed.paths[0])[0])
+  mover(esc, 39.5, 0.5)
+  const a2 = esc.ed.getValue()[0]
+  const c1 = contornoSubido(esc, subidas)
+  assert.notDeepEqual(a2, a, 'el vértice se movió')
+  assert.equal(tramoCurvo(c1, 0, a2, b, ESFERA, a2, 'gesto a → b'), ab)
+  assert.equal(tramoCurvo(c1, ab + bd, d, a2, ESFERA, a2, 'gesto c → a'), da)
+  soltar(esc)
+  esc.ed.destroy()
+})
+
+test('un tramo que el gesto lleva a más de media vuelta de longitud, o a extremos que se juntan, va por la recta de Mercator', () => {
+  const valor = [[10, 150], [10, 175], [20, 160]]
+  const esc   = montar({ kind: 'polyline', value: valor })
+  const spy   = esc.spy
+  esc.ed.setCurve(byDefault)
+  const m = tramoCurvo(contornoSubido(esc), 0, valor[0], valor[1], ESFERA, valor[0], 'antes del gesto')
+
+  const subidas = spy.texSubImages.length
+  tomar(esc, refsDe(esc.ed.paths[0])[1])
+  mover(esc, 30, 340)
+  const c      = contornoSubido(esc, subidas)
+  const [x, y] = relativo(valor[0], [30, 340])
+  for (let k = 1; k <= m; k++)
+    assert.ok(juntos(c(k), [k / m * x, k / m * y]), `media vuelta: punto ${k} de ${m} sobre la recta`)
+
+  const subidas2 = spy.texSubImages.length
+  mover(esc, ...valor[0])
+  const c2 = contornoSubido(esc, subidas2)
+  assert.ok(spy.texSubTexels.slice(subidas2).every(t => t.every(v => !Number.isNaN(v))), 'sin NaN')
+  for (let k = 1; k <= m; k++)
+    assert.ok(juntos(c2(k), [0, 0]), `sobre el vecino: punto ${k} de ${m} en el vértice`)
+  soltar(esc)
+  esc.ed.destroy()
+})
+
+test('el frame del gesto y las muestras de la mano alzada no llaman al modelo; soltar y hornear sí', () => {
+  const llamadas = { n: 0 }
+  const modelo   = Object.fromEntries([MODEL, HEADING, DESTINATION].map(marca => [marca, (...args) => {
+    llamadas.n++
+    return WGS84[marca](...args)
+  }]))
+  const esc = montar({ kind: 'polygon', value: GRANDE })
+  esc.ed.setCurve(modelo)
+  tomar(esc, refsDe(esc.ed.paths[0])[1])
+  llamadas.n = 0
+  ;[[45, 12], [46, 14], [44, 9]].forEach(([lat, lng]) => mover(esc, lat, lng))
+  assert.equal(llamadas.n, 0, 'el gesto escribe con la esfera')
+  soltar(esc)
+  assert.ok(llamadas.n > 0, 'soltar rehace la curva con el modelo')
+  esc.ed.destroy()
+
+  const mano = montar({ kind: 'polyline', value: [[2, 0], [2, 2]], mode: 'freehand' })
+  mano.ed.setCurve(modelo)
+  apoyar(mano, CUARTO[0])
+  llamadas.n = 0
+  recorrer(mano, CUARTO.slice(1))
+  assert.equal(llamadas.n, 0, 'cada muestra curva con la esfera')
+  levantar(mano, CUARTO.at(-1))
+  assert.ok(llamadas.n > 0, 'hornear curva con el modelo')
+  mano.ed.destroy()
+})
+
+test('setValue con curva curva el valor nuevo', () => {
+  const esc = montar({ kind: 'polygon', value: TRIANGULO })
+  esc.ed.setCurve(byDefault)
+  esc.ed.setValue([[50, 0], [50, 3], [52, 1]])
+  const c  = contornoSubido(esc)
+  const ab = tramoCurvo(c, 0, [50, 0], [50, 3], ESFERA, [50, 0], 'a → b')
+  tramoCurvo(c, ab, [50, 3], [52, 1], ESFERA, [50, 0], 'b → c')
+  esc.ed.destroy()
+})
+
+test('setCurve a mitad del gesto lo suelta sin asentar, como setValue', () => {
+  const esc = montar({ kind: 'polygon', value: SQUARE })
+  tomar(esc, refsDe(esc.ed.paths[0])[1])
+  mover(esc, 5, 20)
+  esc.ed.setCurve(byDefault)
+
+  assert.deepEqual(
+    { arrastre: esc.dragging.activo, commits: esc.commits.length, informes: esc.informes, valor: esc.ed.getValue()[1] },
+    { arrastre: true, commits: 0, informes: [HANDLE_OVER, HANDLE_HELD, HANDLE_NONE], valor: [5, 20] },
+  )
+  esc.ed.destroy()
+})
+
+test('borrar y agregar vértices rehacen el contorno curvo', () => {
+  const esc = montar({ kind: 'polyline', value: [[60, 0], [60, 2]] })
+  esc.ed.setCurve(byDefault)
+  esc.ed.setMode('draw')
+  clickMapa(esc, 61, 3)
+  let c       = contornoSubido(esc)
+  const antes = tramoCurvo(c, 0, [60, 0], [60, 2], ESFERA, [60, 0], 'el de antes')
+  tramoCurvo(c, antes, [60, 2], [61, 3], ESFERA, [60, 0], 'el agregado')
+
+  esc.ed.setMode('edit')
+  doble(esc, refsDe(esc.ed.paths[0])[1])
+  assert.deepEqual(esc.ed.getValue(), [[60, 0], [61, 3]])
+  c = contornoSubido(esc)
+  tramoCurvo(c, 0, [60, 0], [61, 3], ESFERA, [60, 0], 'el que queda')
+  esc.ed.destroy()
+})
+
+test('el trazo a mano alzada se hornea sobre la curva', () => {
+  const esc = montar({ kind: 'polyline', value: [[2, 0], [2, 2]], mode: 'freehand' })
+  esc.ed.setCurve(byDefault)
+  apoyar(esc, CUARTO[0])
+  recorrer(esc, CUARTO.slice(1))
+  levantar(esc, CUARTO.at(-1))
+
+  const valor = esc.ed.getValue()
+  const c     = contornoSubido(esc)
+  assert.ok(valor.length > 4, `horneado: ${valor.length} vértices`)
+  valor.slice(1).reduce((o, p, i) => o + tramoCurvo(c, o, valor[i], p, ESFERA, valor[0], `tramo ${i}`, !i), 0)
+  esc.ed.destroy()
+})
+
+test('setCurve no pide otro contexto, `null` vuelve a rectas, y sólo polígono y polilínea se curvan', () => {
+  const esc   = montar({ kind: 'polyline', value: [[60, 0], [60, 2]] })
+  const path  = () => esc.ed.paths[0]
+  const antes = contextos
+  esc.ed.setCurve(byDefault)
+  esc.ed.setCurve(null)
+
+  assert.equal(contextos, antes, 'la curva vive en el contexto del editor')
+  assert.deepEqual(midDe(path(), path().firstVertex), [60, 1], 'el midpoint vuelve al promedio')
+  assert.ok(juntos(contornoSubido(esc)(1), relativo([60, 0], [60, 2])), 'y el contorno es el path')
+  assert.deepEqual([esc.changes.length, esc.ed.getValue()], [0, [[60, 0], [60, 2]]])
+  esc.ed.destroy()
+
+  ;['rectangle', 'point', ...FORMAS].forEach(kind => {
+    const otro = montar({ kind })
+    assert.throws(() => otro.ed.setCurve(byDefault), /no se curva/, kind)
+    otro.ed.destroy()
+  })
 })

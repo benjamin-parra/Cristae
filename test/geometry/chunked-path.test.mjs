@@ -187,6 +187,48 @@ test('setClosed prende y apaga el midpoint de cierre, O(1)', () => {
   assert.equal(path.roleAt(m), ROLE.free)
 })
 
+// `mid` lleva el midpoint a la esquina (x₂, y₁) del segmento, salvo en el horizontal, donde deja el promedio
+// que recibe: así se distingue lo que escribió de lo que no tocó.
+const esquina = (x1, y1, x2, y2, out) => {
+  if (y1 === y2) return
+  out[0] = x2
+  out[1] = y1
+}
+
+// Cada midpoint vivo contra el que `esquina` deja para su segmento, recorriendo el trazo por la lista.
+const conEsquinas = (path, nota) => {
+  for (let i = 0, v = path.firstVertex; i < path.length; i++, v = path.nextVertex(v)) {
+    const n = path.nextVertex(v)
+    if (n < 0) continue
+    const plano = path.yAt(v) === path.yAt(n)
+    assert.deepEqual(
+      [path.xAt(path.midOf(v)), path.yAt(path.midOf(v))],
+      plano ? [(path.xAt(v) + path.xAt(n)) / 2, path.yAt(v)] : [path.xAt(n), path.yAt(v)],
+      `${nota}, segmento ${i}`,
+    )
+  }
+}
+
+test('mid ubica el midpoint al ingerir, mover, insertar, borrar y cerrar; lo que no toca queda en el promedio', () => {
+  const path  = nuevo(23, { mid: esquina })
+  const orden = refs(path)
+  conEsquinas(path, 'al ingerir')
+
+  const borde = orden.findIndex((ref, i) => i > 0 && path.chunkOf(ref) !== path.chunkOf(orden[i - 1]))
+  const p     = orden[borde - 1]
+  path.moveVertex(orden[borde], 100, path.yAt(p))
+  assert.deepEqual([path.xAt(path.midOf(p)), path.yAt(path.midOf(p))], [(path.xAt(p) + 100) / 2, path.yAt(p)], 'el plano')
+  conEsquinas(path, 'al mover cruzando chunks')
+
+  path.insertAfter(orden[3], 50, 500)
+  conEsquinas(path, 'al insertar')
+  path.remove(path.nextVertex(path.firstVertex))
+  conEsquinas(path, 'al borrar')
+  path.setClosed(true)
+  conEsquinas(path, 'al cerrar')
+  assert.equal(path.roleAt(path.midOf(path.lastVertex)), ROLE.midpoint)
+})
+
 // ── mover: O(1), dos chunks, refs estables ────────────────────────────────────
 
 test('mover un vértice reescribe su midpoint y el del anterior, cruzando chunks', () => {

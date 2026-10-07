@@ -20,6 +20,8 @@ export const LOCAL_CAP = (1 << LOCAL_BITS) - 1
 // en ambos casos es lo mismo, no hay segmento que dibujar.
 export const ROLE = { free: 0, vertex: 1, midpoint: 2 }
 
+const MID = [0, 0]   // el midpoint que se escribe, reusado
+
 const regrow = (Ctor, src, length) => {
   const out = new Ctor(length)
   out.set(src)
@@ -62,6 +64,7 @@ export class ChunkedPath {
   #cap                       // entradas direccionables por chunk = stride del arena
   #runCap                    // tope de `used`: #cap redondeado a par
   #fill                      // entradas por chunk al ingerir, y mínimo antes de rebalancear
+  #mid                       // reubica el midpoint de un segmento que no se dibuja recto
 
   #xy    = new Float64Array(0)   // [x,y] por entrada — vértices y midpoints entrelazados
   #role  = new Uint8Array(0)
@@ -83,13 +86,16 @@ export class ChunkedPath {
 
   // `localBits` sólo baja: menos entradas por chunk = inserciones más baratas y más draw calls. El
   // techo lo fija el picking, que direcciona el local con LOCAL_BITS bits; el piso, el split, que
-  // necesita dos parejas para partir en dos mitades no vacías.
-  constructor({ points, closed = false, localBits = LOCAL_BITS } = {}) {
+  // necesita dos parejas para partir en dos mitades no vacías. `mid(x1, y1, x2, y2, out)` recibe en `out`
+  // el promedio de los extremos de un segmento y puede reemplazarlo: un segmento que se dibuja curvo pone
+  // su midpoint sobre la curva, y el handle que lo inserta cae donde se ve el trazo.
+  constructor({ points, closed = false, localBits = LOCAL_BITS, mid } = {}) {
     const cap    = (1 << Math.max(3, Math.min(localBits, LOCAL_BITS))) - 1
     this.#cap    = cap
     this.#runCap = cap & ~1
     this.#fill   = Math.max(2, (cap >> 2) << 1)
     this.#closed = !!closed
+    this.#mid    = mid
     this.reset(points)
   }
 
@@ -294,8 +300,11 @@ export class ChunkedPath {
       return
     }
     const xy = this.#xy
-    xy[m * 2]     = (xy[v * 2] + xy[n * 2]) * 0.5
-    xy[m * 2 + 1] = (xy[v * 2 + 1] + xy[n * 2 + 1]) * 0.5
+    MID[0] = (xy[v * 2] + xy[n * 2]) * 0.5
+    MID[1] = (xy[v * 2 + 1] + xy[n * 2 + 1]) * 0.5
+    this.#mid?.(xy[v * 2], xy[v * 2 + 1], xy[n * 2], xy[n * 2 + 1], MID)
+    xy[m * 2]     = MID[0]
+    xy[m * 2 + 1] = MID[1]
     this.#role[m] = ROLE.midpoint
   }
 
