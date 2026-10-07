@@ -391,7 +391,7 @@ configuración) y es lo que fija la forma de `value`. Guía completa en [`editin
 | Miembro | Tipo | Atributo / prop |
 |---|---|---|
 | `id` | string | atributo |
-| `mode` | `edit` \| `draw` (default `edit`) | atributo |
+| `mode` | `edit` \| `draw` (default `edit`); `freehand` en polygon y polyline | atributo |
 | `value` | la geometría, según el elemento | **prop** |
 | `geometryStyle` | `{ color, weight, fillColor, fillOpacity }`, parcial | **prop** |
 

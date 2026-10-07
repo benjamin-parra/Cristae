@@ -323,9 +323,10 @@ export class Interaction {
     this.#startHover(sample)
   }
 
-  // La pulsación termina con el `pointerup` o el `pointercancel` de su puntero. La del mapa que se suelta
-  // quieta es un click: sale con el `pointerup`, que es su evento del DOM, a los hits del registro —o como
-  // click en el vacío— y a cada participante. El `click` del DOM no se mira.
+  // La pulsación termina con el `pointerup` o el `pointercancel` de su puntero, y su dueño recibe cuál fue
+  // en el tercer argumento de `up`. La del mapa que se suelta quieta es un click: sale con el `pointerup`,
+  // que es su evento del DOM, a los hits del registro —o como click en el vacío— y a cada participante. El
+  // `click` del DOM no se mira.
   #onPointerUp(event) {
     const p = this.#press
     p.down && p.down--
@@ -339,7 +340,7 @@ export class Interaction {
     p.click   = false
     if (owner) {
       consume(event)
-      return owner.up(point.x, point.y)
+      return owner.up(point.x, point.y, event.type === 'pointercancel')
     }
     if (!click) return
 

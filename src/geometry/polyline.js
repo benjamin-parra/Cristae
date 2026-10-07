@@ -15,8 +15,9 @@ import { projX0, projY0 } from '../render/project.js'
 import { coordOf, isNested, isPoint, iterable, listOf } from '../data/path.js'
 import { lowerBoundBy } from './binary-search.js'
 
-// Distancia² de (px,py) al segmento (ax,ay)-(bx,by), en world0 px. Inline, sin alloc.
-const distSqToSegment = (px, py, ax, ay, bx, by) => {
+// Distancia² de (px,py) al segmento (ax,ay)-(bx,by), en la unidad de sus argumentos: world0 px en el
+// hit-testing y px de pantalla en el Douglas–Peucker de freehand.js. Sin alloc.
+export const distSqToSegment = (px, py, ax, ay, bx, by) => {
   const dx = bx - ax, dy = by - ay
   const len2 = dx * dx + dy * dy
   let t = len2 > 0 ? ((px - ax) * dx + (py - ay) * dy) / len2 : 0

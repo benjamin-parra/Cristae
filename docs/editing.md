@@ -65,8 +65,8 @@ entra, y lo emitido es el mismo tipo con pares: `EditablePolygonValue<[number, n
 
 | Elemento | React | `value` | Gesto |
 |---|---|---|---|
-| `<cristae-editable-polygon>` | `<CristaeEditablePolygon>` | `[[lat,lng], …]` (anillo simple) o `[[[lat,lng], …], …]` (multi-anillo) | mover / agregar / borrar vértices; el XOR entre anillos abre el hueco |
-| `<cristae-editable-polyline>` | `<CristaeEditablePolyline>` | `[[lat,lng], …]` | mover / insertar / borrar vértices |
+| `<cristae-editable-polygon>` | `<CristaeEditablePolygon>` | `[[lat,lng], …]` (anillo simple) o `[[[lat,lng], …], …]` (multi-anillo) | mover / agregar / borrar vértices, o trazar a [mano alzada](#mano-alzada); el XOR entre anillos abre el hueco |
+| `<cristae-editable-polyline>` | `<CristaeEditablePolyline>` | `[[lat,lng], …]` | mover / insertar / borrar vértices, o trazar a [mano alzada](#mano-alzada) |
 | `<cristae-editable-point>` | `<CristaeEditablePoint>` | `[lat,lng]` o `null` | colocar / mover |
 | `<cristae-editable-rectangle>` | `<CristaeEditableRectangle>` | `[[s,w],[n,e]]` o `null` | arrastrar una esquina (las otras tres la siguen) |
 | `<cristae-editable-circle>` | `<CristaeEditableCircle>` | `{ center, radius }` o `null` | mover el centro / el radio |
@@ -151,6 +151,54 @@ trazan por clicks, y el mapa sigue paneando entre ellos:
 Entre clicks una **vista previa** sigue al puntero sin emitir: el valor no cambia hasta el último click,
 que emite `change` y `commit` una sola vez. En táctil no hay puntero que siga sin apoyar el dedo: entre
 toques la vista previa sólo se mueve con el dedo que panea, y el valor sale igual de los toques.
+
+### Mano alzada
+
+`mode: 'freehand'` es un tercer modo de `polygon` y `polyline`: el dedo —o el mouse— traza y el editor
+no tiene manijas. En los demás editores queda inerte, como cualquier `mode` desconocido.
+
+```html
+<cristae-editable-polygon mode="freehand"></cristae-editable-polygon>
+```
+```jsx
+<CristaeEditablePolyline mode="freehand" value={ruta} onCommit={e => setRuta(e.detail.value)} />
+```
+```js
+handle.setMode('freehand')
+```
+
+Una regla: **continúa lo abierto y reemplaza lo cerrado.**
+
+- **Polilínea.** El trazo se agrega al final del `value`, así que se puede pausar para panear y seguir.
+- **Polígono.** El trazo es un lazo y reemplaza el valor **entero** por un anillo simple, aunque el valor
+  tuviera varios anillos. Un lazo que no llega a tres vértices tras suavizarse —una recta— no es un
+  polígono: se descarta como una cancelación.
+
+Mientras dura, `change` sale por cada muestra con el trazo crudo. Al soltar se **hornea** y sale un solo
+`change` y un solo `commit` con el valor ya suave, que sigue siendo una polilínea o un anillo común con
+vértices editables en `mode: 'edit'`:
+
+1. Douglas–Peucker en píxeles, con 2 px de tolerancia, quita lo que la recta ya resume.
+2. Una Catmull-Rom centrípeta —sin lazos ni cúspides— pasa por lo que queda; en el polígono es
+   periódica, así que el cierre no tiene esquina.
+3. Cada tramo se parte lo justo para que la polilínea no se aparte de la curva más de 1 px: con menos,
+   los vértices se amontonarían y el modo `edit` no podría tomarlos.
+
+No hay parámetros: las tolerancias son de pantalla.
+
+- **La pulsación es del editor.** En este modo el editor toma toda la superficie: el mapa no panea con el
+  dedo y no hay `map:click` ni `cristae:mapclick`. Una capa interactiva por encima de él sigue ganando la
+  pulsación, igual que con un handle. Un toque sin recorrido (`CLICK_TOLERANCE`) no crea trazo ni toca el
+  valor. La rueda sigue haciendo zoom, y el doble click no se consume.
+- **Movimiento de la vista.** Entre `movestart` / `zoomstart` y `moveend` / `zoomend` no se muestrea: al
+  retomar queda una cuerda recta entre la última muestra y la primera nueva. El trazo se guarda en
+  lat/lng, así que un zoom a mitad no lo deforma. Un segundo dedo (pinch) mueve la vista, y la puerta del
+  puntero no se lo avisa al editor: si el primer dedo sigue trazando mientras tanto depende del anfitrión.
+- **`pointercancel`.** Descarta el trazo: el valor vuelve al de antes, con un `change` que lo informa, y
+  no hay `commit`. `setMode`, `setValue` y `destroy` a mitad del trazo también lo sueltan y devuelven el
+  arrastre del mapa, sin `commit`: `setMode` lo descarta como el cancel, con su `change`; `setValue` deja
+  el valor que trae, y `destroy`, ninguno. Esos dos no emiten.
+- **Cursor.** No se informa `HANDLE_HELD`: queda el del consumidor.
 
 ---
 

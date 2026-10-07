@@ -139,7 +139,7 @@ resuelven sólo si algún participante reconoció el píxel.
 
 | La pulsación es | El participante recibe | El mapa |
 |---|---|---|
-| de un participante | `down`, cada `move` de su puntero y `up`, también por `pointercancel`; el puntero queda capturado | no la ve: el `pointerdown` y el `pointerup` se consumen, y no hay click |
+| de un participante | `down`, cada `move` de su puntero y `up(x, y, cancelado)`, también por `pointercancel`, que es el `true`; el puntero queda capturado | no la ve: el `pointerdown` y el `pointerup` se consumen, y no hay click |
 | del mapa | cada `move` como hover, y `click(sample)` si fue un click | la arrastra, o rutea su click |
 
 - **El click lo sintetiza la puerta:** es la pulsación del mapa con el botón primario que se suelta sin

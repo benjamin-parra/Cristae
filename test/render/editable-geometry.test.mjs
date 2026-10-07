@@ -58,7 +58,7 @@ after(conGlDeEdicion(() => glVigente))
 // lo destruye— antes de que llegue el resto de la pulsación.
 // `cuentas` anota cuántas texturas y buffers se crean y se borran. `model` llega al editor como lo pasa el
 // motor, y `geod` es la geographiclib del mismo modelo, que el harness usa para ubicar las manijas de forma.
-const montar = ({ kind = 'polygon', value = null, mode = 'edit', dpr = 1, zoom, model, geod = ESFERA, style, pintado, cuentas, alAsentar } = {}) => {
+const montar = ({ kind = 'polygon', value = null, mode = 'edit', dpr = 1, zoom, model, geod = ESFERA, style, pintado, cuentas, alAsentar, alCambiar } = {}) => {
   const spy = makePickSpy()
   spy.tileVacio = TILE_VACIO
   glVigente = makeEditGl(spy, makeSurface({ dpr }))
@@ -94,7 +94,10 @@ const montar = ({ kind = 'polygon', value = null, mode = 'edit', dpr = 1, zoom, 
   const puerta    = new Interaction({ host, camera: new Camera({ host }), registry: new LayerRegistry(), bus: { dispatch() {} }, onEmptyClick: latlng => alMapa.push(latlng) })
   const ed = new EditableGeometry({
     host, join: participante => puerta.join(participante, 0, 0), pane: 'edit', kind, value, mode, model, style,
-    onChange: leer => changes.push(leer()),
+    onChange: leer => {
+      changes.push(leer())
+      alCambiar?.(ed)
+    },
     onCommit: leer => {
       commits.push(leer())
       alAsentar?.(ed)
@@ -1633,5 +1636,230 @@ test('el borrador de una forma se dibuja con la esfera, y salir del trazado devu
   esc.ed.setMode('edit')
   mismoAnillo(anilloSubido(esc, segmentos(30000, 13)), anilloDe(ELIPSOIDE, [0, 0], 30000, segmentos(30000, 13)), 'el valor')
   assert.equal(esc.changes.length, 0)
+  esc.ed.destroy()
+})
+
+/* ── Mano alzada: el dedo traza y al soltar el trazo se hornea ── */
+
+// El dedo apoyado en el primer punto, en píxeles del contenedor, y recorre el resto sin levantarse. El
+// harness proyecta lineal: el píxel (x, y) es la coordenada [y / P, x / P].
+const apoyar = (esc, [x, y]) => emitir(esc, 'pointerdown', x, y)
+const recorrer = (esc, puntos) => puntos.forEach(([x, y]) => emitir(esc, 'pointermove', x, y))
+const levantar = (esc, [x, y]) => emitir(esc, 'pointerup', x, y)
+
+// Un cuarto de circunferencia de 200 px de radio con una muestra cada 5°: la mano trazando una curva.
+const CUARTO = Array.from({ length: 19 }, (_, i) => [300 + 200 * Math.cos(i * Math.PI / 36), 400 - 200 * Math.sin(i * Math.PI / 36)])
+
+test('freehand en una polilínea: el dedo traza, cada muestra emite el trazo crudo y soltar hornea un solo commit', () => {
+  const previo = [[0, 0], [0, 1]]
+  const esc    = montar({ kind: 'polyline', value: previo, mode: 'freehand' })
+
+  apoyar(esc, CUARTO[0])
+  assert.equal(esc.dragging.activo, false, 'el trazo es del editor: el mapa no panea')
+  assert.equal(esc.changes.length, 0, 'una sola muestra no es todavía un trazo')
+  recorrer(esc, CUARTO.slice(1))
+
+  assert.equal(esc.changes.length, 18, 'un change por muestra desde la segunda')
+  assert.deepEqual(esc.changes[0].slice(0, 2), previo, 'la polilínea se continúa: lo anterior queda')
+  assert.deepEqual(esc.changes.map(c => c.length), Array.from({ length: 18 }, (_, i) => 4 + i), 'el trazo crudo crece de a una')
+  assert.equal(esc.commits.length, 0, 'sin commit mientras dura')
+  assert.deepEqual(esc.informes, [], 'el cursor no es del editor: no se informa HANDLE_HELD')
+
+  const ingestas = () => esc.spy.texImages.length + esc.spy.bufferDatas.length
+  const antes    = ingestas()
+  levantar(esc, CUARTO.at(-1))
+  const final = esc.ed.getValue()
+
+  assert.ok(ingestas() > antes, 'el horneado re-ingiere el espejo GPU del trazo')
+  assert.equal(esc.dragging.activo, true, 'soltar devuelve el arrastre')
+  assert.deepEqual(esc.commits, [final], 'un solo commit, con lo horneado')
+  assert.deepEqual(esc.changes.at(-1), final)
+  assert.deepEqual(final.slice(0, 2), previo)
+  const trazo = final.slice(2)
+  assert.ok(trazo.length > 2 && trazo.length < CUARTO.length, `simplificado: ${trazo.length} vértices de ${CUARTO.length} muestras`)
+  assert.ok(Math.abs(trazo[0][0] - 4) < 1e-9 && Math.abs(trazo[0][1] - 5) < 1e-9, 'arranca donde se apoyó el dedo')
+  trazo.forEach(([lat, lng]) =>
+    assert.ok(Math.abs(Math.hypot(lng * P - 300, lat * P - 400) - 200) < 1.5, `el vértice ${lat},${lng} está sobre el arco`))
+
+  esc.ed.destroy()
+})
+
+test('freehand: un toque sin recorrido no crea trazo ni quita el valor, y no es un click del mapa', () => {
+  const esc = montar({ kind: 'polygon', value: SQUARE, mode: 'freehand' })
+
+  apoyar(esc, [50, 50])
+  recorrer(esc, [[52, 51], [50, 53]])
+  levantar(esc, [50, 50])
+
+  assert.deepEqual(
+    { valor: esc.ed.getValue(), changes: esc.changes.length, commits: esc.commits.length, alMapa: esc.alMapa.length, arrastre: esc.dragging.activo },
+    { valor: SQUARE, changes: 0, commits: 0, alMapa: 0, arrastre: true },
+  )
+
+  esc.ed.destroy()
+})
+
+test('freehand: mientras la cámara se mueve no se muestrea, y al retomar la primera muestra entra aunque esté cerca', () => {
+  const esc = montar({ kind: 'polyline', value: [], mode: 'freehand' })
+
+  apoyar(esc, [0, 0])
+  recorrer(esc, [[10, 0], [20, 0]])
+  esc.map.fire('movestart')
+  recorrer(esc, [[30, 0], [40, 0]])
+  assert.equal(esc.changes.length, 2, 'en pausa no hay muestras')
+  esc.map.fire('moveend')
+  recorrer(esc, [[21, 0]])
+
+  assert.deepEqual(esc.changes.at(-1), [[0, 0], [0, 0.1], [0, 0.2], [0, 0.21]], 'queda una cuerda recta hasta la muestra que retoma')
+  levantar(esc, [21, 0])
+
+  esc.ed.destroy()
+})
+
+test('freehand: zoomstart pausa igual que movestart', () => {
+  const esc = montar({ kind: 'polyline', value: [], mode: 'freehand' })
+
+  apoyar(esc, [0, 0])
+  recorrer(esc, [[10, 0]])
+  esc.map.fire('zoomstart')
+  recorrer(esc, [[30, 0]])
+  esc.map.fire('zoomend')
+
+  assert.equal(esc.changes.length, 1)
+  levantar(esc, [10, 0])
+  esc.ed.destroy()
+})
+
+test('freehand: pointercancel descarta el trazo, devuelve el valor de antes y no asienta', () => {
+  const previo = [[[0, 0], [0, 10], [10, 10]], [[20, 20], [20, 30], [30, 30]]]
+  const esc    = montar({ kind: 'polygon', value: previo, mode: 'freehand' })
+
+  apoyar(esc, [0, 0])
+  recorrer(esc, [[100, 0], [100, 100], [0, 100]])
+  assert.equal(esc.ed.getValue().length, 4, 'mientras dura, el valor es el trazo')
+  emitir(esc, 'pointercancel', 0, 100)
+
+  assert.deepEqual(esc.ed.getValue(), previo)
+  assert.deepEqual(esc.changes.at(-1), previo, 'el consumidor ve volver el valor')
+  assert.equal(esc.commits.length, 0)
+  assert.equal(esc.ed.paths.length, 2, 'los dos anillos otra vez')
+  assert.equal(esc.dragging.activo, true)
+
+  esc.ed.destroy()
+})
+
+test('freehand en un polígono: el lazo reemplaza el valor entero por un anillo simple, con las esquinas', () => {
+  const esc  = montar({ kind: 'polygon', value: [[[0, 0], [0, 10], [10, 10]], [[20, 20], [20, 30], [30, 30]]], mode: 'freehand' })
+  const lado = (de, a) => Array.from({ length: 20 }, (_, i) => [de[0] + (a[0] - de[0]) * (i + 1) / 20, de[1] + (a[1] - de[1]) * (i + 1) / 20])
+
+  apoyar(esc, [0, 0])
+  recorrer(esc, [...lado([0, 0], [200, 0]), ...lado([200, 0], [200, 200]), ...lado([200, 200], [0, 200]), ...lado([0, 200], [0, 10])])
+  levantar(esc, [0, 10])
+  const valor = esc.ed.getValue()
+
+  assert.ok(valor.every(p => typeof p[0] === 'number'), 'un anillo simple, no multi-anillo')
+  assert.equal(esc.ed.paths.length, 1)
+  assert.equal(esc.commits.length, 1)
+  ;[[0, 0], [0, 2], [2, 2], [2, 0]].forEach(esquina =>
+    assert.ok(valor.some(p => p[0] === esquina[0] && p[1] === esquina[1]), `esquina ${esquina}`))
+
+  esc.ed.destroy()
+})
+
+test('freehand: un lazo que no encierra área se descarta como un cancel', () => {
+  const esc = montar({ kind: 'polygon', value: SQUARE, mode: 'freehand' })
+
+  apoyar(esc, [0, 0])
+  recorrer(esc, Array.from({ length: 20 }, (_, i) => [10 * (i + 1), 0]))
+  levantar(esc, [200, 0])
+
+  assert.deepEqual(
+    { valor: esc.ed.getValue(), commits: esc.commits.length, ultimo: esc.changes.at(-1), arrastre: esc.dragging.activo },
+    { valor: SQUARE, commits: 0, ultimo: SQUARE, arrastre: true },
+  )
+
+  esc.ed.destroy()
+})
+
+test('freehand: setMode, setValue o destroy a mitad del trazo devuelven el arrastre y no asientan', () => {
+  const previo = [[0, 0], [0, 1]]
+  const otro   = [[5, 5], [5, 6]]
+  // El último `change` es lo que el consumidor cree que vale: tras setMode, el valor de antes; setValue y
+  // destroy no emiten, y queda el crudo.
+  const corte  = [
+    ['setMode', esc => esc.ed.setMode('edit'), previo, previo],
+    ['setValue', esc => esc.ed.setValue(otro), otro, 'crudo'],
+    ['destroy', esc => esc.ed.destroy(), previo, 'crudo'],
+  ]
+  corte.forEach(([nombre, cortar, valor, ultimo]) => {
+    const esc = montar({ kind: 'polyline', value: previo, mode: 'freehand' })
+
+    apoyar(esc, [200, 200])
+    recorrer(esc, [[210, 200], [220, 200]])
+    const crudo = esc.changes.at(-1)
+    assert.equal(esc.dragging.activo, false)
+    cortar(esc)
+    levantar(esc, [220, 200])
+
+    assert.deepEqual(
+      { arrastre: esc.dragging.activo, commits: esc.commits.length, valor: esc.ed.getValue(), ultimo: esc.changes.at(-1) },
+      { arrastre: true, commits: 0, valor, ultimo: ultimo === 'crudo' ? crudo : ultimo },
+      nombre,
+    )
+    esc.ed.destroy()
+  })
+})
+
+test('freehand: un onChange que pasa a edit en la primera muestra deja al consumidor con el valor de antes', () => {
+  const esc = montar({ kind: 'polygon', value: SQUARE, mode: 'freehand', alCambiar: ed => ed.setMode('edit') })
+
+  apoyar(esc, [0, 0])
+  recorrer(esc, [[100, 0], [100, 100]])
+
+  assert.deepEqual(
+    { valor: esc.ed.getValue(), ultimo: esc.changes.at(-1), arrastre: esc.dragging.activo },
+    { valor: SQUARE, ultimo: SQUARE, arrastre: true },
+  )
+  esc.ed.destroy()
+})
+
+test('freehand en una polilínea sin valor traza desde cero', () => {
+  const esc = montar({ kind: 'polyline', value: null, mode: 'freehand' })
+
+  apoyar(esc, [0, 0])
+  recorrer(esc, [[100, 0], [200, 100], [300, 100]])
+  levantar(esc, [300, 100])
+
+  assert.equal(esc.commits.length, 1)
+  assert.deepEqual(esc.ed.getValue()[0], [0, 0])
+  assert.deepEqual(esc.ed.getValue().at(-1), [1, 3])
+
+  esc.ed.destroy()
+})
+
+test('freehand queda inerte en los demás kinds: el puntero es del mapa', () => {
+  const inertes = ['rectangle', 'point', ...FORMAS]
+  inertes.forEach(kind => {
+    const esc = montar({ kind, value: null, mode: 'freehand' })
+
+    const apretada = apoyar(vaciar(esc), [100, 100])
+    recorrer(esc, [[120, 100], [150, 130]])
+    levantar(esc, [150, 130])
+
+    assert.deepEqual(
+      { cortado: apretada.cortado, arrastre: esc.dragging.activo, changes: esc.changes.length, commits: esc.commits.length },
+      { cortado: false, arrastre: true, changes: 0, commits: 0 },
+      kind,
+    )
+    esc.ed.destroy()
+  })
+})
+
+test('freehand: el doble click no se consume, así que el mapa hace zoom', () => {
+  const esc = montar({ kind: 'polygon', value: SQUARE, mode: 'freehand' })
+
+  assert.equal(dobleMapa(esc, 5, 5).cortado, false)
+  assert.deepEqual(esc.ed.getValue(), SQUARE)
+
   esc.ed.destroy()
 })

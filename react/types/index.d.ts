@@ -389,8 +389,9 @@ export interface CristaeEditableElement extends HTMLElement { readonly controls:
 // `value` entra con los puntos en cualquiera de sus formas; lo emitido sale con la misma forma, en pares.
 type EmittedPoint = [number, number]
 
-interface CristaeEditableProps<Value, Emitted> extends CristaeLeafLayerProps {
-  mode?          : 'edit' | 'draw';
+interface CristaeEditableProps<Value, Emitted, Mode = 'edit' | 'draw'> extends CristaeLeafLayerProps {
+  /** `'freehand'` — sólo `polygon` y `polyline` — traza con el dedo y hornea el trazo al soltar. */
+  mode?          : Mode;
   /** Geometría controlada. El valor recién emitido, devuelto tal cual, NO reingresa. */
   value?         : Value;
   /** Parcial: lo que no venga queda como estaba. */
@@ -402,9 +403,9 @@ interface CristaeEditableProps<Value, Emitted> extends CristaeLeafLayerProps {
 }
 
 export type CristaeEditablePolygonProps =
-  CristaeEditableProps<EditablePolygonValue, EditablePolygonValue<EmittedPoint>>
+  CristaeEditableProps<EditablePolygonValue, EditablePolygonValue<EmittedPoint>, 'edit' | 'draw' | 'freehand'>
 export type CristaeEditablePolylineProps =
-  CristaeEditableProps<EditablePolylineValue, EditablePolylineValue<EmittedPoint>>
+  CristaeEditableProps<EditablePolylineValue, EditablePolylineValue<EmittedPoint>, 'edit' | 'draw' | 'freehand'>
 export type CristaeEditablePointProps =
   CristaeEditableProps<EditablePointValue, EditablePointValue<EmittedPoint>>
 export type CristaeEditableRectangleProps =

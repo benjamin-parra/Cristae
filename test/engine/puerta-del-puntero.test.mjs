@@ -218,10 +218,24 @@ test('la pulsación de un participante es suya entera: su puntero, capturado, y 
     { capturados, editor: editor.recibido, otro: otro.recibido },
     {
       capturados : [1],
-      editor     : [['down', 10, 0], ['move', 20, 0], ['up', 25, 0], ['move', 40, 0], ['leave']],
+      editor     : [['down', 10, 0], ['move', 20, 0], ['up', 25, 0, false], ['move', 40, 0], ['leave']],
       otro       : [['move', 40, 0], ['leave']],
     },
   )
+})
+
+// El `pointercancel` cierra la pulsación como el `pointerup`, y el dueño se entera por el tercer argumento.
+test('el up del participante dice si la pulsación se canceló', () => {
+  const esc    = mount()
+  const editor = participante(() => true)
+  esc.puerta.join(editor, 500, 1)
+
+  pulsar(esc, 10, 0)
+  emitir(esc, 'pointercancel', 15, 0)
+  pulsar(esc, 10, 0)
+  soltar(esc, 15, 0)
+
+  assert.deepEqual(editor.recibido.filter(([tipo]) => tipo === 'up'), [['up', 15, 0, true], ['up', 15, 0, false]])
 })
 
 // El dedo que baja con otro apoyado no es el primario, aunque el que se sumó antes ya se haya levantado:

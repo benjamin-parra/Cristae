@@ -591,7 +591,9 @@ export interface EditableConfig {
   /** Geometría actual (controlada), con la forma del `Editable*Value` de su `kind`: los puntos entran
    *  en cualquiera de sus formas, y `onChange` / `onCommit` los devuelven como pares. */
   value?    : unknown;
-  mode?     : "edit" | "draw";
+  /** `"freehand"` lo abren sólo `polygon` y `polyline`: el dedo traza, y al soltar el trazo se suaviza y
+   *  asienta. En los demás kinds queda inerte. */
+  mode?     : "edit" | "draw" | "freehand";
   /** Cambio LIVE — cada frame de drag incluido. `leer()` devuelve el valor, con la forma de `value`. */
   onChange? : (leer: () => unknown) => void;
   /** Cambio ASENTADO — una vez por gesto (dragend / edición discreta). */
@@ -602,7 +604,7 @@ export interface EditableConfig {
 export interface EditableHandle {
   readonly id: string;
   setValue(value: unknown): void;
-  setMode(mode: "edit" | "draw"): void;
+  setMode(mode: "edit" | "draw" | "freehand"): void;
   setStyle(style: EditableStyle): void;
   getValue(): unknown;
   /** Sub-pieza: captura de punto en modo draw (latlng de un click en espacio vacío). */

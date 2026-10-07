@@ -22,6 +22,10 @@
 // formas —circle, ellipse y sector— guardan la forma, y de ella derivan dos trazos: sus manijas, que se
 // pican, y su anillo, que es lo único que se dibuja. Las reglas de cada una viven en `editShapes.js`.
 //
+// `mode: 'freehand'` es el tercer valor de polygon y polyline: el dedo traza y el editor no tiene manijas.
+// El trazo vive en `#mano` como muestras lat/lng, se dibuja sobre el trazo del editor mientras dura, y al
+// soltar se hornea (`geometry/freehand.js`) y asienta como una edición discreta.
+//
 // Sistema de coordenadas: pares [lat, lng] (la entrada acepta además las otras formas de punto de
 // `data/path.js`; la salida SIEMPRE es [lat, lng]). Una capa atada al mismo `value` lo lee con su
 // propio contrato: la de líneas, en las mismas formas; la de polígonos, en pares. Formas por `kind`:
@@ -37,6 +41,7 @@ import { CLICK_TOLERANCE, HANDLE_HELD, HANDLE_NONE, HANDLE_OVER } from '../event
 import { ChunkedPath, ROLE } from '../geometry/ChunkedPath.js'
 import { coordOf, isNested, isPoint } from '../data/path.js'
 import { pixelsToMeters } from '../geometry/density.js'
+import { bake } from '../geometry/freehand.js'
 import { byDefault } from '../geometry/geodesic.js'
 import { pairs, sizeShape, viewSegments, writeShape } from '../geometry/shape.js'
 import { SHAPES } from './editShapes.js'
@@ -56,6 +61,7 @@ const CERRADOS     = new Set(['polygon', 'rectangle', ...Object.keys(SHAPES)])  
 const CRECEN       = new Set(['polygon', 'polyline'])    // la cantidad de vértices la decide el usuario
 const D            = Math.PI / 180
 const SEPARACION   = 24   // px: lo menos que una manija de forma se acerca a otra, dos veces su diámetro
+const PASO         = 4    // px entre muestras del trazo a mano alzada: supera CLICK_TOLERANCE, y un toque quieto no suma
 
 // Mismas claves que el `styleOf` de los polígonos y las líneas.
 const ESTILO = { color: '#2563eb', weight: 3, fillColor: '#6366f1', fillOpacity: 0.42 }
@@ -88,7 +94,7 @@ const project = (lat, lng, out) => {
 export class EditableGeometry {
 
   #host; #camera; #pane; #kind; #model; #forma; #onChange; #onCommit; #onHandleLevel; #surface; #gl; #iconSet
-  #bajaVista
+  #bajaVista; #bajaPausa
   #salir                                   // la baja de la puerta del puntero
   #mode       = 'edit'
   #geom       = null                       // representación interna viva (mutada in place por el gesto)
@@ -116,6 +122,10 @@ export class EditableGeometry {
   // `x`/`y` es el píxel donde se apretó y `dx`/`dy` el offset de agarre: dónde cayó ese píxel DENTRO del
   // handle. El vértice se desplaza lo que se desplaza el puntero, no salta a centrarse bajo él.
   #gesto    = { trazo: null, ref: -1, movido: false, x: 0, y: 0, dx: 0, dy: 0, devolver: null }
+  // El trazo a mano alzada: `xy` son sus muestras [lat, lng, …] y `x`/`y` el píxel de la última aceptada, o
+  // NaN si la próxima entra sea cual sea. `vivo` es que ya hay dos muestras y el trazo se dibuja sobre el
+  // valor, que `previo` guarda para devolverlo; `pausa` es que la cámara se mueve.
+  #mano     = { devolver: null, xy: [], x: NaN, y: NaN, vivo: false, previo: null, pausa: false }
   #promo    = { trazo: -1, ref: -1 }
   #vivo     = { ring: 0, vertex: -1, x: 0, y: 0 }             // el vértice en arrastre, en world0 px
   #vista    = { zoom: 0, center: { x: 0, y: 0 }, size: { x: 0, y: 0 }, drag: null }
@@ -149,6 +159,7 @@ export class EditableGeometry {
     this.#geom          = this.#ingest(value)
     this.#mode          = mode
     this.#bajaVista     = host.camera.on('moveend zoomend resize', this.#onView)
+    this.#bajaPausa     = host.camera.on('movestart zoomstart', this.#onPausa)
     this.#salir         = join(this.#participante)
     this.#rebuild()
   }
@@ -167,10 +178,12 @@ export class EditableGeometry {
   }
 
   // Fuera de `edit` nadie sigue al puntero, así que lo resuelto bajo él tampoco vale al volver. Un trazado a
-  // medio hacer se descarta, y su vista previa vuelve al valor.
+  // medio hacer se descarta, y su vista previa vuelve al valor. Un trazo a mano alzada también, pero su crudo
+  // ya salió por `onChange`: el valor de antes sale detrás, como en un `pointercancel`.
   setMode(mode) {
     if (mode === this.#mode) return
     const borrador = this.#borrador
+    const trazo    = this.#mano.vivo
     this.#releaseInteraction()
     this.#mode     = mode
     this.#borrador = null
@@ -179,6 +192,7 @@ export class EditableGeometry {
     this.#promover(-1, -1)
     this.#draw()
     this.#informar()
+    trazo && this.#emit()
   }
 
   // Parcial: lo que no venga en `style` queda como estaba.
@@ -227,6 +241,7 @@ export class EditableGeometry {
     this.#releaseInteraction()
     this.#salir()
     this.#bajaVista()
+    this.#bajaPausa()
     this.#trazos.splice(0).forEach(t => this.#soltar(t))
     this.#contornos.splice(0)
     this.#fill?.destroy()
@@ -370,9 +385,12 @@ export class EditableGeometry {
   // (`handleAt`) es entera suya si la puerta se la da: el `down`, cada `move` de su puntero y su `up`, que
   // también llega por un `pointercancel`. Sin una pulsación suya, cada `move` es hover. El click del mapa
   // es la edición del modo draw, y el doble click sobre un handle propio (`propio`) borra el vértice; en
-  // draw, cierra el trazo. Devolver `true` desde `dblclick` lo consume: el mapa no hace zoom.
+  // draw, cierra el trazo. Devolver `true` desde `dblclick` lo consume: el mapa no hace zoom. En `freehand`
+  // reconoce todo píxel: la pulsación es el trazo, que termina en `up`, cancelado o no. Su primera muestra es
+  // donde se apoyó el dedo, y un toque sin recorrido no pasa de ella.
   #participante = {
     handleAt: (x, y) => {
+      if (this.#manoAlzada) return true
       const p = this.#puntoDe(x, y)
       return this.#conHandles && this.#bajoElPixel(p[0], p[1]).ref >= 0
     },
@@ -380,6 +398,14 @@ export class EditableGeometry {
     // Insertar asienta ACÁ, antes de tomar el gesto: un `onCommit` que pasó a draw o destruyó el editor ya
     // no oye el `up` que devolvería el arrastre del mapa, así que el gesto no empieza.
     down: (x, y) => {
+      if (this.#manoAlzada) {
+        const m = this.#mano
+        m.devolver  = this.#host.input.lendDrag()
+        m.xy.length = 0
+        m.x         = NaN
+        m.y         = NaN
+        return this.#muestrear(x, y)
+      }
       const p   = this.#puntoDe(x, y)
       const h   = this.#bajoElPixel(p[0], p[1])
       const t   = this.#trazos[h.trazo]
@@ -388,6 +414,7 @@ export class EditableGeometry {
       ref >= 0 && this.#conHandles && this.#beginInteraction(t, ref, p)
     },
     move: (x, y) => {
+      if (this.#mano.devolver) return this.#muestrear(x, y)
       const p = this.#puntoDe(x, y)
       if (this.#gesto.ref >= 0) return this.#arrastrar(p[0], p[1])
       if (this.#mode === 'draw') return this.#previa(p)
@@ -395,7 +422,9 @@ export class EditableGeometry {
       this.#cobrar()
       this.#pedir(p[0], p[1])
     },
-    up: (x, y) => this.#gesto.ref >= 0 && this.#endInteraction(this.#puntoDe(x, y)),
+    up: (x, y, cancelado) => this.#mano.devolver
+      ? this.#soltarMano(!cancelado) && this.#emit()
+      : this.#gesto.ref >= 0 && this.#endInteraction(this.#puntoDe(x, y)),
     // El puntero se fue del contenedor: no va a llegar otro `move` que despromueva, así que el vecindario
     // —tres nodos y el agujero que abren en el visual— se suelta acá o queda encendido con el cursor en
     // otra parte de la pantalla. Con el gesto vivo no aplica: el puntero está capturado.
@@ -411,6 +440,7 @@ export class EditableGeometry {
     // consume siempre que haya un trazo que cerrar.
     dblclick: (muestra, propio) => {
       if (propio) {
+        if (this.#manoAlzada) return false
         const p     = this.#puntoDe(muestra.x, muestra.y)
         const h     = this.#bajoElPixel(p[0], p[1])
         const t     = this.#trazos[h.trazo]
@@ -438,7 +468,11 @@ export class EditableGeometry {
   // vuelva a resolver el vecindario promovido tampoco corresponde a nada. Un gesto vivo conserva el suyo:
   // su vértice es el que el dedo tiene tomado, no el que haya bajo el cursor.
   // Las formas re-teselan cuando el zoom pide otros segmentos; el borrador, con la esfera de su vista previa.
+  // El trazo a mano alzada retoma, y su próxima muestra entra aunque quede cerca de la última.
   #onView = () => {
+    const m = this.#mano
+    m.pausa = false
+    m.x     = NaN
     const shape = this.#forma && (this.#borrador ?? this.#geom.shape)
     this.#invalidar()
     this.#gesto.ref < 0 && this.#promover(-1, -1)
@@ -449,6 +483,12 @@ export class EditableGeometry {
     this.#draw()
     this.#informar()
   }
+
+  // La cámara se mueve: el trazo a mano alzada no muestrea hasta que asiente, y retoma con una cuerda recta.
+  #onPausa = () => { this.#mano.pausa = true }
+
+  // El dedo traza: en `freehand`, y sólo polygon y polyline. En los demás kinds el modo queda inerte.
+  get #manoAlzada() { return this.#mode === 'freehand' && CRECEN.has(this.#kind) && this.#surface.attached }
 
   // Hay handles que tomar: en `edit` y con la superficie viva. Un `onCommit` a mitad de pulsación puede
   // haber pasado a draw o destruido el editor.
@@ -586,6 +626,76 @@ export class EditableGeometry {
     this.#informar()
   }
 
+  // Una muestra del puntero: se acepta si avanzó `PASO` desde la última y la cámara no se mueve. Desde la
+  // segunda el trazo es el valor: el polígono lo reemplaza entero por un anillo y la polilínea lo continúa.
+  // Cada muestra emite un `change` con el trazo crudo.
+  #muestrear(x, y) {
+    const m = this.#mano
+    if (m.pausa || Math.abs(x - m.x) + Math.abs(y - m.y) < PASO) return
+    const c = this.#punto
+    c[0] = x
+    c[1] = y
+    const p = toFinitePair(this.#camera.fromContainer(c))
+    if (!p) return
+    m.x = x
+    m.y = y
+    m.xy.push(p[0], p[1])
+    if (m.xy.length < 4) return
+    const nuevo = !m.vivo
+    if (nuevo) {
+      m.vivo   = true
+      m.previo = this.#serialize()
+      if (this.#kind === 'polygon') {
+        this.#geom = this.#ingest([])
+        this.#rebuild()
+      }
+    }
+    const t         = this.#trazos[0]
+    const estrenaba = !t.path.length
+    for (let i = nuevo ? 0 : m.xy.length - 2; i < m.xy.length; i += 2) t.path.append(m.xy[i], m.xy[i + 1])
+    this.#espejar(t, estrenaba)
+    this.#emit()
+    this.#draw()
+  }
+
+  // El trazo termina y devuelve el arrastre. Con `hornear` se suaviza y asienta como una edición discreta; si
+  // no, o si el anillo no llega a tres vértices, el valor vuelve al de antes. Devuelve si lo devolvió.
+  #soltarMano(hornear) {
+    const m = this.#mano
+    const { devolver, vivo, previo, xy } = m
+    m.devolver = m.previo = null
+    m.vivo     = false
+    devolver()
+    if (!vivo) return false
+
+    const cerrado = this.#kind === 'polygon'
+    const c       = this.#punto
+    const px      = new Float64Array(xy.length)
+    for (let i = 0; i < xy.length; i += 2) {
+      c[0] = xy[i]
+      c[1] = xy[i + 1]
+      const q = this.#camera.toContainer(c)
+      px[i]     = q.x
+      px[i + 1] = q.y
+    }
+    const suave = hornear ? bake(px, cerrado) : []
+    if (suave.length < (cerrado ? 6 : 4)) {
+      this.#geom = this.#ingest(previo)
+      this.#rebuild()
+      return true
+    }
+    const pts = cerrado ? [] : previo
+    for (let i = 0; i < suave.length; i += 2) {
+      c[0] = suave[i]
+      c[1] = suave[i + 1]
+      pts.push(toFinitePair(this.#camera.fromContainer(c)))
+    }
+    this.#trazo(0, pts, cerrado)
+    this.#reingerir(this.#trazos[0])
+    this.#settle()
+    return false
+  }
+
   // Los cuatro refs del rectángulo: son estables durante todo el gesto, y releerlos por frame arma un
   // array por vuelta en la ruta [0-alloc].
   #capturarEsquinas(path) {
@@ -599,9 +709,11 @@ export class EditableGeometry {
 
   // Suelta el puntero SIN asentar y devuelve lo que el gesto tenía tomado (null si no había ninguno). Es
   // el camino de los cortes de AFUERA —`destroy` / `setMode` / `setValue`—, así que pone el espejo GPU al
-  // día: el arrastre dejó el arena atrás y el valor ya salió por `onChange`. Una forma se rehace entera:
-  // sus manijas vuelven a donde la forma las pone y su anillo pasa de la esfera al modelo.
+  // día: el arrastre dejó el arena atrás y lo movido ya salió por `onChange`. Una forma se rehace entera:
+  // sus manijas vuelven a donde la forma las pone y su anillo pasa de la esfera al modelo. Un trazo a mano
+  // alzada vuelve al valor de antes, y sólo `setMode` lo emite.
   #releaseInteraction() {
+    this.#mano.devolver && this.#soltarMano(false)
     const g = this.#gesto
     if (g.ref < 0) return null
     const tomado   = { t: g.trazo, ref: g.ref, movido: g.movido }
