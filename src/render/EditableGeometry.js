@@ -10,9 +10,11 @@
 // GPU —el vértice viaja como uniform—. Atar además un addPolygonLayer/addLineLayer al mismo `value` es
 // válido: dibuja lo mismo.
 //
-// Cada trazo tiene su stack: `ChunkedPath` (el arena en CPU) → `EditArena` (su espejo GPU) → relleno,
-// contorno y handles como sprites, más el banco `EditHandleDom`, que repone como nodo SÓLO el vecindario
-// bajo el cursor. El gesto lo posee la capa GL: el pase de picking dice qué handle hay bajo el píxel.
+// Cada trazo tiene su stack: `ChunkedPath` (el arena en CPU) → `EditArena` (su espejo GPU) → handles como
+// sprites, más el banco `EditHandleDom`, que repone como nodo SÓLO el vecindario bajo el cursor. El gesto
+// lo posee la capa GL: el pase de picking dice qué handle hay bajo el píxel. Lo que se DIBUJA —relleno y
+// contorno— vive aparte, en el contorno de cada trazo, que comparte con él path y arena: por eso el vértice
+// del arrastre le llega como uniform, sin escribir a GPU.
 //
 // Almacenamiento: polygon y polyline viven en un `ChunkedPath` —el arena—, donde mover un vértice es O(1)
 // e insertar o borrar toca UN chunk, no el trazo entero. `point` y `rectangle` guardan su estado en pares
@@ -81,7 +83,8 @@ export class EditableGeometry {
   #fill       = null                       // relleno: uno solo, porque el XOR entre anillos es lo que abre el hueco
   #style      = null                       // el vocabulario Leaflet del display que el editor reemplaza
   #paths      = []                         // ChunkedPath por índice de trazo, REUSADOS entre ingestas
-  #trazos     = []                         // { orden, path, arena, picking, handles, stroke, bank }
+  #trazos     = []                         // lo que se pica: { orden, path, arena, picking, handles, bank, contorno }
+  #contornos  = []                         // lo que se dibuja, uno por trazo: { path, arena, stroke }
 
   // Testigo de lo que el pase de picking contestaría en un píxel: sube cuando cambia la geometría, el
   // encuadre o la lista de trazos —lo único que puede volver mentirosa una respuesta ya resuelta—. La
@@ -120,7 +123,7 @@ export class EditableGeometry {
     this.#surface       = new EditSurface({ host, pane: this.#pane })
     this.#gl            = this.#surface.attach()
     this.#iconSet       = defineEditIconSet()
-    this.#fill          = CERRADOS.has(kind) ? new EditFillLayer({ gl: this.#gl, rings: this.#trazos, color: this.#style.fillColor, opacity: this.#style.fillOpacity }) : null
+    this.#fill          = CERRADOS.has(kind) ? new EditFillLayer({ gl: this.#gl, rings: this.#contornos, color: this.#style.fillColor, opacity: this.#style.fillOpacity }) : null
     this.#geom          = this.#ingest(value)
     this.#mode          = mode
     this.#bajaVista     = host.camera.on('moveend zoomend resize', this.#onView)
@@ -157,7 +160,7 @@ export class EditableGeometry {
   setStyle(style) {
     Object.assign(this.#style, style)
     this.#fill?.style({ color: this.#style.fillColor, opacity: this.#style.fillOpacity })
-    this.#trazos.forEach(t => t.stroke.style({ width: this.#style.weight, color: this.#style.color }))
+    this.#contornos.forEach(c => c.stroke.style({ width: this.#style.weight, color: this.#style.color }))
     this.#draw()
   }
 
@@ -199,6 +202,7 @@ export class EditableGeometry {
     this.#salir()
     this.#bajaVista()
     this.#trazos.splice(0).forEach(t => this.#soltar(t))
+    this.#contornos.splice(0)
     this.#fill?.destroy()
     this.#surface.destroy()
     this.#informar()
@@ -459,7 +463,7 @@ export class EditableGeometry {
     this.#trazos.forEach((t, k) => {
       const v = k === trazo ? ref : -1
       t.handles.promote(v)
-      t.stroke.promote(v)
+      t.contorno.stroke.promote(v)
       t.bank.promote(v)
     })
     return true
@@ -604,11 +608,12 @@ export class EditableGeometry {
   }
 
   // La posición VIVA del vértice en las tres capas: el contorno y el banco la reciben en coordenadas del
-  // trazo y el relleno en world0 px — cada uno le resta el ancla de SU arena.
+  // trazo y el relleno en world0 px — cada uno le resta el ancla de SU arena. El relleno direcciona el
+  // anillo por orden: cada trazo tiene su contorno en el mismo lugar de la lista.
   #vivir(t, ref, p) {
     const v = this.#vivo
     project(p[0], p[1], this.#xy)
-    t.stroke.live(p[0], p[1])
+    t.contorno.stroke.live(p[0], p[1])
     t.bank.live(p[0], p[1])
     v.ring   = t.orden
     v.vertex = ref
@@ -674,36 +679,42 @@ export class EditableGeometry {
 
   // Recablea el espejo a los trazos vigentes: los que sobreviven re-ingieren su arena —el `ChunkedPath`
   // es el MISMO objeto, así que textura, VBO y programas siguen vivos—, los nuevos estrenan stack y los
-  // que sobran se sueltan. `#fill` lee la MISMA lista, así que no hace falta reasignársela.
+  // que sobran se sueltan. `#fill` lee la MISMA lista de contornos, así que no hace falta reasignársela.
   #rebuild() {
     const paths = this.#dibujables()
     this.#invalidar()
     this.#trazos.splice(paths.length).forEach(t => this.#soltar(t))
-    paths.forEach((path, i) => this.#trazos[i]?.arena.reset() ?? (this.#trazos[i] = this.#montar(path, i)))
+    this.#contornos.splice(paths.length)
+    paths.forEach((path, i) => this.#trazos[i]?.arena.reset() ?? this.#montar(path, i))
     this.#promover(-1, -1)
     this.#draw()
   }
 
-  // Un trazo en GPU: el espejo del arena, su contorno, sus handles como sprites y el banco de nodos que
-  // repone el vecindario bajo el cursor. El objeto de picking es el orden + 1 — el pase descarta el 0.
+  // Un trazo en GPU, en su lugar de las dos listas: el espejo del arena, sus handles como sprites, el banco
+  // de nodos que repone el vecindario bajo el cursor y su contorno. El objeto de picking es el orden + 1 —
+  // el pase descarta el 0—.
   #montar(path, orden) {
-    const gl      = this.#gl
-    const iconSet = this.#iconSet
-    const arena   = new EditArena({ gl, path, project, ...this.#canales() })
-    const picking = new Picking()
-    const handles = new EditHandleLayer({ gl, arena, path, picking, iconSet })
-    handles.pickObject = orden + 1
-    return {
-      orden, path, arena, picking, handles,
-      stroke : new EditStrokeLayer({ gl, arena, path, project, width: this.#style.weight, color: this.#style.color }),
-      bank   : new EditHandleDom({ host: this.#host, pane: this.#pane, path, arena, project, iconSet }),
+    const gl       = this.#gl
+    const iconSet  = this.#iconSet
+    const arena    = new EditArena({ gl, path, project, ...this.#canales() })
+    const picking  = new Picking()
+    const handles  = new EditHandleLayer({ gl, arena, path, picking, iconSet })
+    const contorno = this.#contornos[orden] = {
+      path, arena,
+      stroke: new EditStrokeLayer({ gl, arena, path, project, width: this.#style.weight, color: this.#style.color }),
+    }
+    handles.pickObject  = orden + 1
+    this.#trazos[orden] = {
+      orden, path, arena, picking, handles, contorno,
+      bank: new EditHandleDom({ host: this.#host, pane: this.#pane, path, arena, project, iconSet }),
     }
   }
 
+  // El contorno comparte el arena de su trazo: se destruye una sola vez.
   #soltar(t) {
     t.bank.destroy()
     t.handles.destroy()
-    t.stroke.destroy()
+    t.contorno.stroke.destroy()
     t.arena.destroy()
     t.picking.detach()
   }
@@ -724,13 +735,15 @@ export class EditableGeometry {
     const gl = this.#gl
     if (!this.#surface.attached || this.#surface.contextLost) return
     this.#surface.resetCanvasReference()
-    // El encuadre que leen las tres capas, con el vértice que arrastra el gesto.
+    // El encuadre que leen las tres capas, con el vértice que arrastra el gesto. Su `vertex` es un ref del
+    // path de manijas y el relleno lo busca en el del contorno: vale porque cada contorno comparte path con
+    // su trazo.
     const vista = readView(this.#camera, this.#vista)
     vista.drag  = this.#gesto.movido ? this.#vivo : null
     gl.clearColor(0, 0, 0, 0)
     gl.clear(gl.COLOR_BUFFER_BIT | gl.STENCIL_BUFFER_BIT)
     this.#fill?.draw(vista)
-    this.#trazos.forEach(t => t.stroke.draw(vista))
+    this.#contornos.forEach(c => c.stroke.draw(vista))
     if (this.#mode !== 'edit') return
     this.#trazos.forEach(t => {
       t.handles.draw(vista)

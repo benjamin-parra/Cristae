@@ -1169,3 +1169,44 @@ test('arrastrar no renumera el arena: el ref que capturó el gesto sigue valiend
 
   esc.ed.destroy()
 })
+
+// El contorno que se dibuja comparte path y arena con el trazo que se pica: el arrastre lo muestra con el
+// vértice como uniform, sin re-ingerir el arena ni escribirle un rango por frame, y lo pone al día con UNA
+// escritura al soltar.
+test('el contorno sigue al arrastre sin escribir al espejo GPU, y lo pone al día al soltar sin re-ingerir', () => {
+  const esc        = montar({ kind: 'polygon', value: SQUARE })
+  const spy        = esc.spy
+  const ingestas   = () => spy.texImages.length + spy.bufferDatas.length
+  const escrituras = () => spy.texSubImages.length + spy.bufferSubDatas.length
+  tomar(esc, refsDe(esc.ed.paths[0])[1])
+  const antes = { ingestas: ingestas(), escrituras: escrituras() }
+
+  ;[[1, 11], [2, 12], [3, 13]].forEach(([lat, lng]) => mover(esc, lat, lng))
+  assert.equal(esc.changes.length, 3, 'cada frame del gesto emitió')
+  assert.equal(escrituras(), antes.escrituras, 'ningún frame escribe un rango del espejo')
+
+  soltar(esc)
+  assert.ok(escrituras() > antes.escrituras, 'soltar sube el vértice')
+  assert.equal(ingestas(), antes.ingestas, 'y ni el gesto ni el soltar re-ingieren el arena')
+  assert.deepEqual(esc.ed.getValue()[1], [3, 13])
+
+  esc.ed.destroy()
+})
+
+// Lo que se pica y lo que se dibuja son dos listas: el anillo que sale del valor tiene que salir de las
+// dos, o el relleno y el contorno siguen dibujando un trazo ya soltado.
+test('el anillo que setValue quita deja de dibujarse: el frame cuesta lo mismo que el de un editor nuevo', () => {
+  const dibujos = esc => {
+    const antes = esc.spy.draws.length
+    esc.ed.setStyle({})
+    return esc.spy.draws.length - antes
+  }
+  const recortado = montar({ value: [SQUARE, [[2, 2], [2, 4], [4, 4], [4, 2]]] })
+  const nuevo     = montar({ value: SQUARE })
+  recortado.ed.setValue(SQUARE)
+
+  assert.equal(dibujos(recortado), dibujos(nuevo))
+
+  recortado.ed.destroy()
+  nuevo.ed.destroy()
+})
