@@ -5,6 +5,126 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
 [`docs/versionado.md`](docs/versionado.md) — en `0.x`, el **minor cuenta los cambios medios**
 (capacidad o eje de API nuevo) y el **patch los menores desde el último medio** (fix / perf / revert).
 
+## [Sin publicar]
+
+### Agregado
+- **Capa de formas: círculos, elipses y sectores en metros, en GPU.** `engine.addShapeLayer`,
+  `<cristae-shape-layer>` y `<CristaeShapeLayer>` dibujan cada ítem como una forma `{ center, radius,
+  heading?, sweep? }` leída de los accessors `positionOf`, `radiusOf`, `headingOf` y `sweepOf`: un radio
+  escalar es un círculo; `[a, b]`, una elipse; con `sweepOf`, un sector (de la elipse si el radio es
+  `[a, b]`). Escalan con el zoom, y su borde es el que pica: el hit sale como `{ kind: 'shape' }`. El
+  handle es `{ id, source, set, setVisible, style }`, y `ShapeAccessors`, `ShapeLayerConfig`, `ShapeHandle`,
+  `ShapeHit` y `CristaeShapeHit` tipan el conjunto. Es una capa de cientos de formas, no de un feed vivo de
+  miles a alta frecuencia. Ver [`docs/shapes.md`](docs/shapes.md).
+  *Migración*: ninguna.
+- **La capa de formas y la de polígonos aceptan estilo a nivel de capa.** `color`, `weight`, `opacity`,
+  `stroke`, `fill`, `fillColor` y `fillOpacity` —los nombres de `PolygonLayerConfig`— son opciones de
+  `addShapeLayer` y props de `<cristae-shape-layer>` y de `<cristae-polygon-layer>` (`fill-color` y
+  `fill-opacity` como atributos), también en React. Cinco son reactivas por `handle.style`; `stroke` y
+  `fill` se leen al montar, y `styleOf` pisa por ítem. Un contorno sin relleno es `fill={false}` en vez
+  de un `styleOf` constante. Ver [`docs/shapes.md`](docs/shapes.md#estilo) y
+  [`docs/polygons.md`](docs/polygons.md#estilo).
+  *Migración*: ninguna.
+- **`cristae/geometry` genera formas: `ring` y `arc`.** `ring(model?, shape)` da el anillo de un círculo,
+  una elipse, un sector o un sector de elipse, y `arc(model?, shape)` su borde curvo como path abierto
+  (el contorno cerrado si la figura es entera), ambos en grados y medibles con `area` y `perimeter`:
+  `area(ring({ center, radius: 500 }))`. El tipo `Shape` los describe. Los vértices están a los metros
+  pedidos según el modelo, y la cuerda entre dos no se aparta del borde más de 0,1 m (tolerancia sin
+  vista); un terreno lanza `TypeError`, porque la forma se coloca sobre el modelo base y se mide después. `arc` sale también de `cristae/map` para
+  componerlo con una capa de líneas: `pathOf: arc` dibuja el borde curvo de un radio de acción. Ver
+  [`docs/geometry.md`](docs/geometry.md#formas--ring-y-arc) y
+  [`docs/shapes.md`](docs/shapes.md#el-borde-curvo-en-una-capa-de-líneas).
+  *Migración*: ninguna.
+- **`cristae/geometry` curva un path sobre la geodésica: `geodesic`.** `geodesic(model?, path)` parte
+  cada tramo largo sobre la geodésica del modelo y deja intacto el que la recta de Mercator ya resume a
+  0,1 m: un track GPS no cambia. Los puntos de entrada se conservan y la longitud sigue continua, de modo
+  que `sampleAlong(geodesic(ruta), 20)` decora la curva que se dibuja y no la recta. Ver
+  [`docs/geometry.md`](docs/geometry.md#geodésica--geodesic).
+  *Migración*: ninguna.
+- **Los modelos de la Tierra ubican destinos y rumbos.** `sphere()`, `ellipsoid()` y `WGS84` suman dos
+  marcas al protocolo de modelos, `Symbol.for('cristae.geometry.destination')` —el punto a unos metros de
+  un origen y un rumbo— y `Symbol.for('cristae.geometry.heading')` —el rumbo inicial entre dos puntos—,
+  que `ring`, `arc`, `geodesic`, la capa de formas y los editores de forma leen y que no se exportan. Un
+  modelo ajeno o de una copia anterior de Cristae, sin las marcas, no coloca formas ni curvas: lanza
+  `TypeError` con el mensaje del que falta. Ver [`docs/geometry.md`](docs/geometry.md#los-modelos).
+  *Migración*: ninguna — las medidas (`distance`, `area`, `perimeter`) no leen las marcas nuevas.
+- **El mapa recibe el modelo de la Tierra con que dibuja formas y geodésicas: `model`.** Es opción de
+  `new MapEngine({ model })`, prop de `<cristae-map>` y de `<CristaeMap model={WGS84}>`, y se lee en el
+  alta: no hay `setModel` ni re-teselado. Lo usan la capa de formas, los editores de forma y
+  `<cristae-geodesic>`. Un valor que no es un modelo, un terreno o un modelo sin las marcas lanzan
+  `TypeError` antes de crear el mapa. Ver [`docs/elements.md`](docs/elements.md).
+  *Migración*: ninguna — sin la opción, el mapa usa la esfera por defecto, como hasta hoy.
+- **Editores de círculo, elipse y sector.** `<cristae-editable-circle>`, `<cristae-editable-ellipse>` y
+  `<cristae-editable-sector>` (y `<CristaeEditableCircle>`, `<CristaeEditableEllipse>` y
+  `<CristaeEditableSector>` en React) editan una forma con su centro y las manijas de radio, rumbo y
+  apertura, por la puerta del puntero. `engine.addEditableLayer({ kind: 'circle' | 'ellipse' | 'sector' })`
+  es su espejo imperativo, y `EditableCircleValue`, `EditableEllipseValue` y `EditableSectorValue` tipan el
+  `value`: una `Shape` con el radio de su tipo, que `area(ring(valor))` mide. Con `mode="draw"` se dibujan
+  por clicks sin valor previo. La elipse no gira con otro parámetro: su rotación es `heading`. Ver
+  [`docs/editing.md`](docs/editing.md#círculo-elipse-y-sector).
+  *Migración*: ninguna.
+- **Mano alzada en los editores de polilínea y de polígono: `mode: 'freehand'`.** El dedo o el mouse
+  traza, y al soltar el trazo se simplifica en píxeles (Douglas–Peucker), se suaviza con una Catmull-Rom
+  centrípeta y se hornea como vértices: el valor emitido sigue siendo una polilínea o un anillo común,
+  editable en `mode: 'edit'`. En la polilínea el trazo continúa el valor; en el polígono lo reemplaza.
+  `<cristae-editable-polyline mode="freehand">`, `<cristae-editable-polygon mode="freehand">`,
+  `CristaeEditablePolylineProps` y `CristaeEditablePolygonProps` lo aceptan, y `handle.setMode('freehand')`
+  lo activa. En los demás editores es inerte. Ver [`docs/editing.md`](docs/editing.md#mano-alzada).
+  *Migración*: ninguna.
+- **Línea geodésica: `<cristae-geodesic>`, `<CristaeGeodesic>` y `engine.addGeodesic`.** Un modificador
+  que envuelve capas de líneas o de polígonos, o editores de polilínea o de polígono, y los dibuja sobre
+  la geodésica del modelo del mapa: el dibujo, el picking y el encuadre leen la misma curva, `vertexIndex`
+  sigue indexando la entrada y, con `scalarOf`, los puntos insertados interpolan el escalar. `enabled="false"`
+  vuelve a rectas sin desmontar al hijo. `const recta = engine.addGeodesic({ hostId })` es la ruta
+  imperativa: devuelve con qué volver a rectas, o `null` si el host no se curva. No aplica al rectángulo,
+  a las formas, ni a puntos, labels, html, calor o cluster. Ver
+  [`docs/elements.md`](docs/elements.md#cristae-geodesic--geodésica-declarativa),
+  [`docs/lines.md`](docs/lines.md#curva-geodésica) y [`docs/polygons.md`](docs/polygons.md#curva-geodésica).
+  *Migración*: ninguna.
+
+### Cambiado
+- **Los editores de polilínea y de polígono producen `line` y `polygon` en la gramática** (antes
+  `edit`), para que `<cristae-geodesic>` los envuelva.
+  *Migración*: ninguna — nada consumía esos kinds.
+- **`camera.fitToLayer` y `fitToLayers` encuadran la figura entera de una capa que informa su caja.**
+  Lo hacen la capa de formas y la de círculos, no sólo sus centros, y una capa de polígonos —que antes
+  lanzaba en `fitToLayer`, porque su Source no tiene `positionOf`— y una de líneas curvada por
+  `<cristae-geodesic>`, con su curva.
+  *Migración*: para encuadrar sólo los centros, `camera.followBounds(id, ids)`.
+- **El rectángulo en `mode: 'draw'` muestra una vista previa entre clicks.**
+  *Migración*: ninguna.
+- **El hit de la capa de círculos se resuelve por punto-en-anillo** sobre el mismo anillo que se dibuja, y
+  difiere del analítico de antes en 0,2 px a lo sumo. Si el anillo no entra en una textura, la capa baja
+  los segmentos de cada círculo hasta que entra, en vez de quedarse sin dibujar.
+  *Migración*: ninguna.
+- **El índice de picking de las capas de líneas no ve lo que `append` sumó a una ventana todavía abierta.**
+  Entra con el flush que la cierra, como el dibujo.
+  *Migración*: ninguna.
+
+### Deprecado
+- **`addCircleLayer`, `CircleAccessors`, `CircleLayerConfig`, `CircleHandle`, `CircleHit` y
+  `CristaeCircleHit`.** `addCircleLayer` queda como alias de la capa de formas y se retira en 1.0; sigue
+  funcionando con la misma API: dibuja y pica sobre la esfera por defecto aunque el mapa traiga otro `model`,
+  con `kind: 'circle'`, el pane `cristae-circle-<id>` y el handle `{ id, source, set, setVisible }`, y
+  lee sólo `radiusMetersOf`.
+  *Migración*:
+  ```js
+  // antes
+  engine.addCircleLayer({ id, data, accessors: { idOf, positionOf, radiusMetersOf, styleOf } })
+  // después
+  engine.addShapeLayer({ id, data, accessors: { idOf, positionOf, radiusOf: radiusMetersOf, styleOf } })
+  ```
+  Al migrar también cambia:
+  - `hit.kind` pasa de `'circle'` a `'shape'`, y `focus({ kinds: ['circle'] })` a `['shape']`;
+  - el pane por defecto pasa de `cristae-circle-<id>` a `cristae-shape-<id>`;
+  - los hits salen de arriba hacia abajo;
+  - la capa usa el modelo del mapa;
+  - ahora hay `<cristae-shape-layer>` y `<CristaeShapeLayer>`.
+
+  El `kind` del hit y del foco es el de la capa; `EditableKind: 'circle'` es la figura de un editor, que
+  `focus({ kinds: ['circle'] })` no alcanza. Ver
+  [`docs/shapes.md`](docs/shapes.md#migrar-desde-addcirclelayer).
+
 ## [0.36.0] - 2026-10-03
 
 > Sale como **minor**: Leaflet queda detrás de un anfitrión interno, Cristae dibuja todas sus capas y

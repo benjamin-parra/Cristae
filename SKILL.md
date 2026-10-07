@@ -205,7 +205,8 @@ glify resuelve el click contra **una** capa y te da el punto crudo. Cristae emit
 con los hits de **todas** las capas visibles, **ordenados top-first**:
 
 ```js
-// Hit = { layerId, kind: 'point'|'polygon', ref, id, distancePx, zIndex, order }
+// Hit = { layerId, kind: 'point'|'polygon'|'line'|'shape'|'html'|'circle', ref, id, distancePx, zIndex, order }
+// 'circle' sólo lo emite addCircleLayer, deprecada; se retira en 1.0
 map.addEventListener('cristae:click', (e) => {
   const top = e.detail.hits[0]
   if (top?.layerId === 'fleet') abrirDetalle(source.itemById(top.id))
@@ -298,6 +299,12 @@ const latlng   = map.camera.containerPointToLatLng([x, y])
 | — (no existe) | `accessors.headingOf` → rotación de iconos |
 | `layer.setData(arr)` | `source.set(arr)` (rebuild) · **`source.move(id,…)`** / `source.patch(…)` (incremental) |
 | `glify.shapes({...})` | `<cristae-polygon-layer>` + `accessors:{ idOf, ringsOf, styleOf }` |
+| `L.circle(latlng, { radius })`, o un sector o una elipse en metros | `<cristae-shape-layer>` + `accessors:{ idOf, positionOf, radiusOf, headingOf?, sweepOf? }`: escalan con el zoom, el hit es `kind: 'shape'` ([`docs/shapes.md`](./docs/shapes.md)) |
+| medir el círculo o el sector que se dibuja | `area(ring({ center, radius, heading, sweep }))` de `cristae/geometry` ([`docs/geometry.md`](./docs/geometry.md#formas--ring-y-arc)) |
+| el borde curvo de un radio de acción | `<cristae-line-layer>` con `pathOf: arc` (`import { arc } from 'cristae/map'`) |
+| una ruta o una geocerca que sigue la geodésica | `<cristae-geodesic>` envolviendo la capa de líneas o de polígonos, o el editor ([`docs/elements.md`](./docs/elements.md#cristae-geodesic--geodésica-declarativa)) |
+| `leaflet-draw`, `Leaflet.Editable`, `geoman` | `<cristae-editable-polygon\|polyline\|point\|rectangle\|circle\|ellipse\|sector>` con `mode="edit"` o `"draw"` y, en polígono y polilínea, `"freehand"` ([`docs/editing.md`](./docs/editing.md)) |
+| fijar la esfera o el elipsoide con que se colocan las formas | `model` en `<cristae-map>` (`<CristaeMap model={WGS84}>`), leído en el alta |
 | `click/hover` callbacks | eventos `cristae:click`/`cristae:hover` → `e.detail.hits[]` |
 | `map.setView/panTo/flyTo` · zoom `+/−` | `map.camera.setView/panTo/flyTo/zoomIn/zoomOut` (qué anima, `zoom-animation`: SPECS §9) |
 | seguir un punto con `panTo` por update | `map.camera.followPoint(layerId, id)` (una vez) |

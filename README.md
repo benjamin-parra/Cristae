@@ -44,13 +44,13 @@ import { createSource, defineIconSet } from 'cristae/map'
 
 ## Entry points
 
-| Specifier          | Trae                                                 | Registra           |
-|--------------------|------------------------------------------------------|--------------------|
-| `cristae/map`      | mapa + núcleo (Leaflet/lit)                          | `<cristae-*>` mapa |
-| `cristae/table`    | tabla virtual + núcleo (solo `lit`)                  | `<cristae-table>`  |
-| `cristae/core`     | solo el núcleo de datos (sin DOM)                    | —                  |
-| `cristae/geojson`  | lector de GeoJSON a arrays tipados                   | —                  |
-| `cristae/geometry` | distancias, áreas, terreno, cajas y contrato de path | —                  |
+| Specifier          | Trae                                                        | Registra           |
+|--------------------|-------------------------------------------------------------|--------------------|
+| `cristae/map`      | mapa + núcleo (Leaflet/lit)                                 | `<cristae-*>` mapa |
+| `cristae/table`    | tabla virtual + núcleo (solo `lit`)                         | `<cristae-table>`  |
+| `cristae/core`     | solo el núcleo de datos (sin DOM)                           | —                  |
+| `cristae/geojson`  | lector de GeoJSON a arrays tipados                          | —                  |
+| `cristae/geometry` | distancias, áreas, formas, geodésica, terreno, cajas y path | —                  |
 
 `table` y `map` nunca se importan entre sí: una tabla no baja Leaflet.
 

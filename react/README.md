@@ -92,7 +92,14 @@ import { CristaeMap, CristaePointLayer, CristaeCluster, CristaePopup } from '@cr
   `CristaeReadSource`, lo que devuelve `defineSource`); `accessors`/`iconSet` tipados por capa,
   `onClick`/`onHover` filtrados por la capa y el eje `focusIds`.
 - **Modificadores de composición**: `CristaeCluster` (con la sesión de expansión por `onCluster*` y el
-  eje `markedIds`), `CristaeOverlay` (envuelven capas de puntos; el orden de anidación es la semántica).
+  eje `markedIds`) y `CristaeOverlay` (envuelven capas de puntos; el orden de anidación es la semántica), y
+  `CristaeGeodesic` (`enabled`: envuelve capas de líneas o de polígonos, o editores de
+  polilínea o de polígono, y los dibuja sobre la geodésica del modelo del mapa).
+- **Editores de geometría**: `CristaeEditablePolygon`, `CristaeEditablePolyline`, `CristaeEditablePoint`,
+  `CristaeEditableRectangle`, `CristaeEditableCircle`, `CristaeEditableEllipse` y `CristaeEditableSector`,
+  con `value`, `mode` (`'edit'`, `'draw'` y, en polígono y polilínea, `'freehand'`) y las salidas
+  `onChange` / `onCommit`, que son `CustomEvent` del elemento con el `detail.value` tipado por la forma
+  (ver [`docs/editing.md`](../docs/editing.md#react)).
 - **`CristaePopup`** — tarjeta anclada al dato (`for` + `contentOf`); ancla viva por default.
 - **`CristaeToolbar`** — dock flotante de acciones (`items` + `orientation`), colocado por `slot`.
 - **`CristaeTable`** — el otro entry de la lib (`import 'cristae/table'` registra el elemento; no lo
@@ -116,7 +123,7 @@ overlay (+ `empty`, y `bubble`/`center` dentro de un cluster), así que un typo 
 - ✅ **Núcleo** (`src/apply-props.js`): `applyElementProps` + `detachElementListeners`. Tested puro DOM
   (elemento fake, sin jsdom).
 - ✅ **Hook** (`src/use-cristae-element.js`): layout effect + teardown de listeners al desmontar.
-- ✅ **Componentes** (`src/index.js`): los diez `<cristae-*>` del mapa + `<cristae-table>`, sobre
+- ✅ **Componentes** (`src/index.js`): los `<cristae-*>` del mapa + `<cristae-table>`, sobre
   `createElement` (sin JSX/build), con `ref` al elemento vivo.
 - ✅ **Canales del bus** (`src/index.js`): tabla por tag → `engine.on(canal[, layerId], cb)`, re-cableada
   en cada `cristae:ready`. Cubre `cluster:*`, `secondary-click` y `hover:start`/`hover:end`, más el

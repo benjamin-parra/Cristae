@@ -252,6 +252,9 @@ new MapEngine({ host: adoptLeafletHost(map, { leaflet? }), … }) → engine
 |---|---|---|---|
 | `addPointLayer(cfg) → handle` | acción | O(1) + preseed | crea capa + store interno |
 | `addPolygonLayer(cfg) → handle` | acción | O(1) | |
+| `addShapeLayer(cfg) → handle` | acción | O(1) | círculos, elipses y sectores en metros (§8.7) |
+| `addEditableLayer(cfg) → handle` | acción | O(1) | editor de una geometría, input controlado (§8.8) |
+| `addCircleLayer(cfg) → handle` | acción | O(1) | `@deprecated`, se retira en 1.0: alias de la capa de formas (§8.7) |
 | `addLabelLayer(cfg) → handle` | acción | O(1) | standalone o `bindTo` |
 | `attachSource(id, source)` | acción | O(1) | ruta B/C; interno del setter `.source` de la capa |
 | `removeLayer(id)` / `getLayer(id)` | acción | O(1) | |
@@ -449,6 +452,37 @@ root del mapa. Hijo de `<cristae-map>`.
   hace nada tras `removeLayer(host)`.
 - **`_handle` es un marcador**: sin operaciones, no es una capa del motor. Quitar al hijo destruye su curva.
 
+### 8.7 `<cristae-shape-layer>`
+
+| Entrada | Tipo | Notas |
+|---|---|---|
+| `.data`, `.accessors` (`idOf, positionOf, radiusOf, headingOf?, sweepOf?, styleOf?`) | — | cada ítem es una forma `{ center, radius, heading?, sweep? }`: `radiusOf` en **metros**, un número es un círculo y `[a, b]` una elipse; con `sweepOf`, un sector |
+| `.source` (prop) | `Source` | gana sobre `data`; se lee **al montar** |
+| `visible`/`interactive` | bool, default `true` | — |
+| `color/weight/opacity/fill-color/fill-opacity` | string/number | estilo de capa, el de §8.2; reactivo por `handle.style`; `styleOf` lo pisa por forma |
+| `stroke/fill` | bool, default `true` | se leen **al montar** |
+| `focus-ids`, `pane`/`z` | — | ejes comunes (§8) |
+
+- **Hoja de la gramática**: `{ consumes: [], produces: ['shape'], combine: null, arity: 'leaf' }`; ningún modificador la consume. El handle es `{ id, source, set, setVisible, style }`.
+- **Una regla de validez**, la de `ring` (§18): `null`/`undefined` toman el default, un número presente que la forma usa y no es finito la descarta, y el radio y `sweep` además si son ≤ 0.
+- **El modelo es el del mapa** (§6): la forma se coloca y se pica con sus destinos, y el motor no admite un modelo que no los ubique.
+- **El tamaño es de la figura entera**: `camera.fitToLayer`/`fitToLayers` encuadran la caja que la capa informa de lo dibujado, no sus centros.
+- **Hit**: `{ kind: 'shape', id, ref: id, distancePx: 0 }`, resuelto por punto-en-anillo sobre las mismas tablas del dibujo, así que el borde que se ve es el que pica; de varias formas superpuestas sale primero la última de `data`. Los vértices por forma y el tope de textura, en [`docs/shapes.md`](./docs/shapes.md#costo).
+- **Complejidad**: un cambio de la Source rehace todos los anillos y sube la textura entera, O(vértices); al asentar el zoom sólo rehace si alguna forma pide otro número de vértices. Sirve para cientos de formas, no para un feed de miles a alta frecuencia. Cifras en [`docs/shapes.md`](./docs/shapes.md#costo).
+- **`addCircleLayer`** es un alias `@deprecated` de esta capa: dibuja y pica en la esfera por defecto aunque el mapa traiga otro `model`, lee sólo `radiusMetersOf`, ignora `headingOf`, `sweepOf` y el estilo de capa, devuelve `{ id, source, set, setVisible }` y sus hits llevan `kind: 'circle'` en el orden de `data`. Se retira en 1.0; la guía de migración está en [`docs/shapes.md`](./docs/shapes.md#migrar-desde-addcirclelayer).
+
+### 8.8 `<cristae-editable-*>`
+
+Siete elementos —`polygon`, `polyline`, `point`, `rectangle`, `circle`, `ellipse` y `sector`— y `engine.addEditableLayer({ kind, … })` como su alta imperativa. No son capas de dato: sin `source` ni accessors, su dato es **una** geometría y su contrato es el de un input controlado ([`docs/editing.md`](./docs/editing.md)).
+
+- **Hoja de la gramática** `{ consumes: [], produces: ['edit'], combine: null, arity: 'leaf' }`; el de polilínea produce `line` y el de polígono, `polygon`, que `<cristae-geodesic>` consume (§8.6).
+- **`value` entra, los cambios salen**: `cristae:change` por frame y `cristae:commit` una vez por gesto. El valor se lee con un getter, y el eco que vuelve por referencia no se reingiere.
+- **`mode`**: `'edit'` (default) y `'draw'`; `'freehand'` sólo en `polygon` y `polyline`, y en los demás es inerte. En `freehand` el puntero traza y al soltar el trazo se simplifica en px (Douglas–Peucker, 2 px), se suaviza con una Catmull-Rom centrípeta y se hornea como vértices de una polilínea o un anillo común, con un solo `change` y un solo `commit`. Continúa lo abierto y reemplaza lo cerrado: el trazo de la polilínea se suma al final del valor, y el del polígono lo reemplaza por un anillo simple.
+- **Los de forma** (`circle`, `ellipse`, `sector`) editan una `Shape` con el radio de su tipo —`{ center, radius }`, `{ center, radius: [a, b], heading }`, `{ center, radius, heading, sweep }`— por las manijas de centro, radio, rumbo y apertura. Se ubican con el `model` del mapa y se dibujan con la esfera mientras dura el gesto. La rotación de toda forma es `heading`. El sector de elipse se dibuja en la capa de formas pero no se edita.
+- **Mínimos y polo**: un radio no baja de 24 px a la vista, la apertura no acerca dos manijas a menos de eso, y el arrastre que llevaría el borde a un polo no se aplica ni emite.
+- **Curva geodésica**: envuelto por `<cristae-geodesic>`, el editor de polilínea o de polígono dibuja cada tramo sobre la geodésica del modelo del mapa; las manijas quedan en los vértices del `value`, que no gana puntos.
+- **Contexto GL**: cada editor toma un contexto WebGL, del techo de ~16 del navegador: se monta uno por vez.
+
 ---
 
 ## 9. Cámara
@@ -485,7 +519,8 @@ Todo **acción** (no estado): es la **única** vía de movimiento de viewport tr
 MODELO §8. En el elemento como `CustomEvent` (prefijo `cristae:`) y en el motor vía `engine.on`.
 
 ```ts
-Hit = { layerId, kind: 'point'|'polygon', ref, id, distancePx, zIndex, order }
+Hit = { layerId, kind: 'point'|'polygon'|'line'|'shape'|'html'|'circle', ref, id, distancePx, zIndex, order }
+// 'circle' sólo lo emite addCircleLayer, deprecada; se retira en 1.0
 // orden top-first: zIndex desc, order asc, distancePx asc
 ```
 

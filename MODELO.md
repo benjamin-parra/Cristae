@@ -377,12 +377,13 @@ const fleetIcons = defineIconSet({
 ```js
 Hit = {
   layerId: string,
-  kind: 'point' | 'polygon',   // tipo de capa, NO backend de render
-  ref: any,                    // el item del Source (o {ring,id} de polígono)
+  kind: 'point' | 'polygon' | 'line' | 'shape' | 'html' | 'circle', // tipo de capa, NO backend de render
+  // 'circle' sólo lo emite addCircleLayer, deprecada; se retira en 1.0
+  ref: any,                                                          // el item del Source (o {ring,id} de polígono)
   id: string | number,
-  distancePx: number,          // 0 para polígono
+  distancePx: number,                                                // 0 para polígono
   zIndex: number,
-  order: number,               // declaración (desempate)
+  order: number,                                                     // declaración (desempate)
 }
 // Hits ordenados top-first: zIndex desc, order asc, distancePx asc.
 ```
