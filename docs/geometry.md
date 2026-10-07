@@ -237,6 +237,10 @@ su arista de cierre se curva como las demás.
 - **El modelo va primero y es opcional**, como en `distance`. Lanza `TypeError` si no va primero, si es un
   terreno —la curva se coloca en horizontal, sobre el modelo base—, o si no ubica destinos y rumbos: una
   copia anterior de Cristae o una implementación ajena sin esas marcas. Un path sin tramos da `[]`.
+- **Las capas de líneas y de polígonos y los editores de polilínea y de polígono curvan con esta misma
+  regla**, sobre el modelo del mapa, cuando los envuelve `<cristae-geodesic>` o los pide
+  `engine.addGeodesic({ hostId })` ([`elements.md`](elements.md#cristae-geodesic--geodésica-declarativa)).
+  El tramo que `geodesic` deja entero queda recto también allí.
 
 ## Terreno
 

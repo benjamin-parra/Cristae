@@ -433,7 +433,7 @@ export class MapEngine {
       join: participant => this.#interaction.join(participant, zIndex, order),   // los handles, en su lugar del orden
       onHandleLevel: level => this.#interaction.setHandleLevel(id, level),   // el árbitro del cursor lo traduce
     }), true)
-    const record = { kind: 'editable', editor, paneName, zIndex, order, visible: true, enabled: true }
+    const record = { kind: 'editable', editing: kind, editor, paneName, zIndex, order, visible: true, enabled: true }
     this.#layers.set(id, record)
     return {
       id,
@@ -444,6 +444,28 @@ export class MapEngine {
       handleMapClick: ll => editor.handleMapClick(ll),
       destroy:        () => this.removeLayer(id),
     }
+  }
+
+  /* ── Geodésica: la curva es estado del host (`setCurve`) y muere con él, sin registro ni id propio ── */
+
+  // Contrato en SPECS §8.6. La baja se reconoce por identidad en el record: un alta posterior, o un host
+  // nuevo con el mismo id, la dejan inerte.
+  addGeodesic({ hostId }) {
+    const record = this.#layers.get(hostId)
+    const curva  = record?.kind === 'editable'
+      ? record.editing === 'polyline' || record.editing === 'polygon'
+      : record?.kind === 'line' || (record?.kind === 'polygon' && record.layer.curvable)
+    if (!curva) return null
+
+    const host = record.layer ?? record.editor
+    const off  = () => {
+      if (this.#layers.get(hostId) !== record || record.geodesic !== off) return
+      record.geodesic = null
+      host.setCurve(null)
+    }
+    host.setCurve(this.#model)
+    record.geodesic = off
+    return off
   }
 
   /* ── Capas de labels (canvas; standalone o bind-to un host) ── */

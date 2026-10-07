@@ -227,8 +227,8 @@ aunque se declaren antes, y la puerta del puntero les da la pulsación por el mi
 
 Los tiles del mapa van en `200`: una capa con `z` menor queda debajo de ellos.
 
-Los modificadores (`<cristae-cluster>`, `<cristae-overlay>`) no los aceptan: sus capas las crea la
-gramática. Imperativo equivalente: `engine.setLayerZ(id, z)`.
+Los modificadores (`<cristae-cluster>`, `<cristae-overlay>`, `<cristae-geodesic>`) no los aceptan: sus
+capas las crea la gramática. Imperativo equivalente: `engine.setLayerZ(id, z)`.
 
 ### Enfoque — `focus-ids`
 
@@ -424,6 +424,44 @@ se declara la capa `slot="bubble"` con `interactive` y se maneja su `cristae:cli
 maxZoom, bubble })` → `{ setConfig({ radius?, maxZoom?, minPoints? }), dispose() }`. El `<cristae-cluster>`
 es azúcar sobre esto (su `controls` expone solo `{ id }` del host: quitar el elemento arrastra el `dispose`).
 
+### `<cristae-geodesic>` — geodésica declarativa
+
+Modificador que curva sobre la geodésica los tramos largos de lo que envuelve: una capa de líneas, una de
+polígonos —también la arista de cierre— o un editor de polilínea o de polígono. Un track GPS no cambia: sólo
+se parte lo que se aparta más de 0,1 m de la recta de Mercator, con la regla de
+[`geodesic`](geometry.md#geodésica--geodesic). El dibujo, el picking y el encuadre salen de la misma curva.
+
+| Miembro | Tipo | Atributo |
+|---|---|---|
+| `enabled` | boolean (default `true`) | `enabled` — en `false` (o `"0"`) dibuja rectas, sin desmontar al hijo |
+
+```html
+<cristae-geodesic>
+  <cristae-line-layer id="vuelos"></cristae-line-layer>
+</cristae-geodesic>
+```
+```jsx
+<CristaeGeodesic>
+  <CristaeEditablePolygon value={zona} onChange={e => setZona(e.detail.value)} />
+</CristaeGeodesic>
+```
+
+- **Qué envuelve.** Líneas, polígonos y los editores de polilínea y de polígono. Envolver sólo un
+  rectángulo, un punto, un editor de forma, la capa de formas, puntos, labels o html es el error R2
+  de la gramática. Un hermano que no consume pasa intacto.
+- **Sin modelo ni tolerancia propios.** Usa el modelo del mapa y los 0,1 m de `geodesic`. No acepta `pane`,
+  `z` ni `focus-ids`, como los demás modificadores: la curva es estado del host y muere con él.
+- **Una capa de polígonos con `geometry` e `interactive` apagado no se curva**, porque no retiene sus
+  tablas: el modificador la deja recta, sin error.
+- **Ruta imperativa.** `engine.addGeodesic({ hostId })` devuelve con qué volver a rectas, o `null` si el
+  host no se curva; qué hace su baja, en [SPECS §8.6](../SPECS.md). El `<cristae-geodesic>` es azúcar
+  sobre esto.
+
+```js
+engine.addLineLayer({ id: 'vuelos', data, accessors })
+const recta = engine.addGeodesic({ hostId: 'vuelos' })   // recta() vuelve a rectas
+```
+
 ### `<cristae-toolbar>` — dock flotante
 
 | Miembro | Tipo | Atributo / prop |
@@ -566,6 +604,7 @@ Regla: si existe una prop declarativa para lo que se busca, conviene usarla; `co
 | label | `{ id, setLabels, setHovered, setVisible }` |
 | editable | `{ id, setValue, setMode, setStyle, getValue, handleMapClick, destroy }` |
 | cluster | `{ id }` (id del host; quitar el `<cristae-cluster>` arrastra el cluster) |
+| geodesic | `{ id }` (un marcador, sin operaciones: la curva la destruye el host al irse; `enabled` la alterna) |
 
 ### Ejemplo (banco de pruebas)
 
@@ -594,7 +633,8 @@ mapEl.addEventListener('cristae:ready', () => {
    se asignan por JS y pueden llegar antes o después de que el motor monte. La capa difiere hasta tener su
    config y monta en cuanto llega.
 5. Cambios de props **después** del montaje se reenvían al handle: `data → controls.set`,
-   `source → attachSource`, `visible → setVisible`, config de cluster → `setConfig`.
+   `source → attachSource`, `visible → setVisible`, config de cluster → `setConfig`, `enabled` de
+   `<cristae-geodesic>` → curva o rectas.
 6. Quitar una **capa** del DOM (`disconnectedCallback`) la desmonta (`removeLayer`). Quitar el
    **`<cristae-map>`** destruye el motor entero (`engine.destroy()`: suelta el mapa y el contexto WebGL).
    Los demás `<cristae-map>` de la página no se enteran: cada motor tiene sus propios contextos.
@@ -603,8 +643,8 @@ mapEl.addEventListener('cristae:ready', () => {
    tras un reattach son otra instancia. Si el layout reconstruye el DOM, conviene insertar lo demás alrededor del
    nodo vivo en vez de detachar el mapa.
 
-Las capas hijas de un `<cristae-cluster>` **no** se auto-montan: las monta el cluster (y si su
-config llega tarde, avisan al cluster para que reintente).
+Las capas hijas de un modificador (`<cristae-cluster>`, `<cristae-overlay>`, `<cristae-geodesic>`) **no** se
+auto-montan: las monta el modificador (y si su config llega tarde, le avisan para que reintente).
 
 ---
 

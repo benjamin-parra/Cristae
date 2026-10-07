@@ -1,7 +1,7 @@
-import { CristaeLayerElement } from './base.js'
+import { CristaeModifierElement } from './base.js'
 import { makeAutoId } from './autoId.js'
 import { grammar } from './composite.js'
-import { grammarChildren, reduceModifier, validate } from '../grammar/index.js'
+import { grammarChildren } from '../grammar/index.js'
 
 // Semilla del id por-host de cada badge que monta `cristaeApply` (`<hostId>:overlay:<n>`): un mismo
 // host puede llevar varios overlays, así que el contador desambigua. Vive acá, no en `makeAutoId`,
@@ -20,7 +20,7 @@ let ovlSeq = 0
 //       <cristae-point-layer id="fleet"/>
 //     </cristae-overlay>
 //   </cristae-cluster>
-export class CristaeOverlay extends CristaeLayerElement {
+export class CristaeOverlay extends CristaeModifierElement {
 
   // Modificador `map`: consume `point`, produce `overlay` (uno por target), ligado a `point`.
   static cristaeSignature = { consumes: ['point'], produces: ['overlay'], combine: 'map', arity: 'wrapper', bindsTo: 'point' }
@@ -63,21 +63,13 @@ export class CristaeOverlay extends CristaeLayerElement {
   }
 
   mountLayer(engine) {
-    // El wrapper más externo valida todo el subárbol antes de tocar el motor.
-    if (!this._enclosingModifier())
-      validate(this, { signatureFor: grammar.signatureFor, isRegistered: grammar.isRegistered, mode: grammar.mode })
-
-    const ctx = { signatureFor: grammar.signatureFor, applyFor: grammar.applyFor, isRegistered: grammar.isRegistered }
-    this._units = reduceModifier(this, engine, ctx)
+    this._reduce(engine)
 
     // El _handle.id es el id del PUNTO que pasa por debajo: así un cluster que envuelva a
     // este overlay clusteriza el punto (y los badges, ligados, heredan su supresión).
     const point = this._units.find(u => u.kind === 'point')
     return { id: point ? point.id : (this.id || makeAutoId('overlay')), units: this._units }
   }
-
-  // Units que aporta a su modificador padre (point pass-through + overlay(s)).
-  cristaeUnits() { return this._units ?? [] }
 
   // Config que lee el `apply` del reductor.
   cristaeConfig() {

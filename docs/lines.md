@@ -181,11 +181,12 @@ capa.
 
 ### Curva geodésica
 
-Con curva, la capa parte cada tramo sobre la geodésica de su modelo con la regla de
-[`geodesic`](geometry.md#geodésica--geodesic): sólo se parte lo que se aparta más de 0,1 m de la recta de
-Mercator, así que un track GPS se dibuja byte a byte igual. La cifra vale en tramos de hasta 1 000 km; en
-uno más largo, como los vuelos de abajo, la cota de `geodesic` se queda corta y la cuerda puede pasarla. De
-una sola densificación salen el dibujo, el picking y la caja:
+Con curva —la pide `<cristae-geodesic>` envolviendo la capa, o `engine.addGeodesic({ hostId })`, que
+devuelve con qué volver a rectas— la capa parte cada tramo sobre la geodésica del modelo del mapa con la
+regla de [`geodesic`](geometry.md#geodésica--geodesic): sólo se parte lo que se aparta más de 0,1 m de la
+recta de Mercator, así que un track GPS se dibuja byte a byte igual. La cifra vale en tramos de hasta
+1 000 km; en uno más largo, como los vuelos de abajo, la cota de `geodesic` se queda corta y la cuerda puede
+pasarla. De una sola densificación salen el dibujo, el picking y la caja:
 
 - **`vertexIndex` sigue en la entrada.** Un hit sobre un punto insertado da el vértice que abre su tramo.
 - **Con `scalarOf`, los puntos insertados interpolan el escalar** entre los dos vértices, y `colorRamp` lo

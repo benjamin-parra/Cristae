@@ -1,7 +1,5 @@
-import { CristaeLayerElement } from './base.js'
+import { CristaeModifierElement } from './base.js'
 import { makeAutoId } from './autoId.js'
-import { grammar } from './composite.js'
-import { grammarChildren, reduceModifier, validate } from '../grammar/index.js'
 
 // circle-threshold: un número (umbral círculo→espiral) o "auto"/vacío → null (el motor usa su default).
 const parseCircleThreshold = v => {
@@ -51,7 +49,7 @@ function ensureCenterCss() {
 // expandable (default true): click en una burbuja la expande (los puntos del cluster aparecen
 // individualmente); click fuera la colapsa. Desactivar con expandable="false" si el proyecto
 // necesita manejar la interacción a mano.
-export class CristaeCluster extends CristaeLayerElement {
+export class CristaeCluster extends CristaeModifierElement {
 
   // Modificador `fold`: consume `point`, produce `point` (pass-through, suprimido) + `bubble`.
   static cristaeSignature = { consumes: ['point'], produces: ['point', 'bubble'], combine: 'fold', arity: 'wrapper' }
@@ -103,17 +101,8 @@ export class CristaeCluster extends CristaeLayerElement {
     this.dimMarked  = false
   }
 
-  // Listo cuando todos los hijos de gramática (host(s), no la burbuja) tienen su config.
-  mountReady() {
-    return grammarChildren(this, grammar.isRegistered).every(el => el.mountReady())
-  }
-
   mountLayer(engine) {
-    if (!this._enclosingModifier())
-      validate(this, { signatureFor: grammar.signatureFor, isRegistered: grammar.isRegistered, mode: grammar.mode })
-
-    const ctx = { signatureFor: grammar.signatureFor, applyFor: grammar.applyFor, isRegistered: grammar.isRegistered }
-    this._units = reduceModifier(this, engine, ctx)
+    this._reduce(engine)
 
     // El control del cluster viaja en el handle de la unit de burbuja (setConfig/dispose). El
     // teardown del clustering lo dispara el quitado de los hosts (cada host comparte un dispose
@@ -217,8 +206,6 @@ export class CristaeCluster extends CristaeLayerElement {
     this.#centerEl?.remove()
     this.#centerEl = null; this.#centerAnchor = null
   }
-
-  cristaeUnits() { return this._units ?? [] }
 
   // Config del fold (sin la burbuja): ÚNICA fuente del objeto que consumen el montaje
   // (cristaeConfig) y el re-envío reactivo (syncLayer). Sus claves = las propiedades reactivas

@@ -1,7 +1,7 @@
 import { LitElement, nothing } from 'lit'
 import { grammar } from './composite.js'
 import { parseFocusIds } from './attrs.js'
-import { enclosingModifier, leafUnits } from '../grammar/index.js'
+import { enclosingModifier, grammarChildren, leafUnits, reduceModifier, validate } from '../grammar/index.js'
 
 // Base de las capas declarativas. No renderan nada visible (viven en light DOM como portadores de
 // config + reactividad). El montaje es una FUNCIÓN REACTIVA de (motor ⊗ config): no ocurre en un
@@ -87,8 +87,8 @@ export class CristaeLayerElement extends LitElement {
   syncLayer(_changed) {}                        // reenvía cambios de props al handle ya montado
 
   // RenderUnits que aporta este nodo a su modificador padre (gramática de composición).
-  // Default = HOJA (una unit del kind que produce la firma). Los modificadores (cluster/
-  // overlay) lo sobreescriben para devolver el conjunto que reduce su subárbol.
+  // Default = HOJA (una unit del kind que produce la firma). Los modificadores lo sobreescriben
+  // para devolver el conjunto que reduce su subárbol.
   cristaeUnits() {
     return this._handle && this._engine
       ? leafUnits(this, this._engine, { signatureFor: grammar.signatureFor })
@@ -110,4 +110,22 @@ export class CristaeLayerElement extends LitElement {
     if (mounted) map?.cristaeLayerMounted?.(this)
     else map?.cristaeLayerUnmounted?.(this)
   }
+}
+
+// Base de los modificadores de la gramática (cluster, overlay, geodesic): no dan de alta una capa propia,
+// reducen su subárbol. Montan cuando todos sus hijos de gramática tienen su config.
+export class CristaeModifierElement extends CristaeLayerElement {
+
+  mountReady() {
+    return grammarChildren(this, grammar.isRegistered).every(el => el.mountReady())
+  }
+
+  // El más externo valida el subárbol entero antes de tocar el motor. Las units quedan para el
+  // modificador padre (`cristaeUnits`) y para el `syncLayer` de la subclase.
+  _reduce(engine) {
+    this._enclosingModifier() || validate(this, grammar)
+    return this._units = reduceModifier(this, engine, grammar)
+  }
+
+  cristaeUnits() { return this._units ?? [] }
 }

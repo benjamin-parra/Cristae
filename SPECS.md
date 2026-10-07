@@ -253,6 +253,7 @@ new MapEngine({ host: adoptLeafletHost(map, { leaflet? }), … }) → engine
 | `addLabelLayer(cfg) → handle` | acción | O(1) | standalone o `bindTo` |
 | `attachSource(id, source)` | acción | O(1) | ruta B/C; interno del setter `.source` de la capa |
 | `removeLayer(id)` / `getLayer(id)` | acción | O(1) | |
+| `addGeodesic({ hostId }) → off \| null` | acción | O(1) + el rearmado del host | curva el host sobre la geodésica del modelo del mapa; `null` si no se curva (§8.6) |
 | `registerIconSet(name, set)` | acción | O(1) | resuelve capas pendientes por nombre |
 | `createIcon(descriptor)` | acción | O(1) | |
 | `on(event, layerId?, cb) → off` | acción | O(1) | suscripción por capa |
@@ -426,6 +427,25 @@ root del mapa. Hijo de `<cristae-map>`.
 - **`clip` (default ON):** `#applyClip` setea `clip-path: inset(...)` con la fracción que sobresale de la **región visible = rect del mapa − `viewport-insets`** (los mismos insets que usa auto-pan; así la tarjeta no se monta sobre los widgets/paneles). Geometría derivada del **tamaño cacheado al renderizar** (open/re-render; re-medido por `ResizeObserver` si el contenido cambia) + transform base-centro → **cero `getBoundingClientRect` del nodo por frame** (el único rect leído por reposición es el del mapa, que ya se leía). Recorte de compositor, sin relayout.
 - **Auto-pan al abrir (solo `pinned`):** si la caja se sale de la región visible (contenedor − `viewport-insets`), `open` llama `camera.panBy` con el delta en px justo para meterla + `auto-pan-padding`. Mismo cálculo que el `_adjustPan` de Leaflet pero contra los insets del mapa. El `panBy` re-dispara `viewportchange` → reubica sobre el ancla viva (no re-evalúa auto-pan: solo `open`). Sin `pinned`, panear no movería la tarjeta → se omite.
 
+### 8.6 `<cristae-geodesic>`
+
+```html
+<cristae-geodesic><cristae-line-layer id="vuelos"></cristae-line-layer></cristae-geodesic>
+```
+
+- **Modificador `map`**: `{ consumes: ['line', 'polygon'], produces: ['geodesic'], combine: 'map', arity: 'wrapper' }`, con una
+  unit `geodesic` por host. Los editores de polilínea y de polígono producen `line` y `polygon`, así que los envuelve;
+  envolver sólo algo que no se curva —rectángulo, formas, puntos, labels, html— es el error R2, y un hermano que
+  no consume pasa intacto.
+- **`enabled`** (default `true`; `"false"` o `"0"` como atributo): en `false` dibuja rectas sin desmontar al hijo. No lleva
+  modelo ni tolerancia: la curva usa el modelo del mapa y los 0,1 m de `geodesic` (§18).
+- **Ruta imperativa**: `engine.addGeodesic({ hostId })` llama `setCurve(model)` del host y devuelve su baja, o `null` si
+  el host no es una capa de líneas o de polígonos ni un editor de polilínea o de polígono, o es una capa de polígonos
+  tipada e `interactive: false`, que no retiene sus tablas. No hay registro ni id: la curva es estado del host y muere con
+  él. La baja sólo limpia si la curva sigue siendo la suya —un segundo alta la reemplaza y deja inerte a la anterior— y no
+  hace nada tras `removeLayer(host)`.
+- **`_handle` es un marcador**: sin operaciones, no es una capa del motor. Quitar al hijo destruye su curva.
+
 ---
 
 ## 9. Cámara
@@ -526,6 +546,7 @@ La **ley** (MODELO §5.4) formalizada como contrato que un implementador debe cu
 | `elevation` (§18) | — | — | O(1) **[0-alloc]** |
 | `ring` · `arc` (§18) | — | — | O(vértices) llamadas al destino del modelo; no es [0-alloc]: devuelve pares. El escritor que comparte con las capas de círculos y de formas y los editores no crea arrays ni clausuras, salvo lo que asigne el destino del modelo (la esfera, nada): con él, el anillo que reescribe cada frame del gesto de un editor de forma es **[0-alloc]**; el frame entero no, porque convertir el píxel en lugar asigna |
 | `geodesic` (§18) | — | — | O(vértices) con una cota por tramo que no llama al modelo; O(puntos insertados) llamadas al modelo, y con el elipsoide, el rumbo y la distancia por tramo y el destino de la geographiclib por punto; no es [0-alloc]: devuelve pares |
+| `addGeodesic` (§6) | — | O(vértices + p) llamadas al modelo, con p los puntos insertados: rearma el host ([`docs/lines.md`](./docs/lines.md#curva-geodésica), [`docs/polygons.md`](./docs/polygons.md#curva-geodésica), [`docs/editing.md`](./docs/editing.md#curva-geodésica)), y la baja lo rearma recto sin llamar al modelo | — |
 | `distance` con un terreno (§18) | — | — | O(L) pasos de media celda por tramo, **[0-alloc]** en el bucle de pasos; la distancia del modelo base, una por tramo, asigna lo que asigne ese modelo (la esfera, nada). `area` y `perimeter` con un terreno, como `relief` y como `distance` por arista |
 | frame del arrastre de un editor con curva ([`docs/editing.md`](./docs/editing.md#curva-geodésica)) | — | O(puntos de los dos tramos del vértice): los reescribe la esfera por defecto con los segmentos congelados y sube sólo ese rango, **[0-alloc]**; el frame entero no, porque convertir el píxel en lugar asigna | O(puntos de la curva) llamadas al modelo al soltar y en cada edición discreta, y a la esfera en cada muestra de la mano alzada |
 

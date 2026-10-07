@@ -20,6 +20,7 @@ import { CristaeEditableEllipse } from './element/CristaeEditableEllipse.js'
 import { CristaeEditableSector } from './element/CristaeEditableSector.js'
 import { CristaeCluster } from './element/CristaeCluster.js'
 import { CristaeOverlay } from './element/CristaeOverlay.js'
+import { CristaeGeodesic } from './element/CristaeGeodesic.js'
 import { CristaeToolbar } from './element/CristaeToolbar.js'
 import { CristaePopup } from './element/CristaePopup.js'
 
@@ -41,6 +42,7 @@ grammar.register('cristae-editable-ellipse', CristaeEditableEllipse.cristaeSigna
 grammar.register('cristae-editable-sector', CristaeEditableSector.cristaeSignature)
 grammar.register('cristae-cluster', CristaeCluster.cristaeSignature, { apply: CristaeCluster.cristaeApply })
 grammar.register('cristae-overlay', CristaeOverlay.cristaeSignature, { apply: CristaeOverlay.cristaeApply })
+grammar.register('cristae-geodesic', CristaeGeodesic.cristaeSignature, { apply: CristaeGeodesic.cristaeApply })
 
 const define = (name, ctor) => !customElements.get(name) && customElements.define(name, ctor)
 
@@ -60,6 +62,7 @@ define('cristae-editable-ellipse', CristaeEditableEllipse)
 define('cristae-editable-sector', CristaeEditableSector)
 define('cristae-cluster', CristaeCluster)
 define('cristae-overlay', CristaeOverlay)
+define('cristae-geodesic', CristaeGeodesic)
 define('cristae-toolbar', CristaeToolbar)
 define('cristae-popup', CristaePopup)
 
@@ -80,6 +83,6 @@ export { distance, sphere } from './geometry/geodesic.js'
 export { toParts, sampleAlong } from './geometry/polyline.js'
 export { arc } from './geometry/shape.js'
 export { tilePresets } from './tiles/presets.js'
-export { CristaeMap, CristaePointLayer, CristaePolygonLayer, CristaeShapeLayer, CristaeLineLayer, CristaeHtmlLayer, CristaeLabelLayer, CristaeCluster, CristaeOverlay, CristaeToolbar, CristaePopup }
+export { CristaeMap, CristaePointLayer, CristaePolygonLayer, CristaeShapeLayer, CristaeLineLayer, CristaeHtmlLayer, CristaeLabelLayer, CristaeCluster, CristaeOverlay, CristaeGeodesic, CristaeToolbar, CristaePopup }
 export { CristaeEditablePolygon, CristaeEditablePolyline, CristaeEditablePoint, CristaeEditableRectangle }
 export { CristaeEditableCircle, CristaeEditableEllipse, CristaeEditableSector }

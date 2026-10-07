@@ -66,8 +66,9 @@ export function defineGrammar(config: {
 
 // ── Validación (src/grammar/validate.js) ────────────────────────────────────
 /** R1 hoja con hijos · R2 wrapper sin hijo que produzca lo que consume · R3 wrapper
- *  sin hijos · R4 firma incoherente o kind fuera del universo. */
-export type GrammarErrorCode = "R1" | "R2" | "R3" | "R4"
+ *  sin hijos · R4 firma incoherente o kind fuera del universo · R5 hijo de un wrapper que no es de
+ *  la gramática ni configuración. */
+export type GrammarErrorCode = "R1" | "R2" | "R3" | "R4" | "R5"
 
 export class GrammarError extends Error {
   constructor(code: GrammarErrorCode, node: Element | null, message: string);
@@ -83,7 +84,7 @@ export function validateSignature(
   kinds: Set<string>,
 ): void;
 
-/** Juicio de tipos R1–R3 sobre el subárbol, ANTES de tocar el motor (un árbol inválido
+/** Juicio de tipos R1–R3 y R5 sobre el subárbol, ANTES de tocar el motor (un árbol inválido
  *  no crea estado). `mode: 'throw'` lanza; `'warn'` reporta y devuelve `false`. */
 export function validate(
   root: Element,

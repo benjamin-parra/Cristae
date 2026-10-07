@@ -202,10 +202,11 @@ No hay parámetros: las tolerancias son de pantalla.
 
 ### Curva geodésica
 
-Con curva, el polígono y la polilínea dibujan cada tramo sobre la geodésica del modelo del mapa, con la
-regla de [`geodesic`](geometry.md#geodésica--geodesic): se parte lo que se aparta más de 0,1 m de la recta
-de Mercator, también la arista de cierre. El relleno sigue al contorno, y la curva vive en el contexto del
-editor: no toma otro.
+Con curva —la pide `<cristae-geodesic>` envolviendo al editor, o `engine.addGeodesic({ hostId })`, que
+devuelve con qué volver a rectas—, el polígono y la polilínea dibujan cada tramo sobre la geodésica del
+modelo del mapa, con la regla de [`geodesic`](geometry.md#geodésica--geodesic): se parte lo que se aparta
+más de 0,1 m de la recta de Mercator, también la arista de cierre. El relleno sigue al contorno, y la
+curva vive en el contexto del editor: no toma otro.
 
 - **Las manijas quedan en los vértices del `value`**, que no gana puntos. El midpoint de un tramo partido
   cae sobre la geodésica, así que pulsarlo inserta el vértice sobre la curva. El de un tramo que no se

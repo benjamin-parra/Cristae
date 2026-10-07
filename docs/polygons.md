@@ -90,16 +90,18 @@ Con tablas armadas a mano, sin `owner`, el sujeto sigue siendo la parte.
 
 ## Curva geodésica
 
-Con curva, las tablas se densifican sobre la geodésica al entrar, con la regla de
-[`geodesic`](geometry.md#geodésica--geodesic) y también en la arista de cierre, y el relleno, el picking y
-el encuadre leen las curvadas: el punto-en-anillo coincide con el borde que se ve. Anillos, partes y la
-selección `rings`/`parts` conservan su numeración, así que un hit da la misma parte que sin curva, y los
-anillos que la selección deja afuera pasan rectos. La densificación corre cuando entra la geometría, nunca
-por zoom, y un polígono de aristas de 10 a 100 m no gana vértices: mil geocercas de 20 vértices quedan
-iguales, y veinte zonas de 10° pasan de 800 a 16 000 vértices, en 11 ms en la esfera y 160 ms en WGS84.
-Con Source, cada cambio entra curvado. Una capa tipada se curva sólo si es `interactive`, porque sólo
-entonces retiene sus tablas, y mientras curva retiene las dos: las curvadas que lee el picking y las rectas
-a las que vuelve.
+Con curva —la pide `<cristae-geodesic>` envolviendo la capa, o `engine.addGeodesic({ hostId })`, que
+devuelve con qué volver a rectas— las tablas se densifican sobre la geodésica del modelo del mapa al
+entrar, con la regla de [`geodesic`](geometry.md#geodésica--geodesic) y también en la arista de cierre, y
+el relleno, el picking y el encuadre leen las curvadas: el punto-en-anillo coincide con el borde que se
+ve. Anillos, partes y la selección `rings`/`parts` conservan su numeración, así que un hit da la misma
+parte que sin curva, y los anillos que la selección deja afuera pasan rectos. La densificación corre
+cuando entra la geometría, nunca por zoom, y un polígono de aristas de 10 a 100 m no gana vértices: mil
+geocercas de 20 vértices quedan iguales, y veinte zonas de 10° pasan de 800 a 16 000 vértices, en 11 ms en
+la esfera y 160 ms en WGS84. Con Source, cada cambio entra curvado. Una capa tipada se curva sólo si es
+`interactive`, porque sólo entonces retiene sus tablas, y mientras curva retiene las dos: las curvadas que
+lee el picking y las rectas a las que vuelve. `addGeodesic` da `null` sobre una tipada que no lo es, y
+`<cristae-geodesic>` la deja recta.
 
 ## Lo que todavía no hace
 

@@ -9,6 +9,8 @@ import {
   CristaePointLayer,
   CristaeCluster,
   CristaeOverlay,
+  CristaeGeodesic,
+  CristaeEditablePolygon,
   CristaePopup,
   CristaeLineLayer,
   CristaeShapeLayer,
@@ -117,6 +119,22 @@ export const ViaSource = () => (
     />
     <CristaeLabelLayer bindTo="fleet" textOf={(m: Movil) => m.patente} paint={paint} style={estilo}
                        pane="cristae-etiquetas" z={620} />
+  </CristaeMap>
+)
+
+// Modificador geodesic: curva los tramos largos de lo que envuelve (líneas, polígonos, editores de
+// polilínea y de polígono); `enabled` en false dibuja rectas sin desmontar el hijo.
+export const Rutas = () => (
+  <CristaeMap>
+    <CristaeGeodesic enabled={false}>
+      <CristaeLineLayer<Movil>
+        source={source}
+        accessors={{ idOf: (m) => m.id, pathOf: (m) => [[m.lat, m.lng]] as [number, number][] }}
+      />
+    </CristaeGeodesic>
+    <CristaeGeodesic>
+      <CristaeEditablePolygon value={[[0, 0], [0, 10], [10, 10]]} onChange={(e) => void e.detail.value} />
+    </CristaeGeodesic>
   </CristaeMap>
 )
 

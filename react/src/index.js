@@ -119,6 +119,7 @@ export const CristaeEditableEllipse = wrap('cristae-editable-ellipse')
 export const CristaeEditableSector = wrap('cristae-editable-sector')
 export const CristaeCluster = wrap('cristae-cluster')
 export const CristaeOverlay = wrap('cristae-overlay')
+export const CristaeGeodesic = wrap('cristae-geodesic')
 export const CristaePopup = wrap('cristae-popup')
 export const CristaeToolbar = wrap('cristae-toolbar')
 // El otro entry de la lib: lo registra `import 'cristae/table'` (no lo arrastra `cristae/map`).

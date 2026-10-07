@@ -165,7 +165,7 @@ interface CristaeLayerProps extends CristaeBaseProps {
 }
 
 /** Capas HOJA — las que dan de alta una capa en el motor y por eso declaran su APILADO. Los
- *  modificadores (cluster / overlay) no lo declaran: sus capas las crea la gramática, y un solo `z`
+ *  modificadores (cluster / overlay / geodesic) no lo declaran: sus capas las crea la gramática, y un solo `z`
  *  no mapearía a una sola capa. */
 interface CristaeLeafLayerProps extends CristaeLayerProps {
   /** Pane propio de la capa; por default el motor le crea uno (`cristae-<kind>-<id>`). Se lee en el
@@ -521,6 +521,15 @@ export interface CristaeOverlayElement<T = unknown> extends HTMLElement {
 export declare function CristaeOverlay<T = unknown>(
   props: CristaeOverlayProps<T> & RefAttributes<CristaeOverlayElement<T>>,
 ): ReactElement | null;
+
+/** `<CristaeGeodesic>` curva sobre la geodésica los tramos largos de la capa de líneas, la de polígonos o
+ *  el editor de polilínea o de polígono que envuelve; un track GPS no cambia. Es un MODIFICADOR: no da de
+ *  alta una capa propia. No aplica al rectángulo, a las formas ni a puntos, labels o html (R2). */
+export interface CristaeGeodesicProps extends CristaeLayerProps {
+  /** Default `true`; en `false` dibuja rectas sin desmontar el hijo. */
+  enabled? : boolean;
+}
+export declare function CristaeGeodesic(props: CristaeGeodesicProps): ReactElement | null;
 
 // ── <CristaePopup> ───────────────────────────────────────────────────────────
 

@@ -807,6 +807,10 @@ export class MapEngine {
   addHeatLayer<T>(config: HeatLayerConfig<T>): HeatHandle<T>;
   addEditableLayer(config: EditableConfig): EditableHandle;
   addCluster(config: { hostId: string } & ClusterConfig): ClusterControl | null;
+  /** Curva los tramos del host sobre la geodésica del modelo del mapa. Devuelve con qué volver a rectas, o
+   *  `null` si el host no es una capa de líneas o de polígonos, ni un editor de polilínea o de polígono, o es
+   *  una capa de polígonos tipada y no interactiva, que no retiene sus tablas. Qué hace la baja: SPECS §8.6. */
+  addGeodesic(config: { hostId: string }): (() => void) | null;
 
   attachSource(id: string, source: CristaeSource): this;
   getLayer(id: string): unknown;
@@ -879,6 +883,7 @@ export class CristaeHtmlLayer extends HTMLElement {}
 export class CristaeLabelLayer extends HTMLElement {}
 export class CristaeCluster extends HTMLElement {}
 export class CristaeOverlay extends HTMLElement {}
+export class CristaeGeodesic extends HTMLElement {}
 export class CristaeToolbar extends HTMLElement {}
 export class CristaePopup extends HTMLElement {}
 

@@ -204,10 +204,13 @@ export class PolygonGpuLayer {
     this.#index = this.#interactive ? prepareRangeIndex(drawn) : null
   }
 
-  // Curva las aristas sobre la geodésica de `model`, o las vuelve rectas con `null`. Con Source relee sus
-  // anillos; tipada, vuelve a las tablas que retiene, y una no interactiva no las retiene.
+  // Si `setCurve` puede curvarla: con Source relee sus anillos, y tipada sólo si retiene sus tablas, que es
+  // cuando es interactiva.
+  get curvable() { return !!(this.#source || this.#plain) }
+
+  // Curva las aristas sobre la geodésica de `model`, o las vuelve rectas con `null`.
   setCurve(model) {
-    if (!this.#source && !this.#plain)
+    if (!this.curvable)
       throw new Error('[cristae] una capa de polígonos tipada y no interactiva no retiene sus tablas: no se curva')
     const items = this.#source?.getSnapshot() ?? this.#items
     this.#ingest(this.#source ? tablesFromRings(items, this.#source.accessors.ringsOf) : this.#plain, items, model)
