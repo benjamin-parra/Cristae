@@ -344,6 +344,8 @@ Ejes **comunes a toda capa hoja** (viven en la base, ninguna subclase los declar
 | `.data`, `.accessors` (`idOf, ringsOf, styleOf?, hoverStyleOf?`) | — | hit-testing por `geometry/` (point-in-poly + índice espacial), O(log n) por query |
 | `hoverStyleOf?` | `(item) → style` | restyle **transitorio** de path en hover (barato, sin rebuild) |
 | `visible/interactive` | — | |
+| `color/weight/opacity/fill-color/fill-opacity` (attrs o props) | string/number | estilo de capa, el de `addPolygonLayer`; reactivo por `handle.style`, y `styleOf` lo pisa por polígono |
+| `stroke/fill` (attrs) | bool, default `true` | prenden o apagan el trazo y el relleno de la capa entera; se leen **al montar** |
 
 ### 8.3 `<cristae-label-layer>` y `<cristae-cluster>`
 

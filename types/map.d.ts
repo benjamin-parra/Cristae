@@ -475,6 +475,15 @@ export interface ShapeAccessors<T> extends Pick<SourceAccessors<T>, "hashOf"> {
   styleOf?   : (s: T) => Record<string, unknown>;
 }
 export interface ShapeLayerConfig<T> {
+  /** Estilo de la capa, el de `PolygonLayerConfig`: `styleOf` pisa por forma todo salvo `stroke` y `fill`,
+   *  que prenden o apagan el trazo y el relleno de la capa entera. */
+  color?       : string;
+  weight?      : number;
+  opacity?     : number;
+  stroke?      : boolean;
+  fill?        : boolean;
+  fillColor?   : string;
+  fillOpacity? : number;
   id           : string;
   accessors    : ShapeAccessors<T>;
   data?        : T[];
@@ -490,6 +499,10 @@ export interface ShapeHandle<T = unknown> {
   readonly source : CristaeReadSource<T>;
   set(items: T[]): void;
   setVisible(visible: boolean): void;
+  /** Cambia el estilo de la capa —`color`, `weight`, `opacity`, `fillColor`, `fillOpacity`— y repinta sin
+   *  llamar a `styleOf`: cada forma pisa con lo que devolvió al publicarse en la Source. Una clave `undefined`
+   *  no se toca, y `stroke` y `fill` se fijan al crearla. */
+  style(options: Record<string, unknown>): void;
 }
 
 // ── Círculos en METROS (addCircleLayer) — dibujados en la GPU, escalan con el zoom ──

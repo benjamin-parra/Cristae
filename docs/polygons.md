@@ -39,9 +39,10 @@ No hay sustrato que elegir: `addPolygonLayer` rechaza un `backend`, y el element
 
 ## Estilo
 
-Las opciones son las de la gramática de la librería: `color` `#3388ff`, `weight` 3, `opacity` 1,
-`fillColor` = `color`, `fillOpacity` 0.2 y `dash`, un patrón de trazo en píxeles de pantalla (`null` o
-ausente, trazo continuo) con las reglas del de las
+Las opciones son las de la gramática de la librería y van en la capa —`addPolygonLayer({ …, color:
+'#0f766e', weight: 2 })` o las props del elemento—: `color` `#3388ff`, `weight` 3, `opacity` 1,
+`fillColor` = `color` y `fillOpacity` 0.2. Por figura, `styleOf` suma `dash`, un patrón de trazo en
+píxeles de pantalla (`null` o ausente, trazo continuo) con las reglas del de las
 [líneas](lines.md#patrones-de-trazo--un-solo-eje-dash-no-un-flag-por-patrón). Un `color` que pone
 `styleOf` mueve también el relleno, salvo que el mismo estilo o la capa fijen `fillColor`. El `styleOf`
 de los accessors recibe **la entidad** y pisa esos defaults por figura; `applyFocus(ids, dim)` atenúa lo
@@ -50,7 +51,8 @@ capa entera** y no se pisan por figura: una figura sin relleno lleva `fillOpacit
 `opacity: 0` o `weight: 0`. `interactive` es la excepción y se ignora: el picking es por índice, y los
 eventos salen por `cristae:click`/`cristae:hover` con `interactive` en la capa. El estilo se resuelve
 **una vez por polígono**, no por frame: cuando la selección o el filtro lo mueven, se reevalúa con
-`refresh()`.
+`refresh()`. `handle.style({ color, weight, … })` cambia el de la capa y reevalúa `styleOf`; en el
+elemento, cambiar esas props hace lo mismo, y `stroke` y `fill` se leen al montar.
 
 ## Agujeros contra solapes
 

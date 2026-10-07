@@ -358,16 +358,19 @@ export class MapEngine {
   addCircleLayer(cfg) { return this.#addShape(cfg, 'circle', options => new CircleLayer(options)) }
 
   // El `kind` nombra el record, el hit y el pane por defecto; `create` arma la capa con las opciones comunes.
+  // El resto de `cfg` es el estilo de capa de los polígonos, y el handle suma `style` sólo si la capa lo
+  // resuelve: el círculo no tiene estilo de capa.
   #addShape(cfg, kind, create) {
-    const { id, data, accessors, interactive = true, pane, z, visible = true } = cfg
+    const { id, data, accessors, source: given, interactive = true, pane, z, visible = true, ...style } = cfg
     const order    = this.#order++
     const paneName = pane ?? `cristae-${kind}-${id}`
     const zIndex   = z ?? (BASE_Z + order * Z_STEP)
 
-    const controls = cfg.source ? null : createSource(accessors)
-    const source   = cfg.source ?? controls
+    const controls = given ? null : createSource(accessors)
+    const source   = given ?? controls
     // Se repinta con sus propios moveend/zoomend/resize, así que no va a #glLayers.
-    const layer    = this.#build(paneName, zIndex, () => create({ host: this.#host, pane: paneName, source, interactive }))
+    const layer    = this.#build(paneName, zIndex,
+      () => create({ ...style, host: this.#host, pane: paneName, source, interactive }))
 
     const record = { kind, source, layer, controls, paneName, zIndex, order, interactive, visible, enabled: true }
     this.#layers.set(id, record)
@@ -377,7 +380,13 @@ export class MapEngine {
 
     if (data && controls) controls.set(data)
     this.#flushPendingBinds()
-    return { id, source, set: items => controls?.set(items), setVisible: v => this.setLayerVisibility(id, v) }
+    return {
+      id,
+      source,
+      set       : items => controls?.set(items),
+      setVisible: v => this.setLayerVisibility(id, v),
+      ...layer.style && { style: options => record.layer.style(options) },
+    }
   }
 
   /* ── Heatmap (canvas 2D, densidad acumulada; NO GL — se auto-reproyecta por eventos del mapa) ── */

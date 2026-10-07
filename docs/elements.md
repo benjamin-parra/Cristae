@@ -324,6 +324,8 @@ Dos entradas de dato **simétricas**:
 | `id` | string | atributo |
 | `interactive` | boolean (default `true`) | atributo |
 | `visible` | boolean (default `true`) | atributo |
+| `color` `weight` `opacity` `fillColor` `fillOpacity` | string / number | atributo (`fill-color`, `fill-opacity`) o prop |
+| `stroke` `fill` | boolean (default `true`) | atributo; se leen **al montar** |
 | `data` | `Item[]` (ruta A) | **prop** |
 | `source` | `Source` (ruta B/C) | **prop** |
 | `geometry` | tablas del lector (`areasOf`) | **prop** |
@@ -338,7 +340,9 @@ La capa dibuja en GPU —relleno por stencil en una textura— y toma **un conte
 navegador: con varias capas de polígonos en la misma página conviene juntarlas en una.
 
 `source` se lee **al montar**: reasignarla no remonta la capa. Es la diferencia con la capa de puntos,
-donde `source` sí se reengancha en caliente. Los límites del sustrato están en [`polygons.md`](polygons.md).
+donde `source` sí se reengancha en caliente. El estilo de capa son las opciones de `addPolygonLayer`:
+cambiar `color`, `weight`, `opacity`, `fillColor` o `fillOpacity` repinta la capa, y `styleOf` los pisa
+por polígono. Los límites del sustrato están en [`polygons.md`](polygons.md).
 
 ### `<cristae-shape-layer>` — círculos, elipses y sectores en metros
 
@@ -347,6 +351,8 @@ donde `source` sí se reengancha en caliente. Los límites del sustrato están e
 | `id` | string | atributo (sin él, `shape-N`) |
 | `interactive` | boolean (default `true`) | atributo |
 | `visible` | boolean (default `true`) | atributo |
+| `color` `weight` `opacity` `fillColor` `fillOpacity` | string / number | atributo (`fill-color`, `fill-opacity`) o prop |
+| `stroke` `fill` | boolean (default `true`) | atributo; se leen **al montar** |
 | `data` | `Item[]` (ruta A) | **prop** |
 | `source` | `Source` (ruta B/C) | **prop** |
 | `accessors` | `{ idOf, positionOf, radiusOf, headingOf?, sweepOf?, styleOf?, hashOf? }` | **prop** |
@@ -355,9 +361,10 @@ Las dos entradas de dato de la capa de puntos: `.data` (el elemento posee la Sou
 posee el consumidor y la comparte entre vistas; por ella viajan los accessors). Como en los polígonos,
 `source` se lee **al montar**: reasignarla no remonta la capa. Dibuja en GPU, con **un contexto WebGL**
 por capa, círculos, elipses y sectores mezclados; el radio es geometría del ítem en **metros**, el
-rumbo es `heading` y la apertura `sweep`. Hereda `pane`, `z` y `focus-ids` de la base, y `controls` es
-el handle `{ id, source, set, setVisible }`. Los accessors, el picking y el costo están en
-[`shapes.md`](shapes.md).
+rumbo es `heading` y la apertura `sweep`. Su estilo de capa es el de los polígonos, y `styleOf` lo pisa
+por forma; quitar una de esas props no devuelve su default. Hereda `pane`, `z` y `focus-ids` de la base,
+y `controls` es el handle `{ id, source, set, setVisible, style }`. Los accessors, el picking y el costo
+están en [`shapes.md`](shapes.md).
 
 ### `<cristae-label-layer>` — etiquetas canvas
 
@@ -554,8 +561,8 @@ Regla: si existe una prop declarativa para lo que se busca, conviene usarla; `co
 | Capa | Handle |
 |---|---|
 | point | `{ id, source, layer, set, patch, move, remove, addFilter, removeFilter, preloadIcons, refresh, setVisible }` |
-| polygon | `{ id, set, setVisible }` |
-| shape | `{ id, source, set, setVisible }` |
+| polygon | `{ id, source, set, setVisible, redraw, style }` |
+| shape | `{ id, source, set, setVisible, style }` |
 | label | `{ id, setLabels, setHovered, setVisible }` |
 | editable | `{ id, setValue, setMode, setStyle, getValue, handleMapClick, destroy }` |
 | cluster | `{ id }` (id del host; quitar el `<cristae-cluster>` arrastra el cluster) |

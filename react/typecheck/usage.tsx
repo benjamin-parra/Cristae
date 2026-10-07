@@ -121,7 +121,8 @@ export const ViaSource = () => (
 )
 
 // Capa de formas: el radio en METROS (un número es círculo, `[a, b]` elipse), el rumbo y la apertura
-// del sector opcionales. El borde curvo de una forma es `arc` en una capa de líneas.
+// del sector opcionales; el estilo de capa es el de los polígonos. El borde curvo de una forma es `arc`
+// en una capa de líneas.
 interface Antena { id: number; lat: number; lng: number; alcance: number; azimut: number; haz: number }
 const antenas: Antena[] = []
 export const Cobertura = () => {
@@ -140,6 +141,9 @@ export const Cobertura = () => {
           sweepOf    : (a) => a.haz,
           styleOf    : () => ({ fillOpacity: 0.2 }),
         }}
+        color="#0f766e"
+        weight={2}
+        fill={false}
         focusIds={[1]}
         onClick={(hits) => { const top = hits[0]; if (top?.kind === 'shape') void top.ref }}
       />

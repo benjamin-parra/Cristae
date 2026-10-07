@@ -311,6 +311,15 @@ export interface CristaePolygonLayerProps<T = unknown> extends CristaeDataLayerP
   accessors?   : PolygonAccessors<T>;
   interactive? : boolean;
   visible?     : boolean;
+  /** Estilo de la capa, el de `PolygonLayerConfig`: `styleOf` lo pisa por polígono. `stroke` y `fill` prenden o
+   *  apagan el trazo y el relleno de la capa entera y se leen al montar. */
+  color?       : string;
+  weight?      : number;
+  opacity?     : number;
+  stroke?      : boolean;
+  fill?        : boolean;
+  fillColor?   : string;
+  fillOpacity? : number;
 }
 export declare function CristaePolygonLayer<T = unknown>(
   props: CristaePolygonLayerProps<T> & RefAttributes<CristaePolygonLayerElement<T>>,
@@ -322,6 +331,15 @@ export interface CristaeShapeLayerProps<T = unknown> extends CristaeDataLayerPro
   accessors?   : ShapeAccessors<T>;
   interactive? : boolean;
   visible?     : boolean;
+  /** Estilo de la capa, el de `PolygonLayerConfig`: `styleOf` lo pisa por forma. `stroke` y `fill` prenden o
+   *  apagan el trazo y el relleno de la capa entera y se leen al montar. */
+  color?       : string;
+  weight?      : number;
+  opacity?     : number;
+  stroke?      : boolean;
+  fill?        : boolean;
+  fillColor?   : string;
+  fillOpacity? : number;
 }
 export declare function CristaeShapeLayer<T = unknown>(
   props: CristaeShapeLayerProps<T> & RefAttributes<CristaeShapeLayerElement<T>>,

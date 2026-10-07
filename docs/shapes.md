@@ -28,14 +28,28 @@ Cada ítem es una forma, la misma `{ center, radius, heading?, sweep? }` que col
 calor— es configuración en px. Y `shapePresetIconSet({ shape: 'circle' })` dibuja un sprite en px,
 no una forma.
 
-El handle es `{ id, source, set, setVisible }`, como el de las demás capas de datos; `interactive` y
-`visible` valen `true`, y el pane por defecto es `cristae-shape-<id>`.
+El handle es `{ id, source, set, setVisible, style }`; `interactive` y `visible` valen `true`, y el pane
+por defecto es `cristae-shape-<id>`.
+
+## Estilo
+
+El de la capa son las opciones de los [polígonos](polygons.md#estilo) —`color`, `weight`, `opacity`,
+`fillColor`, `fillOpacity`, `stroke` y `fill`—, y `styleOf` pisa por forma todas menos `stroke` y `fill`.
+Una capa de radios de acción, sólo el contorno:
+
+```js
+engine.addShapeLayer({ id: 'radios', data, accessors, color: '#0f766e', weight: 2, fill: false })
+```
+
+`handle.style({ color, weight, … })` cambia el de la capa y repinta sin llamar a `styleOf`: cada forma
+pisa con lo que devolvió al publicarse en la Source. Una clave `undefined` no se toca, y `stroke` y `fill`
+se fijan al crearla.
 
 ## Declarativo y React
 
 ```html
 <cristae-map>
-  <cristae-shape-layer id="antenas" focus-ids="a7 a9"></cristae-shape-layer>
+  <cristae-shape-layer id="antenas" focus-ids="a7 a9" color="#0f766e" fill="false"></cristae-shape-layer>
 </cristae-map>
 ```
 ```js
@@ -45,7 +59,7 @@ antenas.data = lista                       // reasignarla reemplaza todas las fo
 ```
 ```jsx
 // `acc` definido a nivel de módulo
-<CristaeShapeLayer data={zonas} accessors={acc} onClick={hits => abrir(hits[0].id)} />
+<CristaeShapeLayer data={zonas} accessors={acc} fill={false} onClick={hits => abrir(hits[0].id)} />
 ```
 
 Los miembros del elemento están en
@@ -70,7 +84,8 @@ Las que pasan de ±85,05° sin alcanzar el polo se dibujan aplastadas contra el 
 - **La copia del mundo.** La forma se dibuja una vez, en la copia de su centro, con la longitud
   continua pasado el antimeridiano, y pica sólo ahí.
 - **Estado.** La posición, el radio, el rumbo, la apertura y el estilo se mutan en el ítem y se
-  publican con `set`/`patch`/`move` en la Source; `Source.move` mueve el centro. No hay API de restyle.
+  publican con `set`/`patch`/`move` en la Source; `Source.move` mueve el centro. El estilo de la capa, por
+  `handle.style`.
 - **Foco.** `setLayerFocus` atenúa por forma y `focus(ids, { kinds: ['shape'] })` por capa, como en los
   polígonos.
 - **Encuadre.** `fitToLayers` y `camera.fitToLayer` encuadran las figuras enteras, no sólo los centros.
@@ -122,5 +137,5 @@ engine.addLineLayer({ id: 'barrido', data: radares,
   accessors: { idOf: r => r.id, pathOf: arc, styleOf: () => ({ dash: [6, 4], cap: 'round' }) } })
 ```
 
-El contorno con los radios es la capa de formas sin relleno: `styleOf: () => ({ fillOpacity: 0 })`. La
+El contorno con los radios es la capa de formas sin relleno: `fill: false`. La
 capa de líneas no re-tesela por zoom, así que el arco lleva los vértices de la tolerancia sin vista, 0,1 m.

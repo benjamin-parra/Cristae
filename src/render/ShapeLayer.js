@@ -6,7 +6,7 @@
 //
 // accessors: { idOf, positionOf, radiusOf, headingOf?, sweepOf?, styleOf? }, leídos con la regla de validez
 // de `ring`. Además se descarta la forma cuyo borde alcanza un polo, que en Mercator no tiene contorno
-// finito. `styleOf` devuelve el vocabulario de la capa de polígonos.
+// finito. `styleOf` devuelve el vocabulario de la capa de polígonos y pisa por forma el estilo de la capa.
 //
 // Un cambio del Source rehace las tablas enteras: el store sube su textura completa de todos modos, y el
 // perfil de la capa son magnitudes que cambian poco, no un feed por frame.
@@ -33,14 +33,14 @@ export class ShapeLayer {
   #offZoom = null
 
   // `host` es el anfitrión del mapa: de él salen la cámara y el pane donde se ancla el canvas.
-  constructor({ host, pane, source, model, interactive = false }) {
+  constructor({ host, pane, source, model, interactive = false, ...style }) {
     this.#camera      = host.camera
     this.#source      = source
     this.#model       = model
     this.#interactive = interactive
     // Nace vacía para leer el tope de textura de su contexto antes de armar la primera geometría.
     this.#layer = new PolygonGpuLayer({
-      host, pane, geometry: EMPTY,
+      host, pane, ...style, geometry: EMPTY,
       idOf: k => this.#recs[k].id, styleOf: k => this.#recs[k].style,
     })
     // El contexto ya está tomado: si la primera lectura lanza, se devuelve.
@@ -86,6 +86,8 @@ export class ShapeLayer {
   }
 
   setVisible(visible) { return this.#layer?.setVisible(visible) }
+
+  style(options) { return this.#layer?.style(options) }
 
   // Caja en grados de lo que la capa dibuja: la figura entera, no sólo los centros. La Source emite en el
   // próximo frame con el snapshot ya cambiado: si su `version` avanzó, se dibuja antes, y encuadrar tras

@@ -1,9 +1,10 @@
 // Contrato de ShapeLayer: cada forma —círculo, elipse, sector, sector de elipse— es el anillo del escritor de
 // `ring` sobre el modelo que recibe, lo dibuja la capa de polígonos y el picking es punto-en-anillo sobre esas
 // mismas tablas. Lo que acá se congela: que el anillo entregado es el de `ring` y está donde lo pone la
-// geodésica del modelo, que el hit sigue a la curva, el orden de arriba hacia abajo, los descartes, el
-// re-teselado por zoom, el tope de textura y la vuelta atrás cuando algo lanza; y desde el motor, el kind, el
-// pane, el foco y el encuadre. Las referencias salen de la geographiclib directa y de fórmulas cerradas.
+// geodésica del modelo, que el hit sigue a la curva, el orden de arriba hacia abajo, los descartes, el estilo
+// de capa, el re-teselado por zoom, el tope de textura y la vuelta atrás cuando algo lanza; y desde el motor,
+// el kind, el pane, el foco y el encuadre. Las referencias salen de la geographiclib directa y de fórmulas
+// cerradas.
 //
 // El harness (engine-stub) shimea window/document — se importa PRIMERO.
 import '../../test-helpers/engine-stub.mjs'
@@ -80,12 +81,12 @@ const anillos = (geometria = entregadas.at(-1)) =>
     return out
   })
 
-const mount = async (items, { zoom = 12, model = byDefault, cap = null, source = createSource(accessors), interactive = true } = {}) => {
+const mount = async (items, { zoom = 12, model = byDefault, cap = null, source = createSource(accessors), interactive = true, style = {} } = {}) => {
   const { spy, stroke } = gpu({ cap })
   const map = makeMap({ zoom })
   source.set(items)
   await flush()
-  const layer = new ShapeLayer({ host: adoptLeafletHost(map), pane: 'p', source, model, interactive })
+  const layer = new ShapeLayer({ host: adoptLeafletHost(map), pane: 'p', source, model, interactive, ...style })
   return { layer, map, source, spy, stroke }
 }
 
@@ -403,6 +404,52 @@ test('el estilo es por forma, aunque styleOf reuse su objeto, y el foco atenúa 
   layer.destroy()
 })
 
+// Los pases que dibuja un repintado: paridad, cobertura y contorno por forma con relleno; sólo el contorno sin él.
+const pases = (spy, layer) => {
+  const antes = spy.draws.length
+  layer.style({})
+  return spy.draws.length - antes
+}
+
+test('el estilo de la capa lo toma toda forma y styleOf lo pisa por forma', async () => {
+  const { layer, stroke } = await mount([
+    { id: 1, center: [0, 0], radius: 1000 },
+    { id: 2, center: [0, 0.05], radius: 1000, style: { color: '#0000ff' } },
+  ], { style: { color: '#ff0000', opacity: 0.5 } })
+  stroke.length = 0
+
+  layer.style({})
+  assert.deepEqual(stroke, [[1, 0, 0, 0.5], [0, 0, 1, 0.5]], 'la capa pone el rojo y la opacidad; la forma 2 cambia el color')
+  layer.destroy()
+})
+
+test('`style` cambia el estilo de la capa y repinta con él y con el styleOf que se publicó, sin releerlo', async () => {
+  const azul = { color: '#0000ff' }
+  const { layer, stroke } = await mount([
+    { id: 1, center: [0, 0], radius: 1000 },
+    { id: 2, center: [0, 0.05], radius: 1000, style: azul },
+  ])
+  stroke.length = 0
+  azul.color = '#ff0000'
+
+  layer.style({ color: '#00ff00', opacity: 0.25, weight: undefined })
+  assert.deepEqual(stroke, [[0, 1, 0, 0.25], [0, 0, 1, 0.25]], 'la forma 2 sigue azul hasta publicarse en la Source')
+  layer.destroy()
+  assert.equal(layer.style({ color: '#ff0000' }), undefined, 'destruida, no hace nada')
+})
+
+test('`fill: false` dibuja sólo el contorno y `stroke: false` sólo el relleno', async () => {
+  const forma = { id: 1, center: [0, 0], radius: 1000 }
+  const conTodo = await mount([forma], { style: {} })
+  const sinRelleno = await mount([forma], { style: { fill: false } })
+  const sinTrazo   = await mount([forma], { style: { stroke: false } })
+
+  const todo = pases(conTodo.spy, conTodo.layer)
+  assert.equal(pases(sinRelleno.spy, sinRelleno.layer), 1, 'el contorno')
+  assert.equal(pases(sinTrazo.spy, sinTrazo.layer), todo - 1, 'paridad y cobertura')
+  ;[conTodo, sinRelleno, sinTrazo].forEach(m => m.layer.destroy())
+})
+
 // La caja de un círculo de 100 km en el ecuador: el anillo pasa por los cuatro rumbos cardinales, a r/R
 // radianes del centro.
 test('la capa informa la caja de la figura entera', async () => {
@@ -458,6 +505,24 @@ test('desde el motor: kind shape, su pane, sus hits de arriba hacia abajo y la v
   assert.ok(draws() > antes, 'y al mostrarla vuelve a dibujar')
   engine.removeLayer('zonas')
   assert.equal(spy.released, 1, 'la baja devuelve el contexto')
+})
+
+test('desde el motor: el alta toma el estilo de capa, el handle lo cambia y el círculo no tiene `style`', async () => {
+  const { engine } = conMotor()
+  const { stroke } = gpu()
+  const handle = engine.addShapeLayer({ id: 'zonas', accessors, color: '#ff0000', opacity: 0.5, fill: false,
+    data: [{ id: 1, center: [0, 0], radius: 1000 }] })
+  await flush()
+  stroke.length = 0
+
+  handle.style({ color: '#00ff00' })
+  assert.deepEqual(stroke, [[0, 1, 0, 0.5]], 'el color nuevo y la opacidad del alta')
+
+  gpu()
+  const circulos = engine.addCircleLayer({ id: 'radios', accessors: { idOf: d => d.id, positionOf: accessors.positionOf, radiusMetersOf: d => d.radius },
+    data: [{ id: 1, center: [1, 1], radius: 1000 }] })
+  assert.equal(circulos.style, undefined)
+  engine.destroy()
 })
 
 // El foco por capa atenúa el pane de la capa que no nombra, si su kind está entre los que se atenúan.
