@@ -1,6 +1,7 @@
 // Formas en METROS sobre un modelo de la Tierra (SPECS §18). `ring` y `arc` son la cara pública, y
-// `readShape`, `sizeShape` y `writeShape` el escritor que comparten con la capa de círculos, para que lo que
-// se dibuja y lo que se mide salgan del mismo anillo. Módulo puro: sin Leaflet, sin DOM, sin el elipsoide.
+// `readShape`, `sizeShape` y `writeShape` el escritor que comparten con las capas de círculos y de formas,
+// para que lo que se dibuja y lo que se mide salgan del mismo anillo. Módulo puro: sin Leaflet, sin DOM, sin
+// el elipsoide.
 //
 // La elipse se parametriza por la anomalía excéntrica t, no por el lugar focal: el vértice es el destino
 // desde el centro a `heading + atan2(v, u)` y `hypot(u, v)` metros, con u = a·cos t y v = b·sin t. El anillo

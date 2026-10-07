@@ -1,7 +1,7 @@
 import { EditFillLayer } from './EditFillLayer.js'
 import { FEATHER, StrokePass, ownDash } from './StrokePass.js'
 import { EditSurface } from './EditSurface.js'
-import { RingStore } from './RingStore.js'
+import { RingStore, maxTextureOf } from './RingStore.js'
 import { projX0, projY0, readView } from './project.js'
 import { prepareRangeIndex, partsAtPoint } from '../geometry/polygon.js'
 import { focusedStyle } from './focus.js'
@@ -245,6 +245,9 @@ export class PolygonGpuLayer {
       growBoxOfRange(xy, vertexAt[r], vertexAt[r + 1] - vertexAt[r], box)
     }
   }
+
+  // Los vértices que caben en la textura de este contexto: lo que pase de ahí `setGeometry` lo rechaza.
+  get maxVertices() { return maxTextureOf(this.#gl) ** 2 }
 
   get ringCount()      { return this.#store.ringCount }
   get drawnPartCount() { return this.#onScreenParts.length }

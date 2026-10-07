@@ -7,6 +7,7 @@ import { OBJ_BITS } from '../render/Picking.js'
 import { LineGpuLayer } from '../render/LineGpuLayer.js'
 import { PolygonGpuLayer } from '../render/PolygonGpuLayer.js'
 import { CircleLayer } from '../render/CircleLayer.js'
+import { ShapeLayer } from '../render/ShapeLayer.js'
 import { HeatLayer } from '../render/HeatLayer.js'
 import { EditableGeometry } from '../render/EditableGeometry.js'
 import { HtmlLayer } from '../render/HtmlLayer.js'
@@ -20,6 +21,7 @@ import { createLeafletHost } from '../host/LeafletHost.js'
 import { iterable } from '../data/path.js'
 import { foldRuns } from '../geometry/polyline.js'
 import { emptyBounds, growBounds, growRun } from '../geometry/bounds.js'
+import { byDefault } from '../geometry/geodesic.js'
 
 // MapEngine — orquestador headless (SPECS §6). Framework-agnóstico, sin dominio. Monta sobre un
 // anfitrión —el que recibe o el que crea sobre `container`—, deriva panes por orden de declaración (el
@@ -116,6 +118,7 @@ export class MapEngine {
   #dimOpacity         = 0.3            // opacidad del resto mientras hay enfoque POR CAPA
   #focusKinds         = null           // kinds de capa que el enfoque por capa atenúa (null = todas)
   #itemFocus          = new Map()      // enfoque por ÍTEM: layerId → Set(id) declarado (vacío = todo atenuado)
+  #model              = byDefault      // el modelo de la Tierra con que dibujan y pican las formas
   #leafletWarned      = false          // getLeafletMap() ya avisó en este motor
 
   camera
@@ -143,6 +146,7 @@ export class MapEngine {
       host: this.#host,
       insets,
       resolveSource:   id => this.#layers.get(id)?.source ?? null,
+      boundsOf:        id => this.#layers.get(id)?.layer?.bounds ?? null,
       // Zoom mínimo de desclusterización por (capa, id): la cámara lo consulta para revealPoint /
       // followPoint({reveal}) sin conocer el cluster. El fold ata rec.cluster = control (ver addClusterFold).
       declusterZoomOf: (layerId, id) => this.#layers.get(layerId)?.cluster?.declusterZoomFor(id) ?? null,
@@ -347,23 +351,28 @@ export class MapEngine {
     }
   }
 
-  /* ── Círculos en METROS (dibujados en la GPU — escalan con el zoom, a diferencia del sprite px) ── */
+  /* ── Formas en METROS (dibujadas en la GPU — escalan con el zoom, a diferencia del sprite px) ── */
 
-  addCircleLayer(cfg) {
+  addShapeLayer(cfg) { return this.#addShape(cfg, 'shape', options => new ShapeLayer({ ...options, model: this.#model })) }
+
+  addCircleLayer(cfg) { return this.#addShape(cfg, 'circle', options => new CircleLayer(options)) }
+
+  // El `kind` nombra el record, el hit y el pane por defecto; `create` arma la capa con las opciones comunes.
+  #addShape(cfg, kind, create) {
     const { id, data, accessors, interactive = true, pane, z, visible = true } = cfg
     const order    = this.#order++
-    const paneName = pane ?? `cristae-circle-${id}`
+    const paneName = pane ?? `cristae-${kind}-${id}`
     const zIndex   = z ?? (BASE_Z + order * Z_STEP)
 
     const controls = cfg.source ? null : createSource(accessors)
     const source   = cfg.source ?? controls
     // Se repinta con sus propios moveend/zoomend/resize, así que no va a #glLayers.
-    const layer    = this.#build(paneName, zIndex, () => new CircleLayer({ host: this.#host, pane: paneName, source, interactive }))
+    const layer    = this.#build(paneName, zIndex, () => create({ host: this.#host, pane: paneName, source, interactive }))
 
-    const record = { kind: 'circle', source, layer, controls, paneName, zIndex, order, interactive, visible, enabled: true }
+    const record = { kind, source, layer, controls, paneName, zIndex, order, interactive, visible, enabled: true }
     this.#layers.set(id, record)
     if (interactive)
-      this.#registerResolver(id, 'circle', zIndex, order, sample => record.layer.resolveClick(sample), sample => record.layer.resolveHover(sample))
+      this.#registerResolver(id, kind, zIndex, order, sample => record.layer.resolveClick(sample), sample => record.layer.resolveHover(sample))
     this.#applyVisibility(id, paneName, visible)
 
     if (data && controls) controls.set(data)
@@ -824,8 +833,8 @@ export class MapEngine {
   invalidateCanvas() { this.#resetCanvases() }
 
   // Encuadra por los bounds de VARIAS capas a la vez (`ids`, o TODAS si se omite) — la contraparte
-  // multi-capa de camera.fitToLayer (una sola). Une la geometría de cada Source según su tipo
-  // (positionOf | pathOf | ringsOf), y la caja propia de la capa que no tenga Source. One-shot;
+  // multi-capa de camera.fitToLayer (una sola). Une la caja que informa la capa de lo que dibuja y, de la
+  // que no la informa, la geometría de su Source según su tipo (positionOf | pathOf | ringsOf). One-shot;
   // respeta insets/maxZoom, y sin ninguna posición no encuadra.
   fitToLayers(ids = null, { insets, maxZoom } = {}) {
     const box       = emptyBounds()
@@ -842,7 +851,7 @@ export class MapEngine {
       : undefined
     const recs = ids ? [...ids].map(id => this.#layers.get(id)) : [...this.#layers.values()]
     recs.forEach(r => {
-      const b = r?.layer?.bounds                 // capa sin Source: su geometría es fija y la informa ella
+      const b = r?.layer?.bounds
       if (b) { growBounds(box, b.south, b.west); growBounds(box, b.north, b.east); return }
       if (!r?.source) return
 

@@ -176,7 +176,7 @@ solo fijan la vista inicial). Es la **única** vía de viewport dentro del contr
 | Método | Notas |
 |---|---|
 | `setView(latlng, zoom)` · `panTo(latlng)` · `flyTo(latlng, zoom, opts?)` | un gesto imperativo **cancela** un `followPoint` en curso |
-| `fitBounds(bounds, {insets?, maxZoom?, animate?})` · `fitToLayer(layerId, {insets?, maxZoom?})` | encuadre de una caja `{ south, west, north, east }` o de un par de esquinas opuestas (lo que no lo es, `maxZoom` y `animate`: SPECS §9); `fitToLayer` usa la caja de las posiciones válidas de la capa |
+| `fitBounds(bounds, {insets?, maxZoom?, animate?})` · `fitToLayer(layerId, {insets?, maxZoom?})` | encuadre de una caja `{ south, west, north, east }` o de un par de esquinas opuestas (lo que no lo es, `maxZoom` y `animate`: SPECS §9); `fitToLayer` usa la caja que la capa informa de lo que dibuja —la de formas y la de polígonos— y, si no la informa, la de sus posiciones válidas; el error de un accessor le llega al llamador |
 | `zoomIn(delta?)` · `zoomOut(delta?)` · `setZoom(zoom)` | el zoom es **ortogonal al follow**: no lo cancela (ajusta escala, no reposiciona) |
 | `followPoint(layerId, id, {zoom?})` · `stopFollow()` | sigue la posición **viva** del id (se actualiza con `move`/`patch` del Source), sin que el consumidor bombee |
 | `getCenter()` · `getZoom()` · `getBounds()` | lectura: `{ lat, lng }`, número y `{ south, west, north, east }`, con la longitud sin envolver (SPECS §9) |

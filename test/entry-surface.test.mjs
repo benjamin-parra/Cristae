@@ -216,9 +216,9 @@ test('el lector no registra ningún custom element', () => {
 // defecto que comparten `distance` y las medidas de zona, y `AREA`, `ELEVATION` y `RELIEF`, las marcas
 // que leen esas medidas y el terreno; `foldRings` y `areaStep`, el lector de zonas y la suma de su
 // área, que comparten esas medidas y `relief`, y `measureArgs`, el de sus argumentos; `readShape`,
-// `reachesPole`, `sizeShape` y `writeShape`, el escritor de formas que comparten `ring`, `arc` y la capa
-// de círculos, y `GROUND`, `segmentsFor`, `stepsFor` y `viewTolerance`, el módulo de densidad que usan
-// ese escritor y la capa de círculos; y `decodeTile`, el decodificador de tiles de altura del terreno: si salen del entry, alguien
+// `reachesPole`, `sizeShape` y `writeShape`, el escritor de formas que comparten `ring`, `arc` y las capas
+// de círculos y de formas, y `GROUND`, `MIN_SEGMENTS`, `segmentsFor`, `stepsFor` y `viewTolerance`, el
+// módulo de densidad que usan ese escritor y esas capas; y `decodeTile`, el decodificador de tiles de altura del terreno: si salen del entry, alguien
 // los usa y ya no se pueden mover.
 const GEOMETRY = {
   WGS84          : 'object',

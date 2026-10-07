@@ -30,14 +30,16 @@ export class Camera {
   #hostCamera
   #insets
   #resolveSource
+  #boundsOf                   // layerId → caja en grados que la capa informa de su dibujo | null (inyectado)
   #declusterZoomOf            // (layerId, id) → zoom mínimo desclusterizado | null (inyectado por el motor)
   #onInsetsChange             // () → void: el motor re-emite su vista (inyectado)
   #follow = null              // { id, zoom, source, unsub, lastKey }
 
-  constructor({ host, insets, resolveSource, declusterZoomOf, onInsetsChange } = {}) {
+  constructor({ host, insets, resolveSource, boundsOf, declusterZoomOf, onInsetsChange } = {}) {
     this.#hostCamera      = host.camera
     this.#insets          = { ...ZERO_INSETS, ...insets }
     this.#resolveSource   = resolveSource ?? (() => null)
+    this.#boundsOf        = boundsOf ?? (() => null)
     this.#declusterZoomOf = declusterZoomOf ?? (() => null)
     this.#onInsetsChange  = onInsetsChange ?? (() => {})
   }
@@ -82,8 +84,11 @@ export class Camera {
     return this
   }
 
-  // Encuadra una capa por la caja de sus posiciones válidas. O(n) sobre el snapshot del Source.
+  // Encuadra una capa por la caja de lo que dibuja, si la informa —una forma es más que su centro—, o por la
+  // de sus posiciones válidas: O(n) sobre el snapshot del Source.
   fitToLayer(layerId, { insets, maxZoom } = {}) {
+    const drawn = this.#boundsOf(layerId)
+    if (drawn) return this.fitBounds(drawn, { insets, maxZoom })
     const source = this.#resolveSource(layerId)
     if (!source) return this
     const positionOf = source.accessors.positionOf

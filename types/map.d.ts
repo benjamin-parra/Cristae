@@ -175,6 +175,11 @@ export interface HtmlHit extends HitBase {
   kind: 'html';
 }
 
+/** De `addShapeLayer`: `ref` es el `id` de la forma. */
+export interface ShapeHit extends HitBase {
+  kind: 'shape';
+}
+
 /** Sólo por `addCircleLayer` — no hay elemento declarativo de círculos. */
 export interface CircleHit extends HitBase {
   kind: 'circle';
@@ -189,7 +194,7 @@ export interface LineHit extends HitBase {
   vertexIndex : number;
 }
 
-export type Hit = PointHit | PolygonHit | HtmlHit | CircleHit | LineHit
+export type Hit = PointHit | PolygonHit | HtmlHit | ShapeHit | CircleHit | LineHit
 
 // ── Sesión de expansión del cluster (payloads de los canales `cluster:*`) ────
 
@@ -447,6 +452,46 @@ export interface PolygonHandle<T = unknown> {
   style(options: Record<string, unknown>): void;
 }
 
+// ── Formas en METROS (addShapeLayer) — círculos, elipses y sectores en la GPU, escalan con el zoom ──
+/** Una forma por ítem con la regla de validez de `ring` (`cristae/geometry`): un número presente que la forma
+ *  usa y no es finito la descarta, como un radio o un `sweep` ≤ 0, un centro que no es un lugar o un borde
+ *  que alcanza un polo. */
+export interface ShapeAccessors<T> extends Pick<SourceAccessors<T>, "hashOf"> {
+  idOf       : (s: T) => string | number;
+  /** El centro. Con este nombre la capa hereda `Source.move`, `revealPoint`/`followPoint`, el ancla del
+   *  popup, `bind-to` y el guard de `defineSource`. */
+  positionOf : (s: T) => { lat: number; lng: number };
+  /** Geometría del ítem en METROS: un número es un círculo; `[a, b]`, una elipse con `a` sobre el rumbo y
+   *  `b` de través. Un accessor `…Of` es geometría del ítem en metros; el `radius` de una capa o modificador
+   *  (cluster, calor) es configuración en px. */
+  radiusOf   : (s: T) => number | readonly [number, number];
+  /** Grados, 0 = N, 90 = E: orienta el semieje `a` y la dirección del sector. `null`/`undefined`: norte. El
+   *  círculo entero no lo lee. */
+  headingOf? : (s: T) => number | null | undefined;
+  /** Grados que abre el sector, centrados en el rumbo. `null`/`undefined` o ≥ 360: la figura entera. */
+  sweepOf?   : (s: T) => number | null | undefined;
+  /** Estilo por forma, con el vocabulario de la capa de polígonos: `color`, `weight`, `opacity`,
+   *  `fillColor`, `fillOpacity` y `dash`. Un `color` sin `fillColor` mueve también el relleno. */
+  styleOf?   : (s: T) => Record<string, unknown>;
+}
+export interface ShapeLayerConfig<T> {
+  id           : string;
+  accessors    : ShapeAccessors<T>;
+  data?        : T[];
+  source?      : CristaeSource<T>;
+  /** Default `true`, como polígonos y círculos. */
+  interactive? : boolean;
+  pane?        : string;
+  z?           : number;
+  visible?     : boolean;
+}
+export interface ShapeHandle<T = unknown> {
+  readonly id     : string;
+  readonly source : CristaeReadSource<T>;
+  set(items: T[]): void;
+  setVisible(visible: boolean): void;
+}
+
 // ── Círculos en METROS (addCircleLayer) — dibujados en la GPU, escalan con el zoom ──
 export interface CircleAccessors<T> extends Pick<SourceAccessors<T>, "hashOf"> {
   idOf           : (c: T) => string | number;
@@ -655,6 +700,8 @@ export interface Camera {
   flyTo(latlng: LatLngPoint, zoom?: number, options?: Record<string, unknown>): this;
   /** Encuadra una caja o un par de esquinas opuestas; lo que no lo es, `maxZoom` y `animate`: SPECS §9. */
   fitBounds(bounds: BoundsLike | null | undefined, options?: { insets?: Insets; maxZoom?: number; animate?: boolean }): this;
+  /** Encuadra la caja que la capa informa de lo que dibuja —formas y polígonos, enteros— o, sin ella, la de
+   *  sus posiciones válidas. El error de un accessor le llega al llamador. */
   fitToLayer(layerId: string, options?: { insets?: Insets; maxZoom?: number }): this;
   /** Enfoca un punto dejándolo visible (des-clusteriza subiendo el zoom si hace falta). */
   revealPoint(layerId: string, id: string | number, options?: { zoom?: number }): this;
@@ -734,6 +781,7 @@ export class MapEngine {
   addLabelLayer<T>(config: LabelLayerConfig<T>): LabelHandle;
   addOverlay<T>(config: OverlayConfig<T>): OverlayHandle<T> | null;
   addHighlightOverlay(config: HighlightOverlayConfig): HighlightOverlayHandle | null;
+  addShapeLayer<T>(config: ShapeLayerConfig<T>): ShapeHandle<T>;
   addCircleLayer<T>(config: CircleLayerConfig<T>): CircleHandle<T>;
   addHeatLayer<T>(config: HeatLayerConfig<T>): HeatHandle<T>;
   addEditableLayer(config: EditableConfig): EditableHandle;

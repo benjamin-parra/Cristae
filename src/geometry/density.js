@@ -7,11 +7,13 @@ import { MEAN_RADIUS } from './geodesic.js'
 const D             = Math.PI / 180
 const WORLD_PER_RAD = 256 / (2 * Math.PI)   // píxeles world0 por radián de longitud, en el ecuador
 const VIEW_PX       = 0.2                   // cuánto se aparta la cuerda del arco, en píxeles de pantalla
-const MIN_SEGMENTS  = 16
 const MAX_SEGMENTS  = 4096
 
 // La tolerancia sin vista, en metros.
 export const GROUND = 0.1
+
+// El mínimo de segmentos de una figura entera: el piso de `segmentsFor` y el de quien los recorte.
+export const MIN_SEGMENTS = 16
 
 // Los metros que valen `VIEW_PX` a `zoom` en una forma de radio `radius` centrada en `lat`. La escala de
 // Mercator se toma en la latitud más alta que la forma toca, que es la mayor de las que mide.

@@ -13,6 +13,13 @@ import { anchorMatrix } from './anchor-matrix.js'
 // Tope cuando el contexto no declara el suyo; todo WebGL2 real garantiza al menos 2048.
 const MAX_TEXTURE = 2048
 
+// El lado máximo de textura que declara el contexto. Una textura de ese lado al cuadrado es todo lo que
+// cabe: quien arma la geometría lo lee antes de subirla para no llegar al rechazo de `#upload`.
+export const maxTextureOf = gl => {
+  const declarado = gl.MAX_TEXTURE_SIZE === undefined ? null : gl.getParameter?.(gl.MAX_TEXTURE_SIZE)
+  return Number.isFinite(declarado) && declarado >= 1 ? declarado : MAX_TEXTURE
+}
+
 const widthFor = (n, max) => Math.min(max, 2 ** Math.ceil(Math.log2(Math.max(1, n))))
 
 // Camino rápido: el intercalado [lat, lng, …] que la librería ya usa puertas adentro. Cualquier otra
@@ -288,9 +295,8 @@ export class RingStore {
   // grande pide más filas de las que la GPU acepta y la textura queda corta, que se ve como geometría
   // faltante y no como error.
   #upload(textureWidth) {
-    const gl        = this.#gl
-    const declarado = gl.MAX_TEXTURE_SIZE === undefined ? null : gl.getParameter?.(gl.MAX_TEXTURE_SIZE)
-    const max       = Number.isFinite(declarado) && declarado >= 1 ? declarado : MAX_TEXTURE
+    const gl  = this.#gl
+    const max = maxTextureOf(gl)
     this.#width = textureWidth ?? widthFor(this.#count, max)
     this.#rows  = Math.max(1, Math.ceil(this.#count / this.#width))
     if (this.#rows > max)

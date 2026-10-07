@@ -725,14 +725,15 @@ test('la capa informa su caja en grados como una `Bounds`', () => {
   assert.deepEqual(layer.bounds, { south: 19, west: 9, north: 22.5, east: 12.5 })
 })
 
-test('fitToLayers encuadra la capa por la caja que informa', () => {
+test('fitToLayers y camera.fitToLayer encuadran la capa por la caja que informa', () => {
   const { engine, map } = conMotor()
   const cajas = []
   map.fitBounds = ([sw, ne]) => { cajas.push([...sw, ...ne]); return map }
   engine.addPolygonLayer({ id: 'areas', geometry: tables([square(10, 20, 1), square(12, 22, 0.5)]) })
 
   engine.fitToLayers()
-  assert.deepEqual(cajas, [[19, 9, 22.5, 12.5]], 'sur, oeste, norte y este: cada lado en su esquina')
+  engine.camera.fitToLayer('areas')
+  assert.deepEqual(cajas, [[19, 9, 22.5, 12.5], [19, 9, 22.5, 12.5]], 'sur, oeste, norte y este: cada lado en su esquina')
 })
 
 /* ── 10. El descarte por viewport cuenta el ancho del trazo ── */

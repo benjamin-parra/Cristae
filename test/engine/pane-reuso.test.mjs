@@ -114,6 +114,7 @@ test('un alta mal configurada no deja su pane sostenido', () => {
   assert.throws(() => engine.addPolygonLayer({ id: 'zonas', accessors: {} }), /idOf/)
   assert.throws(() => engine.addHtmlLayer({ id: 'badges', accessors: {} }), /idOf/)
   assert.throws(() => engine.addCircleLayer({ id: 'radios', accessors: {} }), /idOf/)
+  assert.throws(() => engine.addShapeLayer({ id: 'zonas-de-alcance', accessors: {} }), /idOf/)
   assert.throws(() => engine.addHeatLayer({ id: 'densidad', accessors: {} }), /idOf/)
   assert.throws(() => engine.addHeatLayer({ id: 'calor', accessors, colorRamp: rampa }), /rampa/)
   assert.throws(() => engine.addOverlay({ id: 'insignia', hostId: 'base', iconSet: 'sinRegistrar' }), /no registrado/)

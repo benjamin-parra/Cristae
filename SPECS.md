@@ -435,7 +435,7 @@ Todo **acción** (no estado): es la **única** vía de movimiento de viewport tr
 | `setView(latlng, zoom)` / `panTo(latlng)` | O(1) | inmediato; `latlng` en cualquier forma de punto (§18) |
 | `flyTo(latlng, zoom)` | O(1) | vuela si la política de animación del zoom anima el destino (abajo), y si no es un `setView`; el easing es opción de `flyTo`, no un método aparte |
 | `fitBounds(bounds, {insets, maxZoom, animate})` | O(1) | `bounds` es una caja (§18); lo que no lo es no mueve la cámara ni corta el follow. `maxZoom` topa el zoom antes de centrar —uno que no es un número finito no topa, como en los límites—, así que la caja queda en el medio de la región visible también cuando el tope corta. `animate: false` no anima nada; con `true` el paneo anima aunque sea largo. Un cambio de zoom anima sólo si además lo anima la política (abajo) |
-| `fitToLayer(layerId, {insets, maxZoom})` | O(n) (caja de n puntos) | encuadra una capa por sus posiciones, con el `maxZoom` de `fitBounds` |
+| `fitToLayer(layerId, {insets, maxZoom})` | O(1) con caja propia; O(n) (caja de n puntos) sin ella, o con la `version` de la Source de las formas avanzada y sin emitir, que se dibuja antes | encuadra una capa por la caja que informa de lo que dibuja —la de formas y la de polígonos: la figura entera, no sólo los centros— o, sin ella, por sus posiciones; con el `maxZoom` de `fitBounds`. Lee los accessors de la capa: el error de uno le llega al llamador |
 | `revealPoint(layerId, id, {zoom})` | O(results·log maxZoom) si clusteriza | enfoca un punto (one-shot) dejándolo **visible individualmente**: si su capa clusteriza, sube el zoom al mínimo que lo desclusteriza. Sin cluster (o si ya está solo) = `setView` |
 | `zoomIn(delta?)` / `zoomOut(delta?)` / `setZoom(zoom)` | O(1) | **ortogonal al follow**: el zoom no cancela un `followPoint` (ajusta escala, no reposiciona) |
 | `panBy(offset, options?)` | O(1) | desplaza por delta en **px** de contenedor; **ortogonal al follow** (ajuste fino). Lo usa el auto-pan del popup (§8.5) |
@@ -1080,12 +1080,12 @@ rápido, con las expresiones del destino de esa esfera y sin pasar por la marca.
 sobre el polo, y a 1 km de él unos 6 µm; por eso el círculo que alcanza uno va por la marca. Que la forma
 alcance un polo se decide con la cota de la distancia angular del semieje mayor, `|lat| + max(a, b)/R ≥ 90°`.
 
-El escritor que comparten `ring`, `arc` y la capa de círculos, que arma con él sus anillos y los cierra, y el
-módulo de densidad que da `segmentsFor`, `stepsFor` y las dos tolerancias, no se exportan del entry. `segmentsFor(r, tol)` es la
+El escritor que comparten `ring`, `arc` y las capas de círculos y de formas, que arman con él sus anillos y
+los cierran, y el módulo de densidad que da `segmentsFor`, `stepsFor` y las dos tolerancias, no se exportan del entry. `segmentsFor(r, tol)` es la
 fórmula de arriba y `stepsFor(L, lat, tol)` la de los radios. La tolerancia sin vista es 0,1 m y es la de
 `ring`, `arc` y los radios de un sector. La tolerancia con vista es 0,2 px, llevada a metros con la escala de
-Mercator en la latitud más alta que la forma toca: es la que usa la capa de círculos, y da el mismo `n` de
-siempre.
+Mercator en la latitud más alta que la forma toca: es la que usan las capas de círculos y de formas, y en la de
+círculos da el mismo `n` de siempre.
 
 El **protocolo de modelo** son marcas en el registro global de símbolos, así que un modelo de una
 copia de la librería sirve en otra. Las marcas se agregan entre versiones y sus firmas no cambian:
