@@ -4,12 +4,14 @@
 //
 // Tres pasos: Douglas–Peucker quita lo que no se aparta de la recta más que `TOLERANCE`; una
 // Catmull-Rom centrípeta —α = ½, la que no hace lazos ni cúspides dentro de un tramo— pasa por los que
-// quedan; y cada tramo se parte lo justo para que su cuerda no se aparte de la curva más que `SAGITTA`.
+// quedan, sin apartarse de cada cuerda más de lo que el trazo se apartaba; y cada tramo se parte lo justo
+// para que su cuerda no se aparte de la curva más que `SAGITTA`.
 
 import { distSqToSegment } from './polyline.js'
 
 const TOLERANCE = 2   // px: lo que el trazo se puede apartar de la recta que lo resume
 const SAGITTA   = 1   // px: lo que la polilínea se puede apartar de la curva. Subpíxel saturaría el modo `edit`
+const BULGE     = 1.5 * TOLERANCE   // px: lo que un punto de control se aparta de su cuerda; la cúbica, ¾ de eso
 
 // La raíz de la distancia: el intervalo de la parametrización centrípeta.
 const knot = (dx, dy) => Math.hypot(dx, dy) ** 0.5
@@ -74,10 +76,22 @@ export const bake = (xy, closed) => {
     const x3 = j3 >= n ? 2 * x2 - x1 : s[2 * j3], y3 = j3 >= n ? 2 * y2 - y1 : s[2 * j3 + 1]
     const a  = knot(x1 - x0, y1 - y0), b = knot(x2 - x1, y2 - y1), c = knot(x3 - x2, y3 - y2)
     // Las tangentes de Hermite sobre [0, 1] son b·(…), y los puntos de control de la Bézier, un tercio.
-    const bx1 = x1 + b * ((x1 - x0) / a - (x2 - x0) / (a + b) + (x2 - x1) / b) / 3
-    const by1 = y1 + b * ((y1 - y0) / a - (y2 - y0) / (a + b) + (y2 - y1) / b) / 3
-    const bx2 = x2 - b * ((x2 - x1) / b - (x3 - x1) / (b + c) + (x3 - x2) / c) / 3
-    const by2 = y2 - b * ((y2 - y1) / b - (y3 - y1) / (b + c) + (y3 - y2) / c) / 3
+    let bx1 = x1 + b * ((x1 - x0) / a - (x2 - x0) / (a + b) + (x2 - x1) / b) / 3
+    let by1 = y1 + b * ((y1 - y0) / a - (y2 - y0) / (a + b) + (y2 - y1) / b) / 3
+    let bx2 = x2 - b * ((x2 - x1) / b - (x3 - x1) / (b + c) + (x3 - x2) / c) / 3
+    let by2 = y2 - b * ((y2 - y1) / b - (y3 - y1) / (b + c) + (y3 - y2) / c) / 3
+    // Douglas–Peucker dejó el trazo a TOLERANCE de esta cuerda, así que una curva que se aparta más de ella
+    // abomba lo que el trazo no abombaba: las esquinas, que en un lado recto son lo único que queda. El
+    // extremo cuyo punto de control pasa de BULGE llega recto, como con el vecino reflejado.
+    const dx = x2 - x1, dy = y2 - y1, chord = BULGE * Math.hypot(dx, dy)
+    if (Math.abs(dx * (by1 - y1) - dy * (bx1 - x1)) > chord) {
+      bx1 = x1 + dx / 3
+      by1 = y1 + dy / 3
+    }
+    if (Math.abs(dx * (by2 - y1) - dy * (bx2 - x1)) > chord) {
+      bx2 = x2 - dx / 3
+      by2 = y2 - dy / 3
+    }
     // |B″| ≤ 6·M, y un trozo de ancho 1/k se aparta de su cuerda a lo más (1/k)²·6M/8: con
     // k = ⌈√(¾M / SAGITTA)⌉ la polilínea queda a SAGITTA de la curva.
     const M = Math.max(Math.hypot(x1 - 2 * bx1 + bx2, y1 - 2 * by1 + by2), Math.hypot(bx1 - 2 * bx2 + x2, by1 - 2 * by2 + y2))

@@ -21,20 +21,32 @@ const plano = ps => ps.flat()
 
 const mezcla = (p, q, a, b, t) => [0, 1].map(k => (b - t) / (b - a) * p[k] + (t - a) / (b - a) * q[k])
 
-// La curva de Barry–Goldman entre p1 y p2, con los vecinos p0 y p3, en `n` puntos del tramo (sin el final).
-const barryGoldman = (p0, p1, p2, p3, n) => {
+// La curva de Barry–Goldman entre p1 y p2, con los vecinos p0 y p3: el punto en `t` de sus nudos.
+const nudos = (p0, p1, p2, p3) => {
   const d  = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1]) ** 0.5
-  const t0 = 0, t1 = d(p0, p1), t2 = t1 + d(p1, p2), t3 = t2 + d(p2, p3)
-  const [a, b] = [t1, t2]
-  return Array.from({ length: n }, (_, i) => {
-    const t  = a + (b - a) * i / n
-    const a1 = mezcla(p0, p1, t0, t1, t)
-    const a2 = mezcla(p1, p2, t1, t2, t)
-    const a3 = mezcla(p2, p3, t2, t3, t)
-    const b1 = mezcla(a1, a2, t0, t2, t)
-    const b2 = mezcla(a2, a3, t1, t3, t)
-    return mezcla(b1, b2, t1, t2, t)
-  })
+  const t1 = d(p0, p1), t2 = t1 + d(p1, p2)
+  return [0, t1, t2, t2 + d(p2, p3)]
+}
+const bgEn = (p0, p1, p2, p3, t) => {
+  const [t0, t1, t2, t3] = nudos(p0, p1, p2, p3)
+  const a1 = mezcla(p0, p1, t0, t1, t)
+  const a2 = mezcla(p1, p2, t1, t2, t)
+  const a3 = mezcla(p2, p3, t2, t3, t)
+  const b1 = mezcla(a1, a2, t0, t2, t)
+  const b2 = mezcla(a2, a3, t1, t3, t)
+  return mezcla(b1, b2, t1, t2, t)
+}
+
+// El tramo en `n` puntos (sin el final). Un extremo cuya tangente aleja de la cuerda el punto de control de la
+// Bézier —un tercio del tramo sobre la tangente— más de 3 px llega recto: su vecino pasa a ser el reflejo.
+const barryGoldman = (p0, p1, p2, p3, n) => {
+  const [, t1, t2] = nudos(p0, p1, p2, p3), h = 1e-7 * (t2 - t1), L = Math.hypot(p2[0] - p1[0], p2[1] - p1[1])
+  const control = (p, q, signo) => [0, 1].map(k => p[k] + signo * (q[k] - p[k]) / h * (t2 - t1) / 3)
+  const fuera   = c => Math.abs((p2[0] - p1[0]) * (c[1] - p1[1]) - (p2[1] - p1[1]) * (c[0] - p1[0])) / L > 3
+  const q0 = fuera(control(p1, bgEn(p0, p1, p2, p3, t1 + h), 1)) ? [2 * p1[0] - p2[0], 2 * p1[1] - p2[1]] : p0
+  const q3 = fuera(control(p2, bgEn(p0, p1, p2, p3, t2 - h), 1)) ? [2 * p2[0] - p1[0], 2 * p2[1] - p1[1]] : p3
+  const [, a, b] = nudos(q0, p1, p2, q3)
+  return Array.from({ length: n }, (_, i) => bgEn(q0, p1, p2, q3, a + (b - a) * i / n))
 }
 
 // La curva entera por los vértices `ps`, densa. Abierta: más allá de los extremos el vecino es el reflejo.
@@ -102,6 +114,60 @@ test('cerrada es periódica: el tramo que cierra sigue la misma curva y no repit
   ps.forEach(p => assert.ok(baked.some(q => q[0] === p[0] && q[1] === p[1]), `vértice ${p}`))
   baked.forEach(q => assert.ok(distancia(q, real, true) < 1e-2, `fuera de la curva: ${q}`))
   real.forEach(q => assert.ok(distancia(q, baked, true) <= SAGITTA + 1e-2, `la cuerda se aparta más de ${SAGITTA}px en ${q}`))
+})
+
+// Una figura a pulso: muestras cada 4 px de su contorno, con 1 px de temblor, como el puntero.
+const pulso = (contorno, rnd) => {
+  const out = []
+  let d = 0
+  contorno.forEach((a, i) => {
+    const b = contorno[(i + 1) % contorno.length], largo = Math.hypot(b[0] - a[0], b[1] - a[1])
+    for (; d < largo; d += 4) out.push([a[0] + (b[0] - a[0]) * d / largo + 2 * rnd() - 1, a[1] + (b[1] - a[1]) * d / largo + 2 * rnd() - 1])
+    d -= largo
+  })
+  return out
+}
+const poligono = (n, r, giro = 0) => Array.from({ length: n }, (_, k) => [r * Math.cos(2 * Math.PI * k / n + giro), r * Math.sin(2 * Math.PI * k / n + giro)])
+const redondeado = (lado, rc) => [[lado - rc, rc, -90], [lado - rc, lado - rc, 0], [rc, lado - rc, 90], [rc, rc, 180]]
+  .flatMap(([cx, cy, a0]) => Array.from({ length: 9 }, (_, k) => [cx + rc * Math.cos((a0 + 90 * k / 8) * Math.PI / 180), cy + rc * Math.sin((a0 + 90 * k / 8) * Math.PI / 180)]))
+const sen55 = Math.sin(55 * Math.PI / 180), cos55 = Math.cos(55 * Math.PI / 180)
+
+// El trazo se aparta de su figura 1 px por el temblor, y Douglas–Peucker lo resume a 2 px: lo que pase de 3 px
+// lo inventó la curva.
+test('una figura a pulso no se aparta de sus lados ni redondea sus esquinas más que el trazo', () => {
+  const figuras = {
+    'cuadrado'                  : [[0, 0], [120, 0], [120, 120], [0, 120]],
+    'triángulo'                 : [[0, 0], [150, 0], [75, 130]],
+    'cuadrado chico'            : [[0, 0], [40, 0], [40, 40], [0, 40]],
+    'paralelogramo de 55°'      : [[0, 0], [120, 0], [120 + 60 * cos55, 60 * sen55], [60 * cos55, 60 * sen55]],
+    'hexágono'                  : poligono(6, 60),
+    'cuadrado de esquinas romas': redondeado(120, 12),
+  }
+  for (const [nombre, contorno] of Object.entries(figuras)) {
+    for (let semilla = 1; semilla <= 5; semilla++) {
+      const baked = pares(bake(plano(pulso(contorno, azar(semilla))), true))
+      baked.forEach(q => assert.ok(distancia(q, contorno, true) <= 3, `${nombre} ${semilla}: se aparta en ${q}`))
+      contorno.forEach(v => assert.ok(distancia(v, baked, true) <= 3, `${nombre} ${semilla}: redondea ${v}`))
+    }
+  }
+})
+
+// Redondo y sin quiebres: el giro entre dos tramos seguidos de un círculo de 10 px a 1 px de flecha ronda los 45°,
+// y una curva que corta en un vértice da más.
+test('un círculo a pulso, también chico, sigue redondo y sin quiebres', () => {
+  const giro = (a, b, c) => {
+    const u = [b[0] - a[0], b[1] - a[1]], v = [c[0] - b[0], c[1] - b[1]]
+    return Math.abs(Math.atan2(u[0] * v[1] - u[1] * v[0], u[0] * v[0] + u[1] * v[1])) * 180 / Math.PI
+  }
+  for (const r of [10, 15, 30, 80]) {
+    for (let semilla = 1; semilla <= 5; semilla++) {
+      const baked = pares(bake(plano(pulso(poligono(Math.ceil(2 * Math.PI * r), r), azar(semilla))), true))
+      baked.forEach((q, i) => {
+        assert.ok(Math.abs(Math.hypot(q[0], q[1]) - r) <= 2, `r ${r} ${semilla}: se aparta en ${q}`)
+        assert.ok(giro(baked.at(i - 1), q, baked[(i + 1) % baked.length]) <= 50, `r ${r} ${semilla}: quiebre en ${q}`)
+      })
+    }
+  }
 })
 
 test('cerrada con el último muestreo en el primer punto no lo repite', () => {

@@ -180,7 +180,8 @@ vértices editables en `mode: 'edit'`:
 
 1. Douglas–Peucker en píxeles, con 2 px de tolerancia, quita lo que la recta ya resume.
 2. Una Catmull-Rom centrípeta —sin lazos ni cúspides— pasa por lo que queda; en el polígono es
-   periódica, así que el cierre no tiene esquina.
+   periódica. No se aparta de cada cuerda más que el trazo: el extremo que la abombaría llega recto, así
+   que las esquinas quedan vivas y un cuadrado a pulso sigue con sus lados rectos.
 3. Cada tramo se parte lo justo para que la polilínea no se aparte de la curva más de 1 px: con menos,
    los vértices se amontonarían y el modo `edit` no podría tomarlos.
 
