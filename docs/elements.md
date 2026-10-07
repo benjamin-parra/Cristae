@@ -284,7 +284,7 @@ fleet.removeAttribute('focus-ids')        // la capa se retira del eje
 
 Cada capa lo resuelve **en su propio dibujo**, no en la opacidad de su pane: los puntos en el signo del
 `size` del vértice ([`render.md`](render.md)), las líneas GL en el alfa por vértice
-([`lines.md`](lines.md)), las etiquetas en el `globalAlpha` del texto, los polígonos/formas/círculos/HTML en el
+([`lines.md`](lines.md)), las etiquetas en el `globalAlpha` del texto, los polígonos/formas/HTML en el
 estilo de su feature ([`polygons.md`](polygons.md)). La única que atenúa su pane entero es la capa de
 calor, que no tiene identidad por ítem. Por eso el eje es barato incluso sobre miles de puntos en vivo:
 entrar o salir del foco cuesta un float por ítem que **cambió de estado**, y no hay pase extra que

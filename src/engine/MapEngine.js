@@ -6,7 +6,6 @@ import { PointLayer } from '../render/PointLayer.js'
 import { OBJ_BITS } from '../render/Picking.js'
 import { LineGpuLayer } from '../render/LineGpuLayer.js'
 import { PolygonGpuLayer } from '../render/PolygonGpuLayer.js'
-import { CircleLayer } from '../render/CircleLayer.js'
 import { ShapeLayer } from '../render/ShapeLayer.js'
 import { HeatLayer } from '../render/HeatLayer.js'
 import { EditableGeometry } from '../render/EditableGeometry.js'
@@ -360,15 +359,20 @@ export class MapEngine {
 
   /* ── Formas en METROS (dibujadas en la GPU — escalan con el zoom, a diferencia del sprite px) ── */
 
-  addShapeLayer(cfg) { return this.#addShape(cfg, 'shape', options => new ShapeLayer({ ...options, model: this.#model })) }
+  addShapeLayer(cfg) { return this.#addShape(cfg, false) }
 
-  addCircleLayer(cfg) { return this.#addShape(cfg, 'circle', options => new CircleLayer(options)) }
+  // El alias se queda en la esfera por defecto aunque el mapa traiga otro modelo, sin estilo de capa y con su
+  // pane, su kind y su handle: quien no lo migra conserva su anillo y su costo.
+  addCircleLayer({ id, data, accessors, source, interactive, pane, z, visible }) {
+    return this.#addShape({ id, data, accessors, source, interactive, pane, z, visible }, true)
+  }
 
-  // El `kind` nombra el record, el hit y el pane por defecto; `create` arma la capa con las opciones comunes.
-  // El resto de `cfg` es el estilo de capa de los polígonos, y el handle suma `style` sólo si la capa lo
-  // resuelve: el círculo no tiene estilo de capa.
-  #addShape(cfg, kind, create) {
+  // `circle` es el alias de círculos: el kind del record y del hit, el pane por defecto y la esfera con que
+  // se dibuja. El resto de `cfg` es el estilo de capa de los polígonos, y el handle suma `style` sólo en la
+  // capa de formas.
+  #addShape(cfg, circle) {
     const { id, data, accessors, source: given, interactive = true, pane, z, visible = true, ...style } = cfg
+    const kind     = circle ? 'circle' : 'shape'
     const order    = this.#order++
     const paneName = pane ?? `cristae-${kind}-${id}`
     const zIndex   = z ?? (BASE_Z + order * Z_STEP)
@@ -377,7 +381,7 @@ export class MapEngine {
     const source   = given ?? controls
     // Se repinta con sus propios moveend/zoomend/resize, así que no va a #glLayers.
     const layer    = this.#build(paneName, zIndex,
-      () => create({ ...style, host: this.#host, pane: paneName, source, interactive }))
+      () => new ShapeLayer({ ...style, host: this.#host, pane: paneName, source, interactive, circle, model: circle ? byDefault : this.#model }))
 
     const record = { kind, source, layer, controls, paneName, zIndex, order, interactive, visible, enabled: true }
     this.#layers.set(id, record)
@@ -392,7 +396,7 @@ export class MapEngine {
       source,
       set       : items => controls?.set(items),
       setVisible: v => this.setLayerVisibility(id, v),
-      ...layer.style && { style: options => record.layer.style(options) },
+      ...!circle && { style: options => record.layer.style(options) },
     }
   }
 

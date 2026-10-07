@@ -180,7 +180,7 @@ export interface ShapeHit extends HitBase {
   kind: 'shape';
 }
 
-/** Sólo por `addCircleLayer` — no hay elemento declarativo de círculos. */
+/** @deprecated Sólo por `addCircleLayer`, que se retira en 1.0: el hit de `addShapeLayer` es `ShapeHit`. */
 export interface CircleHit extends HitBase {
   kind: 'circle';
 }
@@ -505,7 +505,8 @@ export interface ShapeHandle<T = unknown> {
   style(options: Record<string, unknown>): void;
 }
 
-// ── Círculos en METROS (addCircleLayer) — dibujados en la GPU, escalan con el zoom ──
+// ── Círculos en METROS (addCircleLayer, obsoleto): alias de la capa de formas, se retira en 1.0 ──
+/** @deprecated Se retira en 1.0: `ShapeAccessors`, con `radiusOf` en lugar de `radiusMetersOf`. */
 export interface CircleAccessors<T> extends Pick<SourceAccessors<T>, "hashOf"> {
   idOf           : (c: T) => string | number;
   positionOf     : (c: T) => { lat: number; lng: number };
@@ -515,6 +516,7 @@ export interface CircleAccessors<T> extends Pick<SourceAccessors<T>, "hashOf"> {
    *  `fillColor`, `fillOpacity` y `dash`. Un `color` sin `fillColor` mueve también el relleno. */
   styleOf?       : (c: T) => Record<string, unknown>;
 }
+/** @deprecated Se retira en 1.0: `ShapeLayerConfig`. */
 export interface CircleLayerConfig<T> {
   id           : string;
   accessors    : CircleAccessors<T>;
@@ -525,12 +527,8 @@ export interface CircleLayerConfig<T> {
   z?           : number;
   visible?     : boolean;
 }
-export interface CircleHandle<T = unknown> {
-  readonly id     : string;
-  readonly source : CristaeReadSource<T>;
-  set(items: T[]): void;
-  setVisible(visible: boolean): void;
-}
+/** @deprecated Se retira en 1.0: `ShapeHandle`. El del alias no tiene `style`. */
+export type CircleHandle<T = unknown> = Omit<ShapeHandle<T>, "style">;
 
 // ── Heatmap (addHeatLayer) — canvas 2D, densidad acumulada ───────────────────
 export interface HeatAccessors<T> extends Pick<SourceAccessors<T>, "hashOf"> {
@@ -808,6 +806,7 @@ export class MapEngine {
   addOverlay<T>(config: OverlayConfig<T>): OverlayHandle<T> | null;
   addHighlightOverlay(config: HighlightOverlayConfig): HighlightOverlayHandle | null;
   addShapeLayer<T>(config: ShapeLayerConfig<T>): ShapeHandle<T>;
+  /** @deprecated Una sola capa de formas: `addShapeLayer`, con `radiusOf` en vez de `radiusMetersOf`. Se retira en 1.0. */
   addCircleLayer<T>(config: CircleLayerConfig<T>): CircleHandle<T>;
   addHeatLayer<T>(config: HeatLayerConfig<T>): HeatHandle<T>;
   addEditableLayer(config: EditableConfig): EditableHandle;

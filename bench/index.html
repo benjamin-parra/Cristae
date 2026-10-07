@@ -325,14 +325,14 @@ import 'leaflet/dist/leaflet.css'
 const PREFIJO = './backends/'
 const RUTAS   = import.meta.glob('./backends/*.js')
 
-const ORDEN = ['points', 'lines', 'heat', 'polygon', 'circle', 'editable', 'html', 'label']
+const ORDEN = ['points', 'lines', 'heat', 'polygon', 'shape', 'editable', 'html', 'label']
 
 const UNIDAD_N = {
   points   : 'ítems',
   lines    : 'vértices totales',
   heat     : 'ítems',
   polygon  : 'anillos × vértices',
-  circle   : 'círculos',
+  shape    : 'formas',
   editable : 'vértices de un trazo',
   html     : 'ítems',
   label    : 'ítems',

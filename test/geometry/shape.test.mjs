@@ -540,10 +540,9 @@ test('el escritor teselado con n segmentos escribe n vértices en la figura ente
 
 /* ── La densidad ── */
 
-// Los segmentos que daba el círculo antes de pasar a `segmentsFor`, medidos con su fórmula de entonces: el
-// mismo número a cada (latitud, radio, zoom). Con `viewTolerance`, la tolerancia de 0,2 px vale lo que vale
-// en metros a ese zoom.
-test('viewTolerance y segmentsFor dan los mismos segmentos que daba la capa de círculos', () => {
+// La tabla de segmentos del círculo por (latitud, radio, zoom), congelada: con `viewTolerance`, la tolerancia
+// de 0,2 px vale lo que vale en metros a ese zoom.
+test('viewTolerance y segmentsFor dan la tabla de segmentos del círculo por latitud, radio y zoom', () => {
   for (const [lat, radio, zoom, n] of [
     [0, 1000, 3, 16], [0, 1000, 18, 256], [0, 100_000, 22, 4096], [-33.45, 500, 15, 64], [60, 50_000, 10, 128],
     [80, 100_000, 8, 256], [45, 500_000, 5, 64], [10, 20_000, 12, 128], [-70, 2000, 17, 512], [0, 50, 20, 128],

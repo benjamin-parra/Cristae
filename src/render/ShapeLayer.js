@@ -8,6 +8,9 @@
 // de `ring`. Además se descarta la forma cuyo borde alcanza un polo, que en Mercator no tiene contorno
 // finito. `styleOf` devuelve el vocabulario de la capa de polígonos y pisa por forma el estilo de la capa.
 //
+// `circle` es el modo del alias `addCircleLayer`: la capa lee el radio de `radiusMetersOf`, sólo si es un
+// número, ignora `headingOf` y `sweepOf`, y sus hits salen en el orden del snapshot.
+//
 // Un cambio del Source rehace las tablas enteras: el store sube su textura completa de todos modos, y el
 // perfil de la capa son magnitudes que cambian poco, no un feed por frame.
 
@@ -16,6 +19,9 @@ import { prepareRangeIndex, partsAtPoint } from '../geometry/polygon.js'
 import { readDrawable, sizeShape, viewSegments, writeShape } from '../geometry/shape.js'
 import { PolygonGpuLayer } from './PolygonGpuLayer.js'
 
+const ASCENDING  = (p, q) => p - q
+const DESCENDING = (p, q) => q - p
+
 const EMPTY = {
   xy: new Float64Array(0), vertexAt: Uint32Array.of(0), ringAt: Uint32Array.of(0), closed: new Uint8Array(0),
   ringCount: 0, partCount: 0,
@@ -23,7 +29,7 @@ const EMPTY = {
 
 export class ShapeLayer {
 
-  #camera; #source; #model; #interactive
+  #camera; #source; #model; #interactive; #circle; #order
   #layer   = null
   #recs    = []       // las formas válidas de `readDrawable`, con `id`, `style` y `wanted`, los segmentos pedidos
   #seen    = null     // la `version` de la Source que leyeron los registros vigentes
@@ -33,11 +39,13 @@ export class ShapeLayer {
   #offZoom = null
 
   // `host` es el anfitrión del mapa: de él salen la cámara y el pane donde se ancla el canvas.
-  constructor({ host, pane, source, model, interactive = false, ...style }) {
+  constructor({ host, pane, source, model, interactive = false, circle = false, ...style }) {
     this.#camera      = host.camera
     this.#source      = source
     this.#model       = model
     this.#interactive = interactive
+    this.#circle      = circle
+    this.#order       = circle ? ASCENDING : DESCENDING
     // Nace vacía para leer el tope de textura de su contexto antes de armar la primera geometría.
     this.#layer = new PolygonGpuLayer({
       host, pane, ...style, geometry: EMPTY,
@@ -68,11 +76,14 @@ export class ShapeLayer {
     if (!this.#layer) return
     const previous = this.#recs
     const a        = this.#source.accessors
+    const circle   = this.#circle
     const recs     = []
     this.#seen = this.#source.version()
     this.#source.getSnapshot().forEach(item => {
-      const rec = readDrawable({
-        center: a.positionOf(item), radius: a.radiusOf(item), heading: a.headingOf?.(item), sweep: a.sweepOf?.(item),
+      const radius = circle ? a.radiusMetersOf(item) : a.radiusOf(item)
+      const rec    = (!circle || typeof radius === 'number') && readDrawable({
+        center: a.positionOf(item), radius,
+        heading: circle ? undefined : a.headingOf?.(item), sweep: circle ? undefined : a.sweepOf?.(item),
       })
       rec && recs.push(Object.assign(rec, { id: a.idOf(item), style: { ...a.styleOf?.(item) }, wanted: 0 }))
     })
@@ -119,9 +130,9 @@ export class ShapeLayer {
 
   // El anillo se dibuja una sola vez, en la copia del mundo de su centro, y su lng no se envuelve; el latlng
   // del puntero tampoco, así que el punto-en-anillo en grados contesta sólo en la copia dibujada. La parte
-  // `k` es la forma `k`, y la última se dibuja encima: el hit sale de arriba hacia abajo.
+  // `k` es la forma `k`, y la última se dibuja encima: el hit sale de arriba hacia abajo, salvo en `circle`.
   #hitsAt({ lat, lng }) {
-    return !this.#index ? [] : partsAtPoint(this.#index, lng, lat, this.#parts).sort((p, q) => q - p).map(k => {
+    return !this.#index ? [] : partsAtPoint(this.#index, lng, lat, this.#parts).sort(this.#order).map(k => {
       const id = this.#recs[k].id
       return { ref: id, id, distancePx: 0 }
     })

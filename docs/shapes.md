@@ -165,3 +165,32 @@ engine.addLineLayer({ id: 'barrido', data: radares,
 
 El contorno con los radios es la capa de formas sin relleno: `fill: false`. La
 capa de líneas no re-tesela por zoom, así que el arco lleva los vértices de la tolerancia sin vista, 0,1 m.
+
+## Migrar desde `addCircleLayer`
+
+`addCircleLayer` sigue funcionando, como alias de la capa de formas, y se retira en 1.0. Se migra cambiando
+el nombre del accessor del radio:
+
+```js
+// antes
+engine.addCircleLayer({ id, data, accessors: { idOf, positionOf, radiusMetersOf, styleOf } })
+// después
+engine.addShapeLayer({ id, data, accessors: { idOf, positionOf, radiusOf: radiusMetersOf, styleOf } })
+```
+
+El alias dibuja el mismo anillo: sobre la esfera por defecto aunque el mapa traiga otro `model`; sus hits
+salen en el orden del snapshot de su Source (el de `data`), con `kind: 'circle'`; el pane por defecto es
+`cristae-circle-<id>`; el handle es `{ id, source, set, setVisible }`; lee sólo `radiusMetersOf`, y sólo si es
+un número; e ignora `headingOf`, `sweepOf` y el estilo de capa. Sin migrar cambian tres cosas: el hit es
+punto-en-anillo y difiere del analítico en 0,2 px a lo sumo; `fitToLayers` y `camera.fitToLayer` encuadran los
+círculos enteros, y para encuadrar sólo los centros está `camera.followBounds(id, ids)`; y si los vértices no
+caben en la textura, el alias los baja como la capa de formas en vez de quedarse sin dibujar. Al migrar a la
+capa de formas también cambia:
+
+- `hit.kind` pasa de `'circle'` a `'shape'`, y `focus({ kinds: ['circle'] })` a `['shape']`;
+- el pane por defecto pasa a `cristae-shape-<id>`;
+- los hits salen de arriba hacia abajo;
+- la capa usa el modelo del mapa;
+- hay elemento, `<cristae-shape-layer>`, y `<CristaeShapeLayer>` en React.
+
+El `kind` del hit y del foco es el de la capa; `EditableKind: 'circle'` es la figura de un editor.

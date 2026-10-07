@@ -1,4 +1,4 @@
-// Pliegue puro del eje focus (lo comparten polygon / circle / line / html).
+// Pliegue puro del eje focus (lo comparten polygon / shape / line / html).
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'

@@ -1,7 +1,7 @@
 // Líneas GPU — LÍNEA BASE del banco junto con `points`.
 // Segunda capa donde la promesa se cumple: los vértices viven en una textura GL y el patch sube
 // sólo las filas tocadas (`texSubImage2D`), coalescido a rAF. Sirve de calibración: el costo que aparezca acá con N
-// vértices es el piso contra el que se leen polygon/circle/editable, que mueven la MISMA geometría
+// vértices es el piso contra el que se leen polygon/shape/editable, que mueven la MISMA geometría
 // por SVG o por DOM.
 //
 // N = VÉRTICES TOTALES (no líneas): se reparten en trazos de `VERTICES_POR_LINEA`.

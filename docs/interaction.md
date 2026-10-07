@@ -18,7 +18,7 @@ queda al mapa entra al pipeline.
 
 1. **El resolver de cada capa** sabe su geometría: dada la muestra del puntero, produce las
    **partes** de hit (`{ ref, distancePx }`) —el pase de picking en GPU para los puntos, la
-   geometría en CPU para polígonos, líneas, círculos, formas y marcadores HTML—.
+   geometría en CPU para polígonos, líneas, formas y marcadores HTML—.
 2. **`LayerRegistry`** registra capas sobre esos resolvers, las ordena **top-first** y solo
    pide picking de los canales con **demanda activa**.
 3. **`EventBus`** rutea los hits ya resueltos hacia los handlers suscritos, deriva los eventos

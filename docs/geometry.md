@@ -91,9 +91,8 @@ error del llamador, no un dato malo, y leerlo como un punto inválido mediría e
 - Las fábricas validan al construir y lanzan `RangeError` si el radio o el semieje no es un número
   finito mayor que 0, o si el achatamiento no está en [0, 1). Los modelos son inmutables.
 
-El picking de `addCircleLayer` mide con la esfera por defecto, sin leer el `model` del mapa, y el
-contorno se dibuja sobre esa misma esfera —cada vértice a `radius` metros del centro según
-`arcMeters`—: el borde y el hit coinciden a cualquier latitud.
+`addCircleLayer`, el alias de la capa de formas, no lee el `model` del mapa: sus vértices salen del mismo
+escritor que `ring`, sobre la esfera por defecto, y el hit pica en ese anillo a cualquier latitud.
 
 ## Áreas, perímetro y diámetro
 

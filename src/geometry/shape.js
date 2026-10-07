@@ -1,5 +1,5 @@
 // Formas en METROS sobre un modelo de la Tierra (SPECS §18). `ring` y `arc` son la cara pública, y
-// `readShape`, `sizeShape` y `writeShape` el escritor que comparten con las capas de círculos y de formas y
+// `readShape`, `sizeShape` y `writeShape` el escritor que comparten con la capa de formas y
 // con los editores, para que lo que se dibuja, lo que se pica y lo que se mide salgan del mismo anillo.
 // Módulo puro: sin Leaflet, sin DOM, sin el elipsoide.
 //

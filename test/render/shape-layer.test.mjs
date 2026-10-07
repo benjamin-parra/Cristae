@@ -49,19 +49,21 @@ after(conGlDeEdicion(() => currentGl))
 
 const MAX_TEXTURE = 0x0D33
 
-// El trazo fija su color con `uniform4fv`; `cap` declara el lado máximo de textura, como un contexto real, y
+// El relleno fija su color con `uniform4f` y el trazo con `uniform4fv`; `cap` declara el lado máximo de textura, como un contexto real, y
 // `released` cuenta los contextos devueltos.
 const gpu = ({ cap = null } = {}) => {
   const spy    = Object.assign(makePickSpy(), { released: 0 })
   const stroke = []
+  const fill   = []
   const gl     = makeGl(() => spy.released++, spy, makeSurface())
   const own    = {
     getContextAttributes: () => ({ stencil: true }),
+    uniform4f : (_loc, ...rgba) => fill.push(rgba),
     uniform4fv: (_loc, rgba) => stroke.push([...rgba]),
     ...cap === null ? {} : { MAX_TEXTURE_SIZE: MAX_TEXTURE, getParameter: p => (p === MAX_TEXTURE ? cap : undefined) },
   }
   currentGl = new Proxy(gl, { get: (t, p) => own[p] ?? t[p] })
-  return { spy, stroke }
+  return { spy, stroke, fill }
 }
 
 // Las tablas que la capa le entrega a la capa interna, en grados: de ahí salen los texels y el hit.
@@ -82,12 +84,12 @@ const anillos = (geometria = entregadas.at(-1)) =>
   })
 
 const mount = async (items, { zoom = 12, model = byDefault, cap = null, source = createSource(accessors), interactive = true, style = {} } = {}) => {
-  const { spy, stroke } = gpu({ cap })
+  const { spy, stroke, fill } = gpu({ cap })
   const map = makeMap({ zoom })
   source.set(items)
   await flush()
   const layer = new ShapeLayer({ host: adoptLeafletHost(map), pane: 'p', source, model, interactive, ...style })
-  return { layer, map, source, spy, stroke }
+  return { layer, map, source, spy, stroke, fill }
 }
 
 // El punto a `metros` y `rumbo` del centro sobre la esfera de la capa, por la geographiclib.
@@ -125,6 +127,30 @@ test('el anillo de cada forma es el de ring en el zoom que pide su mismo número
     assert.ok(iguales >= 1, `${forma.id}: algún zoom pide el número de ring`)
   }
 })
+
+// Cada vértice del círculo está a `radius` metros del centro, medido por el problema inverso de la
+// geographiclib sobre la esfera de la capa: el borde dibujado es la frontera del hit. Los vértices están EN el
+// círculo, y la cuerda sólo se aparta entre ellos.
+for (const [lat, lng, radius] of [
+  [0, 0, 1000], [-33.4489, -70.6693, 1000], [60, 25, 50_000], [80, 10, 100_000], [45, 8, 500_000], [10, 179.95, 20_000],
+]) {
+  test(`los vértices del círculo están a radius metros del centro: lat ${lat}, ${radius} m`, async () => {
+    const { layer } = await mount([{ id: 1, center: [lat, lng], radius }], { zoom: 3 })
+    const vertices = anillos()[0]
+
+    assert.ok(vertices.length >= 16, 'el anillo trae sus vértices')
+    vertices.forEach(([la, lo], i) => {
+      const metros = ESFERA.Inverse(lat, lng, la, lo, DISTANCE).s12
+      assert.ok(Math.abs(metros - radius) / radius < 1e-9, `vértice ${i} a ${metros} m del centro`)
+    })
+
+    // Y el hit traza la misma frontera: un milésimo adentro del radio, al norte y al sur, pica; afuera, no.
+    const dLat  = radius / MEAN_RADIUS / D
+    const picks = k => layer.resolveClick({ lat: lat + dLat * k, lng }).length
+    assert.deepEqual([picks(0.999), picks(-0.999), picks(1.001), picks(-1.001)], [1, 1, 0, 0])
+    layer.destroy()
+  })
+}
 
 // Con `t` uniforme la flecha máxima de la elipse es la del círculo de su semieje mayor: en cada zoom lleva sus
 // mismos vértices, sea el mayor `a` o `b`, y en alguno más que el círculo del menor.
@@ -402,6 +428,97 @@ test('el estilo es por forma, aunque styleOf reuse su objeto, y el foco atenúa 
   assert.equal(layer.applyFocus(new Set([1]), 0.25), true)
   assert.deepEqual(stroke, [[1, 0, 0, 1], [0, 0, 1, 0.25]])
   layer.destroy()
+})
+
+test('un ítem que pasa a no-finito deja de pintarse y de picar, y las altas y bajas de la Source llegan al hit', async () => {
+  const { layer, source } = await mount([{ id: 1, center: [0, 0], radius: 1000 }, { id: 2, center: [10, 10], radius: 1000 }])
+
+  source.getSnapshot().find(d => d.id === 1).center = [NaN, 0]
+  source.patch(source.getSnapshot(), new Set([1]))
+  await flush()
+  assert.deepEqual(pica(layer, { lat: 0, lng: 0 }), [])
+  assert.deepEqual(pica(layer, { lat: 10, lng: 10 }), [2], 'el resto no se toca')
+
+  source.set([{ id: 2, center: [10, 10], radius: 1000 }, { id: 3, center: [20, 20], radius: 1000 }])
+  await flush()
+  assert.deepEqual(pica(layer, { lat: 20, lng: 20 }), [3], 'el alta pica')
+  source.set([{ id: 3, center: [20, 20], radius: 1000 }])
+  await flush()
+  assert.deepEqual(pica(layer, { lat: 10, lng: 10 }), [], 'la baja ya no')
+  layer.destroy()
+})
+
+test('el color de styleOf pinta el trazo y, sin fillColor, el relleno con la opacidad por defecto', async () => {
+  const { layer, stroke, fill } = await mount([{ id: 1, center: [0, 0], radius: 1000, style: { color: '#ff0000' } }])
+
+  assert.deepEqual(stroke.at(-1), [1, 0, 0, 1], 'trazo rojo opaco')
+  assert.deepEqual(fill.at(-1), [1, 0, 0, 0.2], 'el relleno sigue al color, con fillOpacity 0,2')
+  layer.destroy()
+})
+
+test('fillColor y fillOpacity del estilo mandan sobre el relleno, sin tocar el trazo', async () => {
+  const style = { color: '#ff0000', fillColor: '#00ff00', fillOpacity: 0.5, opacity: 0.8 }
+  const { layer, stroke, fill } = await mount([{ id: 1, center: [0, 0], radius: 1000, style }])
+
+  assert.deepEqual(fill.at(-1), [0, 1, 0, 0.5])
+  assert.deepEqual(stroke.at(-1), [1, 0, 0, 0.8])
+  layer.destroy()
+})
+
+test('un dash en el estilo sube la textura del patrón; sin dash no se sube', async () => {
+  const sin = await mount([{ id: 1, center: [0, 0], radius: 1000 }])
+  const con = await mount([{ id: 1, center: [0, 0], radius: 1000, style: { dash: [6, 4] } }])
+
+  assert.equal(con.spy.texImages.length, sin.spy.texImages.length + 1, 'además de las posiciones, el largo acumulado del patrón')
+  ;[sin, con].forEach(m => m.layer.destroy())
+})
+
+// Una forma con un patrón que no cabe no deja la capa a medias: las de después no heredan el estilo de otra, y
+// la geometría y el picking siguen siendo los de antes.
+test('una forma con un patrón que no cabe deja la capa como estaba', async t => {
+  const errores  = []
+  const original = console.error
+  console.error = (...a) => errores.push(a)
+  t.after(() => (console.error = original))
+  const rojo = { id: 1, center: [0, 0], radius: 1000, style: { color: '#ff0000' } }
+  const azul = { id: 3, center: [10, 10], radius: 1000, style: { color: '#0000ff' } }
+  const { layer, source, stroke } = await mount([rojo, azul], { zoom: 3 })
+
+  source.set([rojo, { id: 2, center: [5, 5], radius: 1000, style: { dash: Array(17).fill(1) } }, { ...azul, style: { color: '#00ff00' } }])
+  await flush()
+  assert.match(String(errores[0]?.[1]), /hasta 16 valores/)
+  stroke.length = 0
+  layer.applyFocus(null)
+  assert.deepEqual(stroke.map(c => c.slice(0, 3)), [[1, 0, 0], [0, 0, 1]], 'las dos de antes, cada una con su color')
+  assert.deepEqual(pica(layer, { lat: 5, lng: 5 }), [], 'la que no entró no pica')
+  layer.destroy()
+})
+
+test('refresh() reevalúa styleOf', async () => {
+  const items = [{ id: 1, center: [0, 0], radius: 1000, style: { color: '#ff0000' } }]
+  const { layer, stroke } = await mount(items)
+
+  items[0].style = { color: '#0000ff' }
+  layer.refresh()
+  assert.deepEqual(stroke.at(-1), [0, 0, 1, 1])
+  layer.destroy()
+})
+
+test('oculta no repinta, visible sí; destroy deja la capa inerte', async () => {
+  const { layer, spy } = await mount([{ id: 1, center: [0, 0], radius: 1000 }])
+  const antes = spy.draws.length
+
+  layer.setVisible(false)
+  layer.refresh()
+  assert.equal(spy.draws.length, antes, 'oculta no emite draws, ni al refrescarse')
+  layer.setVisible(true)
+  assert.ok(spy.draws.length > antes, 'al volver a mostrarse, repinta')
+
+  layer.destroy()
+  layer.refresh()
+  layer.setVisible(true)
+  assert.equal(layer.applyFocus(null), true, 'el motor la invoca aun tras la baja')
+  assert.deepEqual(pica(layer, { lat: 0, lng: 0 }), [], 'y no pica')
 })
 
 // Los pases que dibuja un repintado: paridad, cobertura y contorno por forma con relleno; sólo el contorno sin él.

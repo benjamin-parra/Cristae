@@ -24,7 +24,7 @@
 //   polígono editable  ·    400 vértices  →     1 nodo vivo    (era 800, con el midpoint del cierre)
 //   atlas de handles   ·      N editores  →     5 nodos vivos  (era 5 POR editor)
 //   capa de polígonos  ·    200 features  →     1 nodo vivo    (era 200: un path SVG por feature; ahora el canvas GPU)
-//   capa de círculos   ·    200 features  →     1 nodo vivo    (era 200: un `L.circle` por círculo; ahora el canvas GPU)
+//   capa de formas     ·    200 features  →     1 nodo vivo    (era 200: un `L.circle` por círculo; ahora el canvas GPU)
 //   capa de marcadores HTML · 200 marcas  →   401 nodos vivos  (la raíz + envoltorio e icono por marca)
 //   capa de puntos     · 10.000 ítems     →     1 nodo vivo    (el canvas de su superficie)
 //
@@ -49,9 +49,10 @@ import assert from 'node:assert/strict'
 import { createSource } from '../../src/data/Source.js'
 import { defineEditIconSet } from '../../src/render/EditHandleLayer.js'
 import { EditableGeometry } from '../../src/render/EditableGeometry.js'
+import { byDefault } from '../../src/geometry/geodesic.js'
 import { adoptLeafletHost } from '../../src/host/LeafletHost.js'
 import { PolygonGpuLayer } from '../../src/render/PolygonGpuLayer.js'
-import { CircleLayer } from '../../src/render/CircleLayer.js'
+import { ShapeLayer } from '../../src/render/ShapeLayer.js'
 import { PointLayer } from '../../src/render/PointLayer.js'
 import { HtmlLayer } from '../../src/render/HtmlLayer.js'
 
@@ -198,14 +199,14 @@ test('capa de polígonos de 200 features → 1 nodo DOM vivo', async () => {
   assert.equal(contador.vivos, 0, 'destroy devuelve el canvas')
 })
 
-// Los 200 círculos son anillos de UNA textura, y el único nodo es el canvas de su superficie: no escala
+// Las 200 formas son anillos de UNA textura, y el único nodo es el canvas de su superficie: no escala
 // con la cantidad ni con los segmentos de cada uno.
-test('capa de círculos de 200 features → 1 nodo DOM vivo', async () => {
+test('capa de formas de 200 features → 1 nodo DOM vivo', async () => {
   const items = Array.from({ length: FEATURES }, (_, i) => ({ id: i, lat: i * 0.5, lng: i * 0.5, radio: 5000 }))
   glVigente = makeEditGl()
   const { capa, contador } = await montar(
-    opciones => new CircleLayer({ host: adoptLeafletHost(opciones.map), ...opciones }),
-    { idOf: it => it.id, positionOf: it => ({ lat: it.lat, lng: it.lng }), radiusMetersOf: it => it.radio },
+    opciones => new ShapeLayer({ host: adoptLeafletHost(opciones.map), model: byDefault, ...opciones }),
+    { idOf: it => it.id, positionOf: it => ({ lat: it.lat, lng: it.lng }), radiusOf: it => it.radio },
     items,
   )
 

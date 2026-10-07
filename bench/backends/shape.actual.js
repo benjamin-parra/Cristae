@@ -1,14 +1,14 @@
-// Círculos en metros — teselados en la GPU: una textura de anillos y un solo canvas.
+// Formas en metros (círculos) — teseladas en la GPU: una textura de anillos y un solo canvas.
 // Lo que la castiga es el ZOOM del guion: el radio va en METROS, así que cada cambio de escala
-// obliga a reteselar el radio de TODOS los círculos. La fase de pan es comparativamente barata
-// (el pane traslada el canvas) y la fase viva agrega el reconciliador O(n) que la capa corre en
-// cada notificación de la Source para decidir si el set cambió.
+// obliga a reteselar el radio de TODAS las formas. La fase de pan es comparativamente barata
+// (el pane traslada el canvas) y la fase viva agrega el rehecho de todos los anillos que la capa
+// corre en cada cambio de la Source.
 //
-// N = CÍRCULOS.
+// N = FORMAS.
 
 import { createSource } from '../../src/index.js'
 
-const ID               = 'bench-circle'
+const ID               = 'bench-shape'
 const FRACCION         = 0.2
 const HOLGURA          = 1.25
 const AMPLITUD         = 0.0015
@@ -19,7 +19,7 @@ const PALETA           = ['#2563eb', '#16a34a', '#f59e0b', '#dc2626']
 const ACCESSORS = {
   idOf           : c => c.id,
   positionOf     : c => c,
-  radiusMetersOf : c => c.radio,
+  radiusOf       : c => c.radio,
   styleOf        : c => c.estilo,
 }
 
@@ -56,14 +56,14 @@ const armar = (_, i) => {
 }
 
 export default {
-  id      : 'circle',
+  id      : 'shape',
   backend : 'gpu-teselado',
 
   montar: contexto => {
     ctx    = contexto
     fuente = createSource(ACCESSORS)
     encuadrar(ctx.map)
-    capa = ctx.engine.addCircleLayer({ id: ID, accessors: ACCESSORS, source: fuente })
+    capa = ctx.engine.addShapeLayer({ id: ID, accessors: ACCESSORS, source: fuente })
     return capa
   },
 

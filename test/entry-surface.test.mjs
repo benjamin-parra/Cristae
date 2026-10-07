@@ -211,16 +211,15 @@ test('el lector no registra ningún custom element', () => {
 // `hasPointShape` e `isPoint` son la regla de corte y de punto que comparten `toParts`, `distance`,
 // `boundsOf` y `fitToLayers`, y los editores leen con `coordOf` e `isPoint`, la cámara con `isPlace` y
 // el anfitrión con `coordOf` y `hasPointShape`; `emptyBounds`, `growBounds`, `growRun` y `readBounds`,
-// la caja y su lector, que comparten las cajas, los encuadres del motor y la cámara; `arcMeters`,
-// `makeModel` y `checkLength`, el núcleo de la esfera y la fábrica de modelos que comparten las medidas
-// y el picking de círculos; `MODEL`, `isModel` y `byDefault`, la marca de modelo y el modelo por
-// defecto que comparten `distance` y las medidas de zona, y `AREA`, `ELEVATION` y `RELIEF`, las marcas
-// que leen esas medidas y el terreno; `foldRings` y `areaStep`, el lector de zonas y la suma de su
-// área, que comparten esas medidas y `relief`, y `measureArgs`, el de sus argumentos; `readShape`,
-// `reachesPole`, `readDrawable`, `viewSegments`, `sizeShape`, `writeShape` y `pairs`, el escritor de formas
-// que comparten `ring`, `arc`, las capas de círculos y de formas y los editores, y `GROUND`,
-// `MIN_SEGMENTS`, `segmentsFor`, `stepsFor`, `viewTolerance` y `pixelsToMeters`, el módulo de densidad que
-// usan ese escritor, esas capas y los editores; `count` y `at`, los tramos y los puntos de la curva que
+// la caja y su lector, que comparten las cajas, los encuadres del motor y la cámara; `makeModel` y
+// `checkLength`, la fábrica de modelos de `sphere` y `ellipsoid`; `MODEL`, `isModel` y `byDefault`, la
+// marca de modelo y el modelo por defecto que comparten `distance` y las medidas de zona, y `AREA`,
+// `ELEVATION` y `RELIEF`, las marcas que leen esas medidas y el terreno; `foldRings` y `areaStep`, el lector
+// de zonas y la suma de su área, que comparten esas medidas y `relief`, y `measureArgs`, el de sus argumentos;
+// `readShape`, `reachesPole`, `readDrawable`, `viewSegments`, `sizeShape`, `writeShape` y `pairs`, el escritor
+// de formas que comparten `ring`, `arc`, la capa de formas y los editores, y `GROUND`, `MIN_SEGMENTS`,
+// `segmentsFor`, `stepsFor`, `viewTolerance` y `pixelsToMeters`, el módulo de densidad que usan ese escritor,
+// la capa de formas y los editores; `count` y `at`, los tramos y los puntos de la curva que
 // comparten `geodesic`, las capas de líneas y de polígonos y los editores, `checkPlacer` y `checkHeading`,
 // los controles del modelo que coloca puntos y da rumbos; y `decodeTile`, el decodificador de tiles de altura
 // del terreno: si salen del entry, alguien los usa y ya no se pueden mover.

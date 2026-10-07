@@ -11,7 +11,8 @@ import { compass, foldArgs } from './polyline.js'
 const D = Math.PI / 180
 
 // El radio de la esfera por defecto, en metros. Quien coloca puntos a una distancia dada y después los
-// mide con `arcMeters` tiene que usar este mismo radio, o el punto cae a otra distancia de la que se pidió.
+// mide con la esfera por defecto tiene que usar este mismo radio, o el punto cae a otra distancia de la que
+// se pidió.
 export const MEAN_RADIUS = 6371008.8
 
 // La marca de un modelo es a la vez su núcleo: `model[MODEL](lat1, lng1, lat2, lng2)` son los metros
@@ -132,9 +133,6 @@ export const sphere = (radius = MEAN_RADIUS) => {
 }
 
 export const byDefault = sphere()
-
-// El núcleo de la esfera por defecto, para quien mide sin modelo: el picking de círculos.
-export const arcMeters = byDefault[MODEL]
 
 // Los metros de un tramo, sumados sobre `walk.meters` con el núcleo del modelo. El tramo ya llega
 // validado, y cada vértice se lee una sola vez, en su lugar.

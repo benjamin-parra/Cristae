@@ -108,6 +108,7 @@ export type CristaePointHit   = PointHit
 export type CristaePolygonHit = PolygonHit
 export type CristaeShapeHit   = ShapeHit
 export type CristaeHtmlHit    = HtmlHit
+/** @deprecated Se retira en 1.0: `CristaeShapeHit`. */
 export type CristaeCircleHit  = CircleHit
 export type CristaeLineHit    = LineHit
 export type CristaeHit        = Hit

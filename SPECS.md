@@ -547,7 +547,7 @@ La **ley** (MODELO §5.4) formalizada como contrato que un implementador debe cu
 | `terrain` (§18) | — | — | O(tiles) pedidos de red, a lo sumo 6 en vuelo, + O(píxeles) de decodificación + O(filas) llamadas al modelo base |
 | `relief` (§18) | — | — | O(vértices + celdas de la caja de la zona); asigna 8 B por celda de esa caja |
 | `elevation` (§18) | — | — | O(1) **[0-alloc]** |
-| `ring` · `arc` (§18) | — | — | O(vértices) llamadas al destino del modelo; no es [0-alloc]: devuelve pares. El escritor que comparte con las capas de círculos y de formas y los editores no crea arrays ni clausuras, salvo lo que asigne el destino del modelo (la esfera, nada): con él, el anillo que reescribe cada frame del gesto de un editor de forma es **[0-alloc]**; el frame entero no, porque convertir el píxel en lugar asigna |
+| `ring` · `arc` (§18) | — | — | O(vértices) llamadas al destino del modelo; no es [0-alloc]: devuelve pares. El escritor que comparte con la capa de formas y los editores no crea arrays ni clausuras, salvo lo que asigne el destino del modelo (la esfera, nada): con él, el anillo que reescribe cada frame del gesto de un editor de forma es **[0-alloc]**; el frame entero no, porque convertir el píxel en lugar asigna |
 | `geodesic` (§18) | — | — | O(vértices) con una cota por tramo que no llama al modelo; O(puntos insertados) llamadas al modelo, y con el elipsoide, el rumbo y la distancia por tramo y el destino de la geographiclib por punto; no es [0-alloc]: devuelve pares |
 | `addGeodesic` (§6) | — | O(vértices + p) llamadas al modelo, con p los puntos insertados: rearma el host ([`docs/lines.md`](./docs/lines.md#curva-geodésica), [`docs/polygons.md`](./docs/polygons.md#curva-geodésica), [`docs/editing.md`](./docs/editing.md#curva-geodésica)), y la baja lo rearma recto sin llamar al modelo | — |
 | `distance` con un terreno (§18) | — | — | O(L) pasos de media celda por tramo, **[0-alloc]** en el bucle de pasos; la distancia del modelo base, una por tramo, asigna lo que asigne ese modelo (la esfera, nada). `area` y `perimeter` con un terreno, como `relief` y como `distance` por arista |
@@ -1137,13 +1137,13 @@ como `vertexIndex`. Con curva, la capa de líneas densifica en un solo lugar, de
 índice y la caja que informa, y la de polígonos curva sus tablas al entrar, con la misma numeración de
 anillos, partes y selección.
 
-El escritor que comparten `ring`, `arc`, las capas de círculos y de formas —que arman con él sus anillos y
-los cierran— y los editores de forma, y el módulo de densidad que da `segmentsFor`, `stepsFor` y las dos
-tolerancias, no se exportan del entry. `segmentsFor(r, tol)` es la fórmula de arriba y `stepsFor(L, lat, tol)`
+El escritor que comparten `ring`, `arc`, la capa de formas —que arma con él sus anillos y los cierra— y los
+editores de forma, y el módulo de densidad que da `segmentsFor`, `stepsFor` y las dos tolerancias, no se
+exportan del entry. `segmentsFor(r, tol)` es la fórmula de arriba y `stepsFor(L, lat, tol)`
 la de los radios. La tolerancia sin vista es 0,1 m y es la de `ring`, `arc` y los radios de un sector. La
 tolerancia con vista es 0,2 px, llevada a metros con la escala de Mercator en la latitud más alta que la forma
-toca: es la que usan las capas de círculos y de formas y el anillo de los editores de forma, y en la de
-círculos da el mismo `n` de siempre.
+toca: es la que usan la capa de formas y el anillo de los editores de forma, y en un círculo da el mismo `n` de
+siempre.
 
 El **protocolo de modelo** son marcas en el registro global de símbolos, así que un modelo de una
 copia de la librería sirve en otra. Las marcas se agregan entre versiones y sus firmas no cambian:
@@ -1322,10 +1322,11 @@ uniforme—; la flecha de cada cuerda de la elipse y del arco de un sector de el
 muestreada en el marco de la forma, que con la mitad de tramos ya no cumple; el sector entero, el reflejo y
 el simétrico; los radios contra una geodésica muestreada en el plano de Mercator, que un solo tramo no
 cumple; el arco abierto y el cerrado; cada caso de la regla de validez y de los `TypeError`; la cota del
-polo por el semieje mayor; un modelo de otra implementación con sólo la marca de destino; el círculo de
-`CircleLayer` bit a bit contra el escritor y cerrado, leído de la geometría que la capa entrega, y contra `ring`; el
-terreno que no coloca y la forma colocada que sí se mide sobre él; la tabla de segmentos que daba la capa de
-círculos; y empaquetar `ring` y `arc` sin la librería geodésica.
+polo por el semieje mayor; un modelo de otra implementación con sólo la marca de destino; el anillo de la
+capa de formas contra `ring` a igual número de segmentos, y el del alias `addCircleLayer`, con el mapa en
+WGS84, bit a bit contra la fórmula cerrada del destino sobre la esfera y cerrado, leídos de la geometría que
+la capa entrega; el terreno que no coloca y la forma colocada que sí se mide sobre él; la tabla de segmentos
+del círculo por (latitud, radio, zoom); y empaquetar `ring` y `arc` sin la librería geodésica.
 
 La geodésica: un track GPS de pasos de 10 a 100 m, que no se parte en ningún modelo y sale igual, también a
 89,9°; cien kilómetros a 37°, con la separación de cada cuerda de Mercator a la geodésica medida por fuerza bruta

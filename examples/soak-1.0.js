@@ -131,12 +131,12 @@ $('restyle').onclick = () => {
    Verificar: al hacer ZOOM IN el círculo CRECE en pantalla (radio en metros, no sprite fijo). */
 const circles    = [{ id: 'c1', lat: CENTER[0], lng: CENTER[1], r: 800 }]
 const circSource = createSource({
-  idOf:           c => c.id,
-  positionOf:     c => ({ lat: c.lat, lng: c.lng }),
-  radiusMetersOf: c => c.r,
-  styleOf:        () => ({ color: '#10b981', weight: 2, fillColor: '#10b981', fillOpacity: 0.12 }),
+  idOf:       c => c.id,
+  positionOf: c => ({ lat: c.lat, lng: c.lng }),
+  radiusOf:   c => c.r,
+  styleOf:    () => ({ color: '#10b981', weight: 2, fillColor: '#10b981', fillOpacity: 0.12 }),
 })
-engine.addCircleLayer({ id: 'circ', source: circSource })
+engine.addShapeLayer({ id: 'circ', source: circSource })
 circSource.set(circles)
 
 /* ── 4 · Heatmap (GPU, densidad acumulada) ───────────────────────────────────────────────────────
