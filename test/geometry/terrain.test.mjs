@@ -16,6 +16,7 @@ import { area, perimeter, diameter } from '../../src/geometry/measure.js'
 import { sphere, distance } from '../../src/geometry/geodesic.js'
 import { boundsOf } from '../../src/geometry/bounds.js'
 import { WGS84, ellipsoid } from '../../src/geometry/ellipsoid.js'
+import { ring, arc } from '../../src/geometry/shape.js'
 
 const R         = 6371008.8             // radio medio IUGG R1 (m)
 const RAD       = Math.PI / 180
@@ -623,6 +624,18 @@ test('el terreno es un modelo congelado con las cuatro marcas, y no es una base'
     assert.equal(t[Symbol.for(`cristae.geometry.${marca}`)], undefined, `sin ${marca}: mide sobre el relieve`)
   await assert.rejects(terrain(t, FUENTE, cajaDe(centrado(PX, PY, 100)), { fetch: mundo().fetch }),
     { name: 'TypeError', message: '[terrain] el modelo base tiene que medir áreas y no ser un terreno' })
+})
+
+test('un terreno no coloca formas, pero la forma colocada sobre su base se mide sobre el relieve', async () => {
+  const zona  = centrado(PX, PY, 500)
+  const forma = { center: [LAT0, LNG0], radius: 200, heading: 30, sweep: 120 }
+  const t     = await cargar(mundo(), zona)
+  assert.throws(() => ring(t, forma), { name: 'TypeError', message: '[ring] coloca la forma en horizontal: pasa el modelo base, no el terreno' })
+  assert.throws(() => arc(t, forma), { name: 'TypeError', message: '[arc] coloca la forma en horizontal: pasa el modelo base, no el terreno' })
+  assert.throws(() => ring(t, null), { name: 'TypeError' }, 'también con una forma ausente')
+  const colocada = ring(sphere(), forma)
+  assert.equal(area(t, colocada), area(sphere(), colocada), 'terreno plano: el área es la de la base')
+  cerca(perimeter(t, colocada), perimeter(sphere(), colocada), 1e-12, 'perímetro')
 })
 
 test('terreno plano: el área es la de la base bit a bit; la distancia y el perímetro, a 1e-12', async () => {

@@ -13,8 +13,10 @@ import assert from 'node:assert/strict'
 import { createSource } from '../../src/data/Source.js'
 import { MapEngine } from '../../src/engine/MapEngine.js'
 import { MEAN_RADIUS, arcMeters } from '../../src/geometry/geodesic.js'
+import { ring } from '../../src/geometry/shape.js'
 import { adoptLeafletHost } from '../../src/host/LeafletHost.js'
 import { CircleLayer } from '../../src/render/CircleLayer.js'
+import { PolygonGpuLayer } from '../../src/render/PolygonGpuLayer.js'
 import { projX0, projY0 } from '../../src/render/project.js'
 
 const D = Math.PI / 180
@@ -135,6 +137,62 @@ test('al asentar el zoom re-tesela sólo si cambia el número de segmentos', asy
   layer.destroy()
 })
 
+/* ── El anillo es el de `ring` ── */
+
+// La geometría que la capa le entrega a la capa interna, antes de proyectarla a texels de float32: los
+// vértices exactos, en grados. Se recoge de `setGeometry`, que `refresh()` llama con las tablas recién armadas.
+const geometriasDe = async (items, opciones) => {
+  const recogidas = []
+  const original  = PolygonGpuLayer.prototype.setGeometry
+  PolygonGpuLayer.prototype.setGeometry = function (geometry, ...resto) {
+    recogidas.push(geometry)
+    return original.call(this, geometry, ...resto)
+  }
+  try {
+    const { layer } = await mount(items, opciones)
+    layer.refresh()
+    layer.destroy()
+  } finally {
+    PolygonGpuLayer.prototype.setGeometry = original
+  }
+  return recogidas
+}
+
+// El destino directo sobre la esfera de `arcMeters`, como fórmula cerrada: `n` vértices desde el norte al
+// rumbo `i·2π/n`, como `[lng, lat, …]` y cerrado repitiendo el primero.
+const anilloDeLaEsfera = (lat, lng, radius, n) => {
+  const sinLat = Math.sin(lat * D), cosLat = Math.cos(lat * D)
+  const sinD   = Math.sin(radius / MEAN_RADIUS), cosD = Math.cos(radius / MEAN_RADIUS)
+  return Array.from({ length: n + 1 }, (_, i) => {
+    const bearing = i % n * 2 * Math.PI / n
+    const sinOut  = sinLat * cosD + cosLat * sinD * Math.cos(bearing)
+    return [lng + Math.atan2(Math.sin(bearing) * sinD * cosLat, cosD - sinLat * sinOut) / D, Math.asin(sinOut) / D]
+  }).flat()
+}
+
+// La capa dibuja ese anillo bit a bit, el mismo que mide el hit, y el alias de la capa de formas no cambia de
+// anillo. `ring`, que elige su número de vértices por la tolerancia sin vista, es ese anillo sin cerrar en el
+// zoom que pide el mismo número.
+test('el círculo de la capa es bit a bit el destino directo sobre la esfera, cerrado, y el de ring a igual n', async () => {
+  let comparados = 0
+  for (const [lat, lng, radius] of [
+    [-33.4489, -70.6693, 500], [0, 0, 2000], [60, 25, 50_000], [-80, 10, 20_000], [10, 179.95, 800],
+  ]) {
+    for (const zoom of [3, 10, 15, 17, 19, 22]) {
+      const geometria = (await geometriasDe([{ id: 1, lat, lng, radius }], { zoom })).at(-1)
+      const n         = geometria.vertexAt[1] - 1
+      const esperado  = anilloDeLaEsfera(lat, lng, radius, n)
+      assert.deepEqual(Array.from(geometria.xy), esperado, `${radius} m en (${lat}, ${lng}), zoom ${zoom}`)
+      const publico = ring({ center: [lat, lng], radius })
+      if (publico.length === n) {
+        assert.deepEqual(publico.flatMap(([la, lo]) => [lo, la]), esperado.slice(0, -2))
+        comparados++
+      }
+    }
+  }
+  assert.ok(comparados >= 3, `ring coincidió con la capa en ${comparados} montajes`)
+})
+
 /* ── Picking ── */
 
 test('un latlng DENTRO del radio pica; uno FUERA no', async () => {
@@ -181,6 +239,15 @@ test('un círculo de centro o radio no finitos, o que abarca un polo, ni se dibu
   assert.deepEqual(layer.resolveClick({ lat: 0, lng: 0 }), [])
   assert.deepEqual(layer.resolveClick({ lat: 10, lng: 10 }).map(h => h.id), ['ok'], 'y el válido sigue ahí')
   layer.destroy()
+})
+
+// La capa es de círculos: un par de semiejes, que `readShape` leería como elipse, se descarta entero.
+test('un radio que no es un número, como un par de semiejes, ni se dibuja ni pica', async () => {
+  const items = [{ id: 'par', lat: -33.45, lng: -70.66, radius: [1000, 3000] }]
+  const { layer } = await mount(items, { zoom: 15 })
+  assert.deepEqual(layer.resolveClick({ lat: -33.45, lng: -70.66 }), [])
+  layer.destroy()
+  assert.equal((await geometriasDe(items, { zoom: 15 })).at(-1).ringCount, 0)
 })
 
 /* ── La capa sigue a la Source ── */

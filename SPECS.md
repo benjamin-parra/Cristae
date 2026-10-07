@@ -522,6 +522,7 @@ La **ley** (MODELO §5.4) formalizada como contrato que un implementador debe cu
 | `terrain` (§18) | — | — | O(tiles) pedidos de red, a lo sumo 6 en vuelo, + O(píxeles) de decodificación + O(filas) llamadas al modelo base |
 | `relief` (§18) | — | — | O(vértices + celdas de la caja de la zona); asigna 8 B por celda de esa caja |
 | `elevation` (§18) | — | — | O(1) **[0-alloc]** |
+| `ring` · `arc` (§18) | — | — | O(vértices) llamadas al destino del modelo; no es [0-alloc]: devuelve pares. El escritor no crea arrays ni clausuras: asigna lo que asigne el destino del modelo |
 | `distance` con un terreno (§18) | — | — | O(L) pasos de media celda por tramo, **[0-alloc]** en el bucle de pasos; la distancia del modelo base, una por tramo, asigna lo que asigne ese modelo (la esfera, nada). `area` y `perimeter` con un terreno, como `relief` y como `distance` por arista |
 
 **Objetivo de estado estable** (miles de updates/seg): la ruta caliente —`move`/recolor → encode → `bufferSubData` → draw— es **O(1) por elemento y [0-alloc]**, *bajo precondición de set sin cambios* (id con slot vigente) — path incremental, MODELO §17.5. Es la única garantía de alloc incondicional. Si una implementación asigna por elemento en esta ruta, está mal. **El rebuild NO tiene esa garantía:** `set`/filtro/cluster reescribe y re-sube el buffer entero, O(n), y aloca cuando el set crece. El coalescing acota la *tasa* a ≤1 rebuild/flush de rAF, **no** el costo: si el set cambia cada frame se paga O(n)/frame. Mantener barato el rebuild es responsabilidad del *uso* (que el set cambie poco), no del scheduler (MODELO §17 intro).
@@ -999,6 +1000,8 @@ ninguna lectura fuera de rango, ningún camino sin terminación, ninguna excepci
 | `area` | `(model?, polygon) → number` | O(vértices) | m²; región menor por anillo. |
 | `perimeter` | `(model?, polygon) → number` | O(vértices) | m; cada anillo cerrado, huecos incluidos. |
 | `diameter` | `(model?, polygon) → number` | O(n log n) + O(h·(1 + γh/2π)) llamadas al modelo | Horizontal; todos los pares si ρ ≥ 45°. |
+| `ring` | `(model?, shape) → [lat, lng][]` | O(n) llamadas al destino del modelo | El anillo de la forma, sin repetir el primer vértice; `[]` con un dato malo. |
+| `arc` | `(model?, shape) → [lat, lng][]` | O(n) llamadas al destino del modelo | El borde curvo como path abierto; el contorno cerrado si la forma es entera. |
 | `terrain` | `(model?, source, bounds, options?) → Promise<Terrain>` | O(tiles) de red + O(píxeles) | Lo único asíncrono; todo error es un rechazo. |
 | `terrainPresets` | `{ aws, mapterhorn }` | — | Datos, como `tilePresets`. |
 | `relief` | `(terrain, polygon, breaks?) → Relief` | O(vértices + celdas de la caja de la zona) | Alturas en m, pendiente en razón, áreas de superficie por clase. |
@@ -1043,6 +1046,47 @@ es la geodésica de un elipsoide de revolución, como la de `sphere` y `ellipsoi
 demostrado, y en el elipsoide el umbral se midió contra la fuerza bruta con achatamientos de 1/298 a
 0,95, donde la última falla está en cot 2ρ = 0,76·A.
 
+Una **forma** es `{ center, radius, heading?, sweep? }`: el centro en cualquier forma de punto; `radius`, en
+metros, un número —círculo— o `[a, b]` —elipse, con `a` sobre `heading` y `b` de través, y no hace falta
+a ≥ b—; `heading`, en grados con 0 = N, es la única rotación, y orienta el semieje `a` y la dirección del
+sector; `sweep`, los grados que abre el sector, centrados en `heading`. Se lee por contenido, sin `type`. La
+regla de validez es una sola: `null` y `undefined` son ausentes y toman el default —norte, figura entera—;
+un número presente que la forma usa y no es finito la descarta, y el radio y `sweep` además si no son mayores
+que 0; un `sweep` de 360 o más es la figura entera. Un círculo entero no usa `heading`, así que ni lo lee ni
+lo valida. Una forma descartada da `[]`, como `null`.
+
+`ring(model?, shape)` y `arc(model?, shape)` colocan la forma con el modelo, que va primero y es opcional, con
+el despacho de `area`: con dos argumentos el primero tiene que ser un modelo, y la forma no puede ser un
+modelo ni una función, o lanza `TypeError`. Un terreno lanza `TypeError` por `RELIEF`: la forma se coloca en
+horizontal, sobre el modelo base, y se mide después sobre el terreno. Un modelo sin la marca de destino lanza
+`TypeError`, y no se le pide área ni rumbo. Cada vértice es `destination(centro, heading + atan2(v, u),
+hypot(u, v))`, con `u = a·cos t` y `v = b·sin t`: la elipse se parametriza por la anomalía excéntrica, no por
+el lugar focal, y la lng de cada vértice sigue a la del centro sin envolverse. Los polos no se rechazan, porque
+`area` los mide. El anillo parte en `heading` —el norte en un círculo— y sigue en sentido horario, sin repetir
+el primer vértice: tiene `n` vértices, con `n` la potencia de dos entre 16 y 4096 que mantiene la cuerda a
+0,1 m del arco, `n = π / acos(1 − 0,1 / max(a, b))`, y con la elipse la flecha máxima es la del círculo de
+radio igual al semieje mayor. Un sector es `[centro, radio, arco, radio]`, sin repetir el primer vértice: el
+centro, `m` vértices del borde izquierdo (`heading − sweep/2`), el arco hasta el derecho y los `m − 1` del
+borde derecho de vuelta. El sector de una elipse pasa el ángulo polar φ a paramétrico con
+`t = atan2(a·sin φ, b·cos φ)`, y el arco es uniforme en `t` entre `−t` y `+t`; como la elipse es simétrica, sus
+dos radios miden lo mismo. El arco tiene `⌈n·t/π⌉` tramos, así que su paso en `t` no pasa del `2π/n` de la
+figura entera y su cuerda queda a 0,1 m. Con `a = b` es `⌈n·sweep/360⌉`, y se cuenta así: el redondeo de
+`atan2` sumaría un tramo en los bordes exactos. Cada radio se parte en `m = ⌈√(L²·tan|φ| / 8R / 0,1)⌉` tramos,
+la separación máxima entre su recta en Mercator y la geodésica, acotado a 4096; sus vértices intermedios son
+destinos desde el centro al mismo rumbo, y la geodésica es exacta porque el azimut inicial es constante.
+`arc` es el tramo del sector que va de su primer radio al último, y con la figura entera el anillo con el primer
+vértice repetido. Un círculo entero sobre la esfera por defecto, que no alcance un polo, va por un camino
+rápido, con las expresiones del destino de esa esfera y sin pasar por la marca. Esa fórmula pierde la lng
+sobre el polo, y a 1 km de él unos 6 µm; por eso el círculo que alcanza uno va por la marca. Que la forma
+alcance un polo se decide con la cota de la distancia angular del semieje mayor, `|lat| + max(a, b)/R ≥ 90°`.
+
+El escritor que comparten `ring`, `arc` y la capa de círculos, que arma con él sus anillos y los cierra, y el
+módulo de densidad que da `segmentsFor`, `stepsFor` y las dos tolerancias, no se exportan del entry. `segmentsFor(r, tol)` es la
+fórmula de arriba y `stepsFor(L, lat, tol)` la de los radios. La tolerancia sin vista es 0,1 m y es la de
+`ring`, `arc` y los radios de un sector. La tolerancia con vista es 0,2 px, llevada a metros con la escala de
+Mercator en la latitud más alta que la forma toca: es la que usa la capa de círculos, y da el mismo `n` de
+siempre.
+
 El **protocolo de modelo** son marcas en el registro global de símbolos, así que un modelo de una
 copia de la librería sirve en otra. Las marcas se agregan entre versiones y sus firmas no cambian:
 
@@ -1056,11 +1100,12 @@ copia de la librería sirve en otra. Las marcas se agregan entre versiones y sus
 | `Symbol.for('cristae.geometry.relief')` | `(polygons: Float64Array[][], breaks: Float64Array) → Relief` | sólo los terrenos | `polygons[p][0]` es el exterior y lo que sigue son sus huecos; cada anillo es un `Float64Array` intercalado de largo exacto 2·n, con n ≥ 1 y todos sus vértices válidos. `breaks` ya viene validado. Devuelve un objeto nuevo y no retiene ni muta los argumentos |
 
 Un modelo sin la marca de área —de una copia anterior a las áreas, o de otra implementación— sigue
-sirviendo a `distance`, `perimeter` y `diameter`, y lo mismo uno sin las de destino y rumbo. Un
-terreno es un modelo —trae `model` y `area`, y no `destination` ni `heading`— que además trae
-`elevation` y `relief`, y se reconoce por la marca de relieve: `diameter` lo rechaza como modelo y
-`terrain` como base. `relief` y `elevation` se despachan por sus marcas, porque el cálculo necesita
-las alturas, que viven en la clausura de la copia que cargó el terreno: su layout no es contrato.
+sirviendo a `distance`, `perimeter` y `diameter`, y lo mismo uno sin las de destino y rumbo, que
+además no coloca formas con `ring` y `arc`. Un terreno es un modelo —trae `model` y `area`, y no
+`destination` ni `heading`— que además trae `elevation` y `relief`, y se reconoce por la marca de
+relieve: `diameter` lo rechaza como modelo y `terrain` como base. `relief` y `elevation` se despachan
+por sus marcas, porque el cálculo necesita las alturas, que viven en la clausura de la copia que
+cargó el terreno: su layout no es contrato.
 
 Un **terreno** son las alturas de una caja leídas de tiles XYZ en Web Mercator, a `source.zoom`: con
 N = `tileSize`·2^zoom píxeles por vuelta, cada píxel es una celda cuyo valor rige en su centro. La
@@ -1208,6 +1253,20 @@ contra el azimut y la llegada publicados de Flinders Peak a Buninyong y por ida 
 `distance` y `heading`; el antimeridiano por los dos lados; el rumbo en [0, 360) con un azimut apenas
 negativo y uno en -0; el `NaN` de los puntos que coinciden —con la lng corrida una vuelta y en cada
 polo—; que sólo se escriba `out[0..1]`; y que un terreno no traiga las marcas.
+
+Las formas: el círculo contra el polígono regular inscrito en el casquete de la esfera, con su perímetro y
+su área en forma cerrada, y la flecha de la cuerda contra la del triángulo rectángulo esférico, en la
+esfera por defecto, en otra y en el centro del polo; cada vértice de círculo, elipse y sector de ambas, en la
+esfera, WGS84 y un elipsoide achatado, contra el problema inverso de la geographiclib —la distancia y el
+rumbo desde el centro, que son las coordenadas polares con que se colocó, y la anomalía excéntrica
+uniforme—; la flecha de cada cuerda de la elipse y del arco de un sector de elipse contra la elipse
+muestreada en el marco de la forma, que con la mitad de tramos ya no cumple; el sector entero, el reflejo y
+el simétrico; los radios contra una geodésica muestreada en el plano de Mercator, que un solo tramo no
+cumple; el arco abierto y el cerrado; cada caso de la regla de validez y de los `TypeError`; la cota del
+polo por el semieje mayor; un modelo de otra implementación con sólo la marca de destino; el círculo de
+`CircleLayer` bit a bit contra el escritor y cerrado, leído de la geometría que la capa entrega, y contra `ring`; el
+terreno que no coloca y la forma colocada que sí se mide sobre él; la tabla de segmentos que daba la capa de
+círculos; y empaquetar `ring` y `arc` sin la librería geodésica.
 
 El terreno, con un `fetch` de stub que arma cada tile con una altura conocida en el centro de cada
 píxel: los tiles pedidos con el margen, también sobre el antimeridiano; cada rechazo de §18.1 sin

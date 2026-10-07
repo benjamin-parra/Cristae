@@ -1,4 +1,4 @@
-# Geometría — `distance`, áreas, terreno y cajas
+# Geometría — `distance`, áreas, formas, terreno y cajas
 
 > Pieza de [Cristae](../MODELO.md). Entry propio (`cristae/geometry`), sin efectos: no importa el
 > motor, el [Source](./data.md) ni Leaflet, y sirve suelto en Node o en un worker. Trae también
@@ -10,6 +10,8 @@
 | `area(model?, zona)` | m² de un anillo, un polígono con huecos o un multipolígono |
 | `perimeter(model?, zona)` | m de todos los bordes de la zona, huecos incluidos, cada anillo cerrado |
 | `diameter(model?, zona)` | m entre los dos vértices más lejanos de la zona |
+| `ring(model?, shape)` | el anillo `[lat, lng]` de un círculo, una elipse, un sector o un sector de elipse en metros, sin repetir el primer vértice |
+| `arc(model?, shape)` | el borde curvo de la forma como path abierto, o su contorno cerrado si es entera |
 | `terrain(model?, source, bounds, options?)` | carga las alturas de una caja desde tiles de altura: `Promise<Terrain>` |
 | `terrainPresets` | datos: `{ aws, mapterhorn }`, dos proveedores públicos, como `tilePresets` |
 | `relief(terrain, zona, breaks?)` | altura y pendiente de una zona, y m² de superficie por clase de pendiente |
@@ -142,6 +144,45 @@ La esfera de radio medio y WGS84 difieren en área según la latitud (un cuadrad
 | esfera − WGS84 | +0,449 % | +0,292 % | +0,113 % | −0,038 % | −0,222 % | −0,557 % | −0,735 % | −0,851 % | −0,891 % |
 
 Para una cifra que se compara con un catastro o un SIG, `area(WGS84, zona)`.
+
+## Formas — `ring` y `arc`
+
+```js
+import { ring, arc, area, perimeter, WGS84 } from 'cristae/geometry'
+
+area(ring({ center: [-33.45, -70.66], radius: 500 }))                       // m² de un círculo de 500 m
+area(WGS84, ring(WGS84, { center, radius: [800, 300], heading: 45 }))       // una elipse, medida sobre WGS84
+ring({ center, radius: 300, heading: 90, sweep: 60 })                       // un sector de 60° mirando al este
+arc({ center, radius: 300, heading: 90, sweep: 60 })                        // su borde curvo, abierto
+```
+
+Una **forma** es `{ center, radius, heading?, sweep? }`, con el centro en cualquier forma de punto y todo
+lo demás en metros y grados. Se lee por contenido: no lleva un `type`.
+
+- **`radius`** es un número —círculo— o `[a, b]` —elipse, con `a` sobre `heading` y `b` de través; no
+  hace falta que `a ≥ b`—. La elipse se parametriza por la anomalía excéntrica, y no es el lugar focal.
+- **`heading`** es 0 = N, 90 = E, como `sampleAlong`, y es la única rotación: orienta el semieje `a` y
+  la dirección del sector. Sin él la forma mira al norte, y un círculo entero no lo lee.
+- **`sweep`** son los grados que abre el sector, centrados en `heading`. Con `[a, b]` sale el sector de
+  elipse, y su ángulo es el polar medido desde el centro. Sin él, o con 360 o más, sale la figura entera.
+- **El anillo** parte en `heading` y sigue en sentido horario, sin repetir el primer vértice: es lo que
+  miden `area` y `perimeter`. Un sector es `[centro, radio, arco, radio]`, del borde izquierdo al derecho.
+  El arco de un sector abre de `heading − sweep/2` a `heading + sweep/2`, y el de la figura entera es el
+  contorno cerrado, con el primer vértice repetido.
+- **Un solo modelo.** Los vértices están a los metros pedidos del centro según el modelo, que va primero y
+  es opcional: sin él, la esfera de radio medio. Cada radio de un sector es la geodésica del modelo. La
+  longitud sigue a la del centro sin envolverse, así que una figura que cruza el antimeridiano no salta.
+- **Los datos malos dan `[]`**, lo mismo que `ring(null)`, que es el valor de un editor antes de dibujar.
+  `null` y `undefined` toman el default; un número presente que la forma usa y no es finito la descarta, y
+  el radio y `sweep` además si no son mayores que 0. Los polos no se rechazan, porque `area` los mide.
+- **Un terreno no coloca formas**: lanza `TypeError`. Se coloca sobre el modelo base y se mide después,
+  `area(terreno, ring(WGS84, forma))`. Un modelo que no ubica destinos —una copia anterior de Cristae o
+  una implementación ajena sin la marca— también lanza.
+
+La tolerancia es de 0,1 m sin vista: la cuerda de cada tramo no se aparta del borde verdadero más que eso,
+con 16 a 4096 vértices en la figura entera. En un círculo de 500 m son 256; pasado el tope de 4096, la
+separación crece. Los radios de un sector se parten sobre la misma tolerancia, porque la geodésica se
+curva en Mercator.
 
 ## Terreno
 
@@ -385,6 +426,12 @@ El bucle de `distance` sobre el terreno no asigna: sólo usa números locales, y
 2 millones de llamadas no hacen crecer el montón en proporción. La distancia de la base, una por
 tramo, asigna lo que asigne ese modelo: con el elipsoide, el resultado de la geodésica. `area` recorre
 las celdas que la zona toca como `relief`.
+
+`ring` y `arc` colocan cada vértice con la marca de destino del modelo y devuelven un array de pares.
+Un círculo de 500 m, de 256 vértices, tarda 93 µs sobre la esfera por defecto —tiene un camino rápido
+que no asigna por vértice—, 167 µs sobre otra instancia de `sphere()` y 550 µs sobre WGS84, que paga la
+geodésica en cada vértice; la elipse y el sector cuestan lo mismo por vértice. Importar `ring` y `arc`
+suma 1,5 KB al bundle de `distance` con `sphere`, y no carga la librería geodésica.
 
 `sampleAlong` reparte sus muestras por largo en pantalla (EPSG:3857), para decorar: no quedan
 equidistantes en metros.

@@ -185,6 +185,40 @@ export function perimeter(model: EarthModel, polygon: LatLngPolygon | null | und
 export function diameter(polygon: LatLngPolygon | null | undefined): number;
 export function diameter(model: EarthModel, polygon: LatLngPolygon | null | undefined): number;
 
+/** Una forma en METROS: círculo, elipse, sector o sector de elipse. Es lo que reciben `ring` y `arc`. Se
+ *  lee por contenido, sin un `type`. Ver docs/geometry.md. */
+export interface Shape<Point = LatLngPoint> {
+  /** Entra en cualquier forma de punto. La longitud queda continua con la del centro y no se envuelve. */
+  center   : Point;
+  /** METROS. Un número: círculo. `[a, b]`: elipse, `a` sobre `heading` y `b` de través; no hace falta
+   *  a ≥ b. Tiene que ser finito y mayor que 0. */
+  radius   : number | readonly [number, number];
+  /** Grados, 0 = N, 90 = E, horario. Orienta el semieje `a` de la elipse y la dirección del sector.
+   *  Ausente (`null` o `undefined`): norte. Un círculo entero no lo lee. */
+  heading? : number | null;
+  /** Grados que abre el sector, centrados en `heading`: finito y mayor que 0. Ausente, o 360 o más:
+   *  la figura entera. */
+  sweep?   : number | null;
+}
+
+/** El anillo de la forma en pares `[lat, lng]`, sin repetir el primero: lo que miden `area` y
+ *  `perimeter`, y lo que acepta una zona. El vértice 0 va en `heading` —el norte en un círculo— y el
+ *  resto sigue en sentido horario; un sector es `[centro, radio, arco, radio]`. Los vértices son los del
+ *  modelo, así que `area(model, ring(model, forma))` mide la forma, y la cuerda no se aparta del borde
+ *  verdadero más de 0,1 m, salvo con el tope de 4096 segmentos. Una forma que no cumple la regla —centro
+ *  que no es punto, radio o `sweep` que no son finitos y mayores que 0, `heading` que se usa y no es
+ *  finito— da `[]`, como `null`. Sin modelo usa la esfera de radio medio. Lanza `TypeError` si el modelo
+ *  no va primero, si no ubica destinos, o si es un terreno: la forma se coloca en horizontal, y se mide
+ *  después con el terreno. Ver docs/geometry.md. */
+export function ring(shape: Shape | null | undefined): [number, number][];
+export function ring(model: EarthModel, shape: Shape | null | undefined): [number, number][];
+
+/** El borde curvo del sector como path abierto, de `heading − sweep/2` a `heading + sweep/2`. Con la
+ *  figura entera, el contorno cerrado: el anillo, repitiendo el primer vértice. La forma y los errores
+ *  son los de `ring`. */
+export function arc(shape: Shape | null | undefined): [number, number][];
+export function arc(model: EarthModel, shape: Shape | null | undefined): [number, number][];
+
 /** Proveedores públicos, sin key ni cuenta. Son datos y no un camino de código. */
 export const terrainPresets: { readonly aws: TerrainSource; readonly mapterhorn: TerrainSource };
 

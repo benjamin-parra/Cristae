@@ -38,6 +38,7 @@ const gEllipsoid = await import('../src/geometry/ellipsoid.js')
 const gPolyline = await import('../src/geometry/polyline.js')
 const gBounds = await import('../src/geometry/bounds.js')
 const gMeasure = await import('../src/geometry/measure.js')
+const gShape = await import('../src/geometry/shape.js')
 const gTerrain = await import('../src/geometry/terrain.js')
 
 // `table/` SÍ registra el custom element al importarse: se stubea el registry para observar
@@ -205,7 +206,7 @@ test('el lector no registra ningún custom element', () => {
 
 // ── geometry: la medida, los modelos y el contrato de path, sin la regla interna ──
 
-// Diecisiete nombres. `foldRuns`, `foldPart`, `foldArgs`, `iterable`, `coordOf`, `isPlace`,
+// Diecinueve nombres. `foldRuns`, `foldPart`, `foldArgs`, `iterable`, `coordOf`, `isPlace`,
 // `hasPointShape` e `isPoint` son la regla de corte y de punto que comparten `toParts`, `distance`,
 // `boundsOf` y `fitToLayers`, y los editores leen con `coordOf` e `isPoint`, la cámara con `isPlace` y
 // el anfitrión con `coordOf` y `hasPointShape`; `emptyBounds`, `growBounds`, `growRun` y `readBounds`,
@@ -214,11 +215,14 @@ test('el lector no registra ningún custom element', () => {
 // y el picking de círculos; `MODEL`, `isModel` y `byDefault`, la marca de modelo y el modelo por
 // defecto que comparten `distance` y las medidas de zona, y `AREA`, `ELEVATION` y `RELIEF`, las marcas
 // que leen esas medidas y el terreno; `foldRings` y `areaStep`, el lector de zonas y la suma de su
-// área, que comparten esas medidas y `relief`, y `measureArgs`, el de sus argumentos; y `decodeTile`,
-// el decodificador de tiles de altura del terreno: si salen del entry, alguien los usa y ya no se
-// pueden mover.
+// área, que comparten esas medidas y `relief`, y `measureArgs`, el de sus argumentos; `readShape`,
+// `reachesPole`, `sizeShape` y `writeShape`, el escritor de formas que comparten `ring`, `arc` y la capa
+// de círculos, y `GROUND`, `segmentsFor`, `stepsFor` y `viewTolerance`, el módulo de densidad que usan
+// ese escritor y la capa de círculos; y `decodeTile`, el decodificador de tiles de altura del terreno: si salen del entry, alguien
+// los usa y ya no se pueden mover.
 const GEOMETRY = {
   WGS84          : 'object',
+  arc            : 'function',
   area           : 'function',
   boundsCenter   : 'function',
   boundsContain  : 'function',
@@ -230,6 +234,7 @@ const GEOMETRY = {
   ellipsoid      : 'function',
   perimeter      : 'function',
   relief         : 'function',
+  ring           : 'function',
   sampleAlong    : 'function',
   sphere         : 'function',
   terrain        : 'function',
@@ -249,6 +254,7 @@ test('cada export de cristae/geometry es el MISMO valor que define su módulo', 
     toParts: gPolyline, sampleAlong: gPolyline,
     boundsOf: gBounds, boundsPad: gBounds, boundsContain: gBounds, boundsCenter: gBounds,
     area: gMeasure, perimeter: gMeasure, diameter: gMeasure,
+    ring: gShape, arc: gShape,
     terrain: gTerrain, terrainPresets: gTerrain, relief: gTerrain, elevation: gTerrain,
   }
   assert.deepEqual(Object.keys(origen).sort(), Object.keys(GEOMETRY).sort())

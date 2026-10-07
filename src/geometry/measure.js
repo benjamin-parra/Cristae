@@ -69,13 +69,13 @@ export const foldRings = (polygon, step, acc) => {
 }
 
 // El modelo, si viene, es el primero, como en `distance`; con dos argumentos tiene que serlo. La zona
-// no puede ser un modelo ni una función: es un error del llamador, y medirla como un dato malo lo
-// escondería.
-const measureArgs = (name, args) => {
+// —o la forma, en `ring` y `arc`— no puede ser un modelo ni una función: es un error del llamador, y
+// leerla como un dato malo lo escondería.
+export const measureArgs = (name, args, what = 'polygon') => {
   const polygon = args[args.length - 1]
   const misused = args.length > 2 || (args.length === 2 && !isModel(args[0]))
   if (misused || isModel(polygon) || typeof polygon === 'function')
-    throw new TypeError(`[${name}] recibe (model?, polygon): el modelo va primero, y construido: sphere(), no sphere`)
+    throw new TypeError(`[${name}] recibe (model?, ${what}): el modelo va primero, y construido: sphere(), no sphere`)
   return { model: args.length === 2 ? args[0] : byDefault, polygon }
 }
 
