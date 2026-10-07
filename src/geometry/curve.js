@@ -4,7 +4,7 @@
 // editores los llaman por tramo y escriben donde necesitan —el escalar interpolado, el índice de la
 // entrada—, y `geodesic` los junta en el path que expone. Módulo puro: sin Leaflet, sin DOM, sin el
 // elipsoide.
-import { HEADING, DESTINATION, MEAN_RADIUS, MODEL, byDefault, checkPlacer } from './geodesic.js'
+import { HEADING, DESTINATION, MEAN_RADIUS, MODEL, byDefault, checkHeading, checkPlacer } from './geodesic.js'
 import { GROUND, stepsFor } from './density.js'
 import { measureArgs } from './measure.js'
 import { toParts } from './polyline.js'
@@ -81,7 +81,7 @@ export const at = (model, lat1, lng1, lat2, lng2, t, out) => {
 export const geodesic = (...args) => {
   const { model, polygon } = measureArgs('geodesic', args, 'path')
   checkPlacer(model, 'geodesic', 'la curva')
-  if (typeof model[HEADING] !== 'function') throw new TypeError('[geodesic] este modelo no ubica rumbos')
+  checkHeading(model, 'geodesic')
   return toParts(polygon).map(({ path }) => {
     const curved = [path[0]]
     for (let i = 1; i < path.length; i++) {

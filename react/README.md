@@ -82,7 +82,7 @@ import { CristaeMap, CristaePointLayer, CristaeCluster, CristaePopup } from '@cr
 ```
 
 - **`CristaeMap`** — piel del `<cristae-map>`: `tile`, `initialCenter`/`initialZoom`, `zoomAnimation`,
-  `cursor`, `viewportInsets`, `emptyMessage`, y los eventos `onReady` / `onViewportChange` /
+  `cursor`, `viewportInsets`, `model`, `emptyMessage`, y los eventos `onReady` / `onViewportChange` /
   `onMapClick` / `onClick` / `onHover` / `onPointerMove` / `onInteractionStart` / `onInteractionEnd`
   (cada handler recibe el `CustomEvent` con su `detail` tipado) + los del bus (`onSecondaryClick`,
   `onHoverStart`, `onHoverEnd`).

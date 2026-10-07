@@ -97,7 +97,7 @@ que `area(ring(e.detail.value))` mide lo editado.
   las manijas no se pisan. Un radio que ya es menor —porque entró así o porque se alejó el zoom— no se
   corrige, y la apertura se acota como en el radio mínimo.
 - **Polo.** El arrastre que llevaría el borde a un polo no se aplica ni emite.
-- **Modelo.** El valor y las manijas salen del modelo con que el mapa coloca las formas. Mientras dura el
+- **Modelo.** El valor y las manijas salen del `model` del mapa, el que coloca las formas. Mientras dura el
   gesto el anillo se dibuja con la esfera de radio medio, y al soltar se rehace con el modelo: con
   `WGS84` lo dibujado en el gesto se aparta del final a lo sumo un 0,56 % del radio.
 - `focus({ kinds: ['circle'] })` no alcanza a un editor de círculo: su capa es `kind: 'editable'`.

@@ -5,7 +5,7 @@
 
 // El re-export de abajo NO liga los nombres en este archivo: lo que se usa acá se importa.
 import type { CristaeReadSource, CristaeSource, CristaeFilter, SourceAccessors } from "./core";
-import type { Bounds, BoundsLike, LatLng, LatLngPath, LatLngPoint, Shape } from "./geometry";
+import type { Bounds, BoundsLike, EarthModel, LatLng, LatLngPath, LatLngPoint, Shape } from "./geometry";
 
 export type {
   SourceAccessors,
@@ -771,6 +771,11 @@ export interface MapEngineOptions {
   view?               : { center?: LatLngPoint; zoom?: number };
   insets?             : Insets;
   hoverThrottleMs?    : number;
+  /** El modelo con que el mapa coloca y pica las formas y curva las geodésicas, y con que las miden y
+   *  las editan los editores de forma. Default: la esfera por defecto. Se lee en el alta: cambiarlo
+   *  después no re-tesela. Lanza `TypeError` si no es un modelo, si es un terreno o si no ubica destinos
+   *  y rumbos. */
+  model?              : EarthModel;
   /** Política de animación del zoom (SPECS §9). Sin ella, `"none"` en un mapa propio y la del dueño en
    *  uno adoptado. */
   zoomAnimation?      : "none" | "in-only" | "on";

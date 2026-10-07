@@ -21,7 +21,7 @@ import { createLeafletHost } from '../host/LeafletHost.js'
 import { iterable } from '../data/path.js'
 import { foldRuns } from '../geometry/polyline.js'
 import { emptyBounds, growBounds, growRun } from '../geometry/bounds.js'
-import { byDefault } from '../geometry/geodesic.js'
+import { byDefault, checkHeading, checkPlacer, isModel } from '../geometry/geodesic.js'
 
 // MapEngine — orquestador headless (SPECS §6). Framework-agnóstico, sin dominio. Monta sobre un
 // anfitrión —el que recibe o el que crea sobre `container`—, deriva panes por orden de declaración (el
@@ -118,15 +118,22 @@ export class MapEngine {
   #dimOpacity         = 0.3            // opacidad del resto mientras hay enfoque POR CAPA
   #focusKinds         = null           // kinds de capa que el enfoque por capa atenúa (null = todas)
   #itemFocus          = new Map()      // enfoque por ÍTEM: layerId → Set(id) declarado (vacío = todo atenuado)
-  #model              = byDefault      // el modelo de la Tierra con que dibujan y pican las formas
+  #model              = null           // el modelo de la Tierra con que dibujan y pican las formas y las geodésicas
   #leafletWarned      = false          // getLeafletMap() ya avisó en este motor
 
   camera
   ready
 
   // Lo que queda en `limits` son los límites de la cámara. Como la vista inicial, son del mapa propio: uno
-  // adoptado trae los de su dueño.
-  constructor({ host, container, view, insets, hoverThrottleMs = 0, zoomAnimation, cursor, ...limits } = {}) {
+  // adoptado trae los de su dueño. `model` se valida antes de crear el mapa: si lanza no deja uno suelto en el contenedor.
+  constructor({
+    host, container, view, insets, hoverThrottleMs = 0, zoomAnimation, cursor, model = byDefault, ...limits
+  } = {}) {
+    if (!isModel(model)) throw new TypeError('[MapEngine] `model` tiene que ser sphere(), ellipsoid() o WGS84')
+    checkPlacer(model, 'MapEngine', 'las formas y las geodésicas')
+    checkHeading(model, 'MapEngine')
+    this.#model = model
+
     this.#host      = host ?? createLeafletHost({ container, view, limits: limitsOf(limits) })
     // Sin modo explícito queda el del anfitrión: no anima en un mapa propio, y en uno adoptado no se
     // interviene la política de su dueño.

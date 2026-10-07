@@ -24,6 +24,7 @@ import type {
   IconSet,
   Insets,
   BoundsLike,
+  EarthModel,
   Camera,
   MapEngine,
   PointHandle,
@@ -228,6 +229,10 @@ export interface CristaeMapProps extends CristaeBaseProps {
   /** Franjas del contenedor ocluidas por UI del consumidor (paneles) — reactivo. */
   viewportInsets?     : Insets;
   hoverThrottle?      : number;
+  /** El modelo de la Tierra de las formas y las geodésicas (`sphere()`, `ellipsoid()` o `WGS84`). Default:
+   *  la esfera por defecto. Se lee al montar: cambiarlo después no re-tesela, y un terreno lanza
+   *  `TypeError`. */
+  model?              : EarthModel;
   /** `[lat, lng]` o `"lat,lng"`. */
   initialCenter?      : [number, number] | string;
   initialZoom?        : number;

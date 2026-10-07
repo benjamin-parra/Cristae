@@ -92,8 +92,18 @@ Las que pasan de ±85,05° sin alcanzar el polo se dibujan aplastadas contra el 
   Si la `version` de la Source ya avanzó, dibujan lo nuevo antes de que emita; con `defineSource` sin
   `version` propia, recién después del aviso. Un accessor que lanza le llega al primero que lee el
   cambio, el encuadre o la emisión, y la capa sigue con lo anterior hasta el próximo cambio.
-- **Modelo.** Las formas se colocan y se pican sobre la esfera de radio medio, la misma de `ring` sin
-  modelo.
+- **Modelo.** Las formas se colocan y se pican sobre el modelo de la Tierra del mapa, la esfera de radio
+  medio salvo que se pase otro. Es una opción del alta, y cambiarla después no re-tesela:
+
+  ```js
+  import { WGS84 } from 'cristae/geometry'
+  new MapEngine({ container, model: WGS84 })      // <CristaeMap model={WGS84}> en React
+  ```
+
+  El borde y el hit coinciden en cualquier modelo, y los vértices caen sobre la curva de `ring` con ese
+  modelo, con la densidad que pide el zoom. El modelo tiene que ubicar destinos y rumbos —`sphere()`,
+  `ellipsoid()` y `WGS84`—: un terreno o un modelo sin esas marcas lanza `TypeError` en el alta, junto
+  con el resto de las opciones del mapa. El alias de círculos no lo lee.
 
 ## Costo
 
@@ -113,9 +123,25 @@ Mil formas a zoom 15 en Node 26, sin GPU (mediana de 7):
 
 | Mil… | rehacer los anillos | zoom 15 ↔ 17 | un hit |
 |---|---|---|---|
-| círculos de 500 m | 34 ms | 50 ms | 7,6 µs |
-| elipses de 800 × 300 m | 83 ms | 147 ms | 7,3 µs |
-| sectores de 5 km y 90° | 47 ms | 73 ms | 9,4 µs |
+| círculos de 500 m | 29 ms | 41 ms | 5,4 µs |
+| elipses de 800 × 300 m | 83 ms | 133 ms | 6,0 µs |
+| sectores de 5 km y 90° | 51 ms | 63 ms | 6,2 µs |
+
+Con `WGS84` cada vértice pide un `Direct` de la geographiclib, que asigna: ~1,7 µs contra ~0,25 µs de la
+esfera. Las mismas mil formas:
+
+| Mil… con `WGS84` | rehacer los anillos | zoom 15 ↔ 17 | un hit |
+|---|---|---|---|
+| círculos de 500 m | 129 ms | 253 ms | 4,4 µs |
+| elipses de 800 × 300 m | 262 ms | 489 ms | 5,6 µs |
+| sectores de 5 km y 90° | 144 ms | 290 ms | 5,7 µs |
+
+El zoom re-tesela sólo las formas cuyo número de vértices cambia, así que ese costo se paga en cada
+`zoomend` y no en cada frame. Un hit no consulta el modelo: prueba el anillo ya teselado. Arrastrar el
+centro o la manija de radio de un editor de círculo, de elipse o de sector cuesta ~0,1 a 0,25 ms por
+frame con cualquiera de los dos: durante el gesto el modelo sólo ubica la manija —y la de radio le pide
+además una distancia y un rumbo—, y el anillo se rehace con él al soltar, en ~0,5 a 1,2 ms. Las cifras
+salen de `node bench/formas.mjs`.
 
 Los vértices de todas las formas entran en una textura del lado máximo del contexto. Si no caben, la
 capa baja a la mitad los vértices de todas hasta que entren, sin avisar, con un piso de 16 por figura

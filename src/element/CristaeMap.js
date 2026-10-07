@@ -59,6 +59,9 @@ export class CristaeMap extends LitElement {
     noZoomControl      : { type: Boolean, attribute: 'no-zoom-control' },
     viewportInsets     : { type: Object, attribute: 'viewport-insets' },
     hoverThrottle      : { type: Number, attribute: 'hover-throttle' },
+    // El modelo de la Tierra de las formas y las geodésicas (sphere(), ellipsoid() o WGS84). Se lee al
+    // montar, como `hover-throttle`: cambiarlo después no re-tesela.
+    model              : { attribute: false },
     initialCenter      : { attribute: 'initial-center' },
     initialZoom        : { type: Number, attribute: 'initial-zoom' },
     zoomAnimation      : { type: String, attribute: 'zoom-animation' },
@@ -329,6 +332,7 @@ export class CristaeMap extends LitElement {
       view: { center: resolveCenter(), zoom: this.initialZoom ?? 2 },
       insets: this.viewportInsets,
       hoverThrottleMs: this.hoverThrottle ?? 0,
+      model: this.model,
       zoomAnimation: this.zoomAnimation ?? 'none',
       cursor: this.cursor,
       ...this.#limits(),

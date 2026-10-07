@@ -27,7 +27,7 @@ import {
   type CristaeViewportChangeDetail,
 } from '@cristae/react'
 import { MapEngine, adoptLeafletHost, arc, createSource, defineSource, defineIconSet, distance, drawLabel, sphere, toParts, type Bounds, type CristaeSource, type LineAccessors, type PointerSample } from 'cristae/map'
-import { boundsOf, boundsPad } from 'cristae/geometry'
+import { WGS84, boundsOf, boundsPad } from 'cristae/geometry'
 
 interface Movil {
   id: number
@@ -63,6 +63,7 @@ export const ViaData = () => (
     maxBounds={{ south: -85, west: -180, north: 85, east: 180 }}
     maxBoundsViscosity={1}
     cursor="crosshair"
+    model={WGS84}
     tile={{ url: 'https://tiles/{z}/{x}/{y}.png', maxZoom: 19 }}
     onViewportChange={(e) => {
       const d: CristaeViewportChangeDetail = e.detail
@@ -281,6 +282,7 @@ export const porTramo: LineAccessors<{ id: number; puntos: number[][] }> = { idO
 // ── El motor headless: un mapa propio sobre un contenedor, o uno de Leaflet adoptado ─────────
 export const propio   = (container: HTMLElement) => new MapEngine({ container, view: { center: [-33.45, -70.66], zoom: 12 } })
 export const adoptado = (map: unknown) => new MapEngine({ host: adoptLeafletHost(map), zoomAnimation: 'on' })
+export const elipsoide = (container: HTMLElement) => new MapEngine({ container, model: WGS84 })
 export const limitado = (engine: MapEngine) => engine.setLimits({ minZoom: 3, maxZoom: null, maxBounds: [[-85, -180], [85, 180]] })
 
 // ── El mal uso NO compila ────────────────────────────────────────────────────
@@ -300,6 +302,10 @@ export const BadUnion = () => <CristaeMap zoomAnimation="fast" />
 // una caja de límites que no es una caja.
 // @ts-expect-error maxBounds es una caja o un par de esquinas
 export const BadBounds = () => <CristaeMap maxBounds={[-85, -180, 85, 180]} />
+
+// el modelo es un EarthModel, no su nombre.
+// @ts-expect-error model no acepta una cadena
+export const BadModel = () => <CristaeMap model="WGS84" />
 
 // un número suelto no es un punto ni un path.
 // @ts-expect-error distance no mide un número

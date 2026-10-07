@@ -71,6 +71,7 @@ Contenedor. Monta el `MapEngine`, expone cámara/engine y reenvía los eventos d
 | `max-bounds` | JSON de `{ south, west, north, east }` o de un par de esquinas; la caja de la que la cámara no sale | atributo (o prop `maxBounds`) — **reactivo** |
 | `max-bounds-viscosity` | 0 (default) a 1; cuánto resiste al arrastre el borde de `max-bounds` | atributo — **reactivo** |
 | `viewport-insets` | object | prop `viewportInsets` |
+| `model` | `sphere()` · `ellipsoid()` · `WGS84`; el modelo de la Tierra de las formas y las geodésicas, la esfera por defecto sin él. Se lee al montar | **prop**; un terreno lanza `TypeError` |
 | `tile` | `{ url, maxZoom?, attribution?, subdomains?, … }` | **prop** |
 | `--cristae-map-background` | valor CSS de `background`; default, el gris `#ddd` de Leaflet | custom property — **en vivo** |
 | `--cristae-tile-filter` | valor CSS de `filter`; default, ninguno | custom property — **en vivo** |

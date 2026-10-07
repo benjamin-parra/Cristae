@@ -91,9 +91,10 @@ Con tablas armadas a mano, sin `owner`, el sujeto sigue siendo la parte.
 ## Curva geodésica
 
 Con curva —la pide `<cristae-geodesic>` envolviendo la capa, o `engine.addGeodesic({ hostId })`, que
-devuelve con qué volver a rectas— las tablas se densifican sobre la geodésica del modelo del mapa al
-entrar, con la regla de [`geodesic`](geometry.md#geodésica--geodesic) y también en la arista de cierre, y
-el relleno, el picking y el encuadre leen las curvadas: el punto-en-anillo coincide con el borde que se
+devuelve con qué volver a rectas— las tablas se densifican sobre la geodésica del
+[modelo del mapa](elements.md#cristae-map) al entrar, con la regla de
+[`geodesic`](geometry.md#geodésica--geodesic) y también en la arista de cierre, y el relleno, el
+picking y el encuadre leen las curvadas: el punto-en-anillo coincide con el borde que se
 ve. Anillos, partes y la selección `rings`/`parts` conservan su numeración, así que un hit da la misma
 parte que sin curva, y los anillos que la selección deja afuera pasan rectos. La densificación corre
 cuando entra la geometría, nunca por zoom, y un polígono de aristas de 10 a 100 m no gana vértices: mil

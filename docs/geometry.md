@@ -86,13 +86,14 @@ error del llamador, no un dato malo, y leerlo como un punto inválido mediría e
   `Symbol.for('cristae.geometry.destination')` da el punto a un rumbo y unos metros de otro, con la
   lng continua —sin envolver— al cruzar el antimeridiano, y `Symbol.for('cristae.geometry.heading')`
   da el rumbo inicial, en [0, 360), de un punto a otro, y `NaN` si coinciden. Un terreno mide sobre el
-  relieve y no las trae. El contrato está en [SPECS §18](../SPECS.md).
+  relieve y no las trae, así que tampoco sirve de `model` del mapa, la opción con que el motor coloca
+  formas y geodésicas. El contrato está en [SPECS §18](../SPECS.md).
 - Las fábricas validan al construir y lanzan `RangeError` si el radio o el semieje no es un número
   finito mayor que 0, o si el achatamiento no está en [0, 1). Los modelos son inmutables.
 
-El picking de `addCircleLayer` mide con la esfera por defecto, sin opción de modelo, y el contorno se
-dibuja sobre esa misma esfera —cada vértice a `radius` metros del centro según `arcMeters`—: el borde
-y el hit coinciden a cualquier latitud.
+El picking de `addCircleLayer` mide con la esfera por defecto, sin leer el `model` del mapa, y el
+contorno se dibuja sobre esa misma esfera —cada vértice a `radius` metros del centro según
+`arcMeters`—: el borde y el hit coinciden a cualquier latitud.
 
 ## Áreas, perímetro y diámetro
 

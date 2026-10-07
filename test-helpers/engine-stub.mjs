@@ -531,3 +531,14 @@ export const contadorNodos = () => {
     marcar() { marca = registro.serie; marcaBajas = registro.muertes.length },
   }
 }
+
+// Un modelo de la Tierra que delega en `base` y cuenta los destinos y los rumbos que le piden. Las marcas
+// van por `Symbol.for`, que es su contrato (SPECS §18): este helper no importa nada del árbol.
+const DESTINO = Symbol.for('cristae.geometry.destination')
+const RUMBO   = Symbol.for('cristae.geometry.heading')
+export const contando = base => {
+  const modelo = { ...base, destinos: 0, rumbos: 0 }
+  modelo[DESTINO] = (...args) => { modelo.destinos++; return base[DESTINO](...args) }
+  modelo[RUMBO]   = (...args) => { modelo.rumbos++;   return base[RUMBO](...args) }
+  return modelo
+}

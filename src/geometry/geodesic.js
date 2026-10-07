@@ -59,6 +59,11 @@ export const checkPlacer = (model, name, noun) => {
   if (typeof model[DESTINATION] !== 'function') throw new TypeError(`[${name}] este modelo no ubica destinos`)
 }
 
+// Lo que además pide una pieza que se orienta por el puntero o por otro punto: que sepa dar rumbos.
+export const checkHeading = (model, name) => {
+  if (typeof model[HEADING] !== 'function') throw new TypeError(`[${name}] este modelo no ubica rumbos`)
+}
+
 // El núcleo de la esfera mide dos puntos en grados, sin validarlos, con la haversine: estable a
 // escala de centímetros, donde la ley de cosenos pierde los dígitos. El término se acota a [0, 1]
 // porque en pares casi antípodas el redondeo lo empuja sobre 1, y ahí `asin` da NaN. El antimeridiano

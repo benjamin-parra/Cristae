@@ -246,6 +246,8 @@ new MapEngine({ container: HTMLElement, view?: { center, zoom }, /* defaults neu
 new MapEngine({ host: adoptLeafletHost(map, { leaflet? }), … }) → engine
 ```
 
+`model?: EarthModel` —`sphere()`, `ellipsoid()` o `WGS84`— es el modelo con que el motor coloca y pica la capa de formas, ubica las manijas de los editores de forma y curva `addGeodesic`. Sin él, la esfera por defecto. Se lee en el alta y no se cambia después: no re-tesela. Un valor que no es un modelo, un terreno o un modelo sin las marcas de destino y rumbo lanzan `TypeError` antes de crear nada. El alias `addCircleLayer` no lo lee: sigue en la esfera por defecto (§18).
+
 | Método | Tipo | Complejidad | Notas |
 |---|---|---|---|
 | `addPointLayer(cfg) → handle` | acción | O(1) + preseed | crea capa + store interno |
@@ -282,6 +284,7 @@ new MapEngine({ host: adoptLeafletHost(map, { leaflet? }), … }) → engine
 | `no-zoom-control` | boolean | sí | cambio | quita el zoom del elemento ([`docs/elements.md`](./docs/elements.md#cristae-map)) |
 | `viewport-insets` | `{top,right,bottom,left}` | sí | cambio | compensa UI que ocluye; lo usan `panTo/flyTo/fitBounds/fitToLayer` |
 | `hover-throttle` | ms | sí | cambio | throttle de `pointermove`→picking |
+| `model` | `EarthModel` | **no** (objeto: prop) | **no** (solo al montar) | modelo de la Tierra de las formas y las geodésicas (§6); un terreno o un modelo sin las marcas lanza `TypeError` |
 | `cursor` | valor CSS de `cursor` | sí | cambio | cursor del contenedor; precedencia en [`docs/interaction.md`](./docs/interaction.md#el-cursor-del-contenedor) |
 | `zoom-animation` | `'none'` \| `'in-only'` \| `'on'` | sí | cambio | política de animación del zoom (§9); default `'none'` |
 | `min-zoom` / `max-zoom` | number | sí | cambio | topes del zoom (§9) |
@@ -1156,11 +1159,12 @@ copia de la librería sirve en otra. Las marcas se agregan entre versiones y sus
 
 Un modelo sin la marca de área —de una copia anterior a las áreas, o de otra implementación— sigue
 sirviendo a `distance`, `perimeter` y `diameter`, y lo mismo uno sin las de destino y rumbo, que además
-no coloca formas con `ring` y `arc`, ni curva con `geodesic`, que pide también el rumbo. Un terreno es
-un modelo —trae `model` y `area`, y no `destination` ni `heading`— que además trae `elevation` y
-`relief`, y se reconoce por la marca de relieve: `diameter` lo rechaza como modelo y `terrain` como
-base. `relief` y `elevation` se despachan por sus marcas, porque el cálculo necesita las alturas, que
-viven en la clausura de la copia que cargó el terreno: su layout no es contrato.
+no coloca formas con `ring` y `arc`, ni curva con `geodesic`, que pide también el rumbo, ni sirve de
+`model` del mapa, que pide los dos. Un terreno es un modelo —trae `model` y `area`, y no `destination`
+ni `heading`— que además trae `elevation` y `relief`, y se reconoce por la marca de relieve: `diameter`
+lo rechaza como modelo, `terrain` como base y el motor como `model` del mapa. `relief` y `elevation` se
+despachan por sus marcas, porque el cálculo necesita las alturas, que viven en la clausura de la copia
+que cargó el terreno: su layout no es contrato.
 
 Un **terreno** son las alturas de una caja leídas de tiles XYZ en Web Mercator, a `source.zoom`: con
 N = `tileSize`·2^zoom píxeles por vuelta, cada píxel es una celda cuyo valor rige en su centro. La

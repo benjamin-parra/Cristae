@@ -221,9 +221,9 @@ test('el lector no registra ningún custom element', () => {
 // que comparten `ring`, `arc`, las capas de círculos y de formas y los editores, y `GROUND`,
 // `MIN_SEGMENTS`, `segmentsFor`, `stepsFor`, `viewTolerance` y `pixelsToMeters`, el módulo de densidad que
 // usan ese escritor, esas capas y los editores; `count` y `at`, los tramos y los puntos de la curva que
-// comparten `geodesic`, las capas de líneas y de polígonos y los editores, y `checkPlacer`, el control del
-// modelo que coloca puntos; y `decodeTile`, el decodificador de tiles de altura del terreno: si salen del
-// entry, alguien los usa y ya no se pueden mover.
+// comparten `geodesic`, las capas de líneas y de polígonos y los editores, `checkPlacer` y `checkHeading`,
+// los controles del modelo que coloca puntos y da rumbos; y `decodeTile`, el decodificador de tiles de altura
+// del terreno: si salen del entry, alguien los usa y ya no se pueden mover.
 const GEOMETRY = {
   WGS84          : 'object',
   arc            : 'function',

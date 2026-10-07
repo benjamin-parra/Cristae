@@ -18,7 +18,7 @@
 // El harness (engine-stub) shimea window/document — se importa PRIMERO.
 
 import './../../test-helpers/engine-stub.mjs'
-import { conGlDeEdicion, contadorNodos, makeDragging, makeEditGl, makeMap, makePickSpy, makeSurface } from '../../test-helpers/engine-stub.mjs'
+import { conGlDeEdicion, contadorNodos, contando, makeDragging, makeEditGl, makeMap, makePickSpy, makeSurface } from '../../test-helpers/engine-stub.mjs'
 import { after, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { HANDLE_HELD, HANDLE_NONE, HANDLE_OVER } from '../../src/events/events.js'
@@ -1273,16 +1273,6 @@ const llevada = (esc, ref, lat, lng) => {
 const inverso = (geod, [lat1, lng1], [lat2, lng2]) => {
   const r = geod.Inverse(lat1, lng1, lat2, lng2)
   return { s: r.s12, azi: (r.azi1 + 360) % 360 }
-}
-
-// Un modelo que delega en otro y cuenta los destinos que le piden.
-const contando = base => {
-  const modelo = { destinos: 0, [MODEL]: base[MODEL], [HEADING]: base[HEADING] }
-  modelo[DESTINATION] = (...args) => {
-    modelo.destinos++
-    return base[DESTINATION](...args)
-  }
-  return modelo
 }
 
 // Los segmentos de un anillo de radio `r` en el ecuador a `zoom`: la flecha de 0,2 px en metros de
