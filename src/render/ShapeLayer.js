@@ -11,9 +11,9 @@
 // Un cambio del Source rehace las tablas enteras: el store sube su textura completa de todos modos, y el
 // perfil de la capa son magnitudes que cambian poco, no un feed por frame.
 
-import { MIN_SEGMENTS, segmentsFor, viewTolerance } from '../geometry/density.js'
+import { MIN_SEGMENTS } from '../geometry/density.js'
 import { prepareRangeIndex, partsAtPoint } from '../geometry/polygon.js'
-import { reachesPole, readShape, sizeShape, writeShape } from '../geometry/shape.js'
+import { readDrawable, sizeShape, viewSegments, writeShape } from '../geometry/shape.js'
 import { PolygonGpuLayer } from './PolygonGpuLayer.js'
 
 const EMPTY = {
@@ -21,14 +21,11 @@ const EMPTY = {
   ringCount: 0, partCount: 0,
 }
 
-// Los segmentos que pide una forma a `zoom`: los de su semieje mayor, donde la flecha es máxima.
-const wanted = ({ lat, a, b }, zoom) => segmentsFor(Math.max(a, b), viewTolerance(lat, Math.max(a, b), zoom))
-
 export class ShapeLayer {
 
   #camera; #source; #model; #interactive
   #layer   = null
-  #recs    = []       // las formas válidas de `readShape`, con `id`, `style` y `wanted`, los segmentos pedidos
+  #recs    = []       // las formas válidas de `readDrawable`, con `id`, `style` y `wanted`, los segmentos pedidos
   #seen    = null     // la `version` de la Source que leyeron los registros vigentes
   #index   = null
   #parts   = []       // partes bajo el puntero; se reusa entre consultas
@@ -58,7 +55,7 @@ export class ShapeLayer {
     // El zoom asentó: se rehace la geometría sólo si alguna forma pide otro número de segmentos.
     this.#offZoom = host.camera.on('zoomend', () => {
       const zoom = this.#camera.zoom()
-      this.#recs.some(rec => rec.wanted !== wanted(rec, zoom)) && this.#draw()
+      this.#recs.some(rec => rec.wanted !== viewSegments(rec, zoom)) && this.#draw()
     })
   }
 
@@ -74,11 +71,10 @@ export class ShapeLayer {
     const recs     = []
     this.#seen = this.#source.version()
     this.#source.getSnapshot().forEach(item => {
-      const rec = readShape({
+      const rec = readDrawable({
         center: a.positionOf(item), radius: a.radiusOf(item), heading: a.headingOf?.(item), sweep: a.sweepOf?.(item),
       })
-      rec && !reachesPole(rec)
-        && recs.push(Object.assign(rec, { id: a.idOf(item), style: { ...a.styleOf?.(item) }, wanted: 0 }))
+      rec && recs.push(Object.assign(rec, { id: a.idOf(item), style: { ...a.styleOf?.(item) }, wanted: 0 }))
     })
     this.#recs = recs
     try {
@@ -136,7 +132,7 @@ export class ShapeLayer {
     const recs = this.#recs
     const zoom = this.#camera.zoom()
     const cap  = this.#layer.maxVertices
-    recs.forEach(rec => { rec.wanted = wanted(rec, zoom) })
+    recs.forEach(rec => { rec.wanted = viewSegments(rec, zoom) })
     // Lo que no cabe en la textura baja a la mitad los segmentos de todas, hasta el mínimo, antes de que la
     // capa interna lo rechace: un zoom cercano no puede dejar la capa sin dibujar. `wanted` queda como se
     // pidió, para que `zoomend` compare contra el pedido y no contra el recorte.

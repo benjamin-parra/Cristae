@@ -522,7 +522,7 @@ La **ley** (MODELO §5.4) formalizada como contrato que un implementador debe cu
 | `terrain` (§18) | — | — | O(tiles) pedidos de red, a lo sumo 6 en vuelo, + O(píxeles) de decodificación + O(filas) llamadas al modelo base |
 | `relief` (§18) | — | — | O(vértices + celdas de la caja de la zona); asigna 8 B por celda de esa caja |
 | `elevation` (§18) | — | — | O(1) **[0-alloc]** |
-| `ring` · `arc` (§18) | — | — | O(vértices) llamadas al destino del modelo; no es [0-alloc]: devuelve pares. El escritor no crea arrays ni clausuras: asigna lo que asigne el destino del modelo |
+| `ring` · `arc` (§18) | — | — | O(vértices) llamadas al destino del modelo; no es [0-alloc]: devuelve pares. El escritor que comparte con las capas de círculos y de formas y los editores no crea arrays ni clausuras, salvo lo que asigne el destino del modelo (la esfera, nada): con él, el anillo que reescribe cada frame del gesto de un editor de forma es **[0-alloc]**; el frame entero no, porque convertir el píxel en lugar asigna |
 | `geodesic` (§18) | — | — | O(vértices) con una cota por tramo que no llama al modelo; O(puntos insertados) llamadas al modelo, y con el elipsoide, el rumbo y la distancia por tramo y el destino de la geographiclib por punto; no es [0-alloc]: devuelve pares |
 | `distance` con un terreno (§18) | — | — | O(L) pasos de media celda por tramo, **[0-alloc]** en el bucle de pasos; la distancia del modelo base, una por tramo, asigna lo que asigne ese modelo (la esfera, nada). `area` y `perimeter` con un terreno, como `relief` y como `distance` por arista |
 
@@ -1108,12 +1108,13 @@ los puntos nuevos. El índice de picking de líneas acepta por parte un `src`, l
 vértice original que abre cada tramo del path curvado, y `nearest` devuelve ese vértice como `vertexIndex`;
 sin `src` es `from + k`.
 
-El escritor que comparten `ring`, `arc` y las capas de círculos y de formas, que arman con él sus anillos y
-los cierran, y el módulo de densidad que da `segmentsFor`, `stepsFor` y las dos tolerancias, no se exportan
-del entry. `segmentsFor(r, tol)` es la fórmula de arriba y `stepsFor(L, lat, tol)` la de los radios. La
-tolerancia sin vista es 0,1 m y es la de `ring`, `arc` y los radios de un sector. La tolerancia con vista es
-0,2 px, llevada a metros con la escala de Mercator en la latitud más alta que la forma toca: es la que usan
-las capas de círculos y de formas, y en la de círculos da el mismo `n` de siempre.
+El escritor que comparten `ring`, `arc`, las capas de círculos y de formas —que arman con él sus anillos y
+los cierran— y los editores de forma, y el módulo de densidad que da `segmentsFor`, `stepsFor` y las dos
+tolerancias, no se exportan del entry. `segmentsFor(r, tol)` es la fórmula de arriba y `stepsFor(L, lat, tol)`
+la de los radios. La tolerancia sin vista es 0,1 m y es la de `ring`, `arc` y los radios de un sector. La
+tolerancia con vista es 0,2 px, llevada a metros con la escala de Mercator en la latitud más alta que la forma
+toca: es la que usan las capas de círculos y de formas y el anillo de los editores de forma, y en la de
+círculos da el mismo `n` de siempre.
 
 El **protocolo de modelo** son marcas en el registro global de símbolos, así que un modelo de una
 copia de la librería sirve en otra. Las marcas se agregan entre versiones y sus firmas no cambian:

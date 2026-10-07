@@ -374,7 +374,7 @@ host, resuelto por nombre, orden-independiente).
 | `textOf` | `(item) => string` | **prop** |
 | `paint` / `style` | función / objeto | **prop** |
 
-### `<cristae-editable-polygon|polyline|point|rectangle>` — edición de geometría
+### `<cristae-editable-polygon|polyline|point|rectangle|circle|ellipse|sector>` — edición de geometría
 
 No son capas de dato: sin `source` ni accessors, su dato es UNA geometría y el contrato es el de un
 **input controlado** — `value` entra, los cambios salen por `cristae:change` (live) y `cristae:commit`

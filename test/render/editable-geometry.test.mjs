@@ -26,6 +26,9 @@ import { ROLE } from '../../src/geometry/ChunkedPath.js'
 import { defineEditIconSet, editHandleChannels } from '../../src/render/EditHandleLayer.js'
 import { EditableGeometry } from '../../src/render/EditableGeometry.js'
 import { Camera } from '../../src/engine/Camera.js'
+import { WGS84 } from '../../src/geometry/ellipsoid.js'
+import { DESTINATION, HEADING, MEAN_RADIUS, MODEL } from '../../src/geometry/geodesic.js'
+import geographiclib from 'geographiclib-geodesic'
 import { Interaction } from '../../src/engine/Interaction.js'
 import { adoptLeafletHost } from '../../src/host/LeafletHost.js'
 import { LayerRegistry } from '../../src/interaction/LayerRegistry.js'
@@ -33,6 +36,12 @@ import { LayerRegistry } from '../../src/interaction/LayerRegistry.js'
 /* ── Harness de la sesión de edición ── */
 
 const P = 100                            // el harness proyecta lineal: un grado son 100 px de contenedor
+
+const { Geodesic, LATITUDE, LONGITUDE, LONG_UNROLL } = geographiclib.Geodesic
+
+const ESFERA    = new Geodesic(MEAN_RADIUS, 0)
+const ELIPSOIDE = new Geodesic(6378137, 1 / 298.257223563)
+const FORMAS    = ['circle', 'ellipse', 'sector']
 
 // El canal del tile TRANSPARENTE, con el que el editor apaga un handle del visual y del pase a la vez. El
 // doble lo necesita para descartar como el fragment; el tile de cada entrada lo lee del VBO.
@@ -47,10 +56,19 @@ after(conGlDeEdicion(() => glVigente))
 
 // `alAsentar` corre dentro de `onCommit` y recibe el editor: es donde un consumidor lo corta —pasa a draw,
 // lo destruye— antes de que llegue el resto de la pulsación.
-const montar = ({ kind = 'polygon', value = null, mode = 'edit', dpr = 1, style, pintado, alAsentar } = {}) => {
+// `cuentas` anota cuántas texturas y buffers se crean y se borran. `model` llega al editor como lo pasa el
+// motor, y `geod` es la geographiclib del mismo modelo, que el harness usa para ubicar las manijas de forma.
+const montar = ({ kind = 'polygon', value = null, mode = 'edit', dpr = 1, zoom, model, geod = ESFERA, style, pintado, cuentas, alAsentar } = {}) => {
   const spy = makePickSpy()
   spy.tileVacio = TILE_VACIO
   glVigente = makeEditGl(spy, makeSurface({ dpr }))
+  if (cuentas) {
+    const contar = (t, p) => (...args) => {
+      cuentas[p] = (cuentas[p] ?? 0) + 1
+      return t[p](...args)
+    }
+    glVigente = new Proxy(glVigente, { get: (t, p) => (/^(create|delete)(Texture|Buffer)$/.test(p) ? contar(t, p) : t[p]) })
+  }
   // El doble devuelve `{}` por cada localización, así que las capas son indistinguibles por sus uniforms.
   // Etiquetarlas con el NOMBRE deja leer con qué color dibujó cada una.
   if (pintado) {
@@ -66,7 +84,7 @@ const montar = ({ kind = 'polygon', value = null, mode = 'edit', dpr = 1, style,
   // devuelve por todos los caminos de salida (soltar, y también los cortes de afuera). El contenedor del
   // doble del mapa reparte los eventos como el DOM.
   const dragging  = makeDragging()
-  const map       = { ...makeMap(), dragging }
+  const map       = { ...makeMap({ zoom }), dragging }
   const container = map.getContainer()
   const changes   = [], commits = [], informes = []
   // La puerta del puntero, sin capas: lo que sintetiza como click del mapa es lo que el motor emitiría como
@@ -75,7 +93,7 @@ const montar = ({ kind = 'polygon', value = null, mode = 'edit', dpr = 1, style,
   const host      = adoptLeafletHost(map)
   const puerta    = new Interaction({ host, camera: new Camera({ host }), registry: new LayerRegistry(), bus: { dispatch() {} }, onEmptyClick: latlng => alMapa.push(latlng) })
   const ed = new EditableGeometry({
-    host, join: participante => puerta.join(participante, 0, 0), pane: 'edit', kind, value, mode, style,
+    host, join: participante => puerta.join(participante, 0, 0), pane: 'edit', kind, value, mode, model, style,
     onChange: leer => changes.push(leer()),
     onCommit: leer => {
       commits.push(leer())
@@ -83,7 +101,10 @@ const montar = ({ kind = 'polygon', value = null, mode = 'edit', dpr = 1, style,
     },
     onHandleLevel: nivel => informes.push(nivel),
   })
-  return { ed, kind, map, container, dragging, spy, changes, commits, informes, alMapa, punto: [0, 0], destino: container, puntero: 1 }
+  return {
+    ed, kind, geod, map, container, dragging, spy, changes, commits, informes, alMapa, punto: [0, 0], destino: container, puntero: 1,
+    rumbo: 90,   // el de la manija de radio del círculo, que entra al este
+  }
 }
 
 // El evento como lo despacha el navegador, y con el testigo de si la puerta se lo dio al editor, que se lo
@@ -104,12 +125,26 @@ const apuntar = (esc, ref, anillo = 0) => {
   return esc
 }
 
-// La coordenada del handle `ref`: sale del trazo cuando el kind lo expone. point y rectangle no —el suyo
-// se DERIVA del valor—, así que se reconstruye igual que el editor: el punto es su única entrada, y el
-// rectángulo va [SW, NW, NE, SE] con el midpoint de cada arista intercalado.
+// La manija `i` de una forma, desde su valor y con la geographiclib: el centro, y después cada una a su
+// rumbo y su distancia del centro. La del círculo va al rumbo que el test le lleva en `esc.rumbo`.
+const manijaDe = (esc, i) => {
+  const { center: [lat, lng], radius, heading, sweep } = esc.ed.getValue()
+  if (!i) return [lat, lng]
+  const [a, b]   = typeof radius === 'number' ? [radius, radius] : radius
+  const [azi, s] = esc.kind === 'circle' ? [esc.rumbo, a]
+    : esc.kind === 'ellipse' ? [[heading, a], [heading + 90, b]][i - 1]
+    : [[heading, a], [heading - sweep / 2, a], [heading + sweep / 2, a]][i - 1]
+  const r = esc.geod.Direct(lat, lng, azi, s, LATITUDE | LONGITUDE | LONG_UNROLL)
+  return [r.lat2, r.lon2]
+}
+
+// La coordenada del handle `ref`: sale del trazo cuando el kind lo expone. point, rectangle y las formas no
+// —el suyo se DERIVA del valor—, así que se reconstruye: el punto es su única entrada, el rectángulo va
+// [SW, NW, NE, SE] con el midpoint de cada arista intercalado, y una forma lleva su manija `i` en el ref 2i.
 const coordDe = (esc, ref, anillo) => {
   const path = esc.ed.paths[anillo]
   if (path) return [path.xAt(ref), path.yAt(ref)]
+  if (FORMAS.includes(esc.kind)) return manijaDe(esc, ref >> 1)
   if (esc.kind === 'point') return esc.ed.getValue()
   const [[s, w], [n, e]] = esc.ed.getValue()
   const esquinas = [[s, w], [n, w], [n, e], [s, e]]
@@ -1209,4 +1244,394 @@ test('el anillo que setValue quita deja de dibujarse: el frame cuesta lo mismo q
 
   recortado.ed.destroy()
   nuevo.ed.destroy()
+})
+
+/* ── Círculo, elipse y sector ── */
+
+// Las referencias salen de la geographiclib directa —la esfera de radio medio, o WGS84— y de fórmulas
+// cerradas. Cada manija vive en el ref 2i de su trazo, como las esquinas del rectángulo.
+
+// Dónde queda la manija `ref` llevada al punto (lat, lng) de la grilla de píxeles: el agarre conserva la
+// fracción de píxel que tenía la manija al tomarla.
+const llevada = (esc, ref, lat, lng) => {
+  const [hlat, hlng] = coordDe(esc, ref)
+  return [
+    (Math.round(lat * P) + hlat * P - Math.round(hlat * P)) / P,
+    (Math.round(lng * P) + hlng * P - Math.round(hlng * P)) / P,
+  ]
+}
+
+// La distancia y el rumbo en [0, 360) de un punto a otro.
+const inverso = (geod, [lat1, lng1], [lat2, lng2]) => {
+  const r = geod.Inverse(lat1, lng1, lat2, lng2)
+  return { s: r.s12, azi: (r.azi1 + 360) % 360 }
+}
+
+// Un modelo que delega en otro y cuenta los destinos que le piden.
+const contando = base => {
+  const modelo = { destinos: 0, [MODEL]: base[MODEL], [HEADING]: base[HEADING] }
+  modelo[DESTINATION] = (...args) => {
+    modelo.destinos++
+    return base[DESTINATION](...args)
+  }
+  return modelo
+}
+
+// Los segmentos de un anillo de radio `r` en el ecuador a `zoom`: la flecha de 0,2 px en metros de
+// Mercator, y la potencia de dos que la cumple.
+const segmentos = (r, zoom) => {
+  const tol = 0.2 * MEAN_RADIUS * Math.cos(r / MEAN_RADIUS) * 2 * Math.PI / (256 * 2 ** zoom)
+  return Math.min(4096, Math.max(16, 2 ** Math.ceil(Math.log2(Math.PI / Math.acos(1 - tol / r)))))
+}
+
+// 24 px en metros, en el ecuador.
+const minimo = zoom => 24 * 2 * Math.PI * MEAN_RADIUS / (256 * 2 ** zoom)
+
+const cerca = (real, esperado, tol, msg) => assert.ok(Math.abs(real - esperado) < tol, `${msg}: ${real} ≠ ${esperado}`)
+
+test('círculo: el centro traslada la figura, y la manija de radio mide hasta el puntero y queda donde se soltó', () => {
+  const esc = montar({ kind: 'circle', value: { center: { lat: 0, lng: 0 }, radius: 30000, sweep: 90 }, zoom: 10 })
+  assert.deepEqual(esc.ed.getValue(), { center: [0, 0], radius: 30000 }, 'entra cualquier punto y no lee sweep')
+  assert.notEqual(esc.ed.getValue(), esc.ed.getValue(), 'un objeto fresco por lectura')
+
+  arrastrar(esc, 0, [[0.1, 0.1]])
+  assert.deepEqual(esc.ed.getValue(), { center: [0.1, 0.1], radius: 30000 })
+
+  const fin = llevada(esc, 2, 0.2, 0.3)
+  arrastrar(esc, 2, [[0.2, 0.3]])
+  const { s, azi } = inverso(ESFERA, [0.1, 0.1], fin)
+  cerca(esc.ed.getValue().radius, s, 1e-6, 'el radio es la distancia al puntero')
+
+  esc.rumbo = azi
+  const otra = llevada(esc, 2, -0.1, 0.3)
+  arrastrar(esc, 2, [[-0.1, 0.3]])
+  cerca(esc.ed.getValue().radius, inverso(ESFERA, [0.1, 0.1], otra).s, 1e-6, 'la manija se toma donde se soltó')
+  assert.equal(esc.commits.length, 3)
+
+  esc.ed.destroy()
+})
+
+test('elipse: `a` gira y cambia su semieje, `b` sólo el suyo y al soltar vuelve al eje', () => {
+  const esc = montar({ kind: 'ellipse', value: { center: [0, 0], radius: [200000, 100000], heading: -30 }, zoom: 10 })
+  assert.deepEqual(esc.ed.getValue(), { center: [0, 0], radius: [200000, 100000], heading: 330 }, 'el rumbo sale en [0, 360)')
+
+  const finA = llevada(esc, 2, 1, 1)
+  arrastrar(esc, 2, [[1, 1]])
+  const ia = inverso(ESFERA, [0, 0], finA)
+
+  let v = esc.ed.getValue()
+  cerca(v.radius[0], ia.s, 1e-6, 'a')
+  cerca(v.heading, ia.azi, 1e-9, 'heading')
+  assert.equal(v.radius[1], 100000)
+
+  const finB = llevada(esc, 4, -0.5, 0.6)
+  arrastrar(esc, 4, [[-0.5, 0.6]])
+  v = esc.ed.getValue()
+  cerca(v.radius[1], inverso(ESFERA, [0, 0], finB).s, 1e-6, 'b')
+  cerca(v.heading, ia.azi, 1e-9, 'b no gira')
+
+  const otraB = llevada(esc, 4, -1, 1.2)
+  arrastrar(esc, 4, [[-1, 1.2]])
+  cerca(esc.ed.getValue().radius[1], inverso(ESFERA, [0, 0], otraB).s, 1e-6, 'la manija de b se toma en su eje')
+
+  esc.ed.destroy()
+})
+
+test('sector: la punta cambia radio y rumbo, y un borde sólo la apertura, también cruzando el norte', () => {
+  const esc = montar({ kind: 'sector', value: { center: [0, 0], radius: 100000, heading: 350, sweep: 60 }, zoom: 10 })
+
+  // El borde derecho está a rumbo 20; se lo lleva a rumbo 10, del mismo lado del norte que la punta no.
+  const r       = ESFERA.Direct(0, 0, 10, 100000)
+  const destino = [Math.round(r.lat2 * P) / P, Math.round(r.lon2 * P) / P]
+  const fin     = llevada(esc, 6, ...destino)
+  arrastrar(esc, 6, [destino])
+  const { azi } = inverso(ESFERA, [0, 0], fin)
+
+  let v = esc.ed.getValue()
+  cerca(v.sweep, 2 * Math.abs((azi - 350 + 540) % 360 - 180), 1e-9, 'sweep = 2·|Δ| envuelto')
+  cerca(v.sweep, 40, 1, 'unos 40°')
+  assert.deepEqual([v.radius, v.heading], [100000, 350], 'el borde no toca la punta')
+
+  const finT = llevada(esc, 2, 0.5, 0.5)
+  arrastrar(esc, 2, [[0.5, 0.5]])
+  const it    = inverso(ESFERA, [0, 0], finT)
+  const antes = v.sweep
+  v = esc.ed.getValue()
+  cerca(v.radius, it.s, 1e-6, 'radio')
+  cerca(v.heading, it.azi, 1e-9, 'heading')
+  assert.equal(v.sweep, antes, 'la punta no abre')
+
+  esc.ed.destroy()
+})
+
+test('ningún radio baja de 24 px, ni la apertura deja dos manijas más cerca', () => {
+  const circulo = montar({ kind: 'circle', value: { center: [0, 0], radius: 100000 }, zoom: 10 })
+  arrastrar(circulo, 2, [[0, 0.01]])
+  cerca(circulo.ed.getValue().radius, minimo(10), 1e-6, 'el radio se queda en el mínimo')
+  circulo.ed.destroy()
+
+  // La cuerda entre manijas a `min`: la punta a sweep/2 de cada borde, y los bordes a 360 − sweep por detrás.
+  const gap    = Math.asin(minimo(10) / 200000) * 180 / Math.PI
+  const sector = montar({ kind: 'sector', value: { center: [0, 0], radius: 100000, sweep: 90 }, zoom: 10 })
+  const punta  = coordDe(sector, 2)
+  arrastrar(sector, 6, [[Math.round(punta[0] * P) / P, 0]])
+  cerca(sector.ed.getValue().sweep, 4 * gap, 1e-9, 'el borde sobre la punta')
+  arrastrar(sector, 6, [[-0.9, 0]])
+  cerca(sector.ed.getValue().sweep, 360 - 2 * gap, 1e-9, 'el borde detrás, sobre el otro')
+  sector.ed.destroy()
+})
+
+test('cada editor admite el radio de su forma, y el rumbo y la apertura salen en su rango', () => {
+  const valor = (kind, value) => {
+    const esc = montar({ kind, value })
+    const v   = esc.ed.getValue()
+    esc.ed.destroy()
+    return v
+  }
+  assert.equal(valor('circle', { center: [0, 0], radius: [3, 4] }), null, 'el círculo no es una elipse')
+  assert.equal(valor('sector', { center: [0, 0], radius: [3, 4], sweep: 90 }), null, 'ni el sector')
+  assert.equal(valor('ellipse', { center: [0, 0], radius: 3 }), null, 'ni la elipse un círculo')
+  assert.equal(valor('sector', { center: [0, 0], radius: 3, sweep: 0 }), null, 'la apertura es mayor que 0')
+  assert.deepEqual(valor('sector', { center: [0, 0], radius: 3, heading: 400, sweep: 90 }),
+    { center: [0, 0], radius: 3, heading: 40, sweep: 90 })
+  assert.deepEqual(valor('sector', { center: [0, 0], radius: 3, heading: 30, sweep: 500 }),
+    { center: [0, 0], radius: 3, heading: 30, sweep: 360 }, 'el sector entero conserva su punta')
+  assert.deepEqual(valor('sector', { center: [0, 0], radius: 3 }),
+    { center: [0, 0], radius: 3, heading: 0, sweep: 360 }, 'ausentes son norte y figura entera')
+})
+
+// Un radio menor que `min` acota `gap` a asin(1/2) = 30°, y la apertura a [120, 300].
+test('un sector más chico que el mínimo abre siguiendo al puntero, acotado como en el radio mínimo', () => {
+  const esc = montar({ kind: 'sector', value: { center: [0, 0], radius: 50, heading: 0, sweep: 20 }, zoom: 10 })
+  assert.ok(50 < minimo(10) / 2, 'ninguna apertura separa sus manijas')
+  ;[[[0.1, 0.4], null], [[0.5, 0.1], 120], [[-0.5, -0.05], 300]].forEach(([destino, cota]) => {
+    const fin = llevada(esc, 4, ...destino)
+    arrastrar(esc, 4, [destino])
+    const libre = 2 * Math.abs((inverso(ESFERA, [0, 0], fin).azi + 540) % 360 - 180)
+    cerca(esc.ed.getValue().sweep, cota ?? libre, 1e-9, `hacia ${destino}`)
+  })
+  esc.ed.destroy()
+})
+
+// La vista se centra en la forma: un trazo fuera de ella no se dibuja, y una manija sin dibujar no se toma.
+test('una forma que alcanzaría un polo no entra, y el arrastre que la llevaría ahí no se aplica ni emite', () => {
+  assert.equal(montar({ kind: 'circle', value: { center: [85, 0], radius: 600000 } }).ed.getValue(), null)
+
+  const circulo = montar({ kind: 'circle', value: { center: [80, 0], radius: 500000 }, zoom: 10 })
+  circulo.map.animarZoom(10, { lat: 80, lng: 0 }).fire('moveend')
+  arrastrar(circulo, 0, [[86, 0]])
+  arrastrar(circulo, 2, [[86, 180]])
+  assert.deepEqual({ changes: circulo.changes.length, commits: circulo.commits.length }, { changes: 0, commits: 0 })
+  assert.deepEqual(circulo.ed.getValue(), { center: [80, 0], radius: 500000 })
+  arrastrar(circulo, 0, [[81, 0]])
+  assert.deepEqual(circulo.ed.getValue(), { center: [81, 0], radius: 500000 }, 'lejos del polo, el mismo gesto se aplica')
+  circulo.ed.destroy()
+
+  // La cota es la del semieje mayor, sea `a` o `b`.
+  const elipse = montar({ kind: 'ellipse', value: { center: [80, 0], radius: [100000, 500000], heading: 90 }, zoom: 10 })
+  elipse.map.animarZoom(10, { lat: 80, lng: 0 }).fire('moveend')
+  arrastrar(elipse, 4, [[86, 180]])
+  assert.equal(elipse.changes.length, 0)
+  elipse.ed.destroy()
+})
+
+test('draw: un click sobre el centro no fija una manija, y el trazado sigue', () => {
+  const esc = montar({ kind: 'circle', mode: 'draw', zoom: 10 })
+  clickMapa(esc, 0.1, 0.1)
+  clickMapa(esc, 0.1, 0.1)
+  assert.deepEqual({ changes: esc.changes.length, valor: esc.ed.getValue() }, { changes: 0, valor: null })
+  clickMapa(esc, 0.2, 0.1)
+  assert.deepEqual(esc.ed.getValue().center, [0.1, 0.1])
+  esc.ed.destroy()
+})
+
+test('con WGS84 el valor sale del modelo, y el anillo del gesto de la esfera hasta soltar', () => {
+  const modelo = contando(WGS84)
+  const esc    = montar({ kind: 'circle', value: { center: [0, 0], radius: 30000 }, zoom: 10, model: modelo, geod: ELIPSOIDE })
+  const fin    = llevada(esc, 2, 0.3, 0.05)
+  tomar(esc, 2)
+  modelo.destinos = 0
+  mover(esc, 0.3, 0.05)
+  assert.equal(modelo.destinos, 1, 'en el frame el modelo sólo ubica la manija')
+  const radio = esc.ed.getValue().radius
+  cerca(radio, inverso(ELIPSOIDE, [0, 0], fin).s, 1e-6, 'el radio de WGS84')
+  assert.ok(Math.abs(radio - inverso(ESFERA, [0, 0], fin).s) > 100, 'y no el de la esfera')
+
+  soltar(esc)
+  assert.ok(modelo.destinos > segmentos(radio, 10), 'al soltar, un destino por vértice del anillo')
+  esc.ed.destroy()
+})
+
+test('el anillo re-tesela cuando el zoom pide otros segmentos, y sólo entonces', () => {
+  const modelo = contando(WGS84)
+  const esc    = montar({ kind: 'circle', value: { center: [0, 0], radius: 100000 }, zoom: 10, model: modelo, geod: ELIPSOIDE })
+  modelo.destinos = 0
+  esc.map.fire('moveend')
+  assert.equal(modelo.destinos, 0, 'el pan no pide otros segmentos')
+  esc.map.setZoomForTest(13)
+  esc.map.fire('zoomend')
+  assert.notEqual(segmentos(100000, 13), segmentos(100000, 10))
+  assert.equal(modelo.destinos, segmentos(100000, 13), 'un destino por vértice del anillo nuevo')
+  esc.ed.destroy()
+})
+
+test('draw: las formas se trazan por clicks, con vista previa sin emitir y un solo asentado al final', () => {
+  const casos = [
+    ['circle', [[1, 1], [1.5, 1]], ([c, p]) => ({ center: c, radius: inverso(ESFERA, c, p).s })],
+    ['ellipse', [[1, 1], [1.5, 1], [1, 1.3]],
+      ([c, p, q]) => ({ center: c, radius: [inverso(ESFERA, c, p).s, inverso(ESFERA, c, q).s], heading: 0 })],
+    ['sector', [[1, 1], [1.5, 1], [1.3, 1.3]],
+      ([c, p, q]) => ({ center: c, radius: inverso(ESFERA, c, p).s, heading: 0, sweep: 2 * inverso(ESFERA, c, q).azi })],
+  ]
+  casos.forEach(([kind, clicks, esperado]) => {
+    const esc     = montar({ kind, mode: 'draw', zoom: 10 })
+    const subidas = () => esc.spy.texImages.length + esc.spy.texSubImages.length
+    clicks.slice(0, -1).forEach(([lat, lng]) => {
+      clickMapa(esc, lat, lng)
+      const antes = subidas()
+      mover(esc, lat + 0.2, lng + 0.1)
+      assert.ok(subidas() > antes, `${kind}: la vista previa sigue al puntero`)
+    })
+    assert.deepEqual({ changes: esc.changes.length, valor: esc.ed.getValue() }, { changes: 0, valor: null }, `${kind}: no emite`)
+
+    clickMapa(esc, ...clicks.at(-1))
+    assert.deepEqual({ changes: esc.changes.length, commits: esc.commits.length }, { changes: 1, commits: 1 }, kind)
+    const v = esc.ed.getValue()
+    Object.entries(esperado(clicks)).forEach(([campo, valor]) =>
+      [valor].flat().forEach((x, i) => cerca([v[campo]].flat()[i], x, 1e-6, `${kind}.${campo}`)))
+    esc.ed.destroy()
+  })
+})
+
+test('draw: el rectángulo también tiene vista previa, y salir del trazado lo descarta', () => {
+  const esc     = montar({ kind: 'rectangle', mode: 'draw' })
+  const subidas = () => esc.spy.texImages.length + esc.spy.texSubImages.length
+  clickMapa(esc, 0, 0)
+  const antes = subidas()
+  mover(esc, 2, 3)
+  assert.ok(subidas() > antes, 'la vista previa sigue al puntero')
+  assert.deepEqual({ changes: esc.changes.length, valor: esc.ed.getValue() }, { changes: 0, valor: null })
+
+  esc.ed.setMode('edit')
+  esc.ed.setMode('draw')
+  clickMapa(esc, 5, 5)
+  assert.equal(esc.changes.length, 0, 'el click después de salir empieza otro rectángulo')
+  clickMapa(esc, 6, 7)
+  assert.deepEqual(esc.ed.getValue(), [[5, 5], [6, 7]])
+  esc.ed.destroy()
+})
+
+// El arrastre de una forma no cambia el conteo de su anillo: mueve sus vértices y sube sus chunks, sin re-ingerir.
+test('el anillo sigue al arrastre con sus tramos congelados: escribe rangos y no re-ingiere', () => {
+  const esc        = montar({ kind: 'sector', value: { center: [0, 0], radius: 30000, heading: 0, sweep: 60 }, zoom: 10 })
+  const ingestas   = () => esc.spy.texImages.length + esc.spy.bufferDatas.length
+  const escrituras = () => esc.spy.texSubImages.length + esc.spy.bufferSubDatas.length
+  tomar(esc, 6)
+  const antes = { ingestas: ingestas(), escrituras: escrituras() }
+  ;[[0.2, 0.25], [0.1, 0.3], [0, 0.3], [-0.1, 0.25]].forEach(([lat, lng]) => mover(esc, lat, lng))
+  assert.equal(esc.changes.length, 4, 'cada frame abrió el sector')
+  assert.equal(ingestas(), antes.ingestas, 'ningún frame re-ingiere')
+  assert.ok(escrituras() > antes.escrituras, 'los frames suben rangos')
+  soltar(esc)
+  esc.ed.destroy()
+
+  // El sector entero es un círculo: abrirlo cambia el conteo en el primer frame, y sólo ése re-ingiere.
+  const entero = montar({ kind: 'sector', value: { center: [0, 0], radius: 30000, sweep: 360 }, zoom: 10 })
+  const pasos  = () => entero.spy.texImages.length + entero.spy.bufferDatas.length
+  tomar(entero, 4)
+  const previo = pasos()
+  mover(entero, 0.1, 0.2)
+  const abierto = pasos()
+  assert.ok(abierto > previo, 'el primer frame rehace el anillo')
+  ;[[0.2, 0.1], [0.25, 0]].forEach(([lat, lng]) => mover(entero, lat, lng))
+  assert.equal(pasos(), abierto, 'los siguientes ya no')
+  assert.ok(entero.ed.getValue().sweep < 360)
+  soltar(entero)
+  entero.ed.destroy()
+})
+
+// El relleno y el trazo de una forma leen su anillo, y el vértice del gesto es una manija: si les llegara,
+// partirían el anillo en un vértice ajeno.
+test('el gesto de una forma no promueve ni arrastra un vértice del anillo: el frame dibuja lo de uno quieto', () => {
+  const esc       = montar({ kind: 'ellipse', value: { center: [0, 0], radius: [1500000, 800000] } })
+  const contornos = antes => esc.spy.draws.slice(antes).filter(d => d.mode !== glVigente.POINTS).length
+  let antes = esc.spy.draws.length
+  esc.ed.setStyle({})
+  const quieto = contornos(antes)
+
+  tomar(esc, 4)
+  antes = esc.spy.draws.length
+  mover(esc, -0.1, 7.3)
+  assert.equal(esc.changes.length, 1)
+  assert.equal(contornos(antes), quieto, 'los draws del relleno y del trazo, sin los de las manijas')
+  soltar(esc)
+  esc.ed.destroy()
+})
+
+test('soltar una forma libera también el arena de su anillo', () => {
+  const sobrante = kind => {
+    const cuentas = {}
+    montar({ kind, value: kind === 'point' ? [0, 0] : { center: [0, 0], radius: 100000 }, zoom: 10, cuentas }).ed.destroy()
+    return [cuentas.createTexture - cuentas.deleteTexture, cuentas.createBuffer - (cuentas.deleteBuffer ?? 0)]
+  }
+  assert.deepEqual(sobrante('circle'), sobrante('point'))
+})
+
+// La proyección del arena en su fórmula cerrada: EPSG:3857 en world0, 256 unidades por vuelta.
+const mercator = (lat, lng) => {
+  const sin = Math.sin(lat * Math.PI / 180)
+  return [256 * (lng / 360 + 0.5), 256 * (0.5 - 0.25 / Math.PI * Math.log((1 + sin) / (1 - sin)))]
+}
+
+// Un círculo entero como lo dibuja el contorno: `n` vértices desde el norte en sentido horario, a `r` metros
+// del centro sobre `geod`, en world0 y relativos al vértice 0.
+const anilloDe = (geod, [lat, lng], r, n) => {
+  const xy = Array.from({ length: n }, (_, i) => {
+    const d = geod.Direct(lat, lng, i * 360 / n, r, LATITUDE | LONGITUDE | LONG_UNROLL)
+    return mercator(d.lat2, d.lon2)
+  })
+  return xy.map(([x, y]) => [x - xy[0][0], y - xy[0][1]])
+}
+
+// El anillo que subió la última re-ingesta, la del contorno, relativo a su vértice 0: la ingesta pone el
+// vértice `i` en el ref 2i, y la textura guarda [x, y] por ref. Las que suben sin datos son del atlas de iconos.
+const anilloSubido = (esc, n) => {
+  const t = esc.spy.texels.findLast(Boolean)
+  return Array.from({ length: n }, (_, i) => [t[4 * i] - t[0], t[4 * i + 1] - t[1]])
+}
+
+const mismoAnillo = (real, esperado, msg) =>
+  real.forEach(([x, y], i) => assert.ok(Math.hypot(x - esperado[i][0], y - esperado[i][1]) < 1e-6, `${msg}: vértice ${i}`))
+
+test('setValue, soltar y el zoom suben al contorno el anillo del modelo, desde el norte', () => {
+  const esc = montar({ kind: 'circle', value: { center: [0, 0], radius: 30000 }, zoom: 10, model: WGS84, geod: ELIPSOIDE })
+  esc.ed.setValue({ center: [0, 1], radius: 50000 })
+  mismoAnillo(anilloSubido(esc, segmentos(50000, 10)), anilloDe(ELIPSOIDE, [0, 1], 50000, segmentos(50000, 10)), 'setValue')
+
+  // La manija queda donde se soltó, y el anillo no la sigue: el círculo no lee su rumbo.
+  arrastrar(esc, 2, [[0.3, 1.05]])
+  const r = esc.ed.getValue().radius
+  mismoAnillo(anilloSubido(esc, segmentos(r, 10)), anilloDe(ELIPSOIDE, [0, 1], r, segmentos(r, 10)), 'al soltar')
+
+  esc.map.setZoomForTest(13)
+  esc.map.fire('zoomend')
+  assert.notEqual(segmentos(r, 13), segmentos(r, 10))
+  mismoAnillo(anilloSubido(esc, segmentos(r, 13)), anilloDe(ELIPSOIDE, [0, 1], r, segmentos(r, 13)), 'el zoom')
+  esc.ed.destroy()
+})
+
+test('el borrador de una forma se dibuja con la esfera, y salir del trazado devuelve el contorno al valor', () => {
+  const modelo = contando(WGS84)
+  const esc    = montar({ kind: 'circle', value: { center: [0, 0], radius: 30000 }, mode: 'draw', zoom: 10, model: modelo, geod: ELIPSOIDE })
+  modelo.destinos = 0
+  clickMapa(esc, 1, 1)
+  mover(esc, 1.2, 1.1)
+  esc.map.setZoomForTest(13)
+  esc.map.fire('zoomend')
+  assert.equal(modelo.destinos, 0, 'ni el click, ni la vista previa, ni el zoom llaman al modelo')
+
+  esc.ed.setMode('edit')
+  mismoAnillo(anilloSubido(esc, segmentos(30000, 13)), anilloDe(ELIPSOIDE, [0, 0], 30000, segmentos(30000, 13)), 'el valor')
+  assert.equal(esc.changes.length, 0)
+  esc.ed.destroy()
 })

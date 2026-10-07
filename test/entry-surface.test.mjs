@@ -217,12 +217,13 @@ test('el lector no registra ningún custom element', () => {
 // defecto que comparten `distance` y las medidas de zona, y `AREA`, `ELEVATION` y `RELIEF`, las marcas
 // que leen esas medidas y el terreno; `foldRings` y `areaStep`, el lector de zonas y la suma de su
 // área, que comparten esas medidas y `relief`, y `measureArgs`, el de sus argumentos; `readShape`,
-// `reachesPole`, `sizeShape` y `writeShape`, el escritor de formas que comparten `ring`, `arc` y las capas
-// de círculos y de formas, y `GROUND`, `MIN_SEGMENTS`, `segmentsFor`, `stepsFor` y `viewTolerance`, el
-// módulo de densidad que usan ese escritor y esas capas; `count` y `at`, los tramos y los puntos de la
-// curva que comparten `geodesic`, las capas de líneas y de polígonos y los editores, y `checkPlacer`, el
-// control del modelo que coloca puntos; y `decodeTile`, el decodificador de tiles de altura del terreno:
-// si salen del entry, alguien los usa y ya no se pueden mover.
+// `reachesPole`, `readDrawable`, `viewSegments`, `sizeShape`, `writeShape` y `pairs`, el escritor de formas
+// que comparten `ring`, `arc`, las capas de círculos y de formas y los editores, y `GROUND`,
+// `MIN_SEGMENTS`, `segmentsFor`, `stepsFor`, `viewTolerance` y `pixelsToMeters`, el módulo de densidad que
+// usan ese escritor, esas capas y los editores; `count` y `at`, los tramos y los puntos de la curva que
+// comparten `geodesic`, las capas de líneas y de polígonos y los editores, y `checkPlacer`, el control del
+// modelo que coloca puntos; y `decodeTile`, el decodificador de tiles de altura del terreno: si salen del
+// entry, alguien los usa y ya no se pueden mover.
 const GEOMETRY = {
   WGS84          : 'object',
   arc            : 'function',

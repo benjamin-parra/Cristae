@@ -11,6 +11,9 @@ import { CristaeEditablePolygon } from '../../src/element/CristaeEditablePolygon
 import { CristaeEditablePolyline } from '../../src/element/CristaeEditablePolyline.js'
 import { CristaeEditablePoint } from '../../src/element/CristaeEditablePoint.js'
 import { CristaeEditableRectangle } from '../../src/element/CristaeEditableRectangle.js'
+import { CristaeEditableCircle } from '../../src/element/CristaeEditableCircle.js'
+import { CristaeEditableEllipse } from '../../src/element/CristaeEditableEllipse.js'
+import { CristaeEditableSector } from '../../src/element/CristaeEditableSector.js'
 
 // Motor falso: addEditableLayer registra la cfg (de ahí salen onChange/onCommit) y devuelve un handle
 // que apunta sus llamadas.
@@ -58,6 +61,9 @@ test('la FORMA sale de `static kind`, no de una prop', () => {
     [CristaeEditablePolyline, 'polyline'],
     [CristaeEditablePoint, 'point'],
     [CristaeEditableRectangle, 'rectangle'],
+    [CristaeEditableCircle, 'circle'],
+    [CristaeEditableEllipse, 'ellipse'],
+    [CristaeEditableSector, 'sector'],
   ]
   casos.forEach(([Clase, kind]) => {
     const { engine, el } = montado({ Clase, value: null })

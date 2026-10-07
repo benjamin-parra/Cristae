@@ -18,7 +18,9 @@
 //
 // Almacenamiento: polygon y polyline viven en un `ChunkedPath` —el arena—, donde mover un vértice es O(1)
 // e insertar o borrar toca UN chunk, no el trazo entero. `point` y `rectangle` guardan su estado en pares
-// sueltos y DERIVAN el suyo (un vértice, las cuatro esquinas): así el gesto es uno solo para los cuatro.
+// sueltos y DERIVAN el suyo (un vértice, las cuatro esquinas): así el gesto es uno solo para todos. Las
+// formas —circle, ellipse y sector— guardan la forma, y de ella derivan dos trazos: sus manijas, que se
+// pican, y su anillo, que es lo único que se dibuja. Las reglas de cada una viven en `editShapes.js`.
 //
 // Sistema de coordenadas: pares [lat, lng] (la entrada acepta además las otras formas de punto de
 // `data/path.js`; la salida SIEMPRE es [lat, lng]). Una capa atada al mismo `value` lo lee con su
@@ -28,9 +30,16 @@
 //   · polyline  → path: [[lat,lng],…]
 //   · point     → [lat,lng]  (o null mientras no se dibujó)
 //   · rectangle → bounds: [[sur,oeste],[norte,este]]  (o null mientras no se dibujó)
+//   · circle    → { center, radius }                  (o null mientras no se dibujó)
+//   · ellipse   → { center, radius: [a, b], heading }
+//   · sector    → { center, radius, heading, sweep }
 import { CLICK_TOLERANCE, HANDLE_HELD, HANDLE_NONE, HANDLE_OVER } from '../events/events.js'
 import { ChunkedPath, ROLE } from '../geometry/ChunkedPath.js'
 import { coordOf, isNested, isPoint } from '../data/path.js'
+import { pixelsToMeters } from '../geometry/density.js'
+import { byDefault } from '../geometry/geodesic.js'
+import { pairs, sizeShape, viewSegments, writeShape } from '../geometry/shape.js'
+import { SHAPES } from './editShapes.js'
 import { EditArena } from './EditArena.js'
 import { EditFillLayer } from './EditFillLayer.js'
 import { defineEditIconSet, editHandleChannels, EditHandleLayer } from './EditHandleLayer.js'
@@ -42,9 +51,11 @@ import { pixelScaleOf } from './pixel-scale.js'
 import { projX0, projY0, readView } from './project.js'
 
 const MIN_VERTICES = { polygon: 3, polyline: 2 }   // mínimo bajo el cual el borrado por dblclick se ignora
-const KINDS        = new Set(['polygon', 'rectangle', 'polyline', 'point'])
-const CERRADOS     = new Set(['polygon', 'rectangle'])   // el trazo cierra el anillo, y por eso se rellena
+const KINDS        = new Set(['polygon', 'rectangle', 'polyline', 'point', ...Object.keys(SHAPES)])
+const CERRADOS     = new Set(['polygon', 'rectangle', ...Object.keys(SHAPES)])   // el trazo cierra el anillo, y por eso se rellena
 const CRECEN       = new Set(['polygon', 'polyline'])    // la cantidad de vértices la decide el usuario
+const D            = Math.PI / 180
+const SEPARACION   = 24   // px: lo menos que una manija de forma se acerca a otra, dos veces su diámetro
 
 // Mismas claves que el `styleOf` de los polígonos y las líneas.
 const ESTILO = { color: '#2563eb', weight: 3, fillColor: '#6366f1', fillOpacity: 0.42 }
@@ -64,6 +75,9 @@ const vertexAt = (path, v, p) => v >= 0 && path.xAt(v) === p[0] && path.yAt(v) =
 // `i` es (i+2)%4 — la que se mantiene fija al arrastrar `i`.
 const rectCorners = ([[s, w], [n, e]]) => [[s, w], [n, w], [n, e], [s, e]]
 
+// El bounds que cierran dos esquinas opuestas cualesquiera.
+const caja = (a, p) => [[Math.min(a[0], p[0]), Math.min(a[1], p[1])], [Math.max(a[0], p[0]), Math.max(a[1], p[1])]]
+
 // El proyector del arena: el mismo EPSG:3857 world0 que el resto del kit, sin pasar por `map.project`
 // —que asigna un Point por llamada, y acá se llama por vértice—. [0-alloc]
 const project = (lat, lng, out) => {
@@ -73,13 +87,17 @@ const project = (lat, lng, out) => {
 
 export class EditableGeometry {
 
-  #host; #camera; #pane; #kind; #onChange; #onCommit; #onHandleLevel; #surface; #gl; #iconSet
+  #host; #camera; #pane; #kind; #model; #forma; #onChange; #onCommit; #onHandleLevel; #surface; #gl; #iconSet
   #bajaVista
   #salir                                   // la baja de la puerta del puntero
   #mode       = 'edit'
   #geom       = null                       // representación interna viva (mutada in place por el gesto)
   #simpleRing = true                       // polygon: recordar si la entrada era anillo simple (para la salida)
-  #drawAnchor = null                       // rectangle draw: primera esquina fijada por click
+  #borrador   = null                       // draw: la primera esquina del rectángulo, o la forma a medio trazar
+  #paso       = 0                          // draw de una forma: la manija que pone el próximo click
+  #perimetro  = null                       // las formas: el anillo que se dibuja, derivado de la forma
+  #anillo     = new Float64Array(0)        // ese anillo como [lng, lat, …], reusado entre frames
+  #manijas    = null                       // las manijas de la forma, ídem
   #fill       = null                       // relleno: uno solo, porque el XOR entre anillos es lo que abre el hueco
   #style      = null                       // el vocabulario Leaflet del display que el editor reemplaza
   #paths      = []                         // ChunkedPath por índice de trazo, REUSADOS entre ingestas
@@ -104,19 +122,23 @@ export class EditableGeometry {
   #pixel    = new Int32Array(2)
   #xy       = new Float64Array(2)
   #esquinas = new Int32Array(4)            // los cuatro refs del rectángulo, capturados al tomar el gesto
-  #punto    = [0, 0]                       // el píxel del arrastre que la cámara convierte, reusado en cada frame
+  #punto    = [0, 0]                       // el píxel que la cámara convierte, reusado en cada frame
   #esquina  = [0, 0]                       // la esquina que devuelve el arrastre de rectángulo
 
   // El pane se direcciona por NOMBRE: dos editores sobre el mismo mapa comparten el nodo, y la superficie
   // del anfitrión lo sostiene mientras quede uno. El puntero le llega por `join`, que lo suma a la puerta
   // del puntero (engine/Interaction) en su lugar del orden declarado.
-  constructor({ host, join, pane, kind = 'polygon', value = null, mode = 'edit', style, onChange, onCommit, onHandleLevel } = {}) {
+  constructor({ host, join, pane, kind = 'polygon', value = null, mode = 'edit', model = byDefault, style, onChange, onCommit, onHandleLevel } = {}) {
     if (!KINDS.has(kind)) throw new Error(`EditableGeometry: kind inválido "${kind}"`)
     this.#style         = { ...ESTILO, ...style }
     this.#host          = host
     this.#camera        = host.camera
     this.#pane          = pane ?? PANE
     this.#kind          = kind
+    this.#model         = model
+    this.#forma         = SHAPES[kind]
+    this.#perimetro     = this.#forma ? new ChunkedPath({ closed: true }) : null
+    this.#manijas       = this.#forma ? new Float64Array(2 * this.#forma.handles) : null
     this.#onChange      = onChange
     this.#onCommit      = onCommit
     this.#onHandleLevel = onHandleLevel
@@ -138,18 +160,21 @@ export class EditableGeometry {
   // el valor nuevo direcciona otro vértice.
   setValue(value) {
     this.#releaseInteraction()
-    this.#geom = this.#ingest(value)
-    this.#drawAnchor = null
+    this.#borrador = null
+    this.#geom     = this.#ingest(value)
     this.#rebuild()
     this.#informar()
   }
 
-  // Fuera de `edit` nadie sigue al puntero, así que lo resuelto bajo él tampoco vale al volver.
+  // Fuera de `edit` nadie sigue al puntero, así que lo resuelto bajo él tampoco vale al volver. Un trazado a
+  // medio hacer se descarta, y su vista previa vuelve al valor.
   setMode(mode) {
     if (mode === this.#mode) return
+    const borrador = this.#borrador
     this.#releaseInteraction()
-    this.#mode = mode
-    this.#drawAnchor = null
+    this.#mode     = mode
+    this.#borrador = null
+    borrador && this.#refigurar()
     this.#invalidar()
     this.#promover(-1, -1)
     this.#draw()
@@ -167,7 +192,7 @@ export class EditableGeometry {
   getValue() { return this.#serialize() }
 
   // Los trazos del arena en orden de dibujo: los anillos del polígono, o el path único de la polilínea.
-  // Vacío para point y rectangle, cuyo trazo se DERIVA de su estado y no es parte de su valor.
+  // Vacío para point, rectangle y las formas, cuyo trazo se DERIVA de su estado y no es parte de su valor.
   get paths() {
     if (this.#kind === 'polygon') return [...this.#geom.rings]
     return this.#kind === 'polyline' ? [this.#geom.path] : []
@@ -184,6 +209,7 @@ export class EditableGeometry {
       this.#refigurar()
       return this.#settle()
     }
+    if (this.#forma) return this.#trazarForma(p)
     if (this.#kind === 'rectangle') return this.#drawRectClick(p)
     const t    = this.#trazos[0]
     const path = t.path
@@ -231,6 +257,11 @@ export class EditableGeometry {
         const bounds = a && b ? [a, b] : null
         return { bounds, path: this.#trazo(0, bounds ? rectCorners(bounds) : [], true) }
       }
+      default: {
+        const shape = this.#forma.read(value)
+        this.#teselar(shape, this.#model)
+        return { shape, path: this.#trazo(0, this.#manijasDe(shape), true) }
+      }
     }
   }
 
@@ -248,6 +279,7 @@ export class EditableGeometry {
   // El trazo derivado de una figura de tamaño fijo. Los kinds que crecen no pasan por acá: su trazo ES
   // su valor.
   #figura() {
+    if (this.#forma) return this.#manijasDe(this.#geom.shape)
     if (this.#kind === 'point') return this.#geom.pt ? [this.#geom.pt] : []
     return this.#geom.bounds ? rectCorners(this.#geom.bounds) : []
   }
@@ -262,8 +294,51 @@ export class EditableGeometry {
       case 'polyline': return g.path.toPairs()
       case 'point': return g.pt ? clonePair(g.pt) : null
       case 'rectangle': return g.bounds ? g.bounds.map(clonePair) : null
+      default: return g.shape ? this.#forma.value(g.shape) : null
     }
   }
+
+  // Las manijas de la forma como pares, ubicadas con el modelo del mapa.
+  #manijasDe(shape) {
+    if (!shape) return []
+    this.#forma.place(this.#model, shape, this.#manijas)
+    return pairs(this.#manijas, 0, this.#forma.handles)
+  }
+
+  // El anillo de la forma rehecho entero, con `model` y los segmentos que pide la vista; vacío sin forma.
+  // Asigna, así que corre fuera de los frames: al ingerir, al soltar, en cada click del trazado y cuando el
+  // zoom pide otros segmentos. Quien lo llame pone al día el arena del contorno.
+  #teselar(shape, model) {
+    const cuenta = shape ? sizeShape(shape, viewSegments(shape, this.#camera.zoom())) : 0
+    if (this.#anillo.length !== cuenta * 2) this.#anillo = new Float64Array(cuenta * 2)
+    shape && writeShape(model, shape, this.#anillo, 0)
+    this.#perimetro.reset(pairs(this.#anillo, 0, cuenta))
+  }
+
+  // Un frame del gesto o de la vista previa: la esfera por defecto reescribe la forma sobre el mismo anillo,
+  // con los segmentos y los tramos de cada parte congelados, así que sólo se mueven vértices y se suben sus
+  // chunks, sin re-ingerir el arena. Una figura entera que se abre en sector —sin arco todavía— cambia de
+  // conteo, y ésa se rehace una vez; las demás reescrituras son [0-alloc].
+  #reescribir(shape, arena) {
+    const { arc, steps } = shape
+    const path = this.#perimetro
+    const xy   = this.#anillo
+    if (!arc && shape.sweep < 360) {
+      this.#teselar(shape, byDefault)
+      return arena.reset()
+    }
+    sizeShape(shape, shape.n)
+    shape.arc   = arc
+    shape.steps = steps
+    writeShape(byDefault, shape, xy, 0)
+    for (let i = 0, ref = path.firstVertex; i < path.length; i++, ref = path.nextVertex(ref))
+      path.moveVertex(ref, xy[2 * i + 1], xy[2 * i])
+    for (let k = path.firstChunk; k >= 0; k = path.chunkNext(k))
+      arena.writeRange(k, path.chunkFirst(k), path.chunkFirst(k) + path.chunkUsed(k))
+  }
+
+  // Lo menos que mide un radio, en metros a la latitud del centro, para que sus manijas no se pisen.
+  #minimo(lat) { return pixelsToMeters(SEPARACION, lat * D, this.#camera.zoom()) }
 
   #leer = () => this.#serialize()          // lector estable: la emisión no serializa hasta que se pide
 
@@ -315,6 +390,7 @@ export class EditableGeometry {
     move: (x, y) => {
       const p = this.#puntoDe(x, y)
       if (this.#gesto.ref >= 0) return this.#arrastrar(p[0], p[1])
+      if (this.#mode === 'draw') return this.#previa(p)
       if (!this.#conHandles) return
       this.#cobrar()
       this.#pedir(p[0], p[1])
@@ -361,9 +437,15 @@ export class EditableGeometry {
   // El encuadre cambió bajo el puntero: lo que había en un píxel ya no está ahí, y sin un `move` que lo
   // vuelva a resolver el vecindario promovido tampoco corresponde a nada. Un gesto vivo conserva el suyo:
   // su vértice es el que el dedo tiene tomado, no el que haya bajo el cursor.
+  // Las formas re-teselan cuando el zoom pide otros segmentos; el borrador, con la esfera de su vista previa.
   #onView = () => {
+    const shape = this.#forma && (this.#borrador ?? this.#geom.shape)
     this.#invalidar()
     this.#gesto.ref < 0 && this.#promover(-1, -1)
+    if (shape && shape.n !== viewSegments(shape, this.#camera.zoom())) {
+      this.#teselar(shape, shape === this.#borrador ? byDefault : this.#model)
+      this.#trazos[0].contorno.arena.reset()
+    }
     this.#draw()
     this.#informar()
   }
@@ -463,7 +545,7 @@ export class EditableGeometry {
     this.#trazos.forEach((t, k) => {
       const v = k === trazo ? ref : -1
       t.handles.promote(v)
-      t.contorno.stroke.promote(v)
+      t.contorno.path === t.path && t.contorno.stroke.promote(v)
       t.bank.promote(v)
     })
     return true
@@ -517,7 +599,8 @@ export class EditableGeometry {
 
   // Suelta el puntero SIN asentar y devuelve lo que el gesto tenía tomado (null si no había ninguno). Es
   // el camino de los cortes de AFUERA —`destroy` / `setMode` / `setValue`—, así que pone el espejo GPU al
-  // día: el arrastre dejó el arena atrás y el valor ya salió por `onChange`.
+  // día: el arrastre dejó el arena atrás y el valor ya salió por `onChange`. Una forma se rehace entera:
+  // sus manijas vuelven a donde la forma las pone y su anillo pasa de la esfera al modelo.
   #releaseInteraction() {
     const g = this.#gesto
     if (g.ref < 0) return null
@@ -529,7 +612,7 @@ export class EditableGeometry {
     g.devolver = null
     if (tomado.movido) {
       this.#invalidar()
-      tomado.t.arena.writeEntry(tomado.ref)
+      this.#forma ? this.#refigurar() : tomado.t.arena.writeEntry(tomado.ref)
     }
     tomado.t.bank.grab(false)
     devolver()
@@ -550,17 +633,15 @@ export class EditableGeometry {
   /* ── Ediciones ──────────────────────────────────────────────────────────────────────────── */
 
   // Un frame del gesto: el trazo recibe la posición nueva —cada `kind` con su regla— y las capas la
-  // muestran como uniform, sin escribir a GPU. El arena queda atrás a propósito: se pone al día al soltar.
+  // muestran como uniform, sin escribir a GPU. El arena queda atrás a propósito: se pone al día al soltar,
+  // salvo en el rectángulo y las formas, que mueven más de un vértice por frame y los escriben al espejo.
   // Hasta que el puntero supera la tolerancia de click no hay arrastre: una pulsación quieta no edita.
   // El vértice va al puntero MÁS el offset de agarre, como `L.Draggable`: agarrarlo por el borde no lo
   // teletransporta a centrarse bajo el cursor.
   #arrastrar(x, y) {
     const g = this.#gesto
     if (!g.movido && Math.abs(x - g.x) + Math.abs(y - g.y) < CLICK_TOLERANCE) return
-    const c = this.#punto
-    c[0] = x + g.dx
-    c[1] = y + g.dy
-    const p = toFinitePair(this.#camera.fromContainer(c))
+    const p = this.#lugar(x + g.dx, y + g.dy)
     const q = p && this.#mover(g.trazo, g.ref, p)
     if (!q) return
     g.movido = true
@@ -569,9 +650,18 @@ export class EditableGeometry {
     this.#draw()
   }
 
+  // El lugar bajo el píxel (x, y) del contenedor, como par finito, o null.
+  #lugar(x, y) {
+    const c = this.#punto
+    c[0] = x
+    c[1] = y
+    return toFinitePair(this.#camera.fromContainer(c))
+  }
+
   // La regla de arrastre de cada `kind`, con la posición que le queda al ref arrastrado (o null si no se
   // movió nada): polígono y polilínea mueven su vértice y el punto es su único vértice.
   #mover(t, ref, p) {
+    if (this.#forma) return this.#moverManija(t, ref, p)
     if (this.#kind === 'rectangle') return this.#moverEsquina(t, ref, p)
     if (!t.path.moveVertex(ref, p[0], p[1])) return null
     this.#kind === 'point' && (this.#geom.pt = p)
@@ -605,6 +695,23 @@ export class EditableGeometry {
       q[1] = lng
     }
     return q
+  }
+
+  // Arrastre de una manija de forma: la regla de su forma cambia la forma, las manijas se reubican desde ella y
+  // el anillo se reescribe. La manija tomada sigue al puntero y al soltar vuelve a donde la pone la forma: la
+  // de través y los bordes del sector, a su eje. Las manijas caben en el primer chunk, en orden, así que la
+  // manija `i` es el ref 2i.
+  #moverManija(t, ref, p) {
+    const shape = this.#geom.shape
+    const xy    = this.#manijas
+    if (!this.#forma.drag(this.#model, shape, ref >> 1, p[0], p[1], this.#minimo(shape.lat))) return null
+    this.#forma.place(this.#model, shape, xy)
+    for (let i = 0, v = t.path.firstVertex; i < this.#forma.handles; i++, v = t.path.nextVertex(v)) {
+      t.path.moveVertex(v, xy[2 * i + 1], xy[2 * i])
+      t.arena.writeEntry(v)
+    }
+    this.#reescribir(shape, t.contorno.arena)
+    return p
   }
 
   // La posición VIVA del vértice en las tres capas: el contorno y el banco la reciben en coordenadas del
@@ -650,15 +757,54 @@ export class EditableGeometry {
 
   // Trazado de rectángulo: primer click fija una esquina; el segundo cierra el bounds contra ella.
   #drawRectClick(p) {
-    if (!this.#drawAnchor) { this.#drawAnchor = p; return }
-    const a = this.#drawAnchor
-    this.#geom.bounds = [
-      [Math.min(a[0], p[0]), Math.min(a[1], p[1])],
-      [Math.max(a[0], p[0]), Math.max(a[1], p[1])],
-    ]
-    this.#drawAnchor = null
+    if (!this.#borrador) { this.#borrador = p; return }
+    this.#geom.bounds = caja(this.#borrador, p)
+    this.#borrador    = null
     this.#refigurar()
     this.#settle()
+  }
+
+  // Trazado de una forma: el primer click pone el centro y cada uno de los siguientes, la manija que sigue
+  // —el radio; en la elipse, `b` después; en el sector, un borde después de la punta—. El último asienta.
+  // El borrador nace con el radio mínimo y se dibuja con la esfera, como la vista previa.
+  #trazarForma(p) {
+    const forma = this.#forma
+    const b     = this.#borrador
+    if (!b) {
+      const min = this.#minimo(p[0])
+      this.#paso = 1
+      return this.#esbozar(forma.read({ center: p, radius: forma.round ? min : [min, min] }))
+    }
+    if (!forma.drag(this.#model, b, this.#paso, p[0], p[1], this.#minimo(b.lat))) return
+    if (++this.#paso < forma.clicks) return this.#esbozar(b)
+    this.#geom.shape = b
+    this.#borrador   = null
+    this.#refigurar()
+    this.#settle()
+  }
+
+  #esbozar(borrador) {
+    this.#borrador = borrador
+    if (!borrador) return
+    this.#teselar(borrador, byDefault)
+    this.#trazos[0].contorno.arena.reset()
+    this.#draw()
+  }
+
+  // La vista previa elástica del trazado: el click que falta, donde está el puntero. No emite, y el valor
+  // sigue siendo el de antes hasta el último click.
+  #previa(p) {
+    const b = this.#borrador
+    const q = b && this.#lugar(p[0], p[1])
+    if (!q) return
+    if (this.#forma) {
+      if (!this.#forma.drag(this.#model, b, this.#paso, q[0], q[1], this.#minimo(b.lat))) return
+      this.#reescribir(b, this.#trazos[0].contorno.arena)
+    } else {
+      this.#geom.path = this.#trazo(0, rectCorners(caja(b, q)), true)
+      this.#trazos[0].arena.reset()
+    }
+    this.#draw()
   }
 
   /* ── El espejo GPU ──────────────────────────────────────────────────────────────────────── */
@@ -668,11 +814,18 @@ export class EditableGeometry {
   // precisión de float32. Si no, sube sólo los chunks que se movieron.
   #espejar(t, reingesta) { reingesta ? t.arena.reset() : t.arena.syncStructure() }
 
-  // point y rectangle DERIVAN su trazo de su estado y se re-ingieren enteros: en una figura de tamaño
-  // fijo eso cuesta lo mismo que actualizarla, y les evita un camino de edición propio.
+  // point, rectangle y las formas DERIVAN su trazo de su estado y se re-ingieren enteros: en una figura de
+  // tamaño fijo eso cuesta lo mismo que actualizarla, y les evita un camino de edición propio.
   #refigurar() {
     this.#geom.path = this.#trazo(0, this.#figura(), CERRADOS.has(this.#kind))
-    this.#trazos[0].arena.reset()
+    this.#forma && this.#teselar(this.#geom.shape, this.#model)
+    this.#reingerir(this.#trazos[0])
+  }
+
+  // El espejo entero de un trazo, y el de su contorno si es derivado.
+  #reingerir(t) {
+    t.arena.reset()
+    t.contorno.arena !== t.arena && t.contorno.arena.reset()
   }
 
   #dibujables() { return this.#kind === 'polygon' ? this.#geom.rings : [this.#geom.path] }
@@ -685,23 +838,27 @@ export class EditableGeometry {
     this.#invalidar()
     this.#trazos.splice(paths.length).forEach(t => this.#soltar(t))
     this.#contornos.splice(paths.length)
-    paths.forEach((path, i) => this.#trazos[i]?.arena.reset() ?? this.#montar(path, i))
+    paths.forEach((path, i) => this.#trazos[i] ? this.#reingerir(this.#trazos[i]) : this.#montar(path, i))
     this.#promover(-1, -1)
     this.#draw()
   }
 
   // Un trazo en GPU, en su lugar de las dos listas: el espejo del arena, sus handles como sprites, el banco
-  // de nodos que repone el vecindario bajo el cursor y su contorno. El objeto de picking es el orden + 1 —
-  // el pase descarta el 0—.
+  // de nodos que repone el vecindario bajo el cursor y su contorno. El contorno es el mismo path con el mismo
+  // arena, salvo en las formas, que dibujan su anillo con un arena propio sin canales de handle. El objeto de
+  // picking es el orden + 1 —el pase descarta el 0—.
   #montar(path, orden) {
     const gl       = this.#gl
     const iconSet  = this.#iconSet
     const arena    = new EditArena({ gl, path, project, ...this.#canales() })
     const picking  = new Picking()
     const handles  = new EditHandleLayer({ gl, arena, path, picking, iconSet })
+    const borde    = this.#perimetro ?? path
+    const dibujo   = borde === path ? arena : new EditArena({ gl, path: borde, project })
     const contorno = this.#contornos[orden] = {
-      path, arena,
-      stroke: new EditStrokeLayer({ gl, arena, path, project, width: this.#style.weight, color: this.#style.color }),
+      path   : borde,
+      arena  : dibujo,
+      stroke : new EditStrokeLayer({ gl, arena: dibujo, path: borde, project, width: this.#style.weight, color: this.#style.color }),
     }
     handles.pickObject  = orden + 1
     this.#trazos[orden] = {
@@ -710,11 +867,12 @@ export class EditableGeometry {
     }
   }
 
-  // El contorno comparte el arena de su trazo: se destruye una sola vez.
+  // Cada arena se destruye una vez: el del contorno, sólo si no es el del trazo.
   #soltar(t) {
     t.bank.destroy()
     t.handles.destroy()
     t.contorno.stroke.destroy()
+    t.contorno.arena !== t.arena && t.contorno.arena.destroy()
     t.arena.destroy()
     t.picking.detach()
   }
@@ -736,10 +894,10 @@ export class EditableGeometry {
     if (!this.#surface.attached || this.#surface.contextLost) return
     this.#surface.resetCanvasReference()
     // El encuadre que leen las tres capas, con el vértice que arrastra el gesto. Su `vertex` es un ref del
-    // path de manijas y el relleno lo busca en el del contorno: vale porque cada contorno comparte path con
-    // su trazo.
+    // path de manijas y el relleno lo busca en el del contorno: sólo va cuando el contorno es ese path.
+    const g     = this.#gesto
     const vista = readView(this.#camera, this.#vista)
-    vista.drag  = this.#gesto.movido ? this.#vivo : null
+    vista.drag  = g.movido && g.trazo.contorno.path === g.trazo.path ? this.#vivo : null
     gl.clearColor(0, 0, 0, 0)
     gl.clear(gl.COLOR_BUFFER_BIT | gl.STENCIL_BUFFER_BIT)
     this.#fill?.draw(vista)

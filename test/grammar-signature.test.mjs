@@ -1,7 +1,7 @@
 // Contrato de validateSignature — la puerta de entrada del registro (R4). Congela LAS SEIS
 // ramas de rechazo, el orden en que se evalúan (una firma que viola dos reglas reporta
 // siempre la primera) y la forma del error. La rama "kind desconocido" ya la cubre
-// test/grammar.test.mjs; acá están las otras cinco, más el golden de las 12 firmas reales.
+// test/grammar.test.mjs; acá están las otras cinco, más el golden de las 15 firmas reales.
 // Corre con: node --test test/grammar-signature.test.mjs
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -138,7 +138,7 @@ test('un wrapper puede no consumir nada: consumes [] no es rechazo de firma', ()
   acepta({ consumes: [], produces: ['overlay'], combine: 'map', arity: 'wrapper' })
 })
 
-/* ════════════════ Golden · las 12 firmas reales del entry `map` ════════════════ */
+/* ════════════════ Golden · las 15 firmas reales del entry `map` ════════════════ */
 
 // El golden se LEE de la fuente, no se copia a mano: importar las clases arrastraría lit +
 // leaflet + un DOM, así que se parsea el texto de src/index.js (qué tag registra qué clase) y
@@ -163,7 +163,7 @@ const firmasDeclaradas = () => {
     })
 }
 
-test('las 12 firmas del entry map son EXACTAMENTE las esperadas (golden leído de la fuente)', () => {
+test('las 15 firmas del entry map son EXACTAMENTE las esperadas (golden leído de la fuente)', () => {
   const FIRMAS = [
     ['cristae-point-layer', { consumes: [], produces: ['point'], combine: null, arity: 'leaf' }],
     ['cristae-polygon-layer', { consumes: [], produces: ['polygon'], combine: null, arity: 'leaf' }],
@@ -175,6 +175,9 @@ test('las 12 firmas del entry map son EXACTAMENTE las esperadas (golden leído d
     ['cristae-editable-polyline', { consumes: [], produces: ['edit'], combine: null, arity: 'leaf' }],
     ['cristae-editable-point', { consumes: [], produces: ['edit'], combine: null, arity: 'leaf' }],
     ['cristae-editable-rectangle', { consumes: [], produces: ['edit'], combine: null, arity: 'leaf' }],
+    ['cristae-editable-circle', { consumes: [], produces: ['edit'], combine: null, arity: 'leaf' }],
+    ['cristae-editable-ellipse', { consumes: [], produces: ['edit'], combine: null, arity: 'leaf' }],
+    ['cristae-editable-sector', { consumes: [], produces: ['edit'], combine: null, arity: 'leaf' }],
     ['cristae-cluster', { consumes: ['point'], produces: ['point', 'bubble'], combine: 'fold', arity: 'wrapper' }],
     ['cristae-overlay', { consumes: ['point'], produces: ['overlay'], combine: 'map', arity: 'wrapper', bindsTo: 'point' }],
   ]
@@ -186,9 +189,9 @@ test('el universo de kinds del entry map es el que declara composite.js', () => 
   assert.deepEqual(kinds, [...KINDS])
 })
 
-test('las 12 firmas reales pasan la validación y entran al registro con su arity', () => {
+test('las 15 firmas reales pasan la validación y entran al registro con su arity', () => {
   const FIRMAS = firmasDeclaradas()
-  assert.equal(FIRMAS.length, 12)
+  assert.equal(FIRMAS.length, 15)
   for (const [tag, sig] of FIRMAS) acepta(sig, tag)
 
   // El dispatch leaf/wrapper del reductor depende de esto.

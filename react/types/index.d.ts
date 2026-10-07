@@ -41,6 +41,9 @@ import type {
   EditablePolylineValue,
   EditablePointValue,
   EditableRectangleValue,
+  EditableCircleValue,
+  EditableEllipseValue,
+  EditableSectorValue,
   HitBase,
   PointHit,
   PolygonHit,
@@ -388,6 +391,12 @@ export type CristaeEditablePointProps =
   CristaeEditableProps<EditablePointValue, EditablePointValue<EmittedPoint>>
 export type CristaeEditableRectangleProps =
   CristaeEditableProps<EditableRectangleValue, EditableRectangleValue<EmittedPoint>>
+export type CristaeEditableCircleProps =
+  CristaeEditableProps<EditableCircleValue, EditableCircleValue<EmittedPoint>>
+export type CristaeEditableEllipseProps =
+  CristaeEditableProps<EditableEllipseValue, EditableEllipseValue<EmittedPoint>>
+export type CristaeEditableSectorProps =
+  CristaeEditableProps<EditableSectorValue, EditableSectorValue<EmittedPoint>>
 
 export declare const CristaeEditablePolygon:
   ForwardRefExoticComponent<CristaeEditablePolygonProps & RefAttributes<CristaeEditableElement>>;
@@ -397,6 +406,12 @@ export declare const CristaeEditablePoint:
   ForwardRefExoticComponent<CristaeEditablePointProps & RefAttributes<CristaeEditableElement>>;
 export declare const CristaeEditableRectangle:
   ForwardRefExoticComponent<CristaeEditableRectangleProps & RefAttributes<CristaeEditableElement>>;
+export declare const CristaeEditableCircle:
+  ForwardRefExoticComponent<CristaeEditableCircleProps & RefAttributes<CristaeEditableElement>>;
+export declare const CristaeEditableEllipse:
+  ForwardRefExoticComponent<CristaeEditableEllipseProps & RefAttributes<CristaeEditableElement>>;
+export declare const CristaeEditableSector:
+  ForwardRefExoticComponent<CristaeEditableSectorProps & RefAttributes<CristaeEditableElement>>;
 
 // ── Modificadores de composición (envuelven capas de puntos) ─────────────────
 

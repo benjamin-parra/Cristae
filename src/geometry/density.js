@@ -15,10 +15,14 @@ export const GROUND = 0.1
 // El mínimo de segmentos de una figura entera: el piso de `segmentsFor` y el de quien los recorte.
 export const MIN_SEGMENTS = 16
 
+// Los metros que valen `px` píxeles de pantalla a `zoom` en la latitud `phi`, en radianes: la única
+// conversión de la vista a metros, que hoy es la escala de Mercator.
+export const pixelsToMeters = (px, phi, zoom) => px * MEAN_RADIUS * Math.cos(phi) / (WORLD_PER_RAD * 2 ** zoom)
+
 // Los metros que valen `VIEW_PX` a `zoom` en una forma de radio `radius` centrada en `lat`. La escala de
 // Mercator se toma en la latitud más alta que la forma toca, que es la mayor de las que mide.
 export const viewTolerance = (lat, radius, zoom) =>
-  VIEW_PX * MEAN_RADIUS * Math.cos(Math.abs(lat) * D + radius / MEAN_RADIUS) / (WORLD_PER_RAD * 2 ** zoom)
+  pixelsToMeters(VIEW_PX, Math.abs(lat) * D + radius / MEAN_RADIUS, zoom)
 
 // Segmentos que mantienen la flecha de la cuerda de un arco de radio `radius` bajo `tolerance`:
 // n = π / acos(1 − tolerance / radius), con la potencia de dos que lo cubre, entre 16 y 4096. Es potencia

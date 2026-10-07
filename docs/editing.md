@@ -69,8 +69,38 @@ entra, y lo emitido es el mismo tipo con pares: `EditablePolygonValue<[number, n
 | `<cristae-editable-polyline>` | `<CristaeEditablePolyline>` | `[[lat,lng], …]` | mover / insertar / borrar vértices |
 | `<cristae-editable-point>` | `<CristaeEditablePoint>` | `[lat,lng]` o `null` | colocar / mover |
 | `<cristae-editable-rectangle>` | `<CristaeEditableRectangle>` | `[[s,w],[n,e]]` o `null` | arrastrar una esquina (las otras tres la siguen) |
+| `<cristae-editable-circle>` | `<CristaeEditableCircle>` | `{ center, radius }` o `null` | mover el centro / el radio |
+| `<cristae-editable-ellipse>` | `<CristaeEditableEllipse>` | `{ center, radius: [a, b], heading }` o `null` | mover el centro / girar con `a` / ensanchar con `b` |
+| `<cristae-editable-sector>` | `<CristaeEditableSector>` | `{ center, radius, heading, sweep }` o `null` | mover el centro / la punta / abrir con un borde |
 
 En `polygon`, la salida **espeja la entrada**: si entró un anillo simple, sale un anillo simple.
+
+### Círculo, elipse y sector
+
+El valor es una [forma](./geometry.md#formas--ring-y-arc) con el radio de su tipo, en metros: un número
+en el círculo y el sector, `[a, b]` en la elipse. Entra con la regla de validez de `ring` —`heading` y
+`sweep` ausentes son norte y figura entera, y lo que no la cumple es `null`—, y además es `null` si su
+borde alcanza un polo. La elipse no lee `sweep`: el sector de elipse se dibuja en la
+[capa de formas](./shapes.md), pero no se edita.
+
+Lo emitido es un objeto fresco por lectura, con `center` como par `[lat, lng]` —a diferencia de
+`getCenter()`, que da `{ lat, lng }`—, `heading` en [0, 360) y `sweep` en (0, 360]. Es una `Shape`, así
+que `area(ring(e.detail.value))` mide lo editado.
+
+| Forma | Manijas | Arrastre |
+|---|---|---|
+| círculo | centro y radio | El centro traslada la figura y el radio es la distancia al puntero. La manija de radio entra al este y queda en el rumbo donde se soltó, hasta el próximo `value`. |
+| elipse | centro, `a` (en `heading`) y `b` (en `heading + 90`) | `a` cambia el semieje y `heading`, así que también gira; `b` sólo cambia su semieje, y al soltar su manija vuelve al eje. |
+| sector | centro, punta (en `heading`) y dos bordes | La punta cambia `radius` y `heading`. Un borde cambia sólo `sweep`, simétrico alrededor de `heading`: dos veces el ángulo entre el puntero y la punta, por el lado más corto. |
+
+- **Mínimos.** Un radio no baja de 24 px a la vista, y la apertura no deja dos manijas a menos de eso:
+  las manijas no se pisan. Un radio que ya es menor —porque entró así o porque se alejó el zoom— no se
+  corrige, y la apertura se acota como en el radio mínimo.
+- **Polo.** El arrastre que llevaría el borde a un polo no se aplica ni emite.
+- **Modelo.** El valor y las manijas salen del modelo con que el mapa coloca las formas. Mientras dura el
+  gesto el anillo se dibuja con la esfera de radio medio, y al soltar se rehace con el modelo: con
+  `WGS84` lo dibujado en el gesto se aparta del final a lo sumo un 0,56 % del radio.
+- `focus({ kinds: ['circle'] })` no alcanza a un editor de círculo: su capa es `kind: 'editable'`.
 
 ---
 
@@ -92,7 +122,8 @@ burbuja; el `click` que el navegador despacha después sí, y Cristae no lo mira
 - Lo que cae fuera de la superficie del mapa —el zoom, la atribución o la UI de una zona— es suyo
   aunque tape un handle: la pulsación no toma el handle ni es un click, y el doble click no lo borra.
 - El doble click que borra un vértice es del gesto, y el mapa no hace zoom. El que no borra —en
-  `rectangle`, en `point` o en un trazo que ya está en su mínimo— sigue siendo del mapa, que hace zoom.
+  `rectangle`, en `point`, en las formas o en un trazo que ya está en su mínimo— sigue siendo del mapa,
+  que hace zoom.
   Donde el navegador no despacha `dblclick` para el toque, Leaflet lo arma con los dos clicks y no pasa
   por la puerta: ahí un doble tap no borra un vértice ni cierra un trazo, y hace zoom.
 - La pulsación sigue siendo del gesto aunque un `onCommit` a mitad de ella pase a `mode: 'draw'` o
@@ -107,7 +138,19 @@ resuelta: con el puntero quieto justo al entrar o salir de un handle, lo corrige
 la pulsación.
 
 En `mode: 'draw'` no hay gesto sobre handles: el click del mapa **es** la edición, y el doble click cierra
-el trazo de un polígono o una polilínea con dos vértices o más, sin zoom.
+el trazo de un polígono o una polilínea con dos vértices o más, sin zoom. Las figuras de tamaño fijo se
+trazan por clicks, y el mapa sigue paneando entre ellos:
+
+| Figura | Clicks |
+|---|---|
+| rectángulo | 2: una esquina y la opuesta |
+| círculo | 2: el centro y el borde |
+| elipse | 3: el centro, la punta de `a` y el borde de `b` |
+| sector | 3: el centro, la punta y un borde |
+
+Entre clicks una **vista previa** sigue al puntero sin emitir: el valor no cambia hasta el último click,
+que emite `change` y `commit` una sola vez. En táctil no hay puntero que siga sin apoyar el dedo: entre
+toques la vista previa sólo se mueve con el dedo que panea, y el valor sale igual de los toques.
 
 ---
 
@@ -159,7 +202,7 @@ componente: `EditablePolylineValue` acá, rings en `<CristaeEditablePolygon>`, y
 ## Imperativo — `engine.addEditableLayer`
 
 Del lado del motor sigue habiendo UN alta, con `kind` como parámetro: la forma es config del editor y
-lo que se reparte en cuatro es la superficie declarativa, donde el tipo tiene que ser estático.
+lo que se reparte en siete es la superficie declarativa, donde el tipo tiene que ser estático.
 
 ```js
 const handle = engine.addEditableLayer({

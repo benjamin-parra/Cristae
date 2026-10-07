@@ -5,7 +5,7 @@
 
 // El re-export de abajo NO liga los nombres en este archivo: lo que se usa acá se importa.
 import type { CristaeReadSource, CristaeSource, CristaeFilter, SourceAccessors } from "./core";
-import type { Bounds, BoundsLike, LatLng, LatLngPath, LatLngPoint } from "./geometry";
+import type { Bounds, BoundsLike, LatLng, LatLngPath, LatLngPoint, Shape } from "./geometry";
 
 export type {
   SourceAccessors,
@@ -551,13 +551,19 @@ export interface HeatHandle<T = unknown> {
 }
 
 // ── Edición de geometría (addEditableLayer) — INPUT CONTROLADO. Ver docs/editing.md ──
-export type EditableKind = "polygon" | "rectangle" | "polyline" | "point"
+export type EditableKind = "polygon" | "rectangle" | "polyline" | "point" | "circle" | "ellipse" | "sector"
 // La forma del `value` de cada editor, con el tipo de punto aparte: entra con los puntos en cualquiera
-// de sus formas (el defecto) y sale con pares, `Editable*Value<[number, number]>`.
+// de sus formas (el defecto) y sale con pares, `Editable*Value<[number, number]>`. Los de las formas son
+// una `Shape` con el radio de su tipo: lo emitido es un objeto fresco por lectura, con `center` como par
+// `[lat, lng]` —a diferencia de `getCenter()`, que da `{ lat, lng }`—, `heading` en [0, 360) y `sweep` en
+// (0, 360].
 export type EditablePolygonValue<Point = LatLngPoint>   = Point[] | Point[][]
 export type EditablePolylineValue<Point = LatLngPoint>  = Point[]
 export type EditablePointValue<Point = LatLngPoint>     = Point | null
 export type EditableRectangleValue<Point = LatLngPoint> = [Point, Point] | null
+export type EditableCircleValue<Point = LatLngPoint>    = (Pick<Shape<Point>, "center"> & { radius: number }) | null
+export type EditableEllipseValue<Point = LatLngPoint>   = (Pick<Shape<Point>, "center" | "heading"> & { radius: readonly [number, number] }) | null
+export type EditableSectorValue<Point = LatLngPoint>    = (Shape<Point> & { radius: number; sweep: number }) | null
 /** Parcial: lo que no venga queda como estaba. */
 export interface EditableStyle {
   color?       : string;
@@ -843,6 +849,13 @@ export class MapEngine {
 }
 
 export class CristaeMap extends HTMLElement {}
+export class CristaeEditablePolygon extends HTMLElement {}
+export class CristaeEditablePolyline extends HTMLElement {}
+export class CristaeEditablePoint extends HTMLElement {}
+export class CristaeEditableRectangle extends HTMLElement {}
+export class CristaeEditableCircle extends HTMLElement {}
+export class CristaeEditableEllipse extends HTMLElement {}
+export class CristaeEditableSector extends HTMLElement {}
 export class CristaePointLayer extends HTMLElement {}
 export class CristaePolygonLayer extends HTMLElement {}
 export class CristaeShapeLayer extends HTMLElement {}

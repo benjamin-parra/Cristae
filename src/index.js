@@ -15,6 +15,9 @@ import { CristaeEditablePolygon } from './element/CristaeEditablePolygon.js'
 import { CristaeEditablePolyline } from './element/CristaeEditablePolyline.js'
 import { CristaeEditablePoint } from './element/CristaeEditablePoint.js'
 import { CristaeEditableRectangle } from './element/CristaeEditableRectangle.js'
+import { CristaeEditableCircle } from './element/CristaeEditableCircle.js'
+import { CristaeEditableEllipse } from './element/CristaeEditableEllipse.js'
+import { CristaeEditableSector } from './element/CristaeEditableSector.js'
 import { CristaeCluster } from './element/CristaeCluster.js'
 import { CristaeOverlay } from './element/CristaeOverlay.js'
 import { CristaeToolbar } from './element/CristaeToolbar.js'
@@ -33,6 +36,9 @@ grammar.register('cristae-editable-polygon', CristaeEditablePolygon.cristaeSigna
 grammar.register('cristae-editable-polyline', CristaeEditablePolyline.cristaeSignature)
 grammar.register('cristae-editable-point', CristaeEditablePoint.cristaeSignature)
 grammar.register('cristae-editable-rectangle', CristaeEditableRectangle.cristaeSignature)
+grammar.register('cristae-editable-circle', CristaeEditableCircle.cristaeSignature)
+grammar.register('cristae-editable-ellipse', CristaeEditableEllipse.cristaeSignature)
+grammar.register('cristae-editable-sector', CristaeEditableSector.cristaeSignature)
 grammar.register('cristae-cluster', CristaeCluster.cristaeSignature, { apply: CristaeCluster.cristaeApply })
 grammar.register('cristae-overlay', CristaeOverlay.cristaeSignature, { apply: CristaeOverlay.cristaeApply })
 
@@ -49,6 +55,9 @@ define('cristae-editable-polygon', CristaeEditablePolygon)
 define('cristae-editable-polyline', CristaeEditablePolyline)
 define('cristae-editable-point', CristaeEditablePoint)
 define('cristae-editable-rectangle', CristaeEditableRectangle)
+define('cristae-editable-circle', CristaeEditableCircle)
+define('cristae-editable-ellipse', CristaeEditableEllipse)
+define('cristae-editable-sector', CristaeEditableSector)
 define('cristae-cluster', CristaeCluster)
 define('cristae-overlay', CristaeOverlay)
 define('cristae-toolbar', CristaeToolbar)
@@ -73,3 +82,4 @@ export { arc } from './geometry/shape.js'
 export { tilePresets } from './tiles/presets.js'
 export { CristaeMap, CristaePointLayer, CristaePolygonLayer, CristaeShapeLayer, CristaeLineLayer, CristaeHtmlLayer, CristaeLabelLayer, CristaeCluster, CristaeOverlay, CristaeToolbar, CristaePopup }
 export { CristaeEditablePolygon, CristaeEditablePolyline, CristaeEditablePoint, CristaeEditableRectangle }
+export { CristaeEditableCircle, CristaeEditableEllipse, CristaeEditableSector }

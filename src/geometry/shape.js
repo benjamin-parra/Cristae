@@ -1,7 +1,7 @@
 // Formas en METROS sobre un modelo de la Tierra (SPECS §18). `ring` y `arc` son la cara pública, y
-// `readShape`, `sizeShape` y `writeShape` el escritor que comparten con las capas de círculos y de formas,
-// para que lo que se dibuja y lo que se mide salgan del mismo anillo. Módulo puro: sin Leaflet, sin DOM, sin
-// el elipsoide.
+// `readShape`, `sizeShape` y `writeShape` el escritor que comparten con las capas de círculos y de formas y
+// con los editores, para que lo que se dibuja, lo que se pica y lo que se mide salgan del mismo anillo.
+// Módulo puro: sin Leaflet, sin DOM, sin el elipsoide.
 //
 // La elipse se parametriza por la anomalía excéntrica t, no por el lugar focal: el vértice es el destino
 // desde el centro a `heading + atan2(v, u)` y `hypot(u, v)` metros, con u = a·cos t y v = b·sin t. El anillo
@@ -9,7 +9,7 @@
 import { coordOf, isPoint } from '../data/path.js'
 import { DESTINATION, MEAN_RADIUS, byDefault, checkPlacer } from './geodesic.js'
 import { measureArgs } from './measure.js'
-import { GROUND, segmentsFor, stepsFor } from './density.js'
+import { GROUND, segmentsFor, stepsFor, viewTolerance } from './density.js'
 
 const D   = Math.PI / 180
 const TAU = 2 * Math.PI
@@ -38,6 +38,17 @@ export const readShape = value => {
 // expresiones del círculo sobre la esfera pierden la lng, y Mercator no tiene un contorno finito.
 export const reachesPole = ({ lat, a, b }) => Math.abs(lat) * D + Math.max(a, b) / MEAN_RADIUS >= Math.PI / 2
 
+// La forma que el mapa dibuja: la de `readShape` si no alcanza un polo, o `null`. Es la que la capa de formas
+// acepta y la que los editores emiten.
+export const readDrawable = value => {
+  const s = readShape(value)
+  return s && !reachesPole(s) ? s : null
+}
+
+// Los segmentos que la vista pide a `zoom` para la forma: los de su semieje mayor, donde la flecha es
+// máxima. Con ellos re-teselan la capa de formas y el contorno de los editores.
+export const viewSegments = ({ lat, a, b }, zoom) => segmentsFor(Math.max(a, b), viewTolerance(lat, Math.max(a, b), zoom))
+
 // Fija los segmentos de la figura entera en `n` y devuelve cuántos vértices escribe `writeShape`: `n` en la
 // figura entera y, en un sector, el centro, los radios sin repetir sus extremos y el arco. Los tramos de
 // cada radio salen de la tolerancia sin vista, y no de `n`, que la capa toma de la vista. El arco recorre
@@ -54,22 +65,23 @@ export const sizeShape = (shape, n) => {
   return 2 * shape.steps + shape.arc
 }
 
-// Escribe en `xy[at]` el destino desde el centro de `shape` al punto (u, v) de su marco —u sobre `heading`,
-// v de través— y devuelve dónde sigue. Va libre, y no como lambda de `writeShape`, para no asignar una
-// clausura por llamada.
-const put = (destination, shape, u, v, xy, at) => {
-  destination(shape.lat, shape.lng, shape.heading + Math.atan2(v, u) / D, Math.hypot(u, v), out)
+// Escribe en `xy[at]` el destino desde el centro de `shape` al punto (u, v) de su marco —u sobre `rot`, v de
+// través— y devuelve dónde sigue. Va libre, y no como lambda de `writeShape`, para no asignar una clausura
+// por llamada.
+const put = (destination, shape, rot, u, v, xy, at) => {
+  destination(shape.lat, shape.lng, rot + Math.atan2(v, u) / D, Math.hypot(u, v), out)
   xy[at]     = out[1]
   xy[at + 1] = out[0]
   return at + 2
 }
 
 // Escribe en `xy[at…]` los vértices de la forma dimensionada, como `[lng, lat, …]`, y devuelve dónde
-// termina. La lng sigue a la del centro sin envolverse. Un círculo entero sobre la esfera por defecto que no
-// alcanza un polo va por las expresiones del destino de esa esfera, con `n` vértices a `i·2π/n` desde el
-// norte, sin pasar por la marca.
+// termina; no asigna, porque el gesto de los editores lo llama por frame. La lng sigue a la del centro sin
+// envolverse. Una figura entera redonda no lee `heading`, que en los editores guarda el rumbo de una manija.
+// Un círculo entero sobre la esfera por defecto que no alcanza un polo va por las expresiones del destino de
+// esa esfera, con `n` vértices a `i·2π/n` desde el norte, sin pasar por la marca.
 export const writeShape = (model, shape, xy, at) => {
-  const { lat, lng, a, b, sweep, n, arc, steps, half } = shape
+  const { lat, lng, a, b, heading, sweep, n, arc, steps, half } = shape
   if (sweep === 360 && shape.round && model === byDefault && !reachesPole(shape)) {
     const sinLat = Math.sin(lat * D), cosLat = Math.cos(lat * D)
     const sinD   = Math.sin(a / MEAN_RADIUS), cosD = Math.cos(a / MEAN_RADIUS)
@@ -82,9 +94,10 @@ export const writeShape = (model, shape, xy, at) => {
     return at
   }
   const destination = model[DESTINATION]
+  const rot         = shape.round && sweep === 360 ? 0 : heading
   if (sweep === 360) {
     for (let i = 0; i < n; i++)
-      at = put(destination, shape, a * Math.cos(i * TAU / n), b * Math.sin(i * TAU / n), xy, at)
+      at = put(destination, shape, rot, a * Math.cos(i * TAU / n), b * Math.sin(i * TAU / n), xy, at)
     return at
   }
   // Un sector es [centro, radio, arco, radio]: los radios, a ±half de anomalía, miden lo mismo porque la
@@ -92,12 +105,12 @@ export const writeShape = (model, shape, xy, at) => {
   const u = a * Math.cos(half), v = b * Math.sin(half)
   xy[at++] = lng
   xy[at++] = lat
-  for (let k = 1; k <= steps; k++) at = put(destination, shape, u * (k / steps), -v * (k / steps), xy, at)
+  for (let k = 1; k <= steps; k++) at = put(destination, shape, rot, u * (k / steps), -v * (k / steps), xy, at)
   for (let j = 1; j <= arc; j++) {
     const t = half * (2 * j / arc - 1)
-    at = put(destination, shape, a * Math.cos(t), b * Math.sin(t), xy, at)
+    at = put(destination, shape, rot, a * Math.cos(t), b * Math.sin(t), xy, at)
   }
-  for (let k = steps - 1; k > 0; k--) at = put(destination, shape, u * (k / steps), v * (k / steps), xy, at)
+  for (let k = steps - 1; k > 0; k--) at = put(destination, shape, rot, u * (k / steps), v * (k / steps), xy, at)
   return at
 }
 
@@ -114,7 +127,7 @@ const place = (name, args) => {
 }
 
 // Los vértices `[from, to)` de `xy` como `[lat, lng]`; un índice que pasa del último vuelve al primero.
-const pairs = (xy, from, to) => {
+export const pairs = (xy, from, to) => {
   const count = xy.length / 2
   return Array.from({ length: to - from }, (_, i) => {
     const at = (from + i) % count * 2
