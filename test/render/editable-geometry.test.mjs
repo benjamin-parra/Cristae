@@ -1362,21 +1362,49 @@ test('sector: la punta cambia radio y rumbo, y un borde sólo la apertura, tambi
   esc.ed.destroy()
 })
 
-test('ningún radio baja de 24 px, ni la apertura deja dos manijas más cerca', () => {
+test('ningún radio baja de 24 px, ni la apertura acerca la punta a un borde, y por detrás se cierra en 360', () => {
   const circulo = montar({ kind: 'circle', value: { center: [0, 0], radius: 100000 }, zoom: 10 })
   arrastrar(circulo, 2, [[0, 0.01]])
   cerca(circulo.ed.getValue().radius, minimo(10), 1e-6, 'el radio se queda en el mínimo')
   circulo.ed.destroy()
 
-  // La cuerda entre manijas a `min`: la punta a sweep/2 de cada borde, y los bordes a 360 − sweep por detrás.
+  // La cuerda entre manijas a `min`: la punta a sweep/2 de cada borde. Por detrás, a la cuerda `min` del otro, se cierra.
   const gap    = Math.asin(minimo(10) / 200000) * 180 / Math.PI
   const sector = montar({ kind: 'sector', value: { center: [0, 0], radius: 100000, sweep: 90 }, zoom: 10 })
   const punta  = coordDe(sector, 2)
   arrastrar(sector, 6, [[Math.round(punta[0] * P) / P, 0]])
   cerca(sector.ed.getValue().sweep, 4 * gap, 1e-9, 'el borde sobre la punta')
   arrastrar(sector, 6, [[-0.9, 0]])
-  cerca(sector.ed.getValue().sweep, 360 - 2 * gap, 1e-9, 'el borde detrás, sobre el otro')
+  assert.equal(sector.ed.getValue().sweep, 360, 'el borde detrás, sobre el otro, cierra la figura')
+  arrastrar(sector, 6, [[0, 0.9]])
+  cerca(sector.ed.getValue().sweep, 180, 1, 'y el mismo borde la vuelve a abrir')
   sector.ed.destroy()
+})
+
+// La ventana de cierre mide la cuerda `min` (~1° a este radio): un arrastre rápido la salta, de 176° a 183°. El
+// puntero cae en píxeles enteros, así que una apertura abierta se compara a 1,5°.
+test('el borde que pasa por detrás cierra el sector en 360, y sigue cerrado hasta que vuelve por su lado', () => {
+  const esc = montar({ kind: 'sector', value: { center: [0, 0], radius: 100000, heading: 0, sweep: 90 }, zoom: 10 })
+  const en  = az => {
+    const { lat2, lon2 } = ESFERA.Direct(0, 0, az, 100000)
+    return [lat2, lon2]
+  }
+  const aperturas = []
+  tomar(esc, 6)
+  for (const az of [110, 150, 170, 176, 183, 195, 250, 200, 183, 176, 170]) {
+    mover(esc, ...en(az))
+    aperturas.push(esc.ed.getValue().sweep)
+  }
+  soltar(esc)
+  ;[220, 300, 340, 352, 360, 360, 360, 360, 360, 352, 340].forEach((esperada, k) =>
+    esperada === 360 ? assert.equal(aperturas[k], 360, `muestra ${k}`) : cerca(aperturas[k], esperada, 1.5, `muestra ${k}`))
+
+  // Un gesto nuevo abre la figura cerrada por cualquiera de sus dos bordes.
+  arrastrar(esc, 6, [en(183)])
+  assert.equal(esc.ed.getValue().sweep, 360)
+  arrastrar(esc, 4, [en(300)])
+  cerca(esc.ed.getValue().sweep, 120, 1.5, 'el otro borde, del otro lado, la abre')
+  esc.ed.destroy()
 })
 
 test('cada editor admite el radio de su forma, y el rumbo y la apertura salen en su rango', () => {
@@ -1398,11 +1426,11 @@ test('cada editor admite el radio de su forma, y el rumbo y la apertura salen en
     { center: [0, 0], radius: 3, heading: 0, sweep: 360 }, 'ausentes son norte y figura entera')
 })
 
-// Un radio menor que `min` acota `gap` a asin(1/2) = 30°, y la apertura a [120, 300].
+// Un radio menor que `min` acota `gap` a asin(1/2) = 30°: la apertura no baja de 120, y de 300 se cierra en 360.
 test('un sector más chico que el mínimo abre siguiendo al puntero, acotado como en el radio mínimo', () => {
   const esc = montar({ kind: 'sector', value: { center: [0, 0], radius: 50, heading: 0, sweep: 20 }, zoom: 10 })
   assert.ok(50 < minimo(10) / 2, 'ninguna apertura separa sus manijas')
-  ;[[[0.1, 0.4], null], [[0.5, 0.1], 120], [[-0.5, -0.05], 300]].forEach(([destino, cota]) => {
+  ;[[[0.1, 0.4], null], [[0.5, 0.1], 120], [[-0.5, -0.05], 360]].forEach(([destino, cota]) => {
     const fin = llevada(esc, 4, ...destino)
     arrastrar(esc, 4, [destino])
     const libre = 2 * Math.abs((inverso(ESFERA, [0, 0], fin).azi + 540) % 360 - 180)

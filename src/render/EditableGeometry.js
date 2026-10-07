@@ -699,6 +699,7 @@ export class EditableGeometry {
     g.dy       = c.y - p[1]
     g.devolver = this.#host.input.lendDrag()
     this.#kind === 'rectangle' && this.#capturarEsquinas(t.path)
+    this.#forma?.grab(this.#geom.shape)
     t.bank.grab(true)
     this.#draw()
     this.#informar()

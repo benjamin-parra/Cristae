@@ -93,9 +93,12 @@ que `area(ring(e.detail.value))` mide lo editado.
 | elipse | centro, `a` (en `heading`) y `b` (en `heading + 90`) | `a` cambia el semieje y `heading`, así que también gira; `b` sólo cambia su semieje, y al soltar su manija vuelve al eje. |
 | sector | centro, punta (en `heading`) y dos bordes | La punta cambia `radius` y `heading`. Un borde cambia sólo `sweep`, simétrico alrededor de `heading`: dos veces el ángulo entre el puntero y la punta, por el lado más corto. |
 
-- **Mínimos.** Un radio no baja de 24 px a la vista, y la apertura no deja dos manijas a menos de eso:
-  las manijas no se pisan. Un radio que ya es menor —porque entró así o porque se alejó el zoom— no se
+- **Mínimos.** Un radio no baja de 24 px a la vista, y la apertura no deja la punta y un borde a menos de
+  eso: las manijas no se pisan. Un radio que ya es menor —porque entró así o porque se alejó el zoom— no se
   corrige, y la apertura se acota como en el radio mínimo.
+- **Cierre.** El borde que llega por detrás a menos de eso del otro, o que pasa al otro lado, fija `sweep`
+  en 360: la figura entera, con las dos manijas de borde en el mismo punto. Queda cerrada aunque el puntero
+  siga de largo, hasta que vuelve por el lado del que llegó; en un gesto nuevo, cualquiera de las dos la abre.
 - **Polo.** El arrastre que llevaría el borde a un polo no se aplica ni emite.
 - **Modelo.** El valor y las manijas salen del `model` del mapa, el que coloca las formas. Mientras dura el
   gesto el anillo se dibuja con la esfera de radio medio, y al soltar se rehace con el modelo: con

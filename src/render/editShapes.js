@@ -56,6 +56,12 @@ const shape = ({ round, handles, clicks, fields, value, place, pull }) => ({
     const heading = model[HEADING](s.lat, s.lng, lat, lng)
     return heading >= 0 && pull(s, i, heading, Math.max(min, model[MODEL](s.lat, s.lng, lat, lng)), min)
   },
+  // Tomar una manija empieza un gesto: lo que el arrastre recuerda del anterior no vale, y una figura que
+  // quedó cerrada se abre por cualquier lado, como la que entra cerrada por el valor.
+  grab: s => {
+    s.prev = null
+    s.shut = 0
+  },
 })
 
 export const SHAPES = {
@@ -92,9 +98,13 @@ export const SHAPES = {
   // Los bordes, del izquierdo al derecho, cambian sólo la apertura, simétrica alrededor de `heading`: Δ es
   // el rumbo del puntero relativo a `heading`, envuelto a [−180, 180). La punta queda a sweep/2 de cada borde
   // y los bordes, a 360 − sweep por detrás; `gap` es el medio ángulo cuya cuerda mide `min`, así que ninguna
-  // apertura deja dos manijas más cerca que eso. Un radio menor que `min` —entrado por el valor o al alejar
-  // el zoom— ya junta las manijas con el centro, y bajo min/√3 ninguna apertura las separa: se acota como en
-  // el radio mínimo, y sigue al puntero. El trazado termina en el primer borde.
+  // apertura deja la punta y un borde más cerca que eso. Por detrás, el borde que llega a la cuerda `min` del
+  // otro, o que pasa al otro lado —Δ cambia de signo lejos de la punta, aunque el puntero salte esa ventana—,
+  // cierra la figura en 360 con las dos manijas de borde en el mismo punto. Queda cerrada hasta que el puntero
+  // vuelve abierto por el lado del que llegó (`shut`).
+  // Un radio menor que `min` —entrado por el valor o al alejar el zoom— ya junta las manijas con el centro, y
+  // bajo min/√3 ninguna apertura las separa: se acota como en el radio mínimo, y sigue al puntero. El trazado
+  // termina en el primer borde.
   sector: shape({
     round   : true,
     handles : 4,
@@ -108,8 +118,23 @@ export const SHAPES = {
     },
     pull    : (s, i, heading, r, min) => {
       if (i === 1) return tip(s, heading, r)
-      const gap = Math.asin(min / (2 * Math.max(s.a, min))) / D
-      s.sweep = Math.min(360 - 2 * gap, Math.max(4 * gap, 2 * Math.abs((heading - s.heading + 540) % 360 - 180)))
+      const gap   = Math.asin(min / (2 * Math.max(s.a, min))) / D
+      const delta = (heading - s.heading + 540) % 360 - 180
+      const sweep = 2 * Math.abs(delta)
+      const open  = sweep <= 360 - 2 * gap
+      if (s.sweep < 360) {
+        const prev   = s.prev ?? (i === 2 ? -s.sweep : s.sweep) / 2   // la primera muestra parte de la manija tomada
+        const behind = Math.abs(prev) > 90 && Math.sign(delta) !== Math.sign(prev)
+        if (open && !behind) s.sweep = Math.max(4 * gap, sweep)
+        else {
+          s.sweep = 360
+          s.shut  = behind ? Math.sign(prev) : Math.sign(delta)
+        }
+      } else if (open && (!s.shut || Math.sign(delta) === s.shut)) {
+        s.shut  = 0
+        s.sweep = Math.max(4 * gap, sweep)
+      }
+      s.prev = delta
       return true
     },
   }),
