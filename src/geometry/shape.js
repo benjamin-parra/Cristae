@@ -7,7 +7,7 @@
 // desde el centro a `heading + atan2(v, u)` y `hypot(u, v)` metros, con u = a·cos t y v = b·sin t. El anillo
 // parte en `heading`, sigue en sentido horario y no repite el primer vértice.
 import { coordOf, isPoint } from '../data/path.js'
-import { DESTINATION, MEAN_RADIUS, RELIEF, byDefault } from './geodesic.js'
+import { DESTINATION, MEAN_RADIUS, byDefault, checkPlacer } from './geodesic.js'
 import { measureArgs } from './measure.js'
 import { GROUND, segmentsFor, stepsFor } from './density.js'
 
@@ -105,9 +105,7 @@ export const writeShape = (model, shape, xy, at) => {
 // argumentos el primero es el modelo, que tiene que saber ubicar destinos, y no un terreno.
 const place = (name, args) => {
   const { model, polygon: value } = measureArgs(name, args, 'shape')
-  if (model[RELIEF])
-    throw new TypeError(`[${name}] coloca la forma en horizontal: pasa el modelo base, no el terreno`)
-  if (typeof model[DESTINATION] !== 'function') throw new TypeError(`[${name}] este modelo no ubica destinos`)
+  checkPlacer(model, name, 'la forma')
   const shape = readShape(value)
   if (!shape) return null
   const xy = new Float64Array(sizeShape(shape, segmentsFor(Math.max(shape.a, shape.b), GROUND)) * 2)

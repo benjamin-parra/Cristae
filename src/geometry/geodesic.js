@@ -51,6 +51,14 @@ export const checkLength = (length, name) => {
     throw new RangeError(`${name} tiene que ser un número finito mayor que 0: ${length}`)
 }
 
+// El modelo que coloca puntos —`ring`, `arc`, `geodesic`— no es un terreno, que mide sobre el relieve y no
+// trae destino, y sabe ubicar destinos. `noun` dice qué se coloca.
+export const checkPlacer = (model, name, noun) => {
+  if (model[RELIEF])
+    throw new TypeError(`[${name}] coloca ${noun} en horizontal: pasa el modelo base, no el terreno`)
+  if (typeof model[DESTINATION] !== 'function') throw new TypeError(`[${name}] este modelo no ubica destinos`)
+}
+
 // El núcleo de la esfera mide dos puntos en grados, sin validarlos, con la haversine: estable a
 // escala de centímetros, donde la ley de cosenos pierde los dígitos. El término se acota a [0, 1]
 // porque en pares casi antípodas el redondeo lo empuja sobre 1, y ahí `asin` da NaN. El antimeridiano

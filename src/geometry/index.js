@@ -7,8 +7,8 @@
 // exactamente el path que `toParts` normaliza. Ninguno de estos módulos figura en `sideEffects`:
 // re-exportar `ellipsoid` no le carga su librería a quien no lo importa, ni re-exportar `terrain` su
 // cargador. El pliegue de tramos, el lector de puntos, el de cajas, el de zonas, el decodificador de
-// tiles, las marcas y los núcleos de cada modelo, y el escritor de formas con su densidad, quedan
-// internos.
+// tiles, las marcas y los núcleos de cada modelo, el escritor de formas con su densidad, y los tramos y
+// puntos de la curva, quedan internos.
 
 export { distance, sphere } from './geodesic.js'
 export { area, perimeter, diameter } from './measure.js'
@@ -17,3 +17,4 @@ export { boundsOf, boundsPad, boundsContain, boundsCenter } from './bounds.js'
 export { ellipsoid, WGS84 } from './ellipsoid.js'
 export { toParts, sampleAlong } from './polyline.js'
 export { ring, arc } from './shape.js'
+export { geodesic } from './curve.js'

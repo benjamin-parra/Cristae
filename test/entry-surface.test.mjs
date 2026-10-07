@@ -39,6 +39,7 @@ const gPolyline = await import('../src/geometry/polyline.js')
 const gBounds = await import('../src/geometry/bounds.js')
 const gMeasure = await import('../src/geometry/measure.js')
 const gShape = await import('../src/geometry/shape.js')
+const gCurve = await import('../src/geometry/curve.js')
 const gTerrain = await import('../src/geometry/terrain.js')
 
 // `table/` SÍ registra el custom element al importarse: se stubea el registry para observar
@@ -206,7 +207,7 @@ test('el lector no registra ningún custom element', () => {
 
 // ── geometry: la medida, los modelos y el contrato de path, sin la regla interna ──
 
-// Diecinueve nombres. `foldRuns`, `foldPart`, `foldArgs`, `iterable`, `coordOf`, `isPlace`,
+// Veinte nombres. `foldRuns`, `foldPart`, `foldArgs`, `iterable`, `coordOf`, `isPlace`,
 // `hasPointShape` e `isPoint` son la regla de corte y de punto que comparten `toParts`, `distance`,
 // `boundsOf` y `fitToLayers`, y los editores leen con `coordOf` e `isPoint`, la cámara con `isPlace` y
 // el anfitrión con `coordOf` y `hasPointShape`; `emptyBounds`, `growBounds`, `growRun` y `readBounds`,
@@ -218,8 +219,10 @@ test('el lector no registra ningún custom element', () => {
 // área, que comparten esas medidas y `relief`, y `measureArgs`, el de sus argumentos; `readShape`,
 // `reachesPole`, `sizeShape` y `writeShape`, el escritor de formas que comparten `ring`, `arc` y las capas
 // de círculos y de formas, y `GROUND`, `MIN_SEGMENTS`, `segmentsFor`, `stepsFor` y `viewTolerance`, el
-// módulo de densidad que usan ese escritor y esas capas; y `decodeTile`, el decodificador de tiles de altura del terreno: si salen del entry, alguien
-// los usa y ya no se pueden mover.
+// módulo de densidad que usan ese escritor y esas capas; `count` y `at`, los tramos y los puntos de la
+// curva que comparten `geodesic`, las capas de líneas y de polígonos y los editores, y `checkPlacer`, el
+// control del modelo que coloca puntos; y `decodeTile`, el decodificador de tiles de altura del terreno:
+// si salen del entry, alguien los usa y ya no se pueden mover.
 const GEOMETRY = {
   WGS84          : 'object',
   arc            : 'function',
@@ -232,6 +235,7 @@ const GEOMETRY = {
   distance       : 'function',
   elevation      : 'function',
   ellipsoid      : 'function',
+  geodesic       : 'function',
   perimeter      : 'function',
   relief         : 'function',
   ring           : 'function',
@@ -254,7 +258,7 @@ test('cada export de cristae/geometry es el MISMO valor que define su módulo', 
     toParts: gPolyline, sampleAlong: gPolyline,
     boundsOf: gBounds, boundsPad: gBounds, boundsContain: gBounds, boundsCenter: gBounds,
     area: gMeasure, perimeter: gMeasure, diameter: gMeasure,
-    ring: gShape, arc: gShape,
+    ring: gShape, arc: gShape, geodesic: gCurve,
     terrain: gTerrain, terrainPresets: gTerrain, relief: gTerrain, elevation: gTerrain,
   }
   assert.deepEqual(Object.keys(origen).sort(), Object.keys(GEOMETRY).sort())

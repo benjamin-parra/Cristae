@@ -47,6 +47,14 @@ test('quien coloca formas con ring y arc tampoco los carga, y con WGS84 sí', as
   assert.ok((await empaquetar("export { ring, WGS84 } from './src/geometry/index.js'")).includes(MARCA))
 })
 
+test('quien curva con geodesic tampoco carga la librería geodésica, y con WGS84 sí', async () => {
+  const js = await empaquetar("export { geodesic, sphere } from './src/geometry/index.js'")
+  assert.ok(js.includes('no ubica rumbos'), 'el bundle trae la curva')
+  assert.ok(!js.includes(MARCA))
+  assert.ok(!js.includes(TERRENO))
+  assert.ok((await empaquetar("export { geodesic, WGS84 } from './src/geometry/index.js'")).includes(MARCA))
+})
+
 test('quien importa terrain y relief carga el decodificador, y no la librería geodésica', async () => {
   const js = await empaquetar("export { terrain, relief } from './src/geometry/index.js'")
   assert.ok(js.includes(TERRENO))

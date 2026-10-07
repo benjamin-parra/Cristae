@@ -101,6 +101,10 @@ export const toParts = input => foldRuns(input, pushPart, [])
 // mismo que recibe `scalarOf`) y no sólo en el local de la parte. Índice inmutable; reconstruir sólo
 // si cambia el set. Proyecta cada vértice a world0 px una vez. O(n·k) al construir.
 //
+// Una parte puede ser un path curvado, con más vértices que los que entraron: `src[k]` es la posición en la
+// ENTRADA del vértice original que abre el tramo `k`, y es lo que devuelve el hit. Sin `src`, el tramo `k`
+// abre en `from + k`.
+//
 // El índice se deja MUTAR: quien lo mantiene al día agrega entradas, quita las suyas o estira los `pts`
 // de una y su `bbox`, y marca `stale`. El orden por maxX se restablece al próximo `nearest`, una sola
 // vez por tanda de cambios y no por cambio.
@@ -109,9 +113,9 @@ const byMaxX = (a, b) => a.bbox.maxX - b.bbox.maxX
 export const prepareIndex = items => ({
   stale: false,
   sorted: (items ?? [])
-    .flatMap(({ id, parts }) => parts.map(({ path, from }, partIndex) => {
+    .flatMap(({ id, parts }) => parts.map(({ path, from, src }, partIndex) => {
       const pts = path.map(([lat, lng]) => ({ x: projX0(lng), y: projY0(lat) }))
-      return { id, partIndex, from, pts, bbox: bboxOfPoints(pts) }
+      return { id, partIndex, from, src, pts, bbox: bboxOfPoints(pts) }
     }))
     .sort(byMaxX),
 })
@@ -192,7 +196,7 @@ export const nearest = (lat, lng, index, tol) => {
     if (best > tol2) continue
     const dist = Math.sqrt(best)
     const prev = out.find(h => h.id === entry.id)   // los hits son pocos (tol ~8px): scan < Map
-    const hit = { id: entry.id, partIndex: entry.partIndex, vertexIndex: entry.from + bestSeg, dist }
+    const hit = { id: entry.id, partIndex: entry.partIndex, vertexIndex: entry.src?.[bestSeg] ?? entry.from + bestSeg, dist }
     if (!prev) out.push(hit)
     else if (dist < prev.dist) Object.assign(prev, hit)
   }

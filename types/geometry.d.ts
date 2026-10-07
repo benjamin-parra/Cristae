@@ -219,6 +219,19 @@ export function ring(model: EarthModel, shape: Shape | null | undefined): [numbe
 export function arc(shape: Shape | null | undefined): [number, number][];
 export function arc(model: EarthModel, shape: Shape | null | undefined): [number, number][];
 
+/** El path con cada tramo curvado sobre la geodésica del modelo, partido como `toParts`: una parte por
+ *  tramo continuo, cada punto como par `[lat, lng]` propio, y los de entrada se conservan. Sólo se parte lo
+ *  que la cota aparta: la cuerda de cada tramo en Mercator queda a 0,1 m de la geodésica hasta el tope de
+ *  4096 segmentos, y uno que ya cabe sale igual, así que un track GPS no cambia; la cota y sus bordes
+ *  están en docs/geometry.md. Los
+ *  puntos nuevos reparten el largo en partes iguales, y su longitud sigue a la del primer punto sin
+ *  envolverse. No se toca un tramo de más de media vuelta de longitud —quien lo escribió eligió el lado
+ *  largo— ni uno entre antípodas. Un anillo se pasa cerrado. Sin modelo usa la esfera de radio medio.
+ *  Lanza `TypeError` si el modelo no va primero, si no ubica destinos y rumbos, o si es un terreno. Ver
+ *  docs/geometry.md. */
+export function geodesic(path: LatLngPath | null | undefined): [number, number][][];
+export function geodesic(model: EarthModel, path: LatLngPath | null | undefined): [number, number][][];
+
 /** Proveedores públicos, sin key ni cuenta. Son datos y no un camino de código. */
 export const terrainPresets: { readonly aws: TerrainSource; readonly mapterhorn: TerrainSource };
 

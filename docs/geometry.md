@@ -1,4 +1,4 @@
-# Geometría — `distance`, áreas, formas, terreno y cajas
+# Geometría — `distance`, áreas, formas, geodésica, terreno y cajas
 
 > Pieza de [Cristae](../MODELO.md). Entry propio (`cristae/geometry`), sin efectos: no importa el
 > motor, el [Source](./data.md) ni Leaflet, y sirve suelto en Node o en un worker. Trae también
@@ -12,6 +12,7 @@
 | `diameter(model?, zona)` | m entre los dos vértices más lejanos de la zona |
 | `ring(model?, shape)` | el anillo `[lat, lng]` de un círculo, una elipse, un sector o un sector de elipse en metros, sin repetir el primer vértice |
 | `arc(model?, shape)` | el borde curvo de la forma como path abierto, o su contorno cerrado si es entera |
+| `geodesic(model?, path)` | el path con cada tramo largo curvado sobre la geodésica del modelo, partido como `toParts` |
 | `terrain(model?, source, bounds, options?)` | carga las alturas de una caja desde tiles de altura: `Promise<Terrain>` |
 | `terrainPresets` | datos: `{ aws, mapterhorn }`, dos proveedores públicos, como `tilePresets` |
 | `relief(terrain, zona, breaks?)` | altura y pendiente de una zona, y m² de superficie por clase de pendiente |
@@ -126,10 +127,11 @@ vértice inválido y qué lanza lo fija [SPECS §18](../SPECS.md).
   se suman. Con geometría válida se componen como los pinta la capa: XOR dentro de un polígono, OR
   entre partes. La región no es la misma, porque la capa traza rectas en grados y las aristas de la
   medida son geodésicas: la diferencia crece con la zona, de 10⁻⁶ en una caja de 1° a 0,25 % en una de
-  10° entre 50° y 60° N. Con geometría inválida es el valor de la fórmula: un hueco más grande que su
-  exterior da un área negativa, que delata el error, y dos partes que se solapan cuentan el solape dos
-  veces, como lo apila la capa (ver [agujeros contra solapes](./polygons.md#agujeros-contra-solapes)).
-  Corregir la geometría es cosa del consumidor.
+  10° entre 50° y 60° N, y [`geodesic`](#geodésica--geodesic) devuelve el borde curvado que sí mide el
+  área. Con geometría inválida es el valor de la fórmula: un hueco más grande que su exterior da un área
+  negativa, que delata el error, y dos partes que se solapan cuentan el solape dos veces, como lo apila
+  la capa (ver [agujeros contra solapes](./polygons.md#agujeros-contra-solapes)). Corregir la geometría
+  es cosa del consumidor.
 - **Antimeridiano.** Las medidas aceptan la figura con la longitud envuelta o sin envolver, y miden lo
   mismo. La capa, en cambio, dibuja `179 → −179` por el lado largo: una figura que cruza el
   antimeridiano se escribe sin envolver, con el este pasado de 180, como las cajas.
@@ -186,6 +188,55 @@ La tolerancia es de 0,1 m sin vista: la cuerda de cada tramo no se aparta del bo
 con 16 a 4096 vértices en la figura entera. En un círculo de 500 m son 256; pasado el tope de 4096, la
 separación crece. Los radios de un sector se parten sobre la misma tolerancia, porque la geodésica se
 curva en Mercator.
+
+## Geodésica — `geodesic`
+
+```js
+import { geodesic, sampleAlong, WGS84 } from 'cristae/geometry'
+
+geodesic(ruta)                    // [[[lat, lng], …], …]: una parte por tramo continuo
+geodesic(WGS84, ruta)             // la geodésica del elipsoide
+sampleAlong(geodesic(ruta), 8)    // decora la curva que se dibuja, y no la recta
+```
+
+`geodesic(model?, path)` devuelve el path con cada tramo curvado sobre la geodésica del modelo, partido
+como `toParts`: un corte abre una parte nueva, lo anidado son partes, y una parte de menos de dos vértices
+no sale. Cada punto sale como par `[lat, lng]`, propio y no el de la entrada. Un anillo se pasa cerrado, y
+su arista de cierre se curva como las demás.
+
+- **Sólo se parte lo que la cota aparta.** La recta de Mercator entre dos puntos se separa de su geodésica
+  a lo más L·θ·tan φ/8, con L el largo en el modelo, θ el ángulo central y φ la mayor latitud de la
+  geodésica, que pasa la de los extremos cuando el vértice del círculo máximo cae entre ellos. Cada tramo se
+  parte en los segmentos iguales que dejan esa cota en 0,1 m, y uno que ya cabe sale tal cual: un track GPS
+  de pasos de 10 a 100 m sale igual, byte a byte, a cualquier latitud. Cien kilómetros a 37° son 39
+  segmentos, y la cota crece con el cuadrado del largo.
+- **Lo que decide es la cota, no la separación real.** La cota no mira el rumbo y sobrestima un tramo casi
+  norte-sur: (40; −3) → (50; −3,001) sale en 538 segmentos, y sin partir se aparta 1,7 m. Sólo el meridiano
+  exacto, que ya es recto, queda entero: (−60; 20) → (70; 20) sale tal cual, y a 0,000001° de él, en 4 096.
+- **La cuerda queda a 0,1 m hasta el tope de 4 096 segmentos**, medido por fuerza bruta contra el círculo
+  máximo en tramos de hasta 15 000 km; con una esfera de radio hasta 1,005 R también, medido en ella. Hay
+  tres bordes:
+  - **el tope**, que llega cuando la cota pasa de 4 096²·0,1 m, unos 1 678 km: un tramo de 9 200 km con el
+    vértice a 45°, de 3 900 km a 80° o de 2 700 km a 85°. Desde ahí la cuerda queda a L·θ·tan φ/(8·4 096²),
+    y es lo que se mide: 0,13 m en (60; −60) → (60; 60), de 5 700 km; 2,8 m en uno de 14 900 km, y hasta
+    unos 5 m en uno de cerca de 20 000 km cuyo vértice pasa a 85°;
+  - pasado ±85,0511° el mapa dibuja aplastado, porque ahí se corta la Mercator, y la cuenta toma esa
+    latitud: un vértice en un polo no infla el path;
+  - con una esfera de más de 1,005 R, un tramo al borde del umbral puede quedar entero a 0,1·r/(1,005·R) m,
+    porque el prefiltro supone un radio menor: con `sphere(2R)`, (5; 0) → (5; 0,068237) se aparta 0,196 m.
+- **Los puntos nuevos están sobre la geodésica** y reparten el largo en partes iguales. Los puntos de
+  entrada se conservan. En la esfera por defecto es la interpolación esférica; en los demás modelos, el
+  destino desde el primer punto al rumbo inicial, a esa fracción del largo.
+- **La longitud sigue a la del primer punto**, sin envolverse: un tramo de `170 → 190` no salta.
+- **Lo que no se toca.** Un tramo de más de media vuelta de longitud, `|Δlng| > 180`, porque quien lo
+  escribió eligió el lado largo; y un tramo entre antípodas o entre los dos polos, que no tiene una sola
+  geodésica.
+- **Un tramo corto no le pide la distancia al modelo.** La cuenta prueba antes la cota con un largo y una
+  latitud que no bajan de los verdaderos, y en un track eso ya dice 1. Supone un radio de hasta 1,005 R,
+  que cubre la curvatura del elipsoide.
+- **El modelo va primero y es opcional**, como en `distance`. Lanza `TypeError` si no va primero, si es un
+  terreno —la curva se coloca en horizontal, sobre el modelo base—, o si no ubica destinos y rumbos: una
+  copia anterior de Cristae o una implementación ajena sin esas marcas. Un path sin tramos da `[]`.
 
 ## Terreno
 
@@ -269,7 +320,8 @@ padre: mezclar resoluciones aparentaría un detalle que no hay.
 4. **Exactitud vertical publicada**: SRTM, 16 m absoluta al 90 % (especificación de la misión);
    Copernicus GLO-30, menos de 4 m absoluta al 90 % (Copernicus DEM Product Handbook).
 5. **Las aristas de una zona son geodésicas** y la capa dibuja rectas en Mercator. Se separan en
-   ≈ L²·tan φ/(8R): 1,5 cm en un lado de 1 km y 1,5 m en uno de 10 km, a 37°.
+   ≈ L²·tan φ/(8R): 1,5 cm en un lado de 1 km y 1,5 m en uno de 10 km, a 37°. `geodesic` parte cada tramo
+   hasta que esa separación cae a 0,1 m.
 6. **Un corte de pendiente tiene una banda gris.** Con alturas enteras, el redondeo de ±0,5 m desvía
    la pendiente con celdas de 30 m en ~0,004 (0,4 puntos de %) típicos y hasta ~0,019 en el peor
    caso.
@@ -435,6 +487,14 @@ Un círculo de 500 m, de 256 vértices, tarda 93 µs sobre la esfera por defecto
 que no asigna por vértice—, 167 µs sobre otra instancia de `sphere()` y 550 µs sobre WGS84, que paga la
 geodésica en cada vértice; la elipse y el sector cuestan lo mismo por vértice. Importar `ring` y `arc`
 suma 1,5 KB al bundle de `distance` con `sphere`, y no carga la librería geodésica.
+
+`geodesic` decide los tramos cortos con una cota que no le pide la distancia al modelo: unos 140 ns por
+tramo de un track GPS, en la esfera por defecto y sobre WGS84, donde la distancia costaría 4,5 µs. Cada
+punto insertado cuesta 370 ns en la esfera por defecto, 290 con otra instancia de `sphere()` y 2,2 µs
+sobre WGS84: el rumbo y la distancia se resuelven una vez por tramo, y por punto sólo el destino de la
+geographiclib. Un track de 100 000 puntos de pasos cortos sale en 30 a 40 ms, y cien kilómetros a 37° en
+24 µs sobre la esfera por defecto y 89 µs sobre WGS84. Importar `geodesic` suma 1,8 KB al bundle de
+`distance` con `sphere`, y no carga la librería geodésica.
 
 `sampleAlong` reparte sus muestras por largo en pantalla (EPSG:3857), para decorar: no quedan
 equidistantes en metros.

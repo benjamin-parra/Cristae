@@ -4,7 +4,7 @@
 // Mundo 256×256 a zoom 0, centro en (128,128): projX0(0)=128, projY0(0)=128.
 
 const D = Math.PI / 180
-const MAXLAT = 85.0511287798
+export const MAXLAT = 85.0511287798
 
 export const projX0 = lng => 256 * (lng / 360 + 0.5)
 

@@ -10,13 +10,14 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { deflateSync } from 'node:zlib'
 import { build } from 'esbuild'
-import geodesic from 'geographiclib-geodesic'
+import geographiclib from 'geographiclib-geodesic'
 import { terrain, terrainPresets, relief, elevation } from '../../src/geometry/terrain.js'
 import { area, perimeter, diameter } from '../../src/geometry/measure.js'
 import { sphere, distance } from '../../src/geometry/geodesic.js'
 import { boundsOf } from '../../src/geometry/bounds.js'
 import { WGS84, ellipsoid } from '../../src/geometry/ellipsoid.js'
 import { ring, arc } from '../../src/geometry/shape.js'
+import { geodesic } from '../../src/geometry/curve.js'
 
 const R         = 6371008.8             // radio medio IUGG R1 (m)
 const RAD       = Math.PI / 180
@@ -380,7 +381,7 @@ test('rampa diagonal de 0,2 al este y 0,15 al norte: pendiente 0,25, también so
   const a   = 6371008.8
   const f   = 0.2
   const e2  = f * (2 - f)
-  const ref = new geodesic.Geodesic.Geodesic(a, f)
+  const ref = new geographiclib.Geodesic.Geodesic(a, f)
   const hE  = (lat, lng) => 1000
     + 0.2 * a / Math.sqrt(1 - e2 * Math.sin(lat * RAD) ** 2) * Math.cos(lat * RAD) * (lng - LNG0) * RAD
     + 0.15 * Math.sign(lat - LAT0) * ref.Inverse(LAT0, LNG0, lat, LNG0).s12
@@ -604,7 +605,7 @@ const S01  = Math.sqrt(1.01)                        // y de las dos partes de un
 const S04  = Math.sqrt(1.16)
 const LATN = n => latDe(PY + 0.5 - n)               // n celdas al norte del píxel de referencia
 const LNGE = n => lngDe(PX + 0.5 + n)               // n celdas al este
-const ESF  = new geodesic.Geodesic.Geodesic(R, 0)   // la esfera de la base, por la geographiclib
+const ESF  = new geographiclib.Geodesic.Geodesic(R, 0)   // la esfera de la base, por la geographiclib
 const geo  = (a, b) => ESF.Inverse(a[0], a[1], b[0], b[1]).s12
 
 // Un quiebre de pendiente en el centro del píxel de referencia, en metros sobre la esfera: 0,1 al sur y
@@ -626,13 +627,15 @@ test('el terreno es un modelo congelado con las cuatro marcas, y no es una base'
     { name: 'TypeError', message: '[terrain] el modelo base tiene que medir áreas y no ser un terreno' })
 })
 
-test('un terreno no coloca formas, pero la forma colocada sobre su base se mide sobre el relieve', async () => {
+test('un terreno no coloca formas ni curvas, pero la forma colocada sobre su base se mide sobre el relieve', async () => {
   const zona  = centrado(PX, PY, 500)
   const forma = { center: [LAT0, LNG0], radius: 200, heading: 30, sweep: 120 }
   const t     = await cargar(mundo(), zona)
   assert.throws(() => ring(t, forma), { name: 'TypeError', message: '[ring] coloca la forma en horizontal: pasa el modelo base, no el terreno' })
   assert.throws(() => arc(t, forma), { name: 'TypeError', message: '[arc] coloca la forma en horizontal: pasa el modelo base, no el terreno' })
   assert.throws(() => ring(t, null), { name: 'TypeError' }, 'también con una forma ausente')
+  assert.throws(() => geodesic(t, [[0, 0], [0, 1]]), { name: 'TypeError', message: '[geodesic] coloca la curva en horizontal: pasa el modelo base, no el terreno' })
+  assert.throws(() => geodesic(t, null), { name: 'TypeError' }, 'también con un path ausente')
   const colocada = ring(sphere(), forma)
   assert.equal(area(t, colocada), area(sphere(), colocada), 'terreno plano: el área es la de la base')
   cerca(perimeter(t, colocada), perimeter(sphere(), colocada), 1e-12, 'perímetro')
@@ -742,7 +745,7 @@ test('base elipsoidal achatada (f = 0,2) sobre su propia rampa: el factor de sup
   const a   = 6371008.8
   const f   = 0.2
   const e2  = f * (2 - f)
-  const ref = new geodesic.Geodesic.Geodesic(a, f)
+  const ref = new geographiclib.Geodesic.Geodesic(a, f)
   const hE  = (lat, lng) => 1000
     + 0.2 * a / Math.sqrt(1 - e2 * Math.sin(lat * RAD) ** 2) * Math.cos(lat * RAD) * (lng - LNG0) * RAD
     + 0.15 * Math.sign(lat - LAT0) * ref.Inverse(LAT0, LNG0, lat, LNG0).s12
