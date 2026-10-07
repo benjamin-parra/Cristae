@@ -78,6 +78,12 @@ error del llamador, no un dato malo, y leerlo como un punto inválido mediría e
   en la razón exacta de los radios.
 - **`ellipsoid` y `WGS84`** dan la geodésica del elipsoide, a precisión geodésica y también entre
   casi antípodas.
+- **Destino y rumbo.** Además de medir, `sphere(r)`, `ellipsoid` y `WGS84` resuelven los dos problemas
+  geodésicos por marcas del protocolo, que las demás piezas leen sin exportarlas:
+  `Symbol.for('cristae.geometry.destination')` da el punto a un rumbo y unos metros de otro, con la
+  lng continua —sin envolver— al cruzar el antimeridiano, y `Symbol.for('cristae.geometry.heading')`
+  da el rumbo inicial, en [0, 360), de un punto a otro, y `NaN` si coinciden. Un terreno mide sobre el
+  relieve y no las trae. El contrato está en [SPECS §18](../SPECS.md).
 - Las fábricas validan al construir y lanzan `RangeError` si el radio o el semieje no es un número
   finito mayor que 0, o si el achatamiento no está en [0, 1). Los modelos son inmutables.
 

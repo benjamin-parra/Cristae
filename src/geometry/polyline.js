@@ -122,11 +122,13 @@ export const prepareIndex = items => ({
 // aceptaría con `best <= tol²`). Ese `<` es la única diferencia con el borde del hit-test de polígonos.
 const endsWestOfBand = (entry, value) => entry.bbox.maxX < value
 
+// Un rumbo en (-180, 180], el de `atan2` y el de la librería geodésica, a [0, 360). El módulo, y no un
+// +360, porque un negativo mínimo sumaría hasta 360 por redondeo, que ya no está en el rango; el `+ 0`
+// lleva el -0 a 0, que la comparación estricta distingue.
+export const compass = degrees => degrees < 0 ? (degrees + 360) % 360 : degrees + 0
+
 // Rumbo del segmento a→b en grados (0=N, 90=E). En world0 el eje Y crece hacia el SUR → norte = −dy.
-const bearingOf = (a, b) => {
-  const deg = Math.atan2(b.x - a.x, a.y - b.y) * 180 / Math.PI
-  return (deg + 360) % 360
-}
+const bearingOf = (a, b) => compass(Math.atan2(b.x - a.x, a.y - b.y) * 180 / Math.PI)
 
 // Muestrea `count` puntos EQUIESPACIADOS a lo largo del path (por largo world0, no por vértice),
 // cada uno con el `heading` del segmento en que cae. Es la pieza para DECORAR una línea COMPONIENDO:

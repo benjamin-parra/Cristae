@@ -2,10 +2,11 @@
 // (R1 = 6 371 008,8 m) con haversine, que contra el elipsoide WGS84 se desvía hasta 0,56 %; dónde, lo
 // dice docs/geometry.md. `sphere(radius)` existe para reproducir las cifras de un sistema que mide con
 // otro radio, y `ellipsoid` (ellipsoid.js) da la geodésica del elipsoide, a precisión geodésica.
-// Cada modelo trae también el área de un anillo, que usan las medidas de zona (measure.js).
+// Cada modelo trae también el área de un anillo, que usan las medidas de zona (measure.js), y el destino y
+// el rumbo entre puntos, que usan las formas.
 // Módulo puro: sin Leaflet, sin DOM, sin el elipsoide.
 import { coordOf } from '../data/path.js'
-import { foldArgs } from './polyline.js'
+import { compass, foldArgs } from './polyline.js'
 
 const D = Math.PI / 180
 
@@ -24,19 +25,27 @@ export const MEAN_RADIUS = 6371008.8
 // último al primero implícita. Va por anillo y con primitivos para que la composición de una zona
 // —exterior menos huecos, suma de partes— quede en `area` y no en el protocolo. Un modelo sin `AREA`,
 // el de una copia anterior o el de otra implementación, sigue sirviendo a lo que sólo mide tramos.
+// `model[DESTINATION](lat, lng, heading, meters, out)` escribe en `out[0..1]` el `[lat, lng]` del punto al
+// que se llega desde uno válido, a ese rumbo (0 = N, 90 = E, cualquier real) y esos metros (uno negativo
+// mira al lado opuesto): el problema directo. Su lng sigue a la de partida sin envolverse, así que una
+// geodésica que cruza el antimeridiano no salta. `model[HEADING](lat1, lng1, lat2, lng2)` es el rumbo
+// inicial, en [0, 360), de la geodésica de un punto al otro, y `NaN` si coinciden: el problema inverso.
 // Un terreno es un modelo que además trae `ELEVATION` —`(lat, lng) → m`, la altura en un punto válido— y
 // `RELIEF`, y mide sobre el relieve. `RELIEF` es lo que lo distingue: lo que mide en horizontal lo
-// rechaza como modelo.
-export const MODEL     = Symbol.for('cristae.geometry.model')
-export const AREA      = Symbol.for('cristae.geometry.area')
-export const ELEVATION = Symbol.for('cristae.geometry.elevation')
-export const RELIEF    = Symbol.for('cristae.geometry.relief')
-export const isModel   = value => typeof value?.[MODEL] === 'function'
+// rechaza como modelo. No trae `DESTINATION` ni `HEADING`: no hay un destino a tantos metros de relieve.
+export const MODEL       = Symbol.for('cristae.geometry.model')
+export const AREA        = Symbol.for('cristae.geometry.area')
+export const DESTINATION = Symbol.for('cristae.geometry.destination')
+export const HEADING     = Symbol.for('cristae.geometry.heading')
+export const ELEVATION   = Symbol.for('cristae.geometry.elevation')
+export const RELIEF      = Symbol.for('cristae.geometry.relief')
+export const isModel     = value => typeof value?.[MODEL] === 'function'
 
 // Un modelo es inmutable y se valida al construirlo, no en medio de un track: un radio o un semieje
 // es un número finito mayor que 0.
-export const makeModel   = (distanceCore, areaCore) =>
-  Object.freeze({ [MODEL]: distanceCore, [AREA]: areaCore })
+export const makeModel   = (distanceCore, areaCore, destinationCore, headingCore) => Object.freeze({
+  [MODEL]: distanceCore, [AREA]: areaCore, [DESTINATION]: destinationCore, [HEADING]: headingCore,
+})
 export const checkLength = (length, name) => {
   if (!(Number.isFinite(length) && length > 0))
     throw new RangeError(`${name} tiene que ser un número finito mayor que 0: ${length}`)
@@ -56,6 +65,12 @@ export const checkLength = (length, name) => {
 // siempre por módulo y quedarse con el menor cancela los dígitos de una figura chica de giro negativo.
 // Antes, |e| se reduce por módulo 4π: un anillo que se superpone a sí mismo puede pasar de 4π, y el
 // módulo deja exacto lo que no llega.
+//
+// El destino escribe el punto de llegada por sus componentes —`east` y `north`, que valen cos φ₂·sin Δλ y
+// cos φ₂·cos Δλ, y `up`, sin φ₂—: la latitud y el Δλ salen de `atan2`, sin `asin`, que pierde dígitos junto
+// a un polo, y sin dividir por cos φ₁, que en el polo es 0: ahí el Δλ sale con la convención de la
+// librería geodésica. El rumbo es el `atan2` cerrado, con el Δλ reducido como el del área para que una
+// vuelta de más coincida exacta; los dos puntos en un mismo polo son el mismo punto.
 export const sphere = (radius = MEAN_RADIUS) => {
   checkLength(radius, '[sphere] radius')
   return makeModel((lat1, lng1, lat2, lng2) => {
@@ -81,6 +96,25 @@ export const sphere = (radius = MEAN_RADIUS) => {
     if (Math.round(turn / 360) & 1) excess += excess > 0 ? -2 * Math.PI : 2 * Math.PI
     const e = Math.abs(excess) % (4 * Math.PI)
     return radius * radius * (e > 2 * Math.PI ? 4 * Math.PI - e : e)
+  }, (lat, lng, heading, meters, out) => {
+    const bearing = heading * D
+    const sinB    = Math.sin(bearing), cosB = Math.cos(bearing)
+    const sinLat  = Math.sin(lat * D), cosLat = Math.cos(lat * D)
+    const sinD    = Math.sin(meters / radius), cosD = Math.cos(meters / radius)
+    const east    = sinB * sinD
+    const north   = cosLat * cosD - sinLat * sinD * cosB
+    const up      = sinLat * cosD + cosLat * sinD * cosB
+    out[0] = Math.atan2(up, Math.sqrt(east * east + north * north)) / D
+    out[1] = lng + Math.atan2(east, north) / D
+    return out
+  }, (lat1, lng1, lat2, lng2) => {
+    const step = lng2 - lng1
+    const dLng = (step - 360 * Math.round(step / 360)) * D
+    if (lat1 === lat2 && (dLng === 0 || Math.abs(lat1) === 90)) return NaN
+    const cos2 = Math.cos(lat2 * D)
+    const y    = Math.sin(dLng) * cos2
+    const x    = Math.cos(lat1 * D) * Math.sin(lat2 * D) - Math.sin(lat1 * D) * cos2 * Math.cos(dLng)
+    return compass(Math.atan2(y, x) / D)
   })
 }
 

@@ -619,6 +619,8 @@ test('el terreno es un modelo congelado con las cuatro marcas, y no es una base'
   const t = await cargar(mundo(), centrado(PX, PY, 100))
   assert.ok(Object.isFrozen(t))
   for (const marca of [MODEL, AREA, ELEVATION, RELIEF]) assert.equal(typeof t[marca], 'function', String(marca))
+  for (const marca of ['destination', 'heading'])
+    assert.equal(t[Symbol.for(`cristae.geometry.${marca}`)], undefined, `sin ${marca}: mide sobre el relieve`)
   await assert.rejects(terrain(t, FUENTE, cajaDe(centrado(PX, PY, 100)), { fetch: mundo().fetch }),
     { name: 'TypeError', message: '[terrain] el modelo base tiene que medir áreas y no ser un terreno' })
 })

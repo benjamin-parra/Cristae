@@ -7,6 +7,10 @@ import assert from 'node:assert/strict'
 import { distance, sphere } from '../../src/geometry/geodesic.js'
 import { ellipsoid, WGS84 } from '../../src/geometry/ellipsoid.js'
 import { toParts } from '../../src/geometry/polyline.js'
+import geographiclib from 'geographiclib-geodesic'
+
+const DESTINATION = Symbol.for('cristae.geometry.destination')
+const HEADING     = Symbol.for('cristae.geometry.heading')
 
 const R     = 6371008.8                 // radio medio IUGG R1 (m)
 const RAD   = Math.PI / 180
@@ -361,4 +365,162 @@ test('la esfera se aparta del elipsoide lo que documenta: hasta 0,56 %', () => {
       peor = Math.max(peor, Math.abs(distance(a, b) / distance(WGS84, a, b) - 1))
     }
   assert.ok(peor > 0.0055 && peor < 0.0057, `${peor}`)
+})
+
+// ── destino y rumbo ───────────────────────────────────────────────────────────
+
+// Los oráculos: la geographiclib con f = 0 es una implementación independiente de la esfera, y con el
+// achatamiento de WGS84 es el elipsoide. Un modelo propio no se contrasta contra su propia fórmula.
+const { Geodesic, DISTANCE, AZIMUTH, LATITUDE, LONGITUDE, LONG_UNROLL } = geographiclib.Geodesic
+const SOLVER   = { sphere: new Geodesic(R, 0), wgs84: new Geodesic(6378137, 0.0033528106647474805) }
+const MODELOS  = { sphere: sphere(), wgs84: WGS84 }
+const alRumbo  = (modelo, lat, lng, rumbo, metros, out = new Float64Array(2)) =>
+  modelo[DESTINATION](lat, lng, rumbo, metros, out)
+const desvio   = (solver, p, q) => solver.Inverse(p[0], p[1], q[0], q[1], DISTANCE).s12
+const esRumbo  = (real, ref, msg, tol = 1e-7) => {
+  const d = Math.abs(real - ref) % 360
+  assert.ok(Math.min(d, 360 - d) < tol, `${msg}: ${real} vs ${ref}`)
+}
+const ORIGENES = [[0, 0], [45, 10], [-60, 179.9], [10, -170], [89.9999, 30], [-89.999, 0], [90, 0], [-90, 179.9]]
+const RUMBOS   = [0, 33, 90, 180, 270, -45, 720.5]
+const METROS   = [0, 1, 1000, 1e6, 1.5e7, -5e5, -1.5e7]
+
+test('todo modelo de la librería trae las marcas de destino y rumbo', () => {
+  for (const modelo of [sphere(), sphere(6378137), WGS84, ellipsoid(6378137, 1 / 300)]) {
+    assert.equal(typeof modelo[DESTINATION], 'function')
+    assert.equal(typeof modelo[HEADING], 'function')
+  }
+})
+
+test('destino: la esfera coincide con la geographiclib f = 0 en posición, para todo rumbo y distancia', () => {
+  let peor = 0
+  for (const [lat, lng] of ORIGENES) for (const rumbo of RUMBOS) for (const metros of METROS) {
+    const real = alRumbo(MODELOS.sphere, lat, lng, rumbo, metros)
+    const ref  = SOLVER.sphere.Direct(lat, lng, rumbo, metros, LATITUDE | LONGITUDE | LONG_UNROLL)
+    peor = Math.max(peor, desvio(SOLVER.sphere, real, [ref.lat2, ref.lon2]))
+  }
+  assert.ok(peor < 1e-6, `el peor se aparta ${peor} m`)
+})
+
+test('destino: la lng sigue a la de partida sin envolverse, hasta media circunferencia', () => {
+  for (const [lat, lng] of ORIGENES) for (const rumbo of RUMBOS) for (const metros of METROS)
+    for (const modelo of ['sphere', 'wgs84']) {
+      const real = alRumbo(MODELOS[modelo], lat, lng, rumbo, metros)
+      const ref  = SOLVER[modelo].Direct(lat, lng, rumbo, metros, LATITUDE | LONGITUDE | LONG_UNROLL)
+      assert.ok(Math.abs(real[1] - ref.lon2) < 1e-7, `${modelo} ${lat},${lng} ${rumbo} ${metros}: ${real[1]} vs ${ref.lon2}`)
+    }
+  const este  = alRumbo(MODELOS.sphere, 0, 179.9, 90, 100000)
+  const oeste = alRumbo(MODELOS.wgs84, 0, -179.9, 270, 100000)
+  cerca(este[1], 179.9 + 100000 / GRADO, 1e-12, 'esfera, hacia el este por el antimeridiano')
+  assert.ok(este[1] > 180 && oeste[1] < -180, `sin envolver: ${este[1]}, ${oeste[1]}`)
+  cerca(-oeste[1] - 179.9, 100000 / (6378137 * RAD), 1e-9, 'elipsoide, hacia el oeste')
+})
+
+test('destino: más allá de media circunferencia el punto es el mismo, a menos de 360° de lng', () => {
+  for (const modelo of ['sphere', 'wgs84']) {
+    const real = alRumbo(MODELOS[modelo], 10, 20, 90, 3e7)
+    const ref  = SOLVER[modelo].Direct(10, 20, 90, 3e7, LATITUDE | LONGITUDE | LONG_UNROLL)
+    assert.ok(Math.abs(real[0] - ref.lat2) < 1e-9, `${modelo} lat`)
+    esRumbo(real[1], ref.lon2, `${modelo} lng módulo 360`)
+  }
+})
+
+test('destino: valores de referencia en los ejes y sobre el elipsoide publicado', () => {
+  const norte = alRumbo(MODELOS.sphere, 10, 25, 0, 2 * GRADO)
+  assert.ok(Math.abs(norte[0] - 12) < 1e-12 && Math.abs(norte[1] - 25) < 1e-12, `a 2° al norte: ${norte}`)
+  const ecuador = alRumbo(MODELOS.sphere, 0, 5, 90, 3 * GRADO)
+  assert.ok(Math.abs(ecuador[0]) < 1e-12 && Math.abs(ecuador[1] - 8) < 1e-12, `a 3° al este: ${ecuador}`)
+  const ecuatorial = alRumbo(sphere(6378137), 0, 0, 0, 6378137 * RAD)
+  assert.ok(Math.abs(ecuatorial[0] - 1) < 1e-12, `sphere(r) usa su radio: ${ecuatorial}`)
+  // Flinders Peak a Buninyong: 54 972,271 m a 306°52′05,37″ (valores publicados de Vincenty).
+  const flinders = [gms(-37, 57, 3.72030), gms(144, 25, 29.52440)]
+  const llegada  = alRumbo(WGS84, flinders[0], flinders[1], gms(306, 52, 5.37), 54972.271)
+  assert.ok(Math.abs(llegada[0] - gms(-37, 39, 10.15610)) < 3e-8, `lat ${llegada[0]}`)
+  assert.ok(Math.abs(llegada[1] - gms(143, 55, 35.38390)) < 3e-8, `lng ${llegada[1]}`)
+})
+
+test('destino: un negativo mira al lado opuesto, y cero deja el punto', () => {
+  for (const modelo of Object.values(MODELOS)) for (const rumbo of [0, 33, 200]) {
+    const atras   = alRumbo(modelo, 20, 30, rumbo, -250000)
+    const opuesto = alRumbo(modelo, 20, 30, rumbo + 180, 250000)
+    assert.ok(Math.abs(atras[0] - opuesto[0]) < 1e-9 && Math.abs(atras[1] - opuesto[1]) < 1e-9, `${rumbo}`)
+    const quieto = alRumbo(modelo, 20, 30, rumbo, 0)
+    assert.ok(Math.abs(quieto[0] - 20) < 1e-12 && Math.abs(quieto[1] - 30) < 1e-12, `cero metros: ${quieto}`)
+  }
+})
+
+test('destino: ida y vuelta con distance y heading, en los dos modelos', () => {
+  const origenes = ORIGENES.filter(([lat]) => Math.abs(lat) < 85)
+  for (const nombre of ['sphere', 'wgs84']) {
+    const modelo = MODELOS[nombre]
+    for (const [lat, lng] of origenes) for (const rumbo of [0, 33, 90, 180, 270, 359.5]) for (const metros of [10, 1000, 1e5, 5e6]) {
+      const q = alRumbo(modelo, lat, lng, rumbo, metros)
+      assert.ok(Math.abs(distance(modelo, [lat, lng], q) - metros) < 1e-6, `${nombre} distance`)
+      esRumbo(modelo[HEADING](lat, lng, q[0], q[1]), rumbo, `${nombre} heading ${lat},${lng} ${rumbo} ${metros}`)
+    }
+  }
+})
+
+test('destino: sólo escribe out[0..1] y lo devuelve', () => {
+  for (const modelo of Object.values(MODELOS)) {
+    const out = Float64Array.of(-1, -1, 7, 8)
+    assert.equal(alRumbo(modelo, 10, 20, 45, 5000, out), out)
+    assert.deepEqual([out[2], out[3]], [7, 8])
+    assert.ok(out[0] > 10 && out[1] > 20, `${out}`)
+    const lista = [-1, -1]
+    assert.equal(alRumbo(modelo, 10, 20, 45, 5000, lista), lista, 'sirve con un array común')
+  }
+})
+
+test('destino: junto a un polo la esfera sigue a la geographiclib, también en el polo exacto', () => {
+  for (const lat of [90, -90, 89.9999999])
+    for (const rumbo of [0, 33, 180, 270]) for (const metros of [1, 1000, 1e6]) {
+      const real = alRumbo(MODELOS.sphere, lat, 10, rumbo, metros)
+      const ref  = SOLVER.sphere.Direct(lat, 10, rumbo, metros, LATITUDE | LONGITUDE | LONG_UNROLL)
+      assert.ok(desvio(SOLVER.sphere, real, [ref.lat2, ref.lon2]) < 1e-6, `${lat} ${rumbo} ${metros}`)
+      esRumbo(real[1], ref.lon2, `lng ${lat} ${rumbo} ${metros}`)
+    }
+})
+
+test('rumbo: coincide con el azimut de la geographiclib, en [0, 360)', () => {
+  let pares = 0
+  for (const [lat1, lng1] of ORIGENES) for (const [lat2, lng2] of [[0, 0], [45, 10], [-60, 179.9], [10, -170], [3, 4], [-30, 100]]) {
+    for (const nombre of ['sphere', 'wgs84']) {
+      const real = MODELOS[nombre][HEADING](lat1, lng1, lat2, lng2)
+      if (Number.isNaN(real)) continue
+      const ref = SOLVER[nombre].Inverse(lat1, lng1, lat2, lng2, DISTANCE | AZIMUTH)
+      assert.ok(real >= 0 && real < 360, `${nombre} ${lat1},${lng1} → ${lat2},${lng2}: ${real}`)
+      if (ref.s12 > 1e5 && Math.abs(lat1) < 90) esRumbo(real, ref.azi1, `${nombre} ${lat1},${lng1} → ${lat2},${lng2}`)
+      pares++
+    }
+  }
+  assert.ok(pares > 60, `${pares}`)
+  esRumbo(MODELOS.wgs84[HEADING](gms(-37, 57, 3.72030), gms(144, 25, 29.52440), gms(-37, 39, 10.15610), gms(143, 55, 35.38390)),
+    gms(306, 52, 5.37), 'Flinders Peak a Buninyong, publicado a la centésima de segundo', 1.5e-6)
+  for (const modelo of Object.values(MODELOS)) {
+    assert.equal(modelo[HEADING](0, 0, 10, 0), 0, 'al norte')
+    assert.equal(modelo[HEADING](0, 0, 0, 10), 90, 'al este')
+    assert.equal(modelo[HEADING](10, 0, 0, 0), 180, 'al sur')
+    assert.equal(modelo[HEADING](0, 10, 0, 0), 270, 'al oeste')
+  }
+})
+
+test('rumbo: un azimut apenas negativo queda en 0 y no en 360, y el norte exacto es 0 y no -0', () => {
+  for (const modelo of Object.values(MODELOS)) {
+    const h = modelo[HEADING](0, 0, 10, -1e-15)
+    assert.ok(h >= 0 && h < 360, `${h}`)
+    assert.equal(modelo[HEADING](0, 0, 10, -0), 0, 'al norte con la lng en -0')
+    assert.equal(modelo[HEADING](10, 50, 90, 20), 0, 'al polo norte')
+  }
+})
+
+test('rumbo: NaN si los puntos coinciden, también con la lng corrida una vuelta o en un polo', () => {
+  for (const modelo of Object.values(MODELOS)) {
+    esNaN(modelo[HEADING](10, 20, 10, 20), 'el mismo punto')
+    esNaN(modelo[HEADING](10, 20, 10, 380), 'una vuelta de más')
+    esNaN(modelo[HEADING](-45, 180, -45, -180), 'el antimeridiano por los dos lados')
+    esNaN(modelo[HEADING](90, 20, 90, 50), 'el polo norte con otra lng')
+    esNaN(modelo[HEADING](-90, 20, -90, -70), 'el polo sur con otra lng')
+    assert.ok(!Number.isNaN(modelo[HEADING](10, 20, 10.000001, 20)), 'a 11 cm no coincide')
+  }
 })

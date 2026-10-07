@@ -558,7 +558,7 @@ La **ley** (MODELO §5.4) formalizada como contrato que un implementador debe cu
 | eventos | `hover` emite el set vigente de cada resolución y `hover:start`/`hover:end` sus cambios; `click` entrega hits ordenados; una pulsación quieta sale por `click` con su hit y, en el vacío, por `map:click`, y el `click` que dispara Leaflet no cuenta; cursor automático; sobre el Leaflet real, ningún payload lleva una instancia de Leaflet |
 | lifecycle | StrictMode doble-mount ⇒ 1 motor; `destroy()` cancela rAF y quita listeners (sin leak) |
 | lector GeoJSON (§17) | corpus de conformidad contra un **oráculo diferencial** sobre `JSON.parse`, nunca contra la implementación; las cuatro formas de entrada dan salidas idénticas byte a byte; fuzzer de mutación sin lectura fuera de rango ni excepción cruda; ausencia de grafo (conteo de asignaciones, no milisegundos) |
-| geometría (§18) | referencias independientes (radios a mano, fórmulas distintas, valores publicados del elipsoide), nunca la misma haversine; las formas de llamada y de punto miden lo mismo; los bordes de §18.1; el tree-shaking del elipsoide, empaquetando; el octante y la banda contra fórmulas cerradas; geographiclib con f = 0 como implementación independiente de la esfera, anillos polares incluidos; el diámetro contra la fuerza bruta; el terreno con stubs de `fetch`, PNG sintéticos, un tile real de fixture y rampas de pendiente conocida; una segunda copia empaquetada; el tree-shaking del terreno |
+| geometría (§18) | referencias independientes (radios a mano, fórmulas distintas, valores publicados del elipsoide), nunca la misma haversine; las formas de llamada y de punto miden lo mismo; los bordes de §18.1; el tree-shaking del elipsoide, empaquetando; el octante y la banda contra fórmulas cerradas; geographiclib con f = 0 como implementación independiente de la esfera, anillos polares incluidos, y el destino y el rumbo del protocolo; el diámetro contra la fuerza bruta; el terreno con stubs de `fetch`, PNG sintéticos, un tile real de fixture y rampas de pendiente conocida; una segunda copia empaquetada; el tree-shaking del terreno |
 
 ---
 
@@ -1050,15 +1050,17 @@ copia de la librería sirve en otra. Las marcas se agregan entre versiones y sus
 |---|---|---|---|
 | `Symbol.for('cristae.geometry.model')` | `(lat1, lng1, lat2, lng2) → number` | todo modelo | los metros entre dos puntos válidos, en grados. Un terreno los mide sobre el relieve, y da `NaN` con un extremo fuera de su caja o un tramo que toca una celda sin dato |
 | `Symbol.for('cristae.geometry.area')` | `(coords: Float64Array, count: number) → number` | `sphere(r)`, `ellipsoid(a, f)`, `WGS84`, los terrenos | `coords` intercala `[lat₀, lng₀, lat₁, lng₁, …]` en grados, y sus primeros `count ≥ 3` vértices son puntos válidos; la arista del último al primero está implícita. Devuelve los m² sin signo de la menor de las dos regiones que separa el anillo, en [0, A₀/2] (A₀, el área total del modelo). Un terreno devuelve esa área de su modelo base por el factor de superficie, que puede pasar de A₀/2, o `NaN` con un vértice fuera de su caja o una celda que cuenta sin dato. Sólo lee `coords`, y sólo durante la llamada |
+| `Symbol.for('cristae.geometry.destination')` | `(lat, lng, heading, meters, out) → out` | `sphere(r)`, `ellipsoid(a, f)`, `WGS84` | escribe `out[0] = lat₂` y `out[1] = lng₂`, en grados y en ese orden, del punto al que se llega desde uno válido a ese rumbo (cualquier real, 0 = N, 90 = E) y esos metros (finito; un negativo mira al lado opuesto). La `lng₂` sigue a `lng` sin envolverse: hasta media circunferencia del modelo su diferencia con `lng` es la de la geodésica, y más allá cada modelo escribe el mismo punto con la lng que le sale. Sólo escribe `out[0..1]`, y sólo durante la llamada; no asigna en la esfera |
+| `Symbol.for('cristae.geometry.heading')` | `(lat1, lng1, lat2, lng2) → number` | ídem | el rumbo inicial de la geodésica de un punto al otro, en [0, 360), con 0 = N y 90 = E. `NaN` si los dos puntos coinciden —la misma lat y una lng que difiere en un múltiplo de 360, o los dos en un mismo polo—. Entre antípodas es ambiguo y cada modelo da el suyo |
 | `Symbol.for('cristae.geometry.elevation')` | `(lat: number, lng: number) → number` | sólo los terrenos | la altura en m en un punto válido, bilineal entre los centros de celda; `NaN` fuera de la caja o con un vecino sin dato |
 | `Symbol.for('cristae.geometry.relief')` | `(polygons: Float64Array[][], breaks: Float64Array) → Relief` | sólo los terrenos | `polygons[p][0]` es el exterior y lo que sigue son sus huecos; cada anillo es un `Float64Array` intercalado de largo exacto 2·n, con n ≥ 1 y todos sus vértices válidos. `breaks` ya viene validado. Devuelve un objeto nuevo y no retiene ni muta los argumentos |
 
 Un modelo sin la marca de área —de una copia anterior a las áreas, o de otra implementación— sigue
-sirviendo a `distance`, `perimeter` y `diameter`. Un terreno es un modelo —trae `model` y `area`— que
-además trae `elevation` y `relief`, y se reconoce por la marca de relieve: `diameter` lo rechaza
-como modelo y `terrain` como base. `relief` y `elevation` se despachan por sus marcas, porque el
-cálculo necesita las alturas, que viven en la clausura de la copia que cargó el terreno: su layout no
-es contrato.
+sirviendo a `distance`, `perimeter` y `diameter`, y lo mismo uno sin las de destino y rumbo. Un
+terreno es un modelo —trae `model` y `area`, y no `destination` ni `heading`— que además trae
+`elevation` y `relief`, y se reconoce por la marca de relieve: `diameter` lo rechaza como modelo y
+`terrain` como base. `relief` y `elevation` se despachan por sus marcas, porque el cálculo necesita
+las alturas, que viven en la clausura de la copia que cargó el terreno: su layout no es contrato.
 
 Un **terreno** son las alturas de una caja leídas de tiles XYZ en Web Mercator, a `source.zoom`: con
 N = `tileSize`·2^zoom píxeles por vuelta, cada píxel es una celda cuyo valor rige en su centro. La
@@ -1199,6 +1201,13 @@ dos giros a 10⁻¹²; `perimeter` contra `distance` del anillo cerrado y contra
 y zonas de casi 90° de ancho en el elipsoide, y su costo con un modelo que cuenta llamadas; un modelo de
 otra versión y uno de terceros; una segunda copia empaquetada del entry que intercambia modelos con la
 primera; empaquetar las medidas no trae la librería geodésica.
+
+Destino y rumbo: la esfera contra la geographiclib con f = 0, en posición y en lng sin envolver, desde
+orígenes sobre el polo y junto a él, a rumbos y distancias de signo y vuelta cualquiera; el elipsoide
+contra el azimut y la llegada publicados de Flinders Peak a Buninyong y por ida y vuelta con
+`distance` y `heading`; el antimeridiano por los dos lados; el rumbo en [0, 360) con un azimut apenas
+negativo y uno en -0; el `NaN` de los puntos que coinciden —con la lng corrida una vuelta y en cada
+polo—; que sólo se escriba `out[0..1]`; y que un terreno no traiga las marcas.
 
 El terreno, con un `fetch` de stub que arma cada tile con una altura conocida en el centro de cada
 píxel: los tiles pedidos con el margen, también sobre el antimeridiano; cada rechazo de §18.1 sin
