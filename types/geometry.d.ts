@@ -1,7 +1,7 @@
 // Tipos del entry `cristae/geometry` (funciones puras sobre puntos, paths y zonas en grados, y la carga
 // de un terreno). Sin efectos: no toca DOM, Leaflet, Lit ni el núcleo de datos. `cristae/map`
-// re-exporta `distance`, `sphere`, `toParts` y `sampleAlong` desde acá. Mantener sincronizado con
-// src/geometry/index.js.
+// re-exporta `distance`, `sphere`, `toParts`, `sampleAlong` y `arc` desde acá. Mantener sincronizado
+// con src/geometry/index.js.
 
 /** Un par `[lat, lng]` en grados: un array, donde lo que siga —una altura— se ignora, o una vista
  *  tipada de dos o tres componentes, porque una más larga es un track intercalado. Es `number[]` y no

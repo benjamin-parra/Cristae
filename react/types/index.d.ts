@@ -19,6 +19,7 @@ import type {
   LineAccessors,
   PolygonAccessors,
   PolygonGpuGeometry,
+  ShapeAccessors,
   HtmlAccessors,
   IconSet,
   Insets,
@@ -28,6 +29,7 @@ import type {
   PointHandle,
   LineHandle,
   PolygonHandle,
+  ShapeHandle,
   HtmlHandle,
   LabelHandle,
   Label,
@@ -42,6 +44,7 @@ import type {
   HitBase,
   PointHit,
   PolygonHit,
+  ShapeHit,
   HtmlHit,
   CircleHit,
   LineHit,
@@ -99,6 +102,7 @@ export declare function useCristaeElement(
 export type CristaeHitBase    = HitBase
 export type CristaePointHit   = PointHit
 export type CristaePolygonHit = PolygonHit
+export type CristaeShapeHit   = ShapeHit
 export type CristaeHtmlHit    = HtmlHit
 export type CristaeCircleHit  = CircleHit
 export type CristaeLineHit    = LineHit
@@ -261,6 +265,7 @@ export declare const CristaeMap: ForwardRefExoticComponent<CristaeMapProps & Ref
 export interface CristaePointLayerElement<T = unknown> extends HTMLElement { readonly controls: PointHandle<T> | null }
 export interface CristaeLineLayerElement<T = unknown> extends HTMLElement { readonly controls: LineHandle<T> | null }
 export interface CristaePolygonLayerElement<T = unknown> extends HTMLElement { readonly controls: PolygonHandle<T> | null }
+export interface CristaeShapeLayerElement<T = unknown> extends HTMLElement { readonly controls: ShapeHandle<T> | null }
 export interface CristaeHtmlLayerElement<T = unknown> extends HTMLElement { readonly controls: HtmlHandle<T> | null }
 export interface CristaeLabelLayerElement extends HTMLElement { readonly controls: LabelHandle | null }
 
@@ -306,6 +311,17 @@ export interface CristaePolygonLayerProps<T = unknown> extends CristaeDataLayerP
 }
 export declare function CristaePolygonLayer<T = unknown>(
   props: CristaePolygonLayerProps<T> & RefAttributes<CristaePolygonLayerElement<T>>,
+): ReactElement | null;
+
+export interface CristaeShapeLayerProps<T = unknown> extends CristaeDataLayerProps {
+  data?        : T[];
+  source?      : CristaeReadSource<T>;
+  accessors?   : ShapeAccessors<T>;
+  interactive? : boolean;
+  visible?     : boolean;
+}
+export declare function CristaeShapeLayer<T = unknown>(
+  props: CristaeShapeLayerProps<T> & RefAttributes<CristaeShapeLayerElement<T>>,
 ): ReactElement | null;
 
 export interface CristaeHtmlLayerProps<T = unknown> extends CristaeDataLayerProps {

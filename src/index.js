@@ -7,6 +7,7 @@ import { grammar } from './element/composite.js'
 import { CristaeMap } from './element/CristaeMap.js'
 import { CristaePointLayer } from './element/CristaePointLayer.js'
 import { CristaePolygonLayer } from './element/CristaePolygonLayer.js'
+import { CristaeShapeLayer } from './element/CristaeShapeLayer.js'
 import { CristaeLineLayer } from './element/CristaeLineLayer.js'
 import { CristaeHtmlLayer } from './element/CristaeHtmlLayer.js'
 import { CristaeLabelLayer } from './element/CristaeLabelLayer.js'
@@ -24,6 +25,7 @@ import { CristaePopup } from './element/CristaePopup.js'
 // dispara el primer connectedCallback al upgradear el DOM existente.
 grammar.register('cristae-point-layer', CristaePointLayer.cristaeSignature)
 grammar.register('cristae-polygon-layer', CristaePolygonLayer.cristaeSignature)
+grammar.register('cristae-shape-layer', CristaeShapeLayer.cristaeSignature)
 grammar.register('cristae-line-layer', CristaeLineLayer.cristaeSignature)
 grammar.register('cristae-html-layer', CristaeHtmlLayer.cristaeSignature)
 grammar.register('cristae-label-layer', CristaeLabelLayer.cristaeSignature)
@@ -39,6 +41,7 @@ const define = (name, ctor) => !customElements.get(name) && customElements.defin
 define('cristae-map', CristaeMap)
 define('cristae-point-layer', CristaePointLayer)
 define('cristae-polygon-layer', CristaePolygonLayer)
+define('cristae-shape-layer', CristaeShapeLayer)
 define('cristae-line-layer', CristaeLineLayer)
 define('cristae-html-layer', CristaeHtmlLayer)
 define('cristae-label-layer', CristaeLabelLayer)
@@ -60,11 +63,13 @@ export { drawLabel } from './render/LabelLayer.js'
 // Geometría pura, la misma de `cristae/geometry`: `distance` mide en metros, con la esfera por defecto
 // o con el modelo que se le pase; `toParts` normaliza un path a partes (la misma convención de corte
 // que aplica la line-layer) y `sampleAlong` lo muestrea equiespaciado con rumbo, para DECORAR una
-// línea componiendo (flechas/ticks = point-layer con `headingOf`, no propiedad del trazo).
+// línea componiendo (flechas/ticks = point-layer con `headingOf`, no propiedad del trazo); `arc` da el
+// borde curvo de una forma como path, para dibujarlo con la line-layer (`pathOf: arc`).
 // `ellipsoid` y `WGS84` no se re-exportan, y el mapa importa de los módulos y no del entry: así la
 // librería geodésica, que el mapa no usa, queda fuera de su grafo y de su bundle prearmado.
 export { distance, sphere } from './geometry/geodesic.js'
 export { toParts, sampleAlong } from './geometry/polyline.js'
+export { arc } from './geometry/shape.js'
 export { tilePresets } from './tiles/presets.js'
-export { CristaeMap, CristaePointLayer, CristaePolygonLayer, CristaeLineLayer, CristaeHtmlLayer, CristaeLabelLayer, CristaeCluster, CristaeOverlay, CristaeToolbar, CristaePopup }
+export { CristaeMap, CristaePointLayer, CristaePolygonLayer, CristaeShapeLayer, CristaeLineLayer, CristaeHtmlLayer, CristaeLabelLayer, CristaeCluster, CristaeOverlay, CristaeToolbar, CristaePopup }
 export { CristaeEditablePolygon, CristaeEditablePolyline, CristaeEditablePoint, CristaeEditableRectangle }

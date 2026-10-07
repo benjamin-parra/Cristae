@@ -268,9 +268,10 @@ test('cada export de cristae/geometry es el MISMO valor que define su módulo', 
 const MAPA_GEOMETRIA = {
   './geometry/geodesic.js' : ['distance', 'sphere'],
   './geometry/polyline.js' : ['sampleAlong', 'toParts'],
+  './geometry/shape.js'    : ['arc'],
 }
 
-test('cristae/map re-exporta distance, sphere, toParts y sampleAlong, sin el elipsoide', () => {
+test('cristae/map re-exporta distance, sphere, toParts, sampleAlong y arc, sin el elipsoide', () => {
   const fuente = readFileSync(raiz('src/index.js'), 'utf8')
   const reexporta = Object.fromEntries([...fuente.matchAll(/^export \{([^}]*)\} from '(\.\/geometry\/[^']+)'/gm)]
     .map(([, nombres, desde]) => [desde, nombres.split(',').map(n => n.trim()).sort()]))

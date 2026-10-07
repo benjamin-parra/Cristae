@@ -209,7 +209,7 @@ atribución del elemento comparten `top-left` y `bottom-right` con lo sloteado (
 
 ### Apilado — `z` / `pane`
 
-Toda capa hoja (`point` / `line` / `polygon` / `html` / `label`) los hereda de la base:
+Toda capa hoja (`point` / `line` / `polygon` / `shape` / `html` / `label`) los hereda de la base:
 
 | Miembro | Tipo | Atributo / prop |
 |---|---|---|
@@ -283,7 +283,7 @@ fleet.removeAttribute('focus-ids')        // la capa se retira del eje
 
 Cada capa lo resuelve **en su propio dibujo**, no en la opacidad de su pane: los puntos en el signo del
 `size` del vértice ([`render.md`](render.md)), las líneas GL en el alfa por vértice
-([`lines.md`](lines.md)), las etiquetas en el `globalAlpha` del texto, los polígonos/círculos/HTML en el
+([`lines.md`](lines.md)), las etiquetas en el `globalAlpha` del texto, los polígonos/formas/círculos/HTML en el
 estilo de su feature ([`polygons.md`](polygons.md)). La única que atenúa su pane entero es la capa de
 calor, que no tiene identidad por ítem. Por eso el eje es barato incluso sobre miles de puntos en vivo:
 entrar o salir del foco cuesta un float por ítem que **cambió de estado**, y no hay pase extra que
@@ -339,6 +339,25 @@ navegador: con varias capas de polígonos en la misma página conviene juntarlas
 
 `source` se lee **al montar**: reasignarla no remonta la capa. Es la diferencia con la capa de puntos,
 donde `source` sí se reengancha en caliente. Los límites del sustrato están en [`polygons.md`](polygons.md).
+
+### `<cristae-shape-layer>` — círculos, elipses y sectores en metros
+
+| Miembro | Tipo | Atributo / prop |
+|---|---|---|
+| `id` | string | atributo (sin él, `shape-N`) |
+| `interactive` | boolean (default `true`) | atributo |
+| `visible` | boolean (default `true`) | atributo |
+| `data` | `Item[]` (ruta A) | **prop** |
+| `source` | `Source` (ruta B/C) | **prop** |
+| `accessors` | `{ idOf, positionOf, radiusOf, headingOf?, sweepOf?, styleOf?, hashOf? }` | **prop** |
+
+Las dos entradas de dato de la capa de puntos: `.data` (el elemento posee la Source) y `.source` (la
+posee el consumidor y la comparte entre vistas; por ella viajan los accessors). Como en los polígonos,
+`source` se lee **al montar**: reasignarla no remonta la capa. Dibuja en GPU, con **un contexto WebGL**
+por capa, círculos, elipses y sectores mezclados; el radio es geometría del ítem en **metros**, el
+rumbo es `heading` y la apertura `sweep`. Hereda `pane`, `z` y `focus-ids` de la base, y `controls` es
+el handle `{ id, source, set, setVisible }`. Los accessors, el picking y el costo están en
+[`shapes.md`](shapes.md).
 
 ### `<cristae-label-layer>` — etiquetas canvas
 
@@ -536,6 +555,7 @@ Regla: si existe una prop declarativa para lo que se busca, conviene usarla; `co
 |---|---|
 | point | `{ id, source, layer, set, patch, move, remove, addFilter, removeFilter, preloadIcons, refresh, setVisible }` |
 | polygon | `{ id, set, setVisible }` |
+| shape | `{ id, source, set, setVisible }` |
 | label | `{ id, setLabels, setHovered, setVisible }` |
 | editable | `{ id, setValue, setMode, setStyle, getValue, handleMapClick, destroy }` |
 | cluster | `{ id }` (id del host; quitar el `<cristae-cluster>` arrastra el cluster) |

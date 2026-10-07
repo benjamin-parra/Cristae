@@ -11,6 +11,7 @@ import {
   CristaeOverlay,
   CristaePopup,
   CristaeLineLayer,
+  CristaeShapeLayer,
   CristaeLabelLayer,
   CristaeToolbar,
   CristaeTable,
@@ -19,10 +20,11 @@ import {
   type CristaeMapElement,
   type CristaePointLayerElement,
   type CristaePopupElement,
+  type CristaeShapeLayerElement,
   type CristaeTableElement,
   type CristaeViewportChangeDetail,
 } from '@cristae/react'
-import { MapEngine, adoptLeafletHost, createSource, defineSource, defineIconSet, distance, drawLabel, sphere, toParts, type Bounds, type CristaeSource, type LineAccessors, type PointerSample } from 'cristae/map'
+import { MapEngine, adoptLeafletHost, arc, createSource, defineSource, defineIconSet, distance, drawLabel, sphere, toParts, type Bounds, type CristaeSource, type LineAccessors, type PointerSample } from 'cristae/map'
 import { boundsOf, boundsPad } from 'cristae/geometry'
 
 interface Movil {
@@ -117,6 +119,38 @@ export const ViaSource = () => (
                        pane="cristae-etiquetas" z={620} />
   </CristaeMap>
 )
+
+// Capa de formas: el radio en METROS (un número es círculo, `[a, b]` elipse), el rumbo y la apertura
+// del sector opcionales. El borde curvo de una forma es `arc` en una capa de líneas.
+interface Antena { id: number; lat: number; lng: number; alcance: number; azimut: number; haz: number }
+const antenas: Antena[] = []
+export const Cobertura = () => {
+  const capa = useRef<CristaeShapeLayerElement<Antena>>(null)
+
+  return (
+    <CristaeMap>
+      <CristaeShapeLayer<Antena>
+        ref={capa}
+        data={antenas}
+        accessors={{
+          idOf       : (a) => a.id,
+          positionOf : (a) => ({ lat: a.lat, lng: a.lng }),
+          radiusOf   : (a) => [a.alcance, a.alcance / 2],
+          headingOf  : (a) => a.azimut,
+          sweepOf    : (a) => a.haz,
+          styleOf    : () => ({ fillOpacity: 0.2 }),
+        }}
+        focusIds={[1]}
+        onClick={(hits) => { const top = hits[0]; if (top?.kind === 'shape') void top.ref }}
+      />
+      <CristaeLineLayer<{ id: number; center: [number, number]; radius: number }>
+        data={[]}
+        accessors={{ idOf: (f) => f.id, pathOf: arc }}
+      />
+      <button onClick={() => capa.current?.controls?.set(antenas)}>recargar</button>
+    </CristaeMap>
+  )
+}
 
 // Una Source de `defineSource` es de sólo LECTURA (CristaeReadSource) y también entra por `source`.
 const readOnly = defineSource<Movil>({ accessors: acc, getSnapshot: () => moviles, subscribe: () => () => {} })

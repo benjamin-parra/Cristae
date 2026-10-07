@@ -4,11 +4,14 @@
 // cámara le entrega a Leaflet la caja como par de esquinas, que se aplana para asertarla.
 
 import '../../test-helpers/engine-stub.mjs'
+import '../../test-helpers/element-stub.mjs'
 import { conGlDeEdicion, makeEditGl, makeMap, makeLeaflet } from '../../test-helpers/engine-stub.mjs'
 import { test, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { MapEngine } from '../../src/engine/MapEngine.js'
+import { MEAN_RADIUS } from '../../src/geometry/geodesic.js'
 import { adoptLeafletHost } from '../../src/host/LeafletHost.js'
+import { arc } from '../../src/index.js'
 
 after(conGlDeEdicion(() => makeEditGl()))
 
@@ -80,4 +83,25 @@ test('un vértice sin lugar en un anillo no entra al encuadre del polígono', ()
     id: 'zona', accessors: { idOf: z => z.id, ringsOf: z => z.rings }, data: [{ id: 1, rings }],
   }))
   assert.deepEqual(cajas, [[10, 20, 12, 21]])
+})
+
+// `arc` de `cristae/map` es un path como cualquier otro de la capa de líneas (`pathOf: arc`), así que el
+// encuadre cubre el borde curvo de la forma. Un sector de 60° hacia el este desde el ecuador, a 10 km, con
+// la esfera de radio medio: sus extremos caen a ±30° del este (`sin φ = sin δ·cos az`,
+// `tan λ = sin az·sin δ / cos δ`) y el este en `δ`; el teselado se aparta de la curva hasta 0,1 m.
+test('el borde curvo de una forma es un path de la capa de líneas y el encuadre lo cubre', () => {
+  const D     = Math.PI / 180
+  const delta = 10_000 / MEAN_RADIUS
+  const forma = { id: 1, center: [0, 0], radius: 10_000, heading: 90, sweep: 60 }
+
+  const [[sur, oeste, norte, este]] = encuadre(engine => engine.addLineLayer({
+    id: 'barrido', accessors: { idOf: f => f.id, pathOf: arc }, data: [forma],
+  }))
+  const lat      = Math.asin(Math.sin(delta) * Math.cos(60 * D)) / D
+  const lng      = Math.atan2(Math.sin(60 * D) * Math.sin(delta), Math.cos(delta)) / D
+  const tol      = 1e-7
+  const teselado = 0.1 / MEAN_RADIUS / D
+  assert.ok(Math.abs(norte - lat) < tol && Math.abs(sur + lat) < tol, `latitud ${sur}…${norte}, esperada ±${lat}`)
+  assert.ok(Math.abs(oeste - lng) < tol, `oeste ${oeste}, esperado ${lng}`)
+  assert.ok(Math.abs(este - delta / D) <= teselado, `este ${este}, esperado ${delta / D} ± ${teselado}`)
 })

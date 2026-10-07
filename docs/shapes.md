@@ -31,6 +31,27 @@ no una forma.
 El handle es `{ id, source, set, setVisible }`, como el de las demás capas de datos; `interactive` y
 `visible` valen `true`, y el pane por defecto es `cristae-shape-<id>`.
 
+## Declarativo y React
+
+```html
+<cristae-map>
+  <cristae-shape-layer id="antenas" focus-ids="a7 a9"></cristae-shape-layer>
+</cristae-map>
+```
+```js
+antenas.accessors = { idOf: a => a.id, positionOf: a => a.pos, radiusOf: a => a.alcance,
+  headingOf: a => a.azimut, sweepOf: a => a.haz }
+antenas.data = lista                       // reasignarla reemplaza todas las formas
+```
+```jsx
+// `acc` definido a nivel de módulo
+<CristaeShapeLayer data={zonas} accessors={acc} onClick={hits => abrir(hits[0].id)} />
+```
+
+Los miembros del elemento están en
+[`elements.md`](./elements.md#cristae-shape-layer--círculos-elipses-y-sectores-en-metros). Sus hits llevan
+`kind: 'shape'`, y es una capa hoja: ningún modificador de composición la consume.
+
 ## Validez
 
 Una sola regla, la de `ring`: `null` o `undefined` toman el default, y un número presente que la forma
@@ -86,3 +107,20 @@ capa baja a la mitad los vértices de todas hasta que entren, sin avisar, con un
 entera; si ni así caben, el cambio se rechaza y la capa sigue dibujando lo anterior. El borde se aparta
 entonces más de 0,2 px de la curva, y también con el tope de 4096 vértices y durante un zoom animado,
 antes de que asiente.
+
+## El borde curvo, en una capa de líneas
+
+El arco no tiene capa ni opción: es [`arc`](geometry.md#formas--ring-y-arc) dibujado por la capa de
+líneas, que trae el `dash`, el `cap: 'round'`, el gradiente por `scalarOf` y el picking por segmento
+más cercano. `arc` sale de `cristae/map` porque compone con una capa, como `toParts` y `sampleAlong`;
+las funciones puras no ven el mapa, así que colocan la forma sobre la esfera por defecto o sobre el
+modelo que se les pase:
+
+```js
+import { arc } from 'cristae/map'
+engine.addLineLayer({ id: 'barrido', data: radares,
+  accessors: { idOf: r => r.id, pathOf: arc, styleOf: () => ({ dash: [6, 4], cap: 'round' }) } })
+```
+
+El contorno con los radios es la capa de formas sin relleno: `styleOf: () => ({ fillOpacity: 0 })`. La
+capa de líneas no re-tesela por zoom, así que el arco lleva los vértices de la tolerancia sin vista, 0,1 m.

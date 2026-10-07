@@ -30,6 +30,7 @@ const BUS = {
   'cristae-point-layer':   LAYER_BUS,
   'cristae-line-layer':    LAYER_BUS,
   'cristae-polygon-layer': LAYER_BUS,
+  'cristae-shape-layer':   LAYER_BUS,
   'cristae-html-layer':    LAYER_BUS,
   'cristae-cluster': {
     scoped: false,
@@ -106,6 +107,7 @@ export const CristaeMap = wrap('cristae-map')
 export const CristaePointLayer = wrap('cristae-point-layer')
 export const CristaeLineLayer = wrap('cristae-line-layer')
 export const CristaePolygonLayer = wrap('cristae-polygon-layer')
+export const CristaeShapeLayer = wrap('cristae-shape-layer')
 export const CristaeHtmlLayer = wrap('cristae-html-layer')
 export const CristaeLabelLayer = wrap('cristae-label-layer')
 export const CristaeEditablePolygon = wrap('cristae-editable-polygon')

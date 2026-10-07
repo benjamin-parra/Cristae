@@ -34,7 +34,7 @@ las props del elemento y los suscribe con `engine.on`, re-suscribiéndolos en ca
 | Componente | Props que van por el bus | Filtro |
 | --- | --- | --- |
 | `CristaeMap` | `onSecondaryClick` · `onHoverStart` · `onHoverEnd` | todas las capas |
-| Capas de dato (point / line / polygon / html) | `onClick` · `onSecondaryClick` · `onHover` · `onHoverStart` · `onHoverEnd` | **su** capa |
+| Capas de dato (point / line / polygon / shape / html) | `onClick` · `onSecondaryClick` · `onHover` · `onHoverStart` · `onHoverEnd` | **su** capa |
 | `CristaeCluster` | `onClusterExpand` · `onClusterUpdate` · `onClusterDismiss` · `onClusterMarked` | sesión del fold |
 
 Un handler de bus recibe los **hits directos** (`(hits, event)`), no un `CustomEvent` con `detail`. En
@@ -87,10 +87,10 @@ import { CristaeMap, CristaePointLayer, CristaeCluster, CristaePopup } from '@cr
   (cada handler recibe el `CustomEvent` con su `detail` tipado) + los del bus (`onSecondaryClick`,
   `onHoverStart`, `onHoverEnd`).
 - **Capas de dato** (genéricas sobre el ítem `T`): `CristaePointLayer`, `CristaeLineLayer`,
-  `CristaePolygonLayer`, `CristaeHtmlLayer`, `CristaeLabelLayer`. Entrada `data` (el motor posee la
-  Source) o `source` (el consumidor la comparte entre vistas — basta con que cumpla `CristaeReadSource`,
-  lo que devuelve `defineSource`); `accessors`/`iconSet` tipados por capa, `onClick`/`onHover` filtrados
-  por la capa y el eje `focusIds`.
+  `CristaePolygonLayer`, `CristaeShapeLayer`, `CristaeHtmlLayer`, `CristaeLabelLayer`. Entrada `data`
+  (el motor posee la Source) o `source` (el consumidor la comparte entre vistas — basta con que cumpla
+  `CristaeReadSource`, lo que devuelve `defineSource`); `accessors`/`iconSet` tipados por capa,
+  `onClick`/`onHover` filtrados por la capa y el eje `focusIds`.
 - **Modificadores de composición**: `CristaeCluster` (con la sesión de expansión por `onCluster*` y el
   eje `markedIds`), `CristaeOverlay` (envuelven capas de puntos; el orden de anidación es la semántica).
 - **`CristaePopup`** — tarjeta anclada al dato (`for` + `contentOf`); ancla viva por default.
@@ -103,7 +103,7 @@ import { CristaeMap, CristaePointLayer, CristaeCluster, CristaePopup } from '@cr
 
 Los tipos de props reusan los shapes de `cristae/map` (`PointAccessors<T>`, `IconSet`, `Insets`, …),
 así el genérico `T` se infiere del `data`/`accessors` y un accessor mal formado se marca en compilación.
-Los hits son una **unión discriminada** por `kind` (`point` / `polygon` / `line` / `html` / `circle`):
+Los hits son una **unión discriminada** por `kind` (`point` / `polygon` / `shape` / `line` / `html` / `circle`):
 `hits[0].kind === 'line'` narrowea a `partIndex`/`vertexIndex`. `slot` es el union de las 9 zonas del
 overlay (+ `empty`, y `bubble`/`center` dentro de un cluster), así que un typo no compila.
 

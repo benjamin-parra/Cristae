@@ -992,7 +992,7 @@ ninguna lectura fuera de rango, ningún camino sin terminación, ninguna excepci
 > Entry sin efectos, como `cristae/geojson`: funciones puras sobre puntos, paths y zonas en grados, no
 > piezas del mapa. Se contrata acá; la guía de uso y el costo medido están en
 > [`docs/geometry.md`](./docs/geometry.md). `toParts` y `sampleAlong` viajan en el entry con el
-> contrato de [`docs/lines.md`](./docs/lines.md).
+> contrato de [`docs/lines.md`](./docs/lines.md), y `arc` sale también de `cristae/map`.
 
 | API | Firma | Complejidad | Notas |
 |---|---|---|---|

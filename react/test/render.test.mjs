@@ -5,7 +5,8 @@
 //   (c) un handler `onX` se cablea con addEventListener(cristae:*) y se limpia al desmontar;
 //   (d) los handlers del BUS del motor se suscriben por engine.on (filtrados por capa), NO por el DOM;
 //   (e) el `ref` publica el elemento vivo sin romper la aplicación de props;
-//   (g) una prop string cuya propiedad declara `attribute: false` entra por PROPIEDAD, no por atributo.
+//   (g) una prop string cuya propiedad declara `attribute: false` entra por PROPIEDAD, no por atributo;
+//   (h) la capa de formas recibe los cinco canales del bus de toda capa de dato.
 // No registramos los custom elements de la lib: un `<cristae-map>` sin definir es un elemento genérico,
 // suficiente para observar lo que el binding le aplica (atributos / propiedades / listeners). El único
 // definido es el fake de (g): sólo lleva `elementProperties`, la entrada que clasifica la prop.
@@ -15,7 +16,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createElement as e, act, createRef, memo, StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
-import { CristaeMap, CristaePointLayer, CristaeTable } from '../src/index.js'
+import { CristaeMap, CristaePointLayer, CristaeShapeLayer, CristaeTable } from '../src/index.js'
 
 const accessors = { idOf: (d) => d.id, positionOf: (d) => ({ lat: d.lat, lng: d.lng }) }
 
@@ -208,4 +209,31 @@ test('(g) <cristae-table>: `template` y `where` por propiedad, los escalares por
   unmount()
   tabla.dispatchEvent(new CustomEvent('cristae:rowclick', { detail: { item: { id: 2 }, row: 4 } }))
   assert.equal(clicks.length, 1, 'tras desmontar, el handler ya no recibe eventos')
+})
+
+test('(h) la capa de formas recibe los cinco canales del bus, filtrados por su id', () => {
+  const subs      = []
+  const engine    = { on: (channel, layerId, cb) => { subs.push({ channel, layerId, cb }); return () => {} } }
+  const recibidos = []
+  const manejador = canal => hits => recibidos.push([canal, hits])
+
+  const { container } = mount(
+    e(CristaeMap, null,
+      e(CristaeShapeLayer, {
+        id: 'zonas',
+        onClick: manejador('click'), onSecondaryClick: manejador('secondary-click'), onHover: manejador('hover'),
+        onHoverStart: manejador('hover:start'), onHoverEnd: manejador('hover:end'),
+      })),
+  )
+  const mapEl = container.querySelector('cristae-map')
+  const capa  = container.querySelector('cristae-shape-layer')
+  assert.ok(capa, 'el wrapper monta <cristae-shape-layer>')
+
+  mapEl.engine = engine
+  mapEl.dispatchEvent(new CustomEvent('cristae:ready', { detail: {} }))
+  assert.deepEqual(subs.map(s => s.channel).sort(), ['click', 'hover', 'hover:end', 'hover:start', 'secondary-click'])
+  assert.deepEqual([...new Set(subs.map(s => s.layerId))], ['zonas'], 'todos filtrados por la capa')
+
+  subs.find(s => s.channel === 'click').cb([{ kind: 'shape', id: 1 }], null)
+  assert.deepEqual(recibidos, [['click', [{ kind: 'shape', id: 1 }]]])
 })

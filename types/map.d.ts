@@ -16,7 +16,7 @@ export type {
 } from "./core";
 export { createSource, defineSource, makeFilter, makeListener } from "./core";
 export type { Bounds, BoundsLike, EarthModel, LatLng, LatLngPoint, LatLngPath } from "./geometry";
-export { distance, sphere, toParts, sampleAlong } from "./geometry";
+export { distance, sphere, toParts, sampleAlong, arc } from "./geometry";
 
 // ── IconSets (src/atlas/IconSet.js) ─────────────────────────────────────────
 /** Tipo opaco del IconSet — se asigna a `layer.iconSet`; `sprite()` reusa el tile fuera del mapa. */
@@ -845,6 +845,7 @@ export class MapEngine {
 export class CristaeMap extends HTMLElement {}
 export class CristaePointLayer extends HTMLElement {}
 export class CristaePolygonLayer extends HTMLElement {}
+export class CristaeShapeLayer extends HTMLElement {}
 export class CristaeLineLayer extends HTMLElement {}
 export class CristaeHtmlLayer extends HTMLElement {}
 export class CristaeLabelLayer extends HTMLElement {}

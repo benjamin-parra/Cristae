@@ -25,9 +25,9 @@
 `ellipsoid` y `WGS84` traen la dependencia `geographiclib-geodesic`, que entra sólo al bundle de quien
 los importa: las medidas de zona tampoco la cargan si no se les pasa el elipsoide. Lo mismo vale para
 el cargador de tiles de `terrain`, `relief` y `elevation`: no entra a quien no los importa, y
-`terrainPresets` solo son datos. Por eso `cristae/map` re-exporta `distance`, `sphere`, `toParts` y
-`sampleAlong`, y no el elipsoide ni el terreno; el prearmado `esm/geometry.js`, en cambio, los trae
-siempre.
+`terrainPresets` solo son datos. Por eso `cristae/map` re-exporta `distance`, `sphere`, `toParts`,
+`sampleAlong` y `arc`, y no el elipsoide ni el terreno; el prearmado `esm/geometry.js`, en cambio, los
+trae siempre.
 
 ## Formas de llamada
 
@@ -155,6 +155,9 @@ area(WGS84, ring(WGS84, { center, radius: [800, 300], heading: 45 }))       // u
 ring({ center, radius: 300, heading: 90, sweep: 60 })                       // un sector de 60° mirando al este
 arc({ center, radius: 300, heading: 90, sweep: 60 })                        // su borde curvo, abierto
 ```
+
+`arc` también sale de `cristae/map`, que lo compone con una capa de líneas:
+[`pathOf: arc`](shapes.md#el-borde-curvo-en-una-capa-de-líneas).
 
 Una **forma** es `{ center, radius, heading?, sweep? }`, con el centro en cualquier forma de punto y todo
 lo demás en metros y grados. Se lee por contenido: no lleva un `type`.

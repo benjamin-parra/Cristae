@@ -8,6 +8,7 @@ import { CristaeLayerElement } from '../../src/element/base.js'
 import { CristaePointLayer } from '../../src/element/CristaePointLayer.js'
 import { CristaeLineLayer } from '../../src/element/CristaeLineLayer.js'
 import { CristaePolygonLayer } from '../../src/element/CristaePolygonLayer.js'
+import { CristaeShapeLayer } from '../../src/element/CristaeShapeLayer.js'
 import { CristaeHtmlLayer } from '../../src/element/CristaeHtmlLayer.js'
 import { CristaeLabelLayer } from '../../src/element/CristaeLabelLayer.js'
 
@@ -15,6 +16,7 @@ const CAPAS = [
   ['point', CristaePointLayer],
   ['line', CristaeLineLayer],
   ['polygon', CristaePolygonLayer],
+  ['shape', CristaeShapeLayer],
   ['html', CristaeHtmlLayer],
   ['label', CristaeLabelLayer],
 ]
@@ -23,7 +25,7 @@ const CAPAS = [
 // de la clase (de ahí sale el getter `_placement` de la base). El motor eco devuelve la config recibida.
 const capa = (Clase, props) => Object.assign(Object.create(Clase.prototype), { visible: true, ...props })
 const eco = {
-  addPointLayer: cfg => cfg, addLineLayer: cfg => cfg, addPolygonLayer: cfg => cfg,
+  addPointLayer: cfg => cfg, addLineLayer: cfg => cfg, addPolygonLayer: cfg => cfg, addShapeLayer: cfg => cfg,
   addHtmlLayer: cfg => cfg, addLabelLayer: cfg => cfg,
 }
 
