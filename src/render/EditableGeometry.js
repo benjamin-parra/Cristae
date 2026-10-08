@@ -360,13 +360,13 @@ export class EditableGeometry {
 
   // Un frame del gesto o de la vista previa: la esfera por defecto reescribe la forma sobre el mismo anillo,
   // con los segmentos y los tramos de cada parte congelados, así que sólo se mueven vértices y se suben sus
-  // chunks, sin re-ingerir el arena. Una figura entera que se abre en sector —sin arco todavía— cambia de
-  // conteo, y ésa se rehace una vez; las demás reescrituras son [0-alloc].
+  // chunks, sin re-ingerir el arena. Una figura que se abre en sector o se cierra en 360 cambia de conteo
+  // —la entera es la que no tiene arco—, y ésa se rehace; las demás reescrituras son [0-alloc].
   #reescribir(shape, arena) {
     const { arc, steps } = shape
     const path = this.#perimetro
     const xy   = this.#anillo
-    if (!arc && shape.sweep < 360) {
+    if (!arc !== (shape.sweep === 360)) {
       this.#teselar(shape, byDefault)
       return arena.reset()
     }

@@ -57,7 +57,10 @@ export const viewSegments = ({ lat, a, b }, zoom) => segmentsFor(Math.max(a, b),
 export const sizeShape = (shape, n) => {
   const { lat, a, b, sweep } = shape
   shape.n = n
-  if (sweep === 360) return n
+  if (sweep === 360) {
+    shape.arc = shape.steps = shape.half = 0
+    return n
+  }
   const half  = shape.half = Math.atan2(a * Math.sin(sweep / 2 * D), b * Math.cos(sweep / 2 * D))
   const reach = Math.hypot(a * Math.cos(half), b * Math.sin(half))
   shape.arc   = Math.ceil(n * (a === b ? sweep / 360 : half / Math.PI))

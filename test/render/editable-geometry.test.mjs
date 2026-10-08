@@ -1662,6 +1662,35 @@ test('el borrador de una forma se dibuja con la esfera, y salir del trazado devu
   esc.ed.destroy()
 })
 
+// Cerrarse en 360 y volver a abrirse cambian el conteo del anillo, dentro del gesto o al empezar otro.
+test('el sector que se cierra y se abre arrastrando dibuja el mismo anillo que sube al soltar', () => {
+  const esc = montar({ kind: 'sector', value: { center: [0, 0], radius: 100000, heading: 0, sweep: 90 }, zoom: 10 })
+  const en  = az => {
+    const { lat2, lon2 } = ESFERA.Direct(0, 0, az, 100000)
+    return [lat2, lon2]
+  }
+  const ultimo = () => esc.spy.texels.findLast(Boolean).slice()
+  const n      = segmentos(100000, 10)
+
+  tomar(esc, 6)
+  for (const az of [150, 183]) mover(esc, ...en(az))
+  assert.equal(esc.ed.getValue().sweep, 360)
+  mismoAnillo(anilloSubido(esc, n), anilloDe(ESFERA, [0, 0], 100000, n), 'cerrado, el círculo')
+  mover(esc, ...en(150))
+  const abierto = ultimo()
+  soltar(esc)
+  assert.deepEqual(abierto, ultimo(), 'abierto de nuevo, el sector')
+
+  arrastrar(esc, 6, [en(183)])
+  tomar(esc, 4)
+  mover(esc, ...en(300))
+  const otro = ultimo()
+  soltar(esc)
+  assert.ok(esc.ed.getValue().sweep < 360)
+  assert.deepEqual(otro, ultimo(), 'el gesto siguiente lo abre desde el círculo')
+  esc.ed.destroy()
+})
+
 /* ── Mano alzada: el dedo traza y al soltar el trazo se hornea ── */
 
 // El dedo apoyado en el primer punto, en píxeles del contenedor, y recorre el resto sin levantarse. El
