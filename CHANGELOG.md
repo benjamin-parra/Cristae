@@ -5,7 +5,13 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
 [`docs/versionado.md`](docs/versionado.md) — en `0.x`, el **minor cuenta los cambios medios**
 (capacidad o eje de API nuevo) y el **patch los menores desde el último medio** (fix / perf / revert).
 
-## [Sin publicar]
+## [0.37.0] - 2026-10-08
+
+> Sale como **minor**: la capa de formas dibuja círculos, elipses y sectores en metros, los editores
+> suman círculo, elipse y sector, trazo a mano alzada y un indicador de dibujo, `cristae/geometry` genera
+> formas y curva paths sobre la geodésica, y `<cristae-geodesic>` lo hace con capas enteras
+> ([`docs/versionado.md`](docs/versionado.md)). `addCircleLayer` queda como alias de la capa de formas y
+> se retira en 1.0.
 
 ### Agregado
 - **Capa de formas: círculos, elipses y sectores en metros, en GPU.** `engine.addShapeLayer`,
