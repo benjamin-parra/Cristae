@@ -282,6 +282,13 @@ test('la vista asentada sí repinta: moveend, zoomend y resize', () => {
   assert.deepEqual(perEvent, [3, 3, 3], 'paridad del anillo + cobertura + contorno, en cada uno')
 })
 
+// Un pinch no asienta la vista hasta soltarse, pero el relleno tiene que seguir a los dedos: cada cuadro
+// repinta en la vista del gesto. Un zoom que salta espera a su `zoomend`.
+test('cada cuadro del pinch repinta, y un zoom que salta no', () => {
+  const { map, spy } = mount()
+  assert.deepEqual([drawsOf(spy, () => map.fire('zoom', { pinch: true })), drawsOf(spy, () => map.fire('zoom'))], [3, 0])
+})
+
 // El motor reproyecta por frame las capas GL inscritas en su ciclo de render, y en esta capa
 // `resetCanvasReference()` ES el repintado entero. El marco se desplaza en cada frame, así que no hay
 // `move` que el motor se saltee por posición repetida: si la capa estuviera inscrita, serían 30 stencils.

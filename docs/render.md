@@ -64,7 +64,7 @@ projY0(lat) = 256 * (0.5 − 0.25/π · ln((1+s)/(1−s))),  s = sin(clamp(lat, 
   partida de la cámara.
 - **Superficie.** Una por capa, con profundidad (el orden por banda del foco) y **sin** la transición CSS
   del zoom: durante el zoom animado el motor la reproyecta por cuadro con `renderAtView(zoom, center)`,
-  que sólo rehace la matriz.
+  que sólo rehace la matriz, y en un zoom sin destino —pinch, `flyTo`— con la vista de cada cuadro.
 
 ---
 

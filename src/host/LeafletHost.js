@@ -15,8 +15,10 @@ import { TILE_FILTER } from './styles.js'
 
 // El ciclo de vista, con un solo emisor: cada tipo tiene un oyente en el mapa, y los suscriptores del
 // anfitrión se reparten ese lugar en el orden en que llegaron. `zoomlevelschange` avisa que cambiaron los
-// topes del zoom —un límite, o una capa que trae los suyos—, aunque la vista no se mueva.
-const VIEW_EVENTS = ['movestart', 'move', 'moveend', 'zoomstart', 'zoomanim', 'zoomend', 'resize', 'zoomlevelschange']
+// topes del zoom —un límite, o una capa que trae los suyos—, aunque la vista no se mueva. `zoomframe` es
+// cada cuadro de un zoom sin destino —pinch, `flyTo`—, con la vista ya puesta: Leaflet lo avisa como `zoom`.
+const VIEW_EVENTS = ['movestart', 'move', 'moveend', 'zoomstart', 'zoomanim', 'zoomframe', 'zoomend', 'resize', 'zoomlevelschange']
+const leafletType = type => type === 'zoomframe' ? 'zoom' : type
 
 // Los eventos del contenedor en que se relee si el arrastre del mapa sigue en curso (ver `input`).
 const DRAG_SYNC = ['pointerup', 'pointerenter']
@@ -93,8 +95,9 @@ const hostOf = (map, leaflet, ownsMap, zoomPolicy) => {
 
   // `zoomanim` es el único con carga: la vista destino. Leaflet lo dispara antes de mover la vista, así
   // que durante el reparto `zoom()` y `center()` todavía dan la de partida.
-  const relays = Object.fromEntries(VIEW_EVENTS.map(type => [type, type === 'zoomanim'
-    ? e => view.fire(type, { center: plainLatLng(e.center), zoom: e.zoom })
+  const relays = Object.fromEntries(VIEW_EVENTS.map(type => [type,
+    type === 'zoomanim'    ? e => view.fire(type, { center: plainLatLng(e.center), zoom: e.zoom })
+    : type === 'zoomframe' ? e => (e.pinch || e.flyTo) && view.fire(type)
     : () => view.fire(type)]))
 
   // La política decide por los dos extremos de cada zoom, lo pida quien lo pida: 'none' no anima
@@ -149,7 +152,7 @@ const hostOf = (map, leaflet, ownsMap, zoomPolicy) => {
         : this._resetView(center, zoom)
     }),
   ]
-  VIEW_EVENTS.forEach(type => map.on(type, relays[type]))
+  VIEW_EVENTS.forEach(type => map.on(leafletType(type), relays[type]))
 
   // Los cuatro límites en las opciones de Leaflet: la viscosidad la lee cada arrastre al empezar. Los de
   // un mapa adoptado son de su dueño: se guardan la primera vez que el motor pone los suyos y vuelven al
@@ -288,11 +291,12 @@ const hostOf = (map, leaflet, ownsMap, zoomPolicy) => {
   const tiles          = {
     attribution: () => tileLayer?.getAttribution() ?? null,
     // Las opciones, salvo `url`, van tal cual a la capa de Leaflet. Su nodo nace cuando la capa entra al
-    // mapa, que en uno adoptado sin vista es en su primer `setView`: el filtro se le pone ahí.
+    // mapa, que en uno adoptado sin vista es en su primer `setView`: el filtro se le pone ahí. Leaflet, en
+    // un móvil, pide los tiles recién al soltar el gesto; acá los pide también durante él.
     setProvider({ url, ...options } = {}) {
       releaseRetention?.()
       tileLayer?.remove()
-      tileLayer        = new leaflet.TileLayer(url, options)
+      tileLayer        = new leaflet.TileLayer(url, { updateWhenIdle: false, ...options })
         .on('add', ({ target }) => { target.getContainer().style.filter = TILE_FILTER })
       releaseRetention = retainTileSnapshots(map, surface, tileLayer)
       tileLayer.addTo(map)
@@ -368,7 +372,7 @@ const hostOf = (map, leaflet, ownsMap, zoomPolicy) => {
       releases.forEach(release => release())
       releaseRetention?.()
       tileLayer?.remove()
-      VIEW_EVENTS.forEach(type => map.off(type, relays[type]))
+      VIEW_EVENTS.forEach(type => map.off(leafletType(type), relays[type]))
       ownerLimits && applyLimits(ownerLimits)
       map.off('load', onLoad)
       dragHeard && hearDrag('off', 'removeEventListener')

@@ -205,6 +205,31 @@ test('el cierre de un pinch que no cambia el zoom cierra el zoomstart del gesto,
   }
 })
 
+// Un pinch no avisa destino: cada cuadro llega como `zoomframe`, con la vista del gesto ya puesta. Un zoom
+// animado lo lleva `zoomanim`, y un salto se asienta de una.
+test('cada cuadro del pinch es un zoomframe en la vista del gesto; un zoom animado o un salto no lo emiten', async () => {
+  const { host, camera } = montar('on')
+  const cuadros   = []
+  const container = host.map.getContainer()
+  camera.on('zoomframe', () => cuadros.push(camera.zoom()))
+  tocar(container, 'touchstart', [350, 450])
+  for (const abierto of [120, 140]) {
+    tocar(container, 'touchmove', [400 - abierto / 2, 400 + abierto / 2])
+    await frame()
+  }
+  assert.deepEqual(cuadros.map(z => Math.round(z * 100) / 100), [10.26, 10.49])
+  tocar(container, 'touchend', [])
+  await asiente(camera)
+
+  cuadros.length = 0
+  camera.setZoom(12)
+  await asiente(camera)
+  camera.zoomPolicy = 'none'
+  camera.setZoom(9)
+  assert.deepEqual(cuadros, [])
+  host.destroy()
+})
+
 // Un vuelo empieza en la vista de partida y llega en varios frames; un setView ya está en el destino.
 test('flyTo vuela si la política anima el zoom de destino, y si no es un setView', () => {
   const esperado = { none: [false, false], 'in-only': [true, false], on: [true, true] }

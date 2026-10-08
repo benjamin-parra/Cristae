@@ -125,6 +125,13 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   `focus({ kinds: ['circle'] })` no alcanza. Ver
   [`docs/shapes.md`](docs/shapes.md#migrar-desde-addcirclelayer).
 
+### Corregido
+- **El pinch y el vuelo llevan las capas con la vista.** Las líneas, los polígonos, las formas, los puntos y
+  los editores quedaban en el zoom de partida hasta soltar el pinch o terminar un `flyTo`; ahora se
+  redibujan en cada cuadro, en la vista del gesto. En un móvil los tiles se piden también durante el gesto,
+  en a lo más una tanda cada 200 ms, y no recién al soltarlo; `updateWhenIdle: true` en `tile` vuelve a eso.
+  *Migración*: ninguna.
+
 ## [0.36.0] - 2026-10-03
 
 > Sale como **minor**: Leaflet queda detrás de un anfitrión interno, Cristae dibuja todas sus capas y

@@ -28,7 +28,7 @@ document.querySelector('#geocercas').source = geocercas
 | Aspecto | Polígonos |
 |---|---|
 | escala cómoda | miles de figuras |
-| reproyección | el pane traslada el canvas; repinta en vista asentada |
+| reproyección | el pane traslada el canvas; repinta en vista asentada y en cada cuadro de un pinch |
 | costo por repintado | una paridad por anillo + una cobertura por polígono, **sólo de lo que toca el viewport** |
 | contexto WebGL | **uno por capa**, del techo de ~16 del navegador |
 

@@ -198,6 +198,13 @@ test('la vista asentada repinta: moveend, zoomend y resize', () => {
   assert.deepEqual(porEvento, [1, 1, 1])
 })
 
+// Un pinch mueve la vista sin asentarla y avisa cada cuadro como `zoom` con `pinch`; un zoom que salta
+// espera a su `zoomend`.
+test('cada cuadro del pinch repinta, y un zoom que salta no', () => {
+  const { map, spy } = mount()
+  assert.deepEqual([drawsOf(spy, () => map.fire('zoom', { pinch: true })), drawsOf(spy, () => map.fire('zoom'))], [1, 0])
+})
+
 test('setVisible(false) deja de dibujar y setVisible(true) vuelve', () => {
   const { layer, spy } = mount()
   assert.equal(drawsOf(spy, () => layer.setVisible(false)), 0)

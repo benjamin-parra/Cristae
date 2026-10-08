@@ -68,6 +68,28 @@ test('addHighlightOverlay: el ViewAnimator lo reproyecta POR FRAME durante el zo
   engine.destroy()
 })
 
+// Un pinch no avisa destino: Leaflet mueve la vista y avisa cada cuadro como `zoom` con `pinch`. El motor
+// reproyecta ahí mismo, y un zoom que salta no, porque su `zoomend` llega enseguida.
+test('addHighlightOverlay: cada cuadro del pinch lo reproyecta, sin esperar a que se suelte', async () => {
+  const { engine, map } = newEngine()
+  engine.addPointLayer({ id: 'flota', accessors, iconSet: makeIconSet(), data: items })
+  const draws = []
+  const ov = engine.addHighlightOverlay({ id: 'hl', layerId: 'flota', drawHighlight: (ctx, size, key) => draws.push(key) })
+  ov.setHighlighted(new Map([[2, 'follow'], [5, 'select']]))
+  await flushRaf()
+
+  draws.length = 0
+  map.fire('zoomstart')
+  map.setZoomForTest(9.5).fire('zoom', { pinch: true })
+  assert.equal(draws.length, 2, 'el cuadro del gesto')
+  map.setZoomForTest(9.4).fire('zoom')
+  assert.equal(draws.length, 2, 'un zoom que salta espera a su zoomend')
+
+  map.fire('zoomend')
+  ov.destroy()
+  engine.destroy()
+})
+
 // El último frame de la animación reproyecta a la vista destino, y el realce cae donde la matriz del
 // sprite pone su punto: su píxel a ese zoom, menos el del centro, más medio contenedor. La proyección del
 // doble es px = coord·100·2^z; el contenedor, 800×600; el destino, zoom 3 con el centro en (1, 1), que

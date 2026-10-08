@@ -160,6 +160,21 @@ test('un proveedor nuevo suelta al anterior con sus fotos', () => {
   host.destroy()
 })
 
+// Leaflet, en un móvil, pide los tiles recién al soltar el gesto: el default de `updateWhenIdle` depende
+// de la plataforma, así que el anfitrión lo pasa siempre, y el proveedor que lo pide lo pisa.
+test('el proveedor pide tiles durante el gesto en cualquier plataforma, salvo que diga otra cosa', () => {
+  const host  = createLeafletHost({ container: contenedor(), view: { center: [-33, -70], zoom: 10 } })
+  const idle  = () => {
+    const { options } = capaDe(host.map)
+    return Object.hasOwn(options, 'updateWhenIdle') ? options.updateWhenIdle : 'el de la plataforma'
+  }
+  host.tiles.setProvider({ url: URL_TILES })
+  assert.equal(idle(), false)
+  host.tiles.setProvider({ url: URL_TILES, updateWhenIdle: true })
+  assert.equal(idle(), true)
+  host.destroy()
+})
+
 test('la atribución es la del proveedor vigente, tal como la dio, y el mapa propio no la dibuja', () => {
   const host         = createLeafletHost({ container: contenedor(), view: { center: [-33, -70], zoom: 10 } })
   const atribuciones = [host.tiles.attribution()]

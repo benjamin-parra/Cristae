@@ -923,12 +923,14 @@ export class MapEngine {
   /* ── Internos ── */
 
   // Reposiciona/redibuja las capas GL inscritas en paneo y zoom.
-  // En `move` solo si el marco se desplazó de verdad; durante el zoom lo gobierna el cierre del gesto.
+  // En `move` solo si el marco se desplazó de verdad; durante el zoom lo gobierna el cierre del gesto, y
+  // cada cuadro de uno sin destino, en la vista que ya tiene la cámara.
   #wireRenderLifecycle() {
     const hostCamera = this.#host.camera
     let zooming      = false
     let lastX        = NaN, lastY = NaN
     hostCamera.on('zoomstart', () => zooming = true)
+    hostCamera.on('zoomframe', () => this.#renderAtView(hostCamera.zoom(), hostCamera.center()))
     hostCamera.on('zoomend', () => {
       zooming = false; lastX = NaN; lastY = NaN
       this.#forEachGlLayer(layer => layer.resetCanvasReference())
@@ -965,14 +967,18 @@ export class MapEngine {
         const k = ease(Math.min((performance.now() - t0) / DUR, 1))
         const z = z0 + (z1 - z0) * k
         const c = { lat: c0.lat + (c1.lat - c0.lat) * k, lng: c0.lng + (c1.lng - c0.lng) * k }
-        this.#forEachGlLayer(l => l.renderAtView?.(z, c))
-        this.#highlightOverlays.forEach(o => o.renderAtView?.(z, c))   // el realce sigue a su sprite por frame
+        this.#renderAtView(z, c)
         if (k < 1) raf = requestAnimationFrame(step)
       }
       raf = requestAnimationFrame(step)
     })
     // Al asentar: corta la interpolación y deja que cada capa se re-proyecte nítida a la vista final.
     hostCamera.on('zoomend', () => { cancelAnimationFrame(raf); this.#forEachGlLayer(l => l.resetCanvasReference()) })
+  }
+
+  #renderAtView(z, c) {
+    this.#forEachGlLayer(l => l.renderAtView?.(z, c))
+    this.#highlightOverlays.forEach(o => o.renderAtView?.(z, c))   // el realce sigue a su sprite por frame
   }
 
   // Inscribe una capa GL (un canvas propio que nadie más reproyecta) en el set que el ciclo de

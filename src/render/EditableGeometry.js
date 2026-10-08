@@ -97,7 +97,7 @@ const project = (lat, lng, out) => {
 export class EditableGeometry {
 
   #host; #camera; #pane; #kind; #model; #forma; #onChange; #onCommit; #onHandleLevel; #surface; #gl; #iconSet
-  #bajaVista; #bajaPausa
+  #bajaVista; #bajaPausa; #bajaCuadro
   #salir                                   // la baja de la puerta del puntero
   #mode       = 'edit'
   #geom       = null                       // representación interna viva (mutada in place por el gesto)
@@ -166,6 +166,7 @@ export class EditableGeometry {
     this.#mode          = mode
     this.#bajaVista     = host.camera.on('moveend zoomend resize', this.#onView)
     this.#bajaPausa     = host.camera.on('movestart zoomstart', this.#onPausa)
+    this.#bajaCuadro    = host.camera.on('zoomframe', () => this.#draw())
     this.#salir         = join(this.#participante)
     this.#rebuild()
   }
@@ -270,6 +271,7 @@ export class EditableGeometry {
     this.#salir()
     this.#bajaVista()
     this.#bajaPausa()
+    this.#bajaCuadro()
     this.#trazos.splice(0).forEach(t => this.#soltar(t))
     this.#contornos.splice(0)
     this.#fill?.destroy()

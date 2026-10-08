@@ -82,7 +82,7 @@ export class LineGpuLayer {
     try {
       this.#stroke = new StrokePass({ gl: this.#gl, closed: false, gradient: !!this.#scalarOf })
       this.#rebuild(source.getSnapshot())
-      this.#offView = host.camera.on('moveend zoomend resize', () => this.redraw())
+      this.#offView = host.camera.on('moveend zoomend resize zoomframe', () => this.redraw())
       this.#unsub   = source.subscribe(() => { this.#sync(); this.redraw() })
     } catch (e) {
       this.destroy()

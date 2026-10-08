@@ -1254,6 +1254,20 @@ test('el anillo que setValue quita deja de dibujarse: el frame cuesta lo mismo q
   nuevo.ed.destroy()
 })
 
+// Un pinch no asienta la vista hasta soltarse: cada cuadro, que Leaflet avisa como `zoom` con `pinch`,
+// redibuja el editor en la vista del gesto. Un zoom que salta espera a su `zoomend`.
+test('cada cuadro del pinch redibuja el editor, y un zoom que salta no', () => {
+  const esc   = montar({ kind: 'circle', value: { center: [0, 0], radius: 30000 }, zoom: 10 })
+  const draws = run => {
+    const antes = esc.spy.draws.length
+    run()
+    return esc.spy.draws.length - antes
+  }
+  assert.ok(draws(() => esc.map.fire('zoom', { pinch: true })) > 0)
+  assert.equal(draws(() => esc.map.fire('zoom')), 0)
+  esc.ed.destroy()
+})
+
 /* ── Círculo, elipse y sector ── */
 
 // Las referencias salen de la geographiclib directa —la esfera de radio medio, o WGS84— y de fórmulas

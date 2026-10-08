@@ -40,7 +40,9 @@ Las opciones que acepta un proveedor están en [`elements.md`](./elements.md) (`
 ## El proveedor lo pone el anfitrión
 
 Ni el elemento ni el motor tocan la capa de tiles: `map.tile` y `engine.setTileProvider(tile)` se la
-piden al anfitrión del mapa, que la crea y la agrega. Hay un proveedor a la vez: el nuevo suelta al
+piden al anfitrión del mapa, que la crea y la agrega. Los tiles se piden también durante el gesto, en a
+lo más una tanda cada `updateInterval` (200 ms); Leaflet, en un móvil, los pide recién al soltarlo, y
+`updateWhenIdle: true` vuelve a eso. Hay un proveedor a la vez: el nuevo suelta al
 anterior, con su capa y sus fotos. Al destruirse el motor, el anfitrión le saca a un mapa adoptado la
 capa y el pane de la retención que le puso. El filtro de los tiles y el fondo del mapa no son opciones
 del proveedor: son custom properties, y dónde rige cada una está en [`<cristae-map>`](./elements.md#cristae-map).

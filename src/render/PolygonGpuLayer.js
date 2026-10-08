@@ -162,8 +162,8 @@ export class PolygonGpuLayer {
       this.#fill   = fill ? new EditFillLayer({ gl: this.#gl, rings: [], step: 1, color: fillColor ?? color, opacity: fillOpacity }) : null
       this.#stroke = stroke ? new StrokePass({ gl: this.#gl, color, width: weight, opacity }) : null
       // El canvas se ancla en coordenadas de CAPA, así que el pane lo traslada durante el arrastre y
-      // los píxeles siguen alineados: sólo una vista ya asentada necesita repintar.
-      this.#offView = host.camera.on('moveend zoomend resize', () => this.redraw())
+      // los píxeles siguen alineados: repintan una vista ya asentada y cada cuadro de un zoom sin destino.
+      this.#offView = host.camera.on('moveend zoomend resize zoomframe', () => this.redraw())
       this.#unsub   = source?.subscribe(() => this.#onChange())
       this.redraw()
     } catch (e) {
