@@ -391,12 +391,14 @@ lectura** del `Source` (§2): `getSnapshot()` + `subscribe(cb)`; ignora `accesso
 |---|---|---|---|
 | `.source` (prop) | `Source` | sí | `attach` → snapshot inicial (hard) + re-read por notify (suave). Gana sobre `.data`. |
 | `.data` (prop) | `Item[]` | sí | `setData` (array plano, sin reactividad) |
-| `.template` / `.binder` (prop) | string / función | sí | molde + poblado de la fila |
-| `.comparator` / `.searchBy` / `.searchFilter` (prop) | funciones | sí | orden del slice / campo y predicado de búsqueda |
+| `.template` (prop) | string | no | molde de la fila; se lee al crear el motor |
+| `.binder` (prop) | función | sí | poblado de la fila; cambiarlo repuebla la ventana visible (`setBinder`) sin perder página ni scroll |
+| `.comparator` / `.searchBy` / `.searchFilter` (prop) | funciones | no | orden del slice / campo y predicado de búsqueda; se leen al crear el motor |
 | `.where` (prop) | `(item) → boolean` | sí | membresía de ESTA tabla, antes del text-search (N tablas sobre una Source, cada una su subconjunto; `addFilter` es el filtro compartido) |
-| `row-height` / `page-size` / `max-buttons` (attr) | number | sí | layout / paginación |
+| `row-height` (attr) | number | no | alto de fila; se lee al crear el motor |
+| `page-size` / `max-buttons` (attr) | number | sí | paginación |
 | `search` / `count-label` / `scroll-height` (attr) | string | sí | búsqueda controlada / pie / alto |
-| **acceso** | `controls` → `PagedTable` (`setPage/setSearch/setPageSize/setWhere/refresh/itemAtRow`) | acción | — |
+| **acceso** | `controls` → `PagedTable` (`setPage/setSearch/setPageSize/setWhere/setBinder/refresh/itemAtRow`) | acción | — |
 | **evento** | `cristae:rowclick` → `{ item, row }` | — | delegación vía slice visible |
 
 - **Una source, N vistas:** el filtro/estado vive en el `Source` (computado una vez). La misma

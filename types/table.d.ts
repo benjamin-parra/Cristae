@@ -84,6 +84,12 @@ export class PagedTable<T = unknown> {
   setSearch(query: string): this;
   /** Cambia el predicado de membresía por tabla. `null` ⇒ sin filtro. */
   setWhere(fn: ((item: T) => boolean) | null): this;
+  /**
+   * Reemplaza el binder y repuebla en el acto la ventana visible, sin pipeline: conserva pool, molde,
+   * página, scroll, búsqueda y where. Con un pipeline pendiente sólo lo guarda: repuebla ese pipeline.
+   * El binder nuevo recibe filas que pobló el anterior.
+   */
+  setBinder(binder: PagedTableOptions<T>['binder']): this;
   getPageInfo(): PageInfo;
   /** Ítem de una fila por su índice 1-based del DOM (vía slice visible). */
   itemAtRow(rowIndex: number): T | null;

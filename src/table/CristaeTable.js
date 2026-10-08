@@ -118,6 +118,7 @@ export class CristaeTable extends LitElement {
     if (changed.has('where')) e.setWhere(this.where)
     if (changed.has('search')) e.setSearch(this.search)
     if (changed.has('pageSize')) e.setPageSize(this.pageSize)
+    if (changed.has('binder') && this.binder) e.setBinder(this.binder)   // último: si algo agendó un pipeline, sólo se guarda
   }
 
   disconnectedCallback() {

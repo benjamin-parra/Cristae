@@ -7,6 +7,14 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
 
 ## [Sin publicar]
 
+### Agregado
+- **`PagedTable.setBinder(binder)`** cambia cómo se pinta la fila sin reconstruir el motor: repuebla
+  en el acto la ventana visible y conserva pool, molde, página, scroll, búsqueda y `where`. Una tabla
+  cuyas celdas leen estado de la pantalla (un idioma, un conjunto que cambia) ya no tiene que
+  recrearse ni volver a la página 0 para mostrarlo. En `<cristae-table>`, asignar `.binder` después
+  del primer render ahora tiene efecto. Ver [`docs/table.md`](docs/table.md#pagedtable--engine-headless).
+  *Migración*: ninguna.
+
 ### Cambiado
 - **`engines` declara `node >=24`.** Antes decía `>=20`, pero sólo se prueba en Node 24 y 26: la librería ya no
   afirma una compatibilidad que no verifica. Ver [Node](README.md#node).

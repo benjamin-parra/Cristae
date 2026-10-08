@@ -24,6 +24,7 @@ const crearAgenda = run => {
       if (rafId) cancelAnimationFrame(rafId)
       rafId = 0
     },
+    get pending() { return rafId !== 0 },
   }
 }
 
@@ -179,6 +180,19 @@ export class PagedTable {
     this.#ultimoEmitido.pages            = -1
     this.#refs.scrollContainer.scrollTop = 0
     this.#requestUpdate(true)
+    return this
+  }
+
+  // Cambia CÓMO se pinta la fila, no QUÉ filas hay: sin pipeline, repuebla en el acto la ventana
+  // visible y conserva pool, molde, página, scroll, búsqueda y where. Las filas fuera de la ventana
+  // toman el binder nuevo cuando el scroll las traiga. El binder recibe filas que pobló el anterior:
+  // tiene que escribir todo lo que la fila muestra.
+  setBinder(binder) {
+    if (typeof binder !== 'function') throw new TypeError('[PagedTable] binder es obligatorio')
+    this.#binder = binder
+    // Con un pipeline pendiente el slice vigente es viejo (otros datos, otra página): sólo se guarda y
+    // el pipeline repuebla con el binder nuevo. `visibleSlice` es null tras destroy.
+    this.#visibleSlice && !this.#agenda.pending && !this.#hiddenDirty && this.#renderVisibleWindow()
     return this
   }
 
@@ -418,6 +432,7 @@ export class PagedTable {
       const row = pool[i]
       row.element.dataset.rowIdx = offset + i + 1
       binder(row.bindings, rows[i], offset + i + 1)
+      if (this.#binder !== binder) return    // un setBinder desde el binder ya repintó la ventana
     }
 
     if (first === refs.renderStart && last === refs.renderEnd) return

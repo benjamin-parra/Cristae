@@ -664,6 +664,81 @@ test('setPage a la página vigente no resetea el scroll ni re-emite', async () =
   is(slices.length, emitidos, 'y no vuelve a correr el pipeline')
 })
 
+// setBinder cambia CÓMO se pinta la fila, no QUÉ filas hay: si corriera el pipeline (o se recreara el
+// motor, que era la única salida) el usuario volvería a la página 0 y perdería el scroll.
+test('setBinder repuebla en el acto la ventana visible y conserva página, scroll y slice', async () => {
+  const [rowHeight, alto] = [10, 100]
+  const { table, container, scrollElement, slices, pages } = mount({ pageSize: 50, rowHeight, clientHeight: alto })
+  table.setData(mkDataset(120))
+  await flushRaf()
+  table.setPage(1)
+  await flushRaf()
+  scrollElement.scrollTop = 200
+  scrollElement.dispatch('scroll')
+
+  const antes  = idsDom(container)
+  const emitas = [slices.length, pages.length]
+  const marca  = (refs, item, n) => { refs.id.textContent = `n${item.id}`; refs.num.textContent = String(n) }
+  is(table.setBinder(marca), table, 'devuelve la instancia')
+  eq(filasDom(container).map(fila => fila.children[0].textContent), antes.map(id => `n${id}`),
+    'las filas montadas se repintan con el binder nuevo sin esperar un rAF')
+  await flushRaf()
+  eq([slices.length, pages.length], emitas, 'no corre el pipeline: ni onSlice ni onPage')
+  is(table.getPageInfo().page, 1, 'conserva la página')
+  is(scrollElement.scrollTop, 200, 'conserva el scroll')
+
+  scrollElement.scrollTop = 0
+  scrollElement.dispatch('scroll')
+  ok(filasDom(container).every(fila => fila.children[0].textContent.startsWith('n')),
+    'las filas que entran al scrollear también usan el binder nuevo')
+})
+
+test('setBinder exige una función y no revienta después de destroy', async () => {
+  const { table } = mount({ pageSize: 5 })
+  table.setData(mkDataset(12))
+  await flushRaf()
+  assert.throws(() => table.setBinder(null), TypeError)
+  table.destroy()
+  is(table.setBinder(() => {}), table, 'tras destroy sólo guarda el binder')
+})
+
+// Con un pipeline pendiente el slice vigente es viejo: pintar ahí corre el binder nuevo sobre datos que
+// no son los suyos (otra forma, otra página). setBinder espera al pipeline.
+test('setBinder con un pipeline pendiente no pinta el slice viejo: espera al pipeline', async () => {
+  const { table, container } = mount({ pageSize: 10 })
+  table.setData(mkDataset(30))
+  await flushRaf()
+
+  const llamadas = []
+  const nuevo    = (refs, item, n) => { llamadas.push([item.id, n]); refs.id.textContent = `n${item.id}`; refs.num.textContent = String(n) }
+  table.setPage(1)
+  table.setBinder(nuevo)
+  eq(llamadas, [], 'con setPage pendiente no pinta: el slice vigente es el de la página 0')
+  await flushRaf()
+  eq(llamadas.map(([id, n]) => n - id), llamadas.map(() => 1), 'el pipeline pinta cada ítem con su rowNumber')
+  ok(filasDom(container).every(fila => fila.children[0].textContent.startsWith('n')), 'y usa el binder nuevo')
+
+  const otraForma = Array.from({ length: 5 }, (_, i) => ({ id: 100 + i, persona: { nombre: `p${i}` } }))
+  table.setData(otraForma)
+  table.setBinder(refs => (refs.id.textContent = refs.num.textContent = ''))
+  table.setBinder((refs, item) => (refs.id.textContent = item.persona.nombre))
+  await flushRaf()
+  eq(filasDom(container).map(fila => fila.children[0].textContent), ['p0', 'p1', 'p2', 'p3', 'p4'],
+    'datos de otra forma + binder nuevo en el mismo tick: el binder sólo ve los datos nuevos')
+})
+
+test('un setBinder llamado desde el binder deja toda la ventana con el binder nuevo', async () => {
+  const { table, container } = mount({ pageSize: 6 })
+  table.setData(mkDataset(6))
+  await flushRaf()
+  const nuevo = (refs, item) => (refs.id.textContent = `N${item.id}`)
+  table.setBinder((refs, item) => {
+    refs.id.textContent = `X${item.id}`
+    if (item.id === filasDom(container).length - 4) table.setBinder(nuevo)
+  })
+  ok(filasDom(container).every(fila => fila.children[0].textContent.startsWith('N')), 'ninguna fila queda con el binder descartado')
+})
+
 // Propiedad del array entregado a onSlice: el consumidor lo RETIENE (lo guarda en su estado). Si el
 // motor reusara un buffer único escribiéndolo in-place, lo retenido cambiaría solo al pasar de
 // página. La invariante es de IDENTIDAD, no de contenido.
