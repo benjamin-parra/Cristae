@@ -304,6 +304,7 @@ const latlng   = map.camera.containerPointToLatLng([x, y])
 | el borde curvo de un radio de acción | `<cristae-line-layer>` con `pathOf: arc` (`import { arc } from 'cristae/map'`) |
 | una ruta o una geocerca que sigue la geodésica | `<cristae-geodesic>` envolviendo la capa de líneas o de polígonos, o el editor ([`docs/elements.md`](./docs/elements.md#cristae-geodesic--geodésica-declarativa)) |
 | `leaflet-draw`, `Leaflet.Editable`, `geoman` | `<cristae-editable-polygon\|polyline\|point\|rectangle\|circle\|ellipse\|sector>` con `mode="edit"` o `"draw"` y, en polígono y polilínea, `"freehand"` ([`docs/editing.md`](./docs/editing.md)) |
+| mostrar que el mapa está en modo de dibujo | el indicador de `<cristae-map>` sale solo: `drawingIndicator` lo altera y `::part(drawing-indicator)` lo tiñe o lo apaga ([`docs/elements.md`](./docs/elements.md#indicador-de-dibujo)) |
 | fijar la esfera o el elipsoide con que se colocan las formas | `model` en `<cristae-map>` (`<CristaeMap model={WGS84}>`), leído en el alta |
 | `click/hover` callbacks | eventos `cristae:click`/`cristae:hover` → `e.detail.hits[]` |
 | `map.setView/panTo/flyTo` · zoom `+/−` | `map.camera.setView/panTo/flyTo/zoomIn/zoomOut` (qué anima, `zoom-animation`: SPECS §9) |

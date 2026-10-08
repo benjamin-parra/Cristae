@@ -87,6 +87,15 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   al quitarlo. Marcan el estado, no un trazo, y `destroy()` no avisa. Sólo existen en el motor, con `{}` y
   sin evento `cristae:`. Ver [SPECS §10](SPECS.md) y [`docs/editing.md`](docs/editing.md#imperativo--engineaddeditablelayer).
   *Migración*: ninguna.
+- **`<cristae-map>` muestra el estado de dibujo con un indicador, y `drawingIndicator` lo altera.** Mientras
+  algún editor del mapa toma la pulsación para dibujar, el mapa cubre su superficie con un elemento
+  `part="drawing-indicator"` que trae una base sin texto en `currentColor`; `::part(drawing-indicator)
+  { color }` la tiñe. La prop `drawingIndicator`, también en `<CristaeMap>`, recibe el indicador una vez
+  por entrada al estado y lo altera: agregar compone, `replaceChildren` reemplaza y `null` lo quita.
+  `DrawingIndicator` y `CristaeDrawingIndicator` la tipan. Ver
+  [`docs/elements.md`](docs/elements.md#indicador-de-dibujo).
+  *Migración*: quien ya usa `mode="draw"` ve la base; se apaga con
+  `drawingIndicator = null` o con `cristae-map::part(drawing-indicator) { display: none }`.
 
 ### Cambiado
 - **Los editores de polilínea y de polígono producen `line` y `polygon` en la gramática** (antes

@@ -6,10 +6,12 @@
 //   (d) los handlers del BUS del motor se suscriben por engine.on (filtrados por capa), NO por el DOM;
 //   (e) el `ref` publica el elemento vivo sin romper la aplicación de props;
 //   (g) una prop string cuya propiedad declara `attribute: false` entra por PROPIEDAD, no por atributo;
-//   (h) la capa de formas recibe los cinco canales del bus de toda capa de dato.
+//   (h) la capa de formas recibe los cinco canales del bus de toda capa de dato;
+//   (i) `drawingIndicator` del mapa entra por PROPIEDAD, con `null` y la baja incluidos.
 // No registramos los custom elements de la lib: un `<cristae-map>` sin definir es un elemento genérico,
-// suficiente para observar lo que el binding le aplica (atributos / propiedades / listeners). El único
-// definido es el fake de (g): sólo lleva `elementProperties`, la entrada que clasifica la prop.
+// suficiente para observar lo que el binding le aplica (atributos / propiedades / listeners). Los únicos
+// definidos son los fakes de (g) y (i): sólo llevan `elementProperties`, la entrada que clasifica la prop.
+// El de (i) define `cristae-map` para el resto del archivo, así que va último.
 
 import './setup-jsdom.mjs'   // primero: puebla los globals DOM antes de que react-dom se evalúe
 import { test } from 'node:test'
@@ -236,4 +238,25 @@ test('(h) la capa de formas recibe los cinco canales del bus, filtrados por su i
 
   subs.find(s => s.channel === 'click').cb([{ kind: 'shape', id: 1 }], null)
   assert.deepEqual(recibidos, [['click', [{ kind: 'shape', id: 1 }]]])
+})
+
+test('(i) <cristae-map>: `drawingIndicator` va por PROPIEDAD, también `null` y la baja', () => {
+  class FakeMap extends HTMLElement {
+    static elementProperties = new Map([['drawingIndicator', { attribute: false }]])
+  }
+  window.customElements.define('cristae-map', FakeMap)
+  const withLabel = indicator => indicator.append('label')
+
+  const { container, rerender, unmount } = mount(e(CristaeMap, { drawingIndicator: null }))
+  const mapEl = container.querySelector('cristae-map')
+  assert.equal(mapEl.drawingIndicator, null, 'null llega por propiedad desde el primer render: apaga el indicador')
+  assert.equal(mapEl.hasAttribute('drawing-indicator'), false)
+
+  rerender(e(CristaeMap, { drawingIndicator: withLabel }))
+  assert.equal(mapEl.drawingIndicator, withLabel, 'la función, por propiedad (misma ref)')
+  assert.equal(mapEl.hasAttribute('drawing-indicator'), false)
+
+  rerender(e(CristaeMap, {}))
+  assert.equal(mapEl.drawingIndicator, undefined, 'quitar la prop asigna undefined: vuelve la base')
+  unmount()
 })

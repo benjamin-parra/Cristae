@@ -263,6 +263,10 @@ en el alta.
 > propiedad `style` pisaría `HTMLElement.style`. Toma `color`, `weight`, `fillColor` y `fillOpacity`,
 > y es **parcial** — lo que no venga queda como estaba.
 
+Mientras un editor está en `draw`, o en `freehand` el de polígono y el de polilínea, `<cristae-map>` cubre
+el mapa con un indicador: por defecto una base sin texto, que `drawingIndicator` altera, reemplaza o apaga
+([indicador de dibujo](./elements.md#indicador-de-dibujo)).
+
 ---
 
 ## React

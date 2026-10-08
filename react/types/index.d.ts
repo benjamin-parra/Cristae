@@ -64,6 +64,7 @@ import type {
   PointerSample,
   ViewportChangeDetail,
   MapClickDetail,
+  DrawingIndicator,
 } from '../../types/map'
 import type { PagedTable } from '../../types/table'
 
@@ -205,6 +206,10 @@ export interface CristaeTileProvider {
 
 // ── <CristaeMap> ─────────────────────────────────────────────────────────────
 
+// La función que altera el indicador de dibujo la define el núcleo; acá sólo se le da el nombre con que el
+// binding la expone, como a `CristaeLabelPaint`.
+export type CristaeDrawingIndicator = DrawingIndicator
+
 /** El `<cristae-map>` vivo, por `ref`: la única puerta a la cámara y al motor. `engine`/`camera` son
  *  getters VIVOS y `null` hasta montar — tras un detach+reattach son OTRA instancia, así que no se
  *  cachean en una variable. */
@@ -220,6 +225,9 @@ export interface CristaeMapElement extends HTMLElement {
   on              : MapEngine['on'];
   getLayer(id: string): unknown;
   invalidateCanvas(): void;
+  /** La función que altera el indicador del estado de dibujo: sin ella queda la base, y `null` lo quita.
+   *  Asignar otra con el estado activo rehace el indicador (docs/elements.md#indicador-de-dibujo). */
+  drawingIndicator : CristaeDrawingIndicator | null | undefined;
 }
 
 export interface CristaeMapProps extends CristaeBaseProps {
@@ -248,6 +256,11 @@ export interface CristaeMapProps extends CristaeBaseProps {
   cursor?             : string | null;
   /** Mensaje del estado "sin datos" (o usar un hijo `slot="empty"`). */
   emptyMessage?       : string;
+  /** La función que altera el indicador del estado de dibujo: sin ella queda la base, y `null` lo quita.
+   *  Va por propiedad y se compara por referencia: una lambda en línea rehace el indicador en cada render,
+   *  así que va una función de módulo o de `useCallback`. `null` llega sólo con `<cristae-map>` ya definido:
+   *  `cristae/map` se importa antes del primer render, o se pierde y queda la base. */
+  drawingIndicator?   : CristaeDrawingIndicator | null;
 
   onReady?            : CristaeEventHandler<Record<string, never>>;
   onViewportChange?   : CristaeEventHandler<CristaeViewportChangeDetail>;

@@ -73,8 +73,10 @@ Contenedor. Monta el `MapEngine`, expone cámara/engine y reenvía los eventos d
 | `viewport-insets` | object | prop `viewportInsets` |
 | `model` | `sphere()` · `ellipsoid()` · `WGS84`; el modelo de la Tierra de las formas y las geodésicas, la esfera por defecto sin él. Se lee al montar | **prop**; un terreno lanza `TypeError` |
 | `tile` | `{ url, maxZoom?, attribution?, subdomains?, … }` | **prop** |
+| `drawingIndicator` | `(indicator) => void`, la función que altera el [indicador de dibujo](#indicador-de-dibujo); sin ella queda la base, y `null` lo quita | **prop** — **reactiva** |
 | `--cristae-map-background` | valor CSS de `background`; default, el gris `#ddd` de Leaflet | custom property — **en vivo** |
 | `--cristae-tile-filter` | valor CSS de `filter`; default, ninguno | custom property — **en vivo** |
+| `::part(drawing-indicator)` | el [indicador de dibujo](#indicador-de-dibujo): `color` tiñe la base y `display: none` lo apaga | part — **en vivo** |
 
 > **`cursor`:** el del contenedor mientras el consumidor lo pida —una herramienta activa, por ejemplo—,
 > sin hojas de estilo propias dentro del shadow root. Cómo convive con el arrastre, el editor y el
@@ -166,6 +168,88 @@ puntero `{ lat, lng, x, y }` en `hover`, `hover:start` y `hover:end` (`null` si 
 Regla: `addEventListener` por defecto; `el.on` cuando solo importa una (o pocas) capas y se prefiere el
 filtro hecho. Solo eventos de picking (`click`/`hover`/`hover:start`/`hover:end`/`pointer:move`) aceptan
 filtro por capa; el resto (`viewportchange`, `interaction*`) son del mapa.
+
+### Indicador de dibujo
+
+Mientras algún editor del mapa toma la pulsación para dibujar —`mode="draw"`, o `"freehand"` en
+`<cristae-editable-polygon>` y `<cristae-editable-polyline>`—, el mapa muestra un indicador. Es un
+elemento nuevo en su shadow root, con `part="drawing-indicator"`, que cubre el mapa por encima del estado
+vacío y por debajo de las zonas sin tomar el puntero. Trae adentro la base: un hijo sin texto que pinta en
+`currentColor`, cuyo aspecto puede cambiar entre versiones. Al salir del estado se va entero, con lo que
+tenga. Sigue al modo y no al dispositivo: con el mouse en `draw` el mapa sigue paneando, y el indicador se
+muestra igual.
+
+`drawingIndicator` es una función que recibe el indicador ya conectado, con la base adentro, y lo altera.
+Corre una vez por entrada al estado, y otra si se le asigna otra función mientras dura, siempre sobre un
+indicador nuevo. Lo que lance va a la consola, y el indicador queda como la función lo dejó.
+
+**Base.** No se escribe nada; el `color` del part la tiñe.
+
+```html
+<cristae-map>
+  <cristae-editable-polygon mode="draw"></cristae-editable-polygon>
+</cristae-map>
+<style>cristae-map::part(drawing-indicator) { color: #16a34a }</style>
+```
+
+**Componer.** Lo que la función agrega convive con la base, y el texto lo trae la página.
+
+```js
+const withLabel = text => indicator => {
+  const label = document.createElement('span')
+  label.setAttribute('part', 'label')   // vive en el shadow root: se estila por su part
+  label.textContent = text
+  indicator.append(label)
+}
+map.drawingIndicator = withLabel(messages.drawing)
+```
+```css
+cristae-map::part(label) { position: absolute; top: 12px; left: 50%; translate: -50% 0;
+  padding: 2px 10px; border-radius: 999px; background: #fff; font: 600 12px system-ui }
+```
+
+**Reemplazar.** `replaceChildren` saca la base.
+
+```js
+const tint = indicator => {
+  const veil = document.createElement('div')
+  veil.style.cssText = 'position: absolute; inset: 0; background: rgb(37 99 235 / .08)'
+  indicator.replaceChildren(veil)
+}
+map.drawingIndicator = tint
+```
+
+**Apagar.** `null` quita el indicador y el estado sigue; `undefined` repone la base. Sin JS, el part.
+
+```js
+map.drawingIndicator = null
+```
+```css
+cristae-map::part(drawing-indicator) { display: none }
+```
+
+En React la prop va por propiedad, y un indicador por modo se elige en el render:
+
+```jsx
+<CristaeMap drawingIndicator={mode === 'freehand' ? tint : undefined}>…</CristaeMap>
+```
+
+- **Shadow root.** Lo que agrega la función no recibe el CSS de la página, tampoco el de Tailwind: se
+  estila con `style` o con un `part` propio. El contenido con las clases de la página va en una zona
+  (`slot="top-center"`), mostrado según el modo.
+- **Identidad.** La prop se compara por referencia: en React, una lambda en línea rehace el indicador en
+  cada render, y con un `setState` en `onChange` eso pasa en cada `change` del arrastre. Va una función de
+  módulo o de `useCallback`.
+- **Registro.** En React, `drawingIndicator={null}` con `<cristae-map>` todavía sin definir viaja como
+  atributo y se pierde, y queda la base: `cristae/map` se importa antes del primer render.
+- **Puntero.** Un hijo con `pointer-events: auto` toma la pulsación antes que el editor: un velo con
+  puntero impide dibujar.
+- **Oculto.** Un editor en `draw` oculto con `engine.setLayerVisibility` sigue tomando la pulsación, y el
+  indicador se muestra igual: para salir del estado se cambia el modo.
+- **Afuera.** Lo que la función toque fuera del indicador —clases del host, listeners en `window`— no se
+  deshace al salir.
+- **Motor solo.** Sin el elemento no hay indicador; quedan las señales `drawingstart` y `drawingend`
+  ([`editing.md`](./editing.md#imperativo--engineaddeditablelayer)).
 
 ---
 

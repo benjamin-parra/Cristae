@@ -2,6 +2,7 @@ import { LitElement, html, css, unsafeCSS, nothing } from 'lit'
 import { unsafeHTML } from 'lit/directives/unsafe-html.js'
 import { surfaceCss } from '../host/styles.js'
 import { MapEngine } from '../engine/MapEngine.js'
+import { safe } from '../data/safe.js'
 
 // <cristae-map> — piel fina sobre MapEngine (SPECS §7). Monta el motor en el shadow DOM, expone
 // la cámara y los métodos del motor, y reenvía los eventos del motor como CustomEvent `cristae:*`.
@@ -23,6 +24,23 @@ const LIMITS = ['minZoom', 'maxZoom', 'maxBounds', 'maxBoundsViscosity']
 // ninguna capa). Puro y sin dominio: sólo lee el snapshot de cada Source. Exportado para test unitario.
 export const dataLayersEmpty = layers =>
   layers.length > 0 && layers.every(el => !el.controls?.source?.getSnapshot()?.length)
+
+// El indicador del estado de dibujo, uno nuevo por entrada: cubre el mapa y trae la base, que no tiene
+// texto y pinta en `currentColor`. Que la base viva en los hijos es contrato; su aspecto, no.
+const createIndicator = () => {
+  const indicator = document.createElement('div')
+  const base      = document.createElement('div')
+  indicator.className = 'drawing-indicator'
+  indicator.setAttribute('part', 'drawing-indicator')
+  base.className = 'base'
+  base.setAttribute('aria-hidden', 'true')
+  indicator.append(base)
+  return indicator
+}
+
+// onError estable de módulo para `safe`, como el del popup: la función que altera el indicador corre en el
+// update del mapa, y si lanza el update sigue, con el indicador como ella lo dejó.
+const onIndicatorError = e => console.error('[cristae-map] drawingIndicator', e)
 
 // Agendador del resize del contenedor: coalesce (debounce trailing) la ráfaga del ResizeObserver a UN
 // solo `sync` ~110ms tras asentarse el tamaño. El observer dispara por frame mientras el contenedor se
@@ -78,6 +96,11 @@ export class CristaeMap extends LitElement {
     // Estado reactivo interno (no atributo): ¿mostrar el estado vacío? Lo computa el mapa desde sus
     // capas de datos; dispara re-render del overlay del mensaje.
     _empty             : { state: true },
+    // La función que altera el indicador del estado de dibujo (docs/elements.md#indicador-de-dibujo): sin
+    // ella queda la base, y `null` lo quita.
+    drawingIndicator   : { attribute: false },
+    // ¿Algún editor toma la pulsación para dibujar? Lo ponen las señales del motor.
+    _drawing           : { state: true },
     // Lo que dibujan el zoom y la atribución: el zoom de la vista asentada y la atribución del proveedor.
     _zoom              : { state: true },
     _attribution       : { state: true },
@@ -147,6 +170,10 @@ export class CristaeMap extends LitElement {
       }
       .empty-state[hidden] { display: none; }
       .empty-state ::slotted(*) { pointer-events: auto; }
+      /* Indicador del estado de dibujo: entre el estado vacío y las zonas, sin puntero, que es del editor.
+         Trae el azul de los editores, que ::part(drawing-indicator) pisa; la base lo sigue. */
+      .drawing-indicator { position: absolute; inset: 0; z-index: 950; pointer-events: none; color: #2563eb; }
+      .drawing-indicator > .base { position: absolute; inset: 0; box-shadow: inset 0 0 0 3px currentColor; }
     `,
   ]
 
@@ -166,13 +193,17 @@ export class CristaeMap extends LitElement {
   // (las llama cada capa al montar/desmontar); el recómputo lee el snapshot de cada Source.
   #dataLayers = new Map()
   #emptyRaf   = 0
+  // El indicador de dibujo que pinta el template, y el recién creado que espera la función en `updated`.
+  #indicator    = null
+  #newIndicator = null
   // Creada en construcción → `map.ready` está disponible SÍNCRONO apenas existe el elemento. Se
   // resuelve una sola vez, cuando el motor queda listo.
   ready = new Promise(resolve => this.#resolveReady = resolve)
 
   // El zoom abre su zona y la atribución la cierra, como los controles de Leaflet en sus esquinas. Los
   // botones le piden el zoom al motor vigente al pulsarlos: tras un re-montaje es otro, y el render no se
-  // repite si nada cambió. La atribución va como HTML (docs/tiles.md#la-atribución).
+  // repite si nada cambió. La atribución va como HTML (docs/tiles.md#la-atribución). El indicador de dibujo
+  // es un nodo que arma `willUpdate`: el template sólo lo pone y lo saca.
   render() {
     const camera = this.#engine?.camera
     return html`
@@ -198,6 +229,7 @@ export class CristaeMap extends LitElement {
       <div class="empty-state" part="empty" ?hidden=${!this._empty}>
         <slot name="empty">${this.emptyMessage ?? ''}</slot>
       </div>
+      ${this.#indicator}
     `
   }
 
@@ -225,6 +257,9 @@ export class CristaeMap extends LitElement {
     if (this.#emptyRaf) { cancelAnimationFrame(this.#emptyRaf); this.#emptyRaf = 0 }
     this.#dataLayers.forEach(unsub => unsub?.())   // cortar suscripciones a las Sources
     this.#dataLayers.clear()
+    // El motor muere sin drawingend: el próximo update retira el indicador, y una reconexión estrena otro.
+    this._drawing   = false
+    this.#indicator = this.#newIndicator = null
   }
 
   // Puenteo bajo demanda (ver ON_DEMAND_EVENTS): suscribimos el canal del motor recién cuando aparece
@@ -301,12 +336,24 @@ export class CristaeMap extends LitElement {
   // `zoom-animation`, `cursor` y los límites también son reactivos: se cambian en vivo sin remontar el
   // mapa. Los límites van juntos, así que cambiar uno los vuelve a fijar todos. Todo llega al motor antes
   // del render, que lee de la cámara los topes con que habilita el zoom.
+  // El indicador de dibujo nace al entrar al estado y al cambiar la función, siempre nuevo, y se va al salir.
+  // Se compara lo que pide el estado con el nodo que hay: un draw→edit→draw en el mismo tick no lo rehace.
   willUpdate(changed) {
+    const wanted = !!this._drawing && this.drawingIndicator !== null
+    if (changed.has('drawingIndicator') || wanted !== !!this.#indicator)
+      this.#indicator = this.#newIndicator = wanted ? createIndicator() : null
     if (!this.#engine) return
     if (changed.has('zoomAnimation')) this.#engine.setZoomAnimation(this.zoomAnimation ?? 'none')
     if (changed.has('cursor')) this.#engine.setCursor(this.cursor)
     if (changed.has('viewportInsets')) this.#engine.camera.insets = this.viewportInsets
     if (LIMITS.some(key => changed.has(key))) this.#engine.setLimits(this.#limits())
+  }
+
+  // La función recibe el indicador recién creado, ya en el shadow root, una sola vez.
+  updated() {
+    const indicator = this.#newIndicator
+    this.#newIndicator = null
+    indicator && this.drawingIndicator && safe(this.drawingIndicator, indicator, onIndicatorError)
   }
 
   #limits() { return Object.fromEntries(LIMITS.map(key => [key, this[key]])) }
@@ -367,6 +414,10 @@ export class CristaeMap extends LitElement {
     e.on('zoomlevelschange', () => this.requestUpdate())
     e.on('interactionstart', () => this.#emit('interactionstart', {}))
     e.on('interactionend', () => this.#emit('interactionend', {}))
+    // El estado de dibujo, para el indicador. Se suscribe antes de montar a los hijos: un editor que nace
+    // en `draw` avisa al montarse.
+    e.on('drawingstart', () => this._drawing = true)
+    e.on('drawingend', () => this._drawing = false)
     // Click en el MAPA (área libre, con latlng) → CustomEvent DOM `cristae:mapclick`. Mismo patrón
     // que viewportchange: siempre activo, baja frecuencia y sin coste de picking (es el click crudo del
     // mapa, no los hits de features de `cristae:click`). El motor emite `map:click` con `{ latlng }`.

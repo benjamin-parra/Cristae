@@ -876,6 +876,10 @@ export class MapEngine {
   destroy(): void;
 }
 
+/** Altera el indicador del estado de dibujo de `<cristae-map>`. Lo recibe conectado y con la base de la
+ *  librería en sus hijos; lo que le haga dura lo que dura el estado. No devuelve nada. */
+export type DrawingIndicator = (indicator: HTMLElement) => void;
+
 export class CristaeMap extends HTMLElement {}
 export class CristaeEditablePolygon extends HTMLElement {}
 export class CristaeEditablePolyline extends HTMLElement {}

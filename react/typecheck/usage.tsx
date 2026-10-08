@@ -18,6 +18,7 @@ import {
   CristaeToolbar,
   CristaeTable,
   type CristaeClusterElement,
+  type CristaeDrawingIndicator,
   type CristaeLabelPaint,
   type CristaeMapElement,
   type CristaePointLayerElement,
@@ -185,6 +186,14 @@ const paint: CristaeLabelPaint = (ctx, point, label, hovered, style) => {
 // El painter default de la lib entra en la prop: `paint={drawLabel}` es la composición canónica.
 const paintDefault: CristaeLabelPaint = drawLabel
 
+// El indicador de dibujo se altera con una función de identidad estable; `null` lo quita.
+const withLabel: CristaeDrawingIndicator = indicator => { indicator.append(document.createElement('span')) }
+export const ConIndicador = ({ freehand }: { freehand: boolean }) => (
+  <CristaeMap drawingIndicator={freehand ? withLabel : null}>
+    <CristaeEditablePolygon mode={freehand ? 'freehand' : 'draw'} />
+  </CristaeMap>
+)
+
 // La MISMA Source alimenta el mapa y la tabla (el otro entry de la lib).
 export const ConTabla = () => {
   const tabla = useRef<CristaeTableElement<Movil>>(null)
@@ -306,6 +315,10 @@ export const BadBounds = () => <CristaeMap maxBounds={[-85, -180, 85, 180]} />
 // el modelo es un EarthModel, no su nombre.
 // @ts-expect-error model no acepta una cadena
 export const BadModel = () => <CristaeMap model="WGS84" />
+
+// el indicador de dibujo se altera con una función: no hay presets por nombre.
+// @ts-expect-error drawingIndicator no acepta una cadena
+export const BadIndicator = () => <CristaeMap drawingIndicator="label" />
 
 // un número suelto no es un punto ni un path.
 // @ts-expect-error distance no mide un número

@@ -14,9 +14,10 @@ globalThis.ResizeObserver ??= class { observe() {} disconnect() {} }
 // contenedor que se le pasa al motor, y el `L.Map` real construye el mapa doble mientras dura el montaje
 // (un constructor que devuelve un objeto entrega ése), que guarda en `options` las opciones con que se lo
 // construyó, como Leaflet. `props` va encima, así que también puede traer el `dispatchEvent` que recoge
-// lo emitido. El elemento y Leaflet se importan acá adentro: un import estático los evaluaría antes que
-// los shims de arriba.
-export const montarMapa = async (props = {}, map = makeMap()) => {
+// lo emitido. `antes` recibe el elemento sin montar, como lo encuentran los hijos que se conectan antes
+// que su primer render. El elemento y Leaflet se importan acá adentro: un import estático los evaluaría
+// antes que los shims de arriba.
+export const montarMapa = async (props = {}, map = makeMap(), antes = () => {}) => {
   const { default: L } = await import('leaflet')
   const { CristaeMap } = await import('../src/element/CristaeMap.js')
   const constructor    = L.Map
@@ -24,6 +25,7 @@ export const montarMapa = async (props = {}, map = makeMap()) => {
     renderRoot    : { querySelector: () => ({}) },
     dispatchEvent : () => true,
   }, props)
+  antes(el)
   L.Map = function (container, options) {
     map.options = options
     return map
