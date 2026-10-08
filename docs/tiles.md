@@ -16,22 +16,25 @@ nuevos—, así que ahí la retención se hace a un lado. La política de animac
 
 ## Proveedores listos — `tilePresets`
 
-Para el caso común, `tilePresets` trae configs de proveedores públicos (sin API key) que se asignan directo
-a `map.tile` (web component) o se pasan a `engine.setTileProvider(...)` (headless):
+El mapa no trae un proveedor puesto: sin `tile` no hay tiles. Para el caso común, `tilePresets` trae
+configs de proveedores públicos que se asignan directo a `map.tile` (web component) o se pasan a
+`engine.setTileProvider(...)` (headless):
 
 ```js
 import { tilePresets } from 'cristae/map'
-map.tile = tilePresets.osm                              // o cartoLight / cartoDark / esriImagery
-map.tile = { ...tilePresets.cartoDark, maxZoom: 17 }    // con override
+map.tile = tilePresets.osm                           // o esriImagery, cartoLight / cartoDark
+map.tile = { ...tilePresets.osm, maxZoom: 17 }       // con override
 ```
 
-| Preset | Proveedor |
-|---|---|
-| `osm` | OpenStreetMap |
-| `cartoLight` / `cartoDark` | CARTO basemaps |
-| `esriImagery` | Esri World Imagery (satelital) |
+| Preset | Proveedor | Clave |
+|---|---|---|
+| `osm` | OpenStreetMap | no |
+| `esriImagery` | Esri World Imagery (satelital) | no |
+| `cartoLight` / `cartoDark` | CARTO basemaps | sí: sin ella, los tiles llegan con la marca «API KEY REQUIRED» |
 
-Son **datos**, no un code-path: un proveedor con key (Google, Mapbox) se arma como objeto `{ url, … }`.
+Son **datos**, no un code-path: la clave de un proveedor que la pide (CARTO, Google, Mapbox) va en la URL que
+él indica, como override del preset o en un objeto `{ url, … }` propio. Las condiciones de uso son las de
+cada proveedor.
 Las opciones que acepta un proveedor están en [`elements.md`](./elements.md) (`tile`).
 
 ## El proveedor lo pone el anfitrión

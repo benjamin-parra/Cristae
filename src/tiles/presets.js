@@ -1,6 +1,6 @@
-// Presets de proveedores de tiles públicos (sin API key). Son DATOS, no un code-path: se asignan a
-// `map.tile` directo, o spread con overrides (`{ ...tilePresets.osm, maxZoom: 17 }`). Un proveedor con
-// key (Google, Mapbox) lo arma el consumidor — no lo horneamos acá para no esconder la key ni opinar.
+// Presets de proveedores de tiles públicos. Son DATOS, no un code-path: se asignan a `map.tile` directo, o
+// spread con overrides (`{ ...tilePresets.osm, maxZoom: 17 }`). La key de un proveedor que la pide la pone
+// el consumidor en la URL — no la horneamos acá para no esconder la key ni opinar.
 export const tilePresets = {
   osm: {
     url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',

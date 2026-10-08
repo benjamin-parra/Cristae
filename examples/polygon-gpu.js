@@ -36,8 +36,8 @@ const project = (lat, lng, out) => {
 /* ── Mapa ────────────────────────────────────────────────────────────────────────────────────────── */
 
 const map = L.map('map', { center: CENTRO, zoom: 12, preferCanvas: false, zoomControl: true })
-L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-  maxZoom: 20, attribution: '© OpenStreetMap © CARTO',
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 19, attribution: '© OpenStreetMap',
 }).addTo(map)
 
 const host = adoptLeafletHost(map)
