@@ -100,6 +100,10 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
 - **El índice de picking de las capas de líneas no ve lo que `append` sumó a una ventana todavía abierta.**
   Entra con el flush que la cierra, como el dibujo.
   *Migración*: ninguna.
+- **Con el dedo, `draw` coloca arrastrando.** La pulsación de un dedo o un lápiz es del editor: la figura
+  empieza donde se apoya, el punto siguiente se ve bajo el dedo y queda donde se levanta, y el mapa se mueve
+  con dos dedos. Un dedo ya no panea mientras se dibuja, y un toque que tiembla no se pierde.
+  *Migración*: ninguna.
 
 ### Deprecado
 - **`addCircleLayer`, `CircleAccessors`, `CircleLayerConfig`, `CircleHandle`, `CircleHit` y

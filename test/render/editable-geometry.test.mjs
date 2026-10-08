@@ -110,7 +110,7 @@ const montar = ({ kind = 'polygon', value = null, mode = 'edit', dpr = 1, zoom, 
     onHandleLevel: nivel => informes.push(nivel),
   })
   return {
-    ed, kind, geod, map, container, dragging, spy, changes, commits, informes, alMapa, punto: [0, 0], destino: container, puntero: 1,
+    ed, kind, geod, map, container, dragging, spy, changes, commits, informes, alMapa, punto: [0, 0], destino: container, puntero: 1, tipo: 'mouse',
     rumbo: 90,   // el de la manija de radio del círculo, que entra al este
   }
 }
@@ -118,10 +118,10 @@ const montar = ({ kind = 'polygon', value = null, mode = 'edit', dpr = 1, zoom, 
 // El evento como lo despacha el navegador, y con el testigo de si la puerta se lo dio al editor, que se lo
 // QUEDA: consumirlo es sacárselo al mapa, así que reconocer un handle donde no hay ninguno se nota acá
 // aunque no edite nada. `cortado` es la mitad que decide si el evento sigue a la burbuja, donde escucha
-// Leaflet. `target` es el nodo DOM bajo el puntero (`esc.destino`, por omisión el contenedor mismo) y
-// `pointerId`, el puntero que lo despacha (`esc.puntero`).
+// Leaflet. `target` es el nodo DOM bajo el puntero (`esc.destino`, por omisión el contenedor mismo),
+// `pointerId`, el puntero que lo despacha (`esc.puntero`), y `pointerType`, de qué es (`esc.tipo`).
 const emitir = (esc, tipo, x, y) =>
-  esc.container.emitir(tipo, { clientX: x, clientY: y, target: esc.destino, pointerId: esc.puntero })
+  esc.container.emitir(tipo, { clientX: x, clientY: y, target: esc.destino, pointerId: esc.puntero, pointerType: esc.tipo })
 
 // Qué HAY bajo el puntero, no qué contesta el pase: se declara la entrada del arena y el doble sólo la
 // devuelve si algún draw del trazo la cubrió y su tile la deja escribir (ver `componer` en el harness).
@@ -1928,6 +1928,94 @@ test('freehand: el doble click no se consume, así que el mapa hace zoom', () =>
   assert.equal(dobleMapa(esc, 5, 5).cortado, false)
   assert.deepEqual(esc.ed.getValue(), SQUARE)
 
+  esc.ed.destroy()
+})
+
+/* ── Draw con el dedo: la pulsación coloca y el mapa se mueve con dos ── */
+
+const px = ([lat, lng]) => [lng * P, lat * P]
+
+// Las mismas formas que por clicks, con el dedo: sin hover, la pulsación es del editor. La forma empieza
+// donde se apoya y el punto siguiente queda donde se levanta, así que el círculo sale de un arrastre y la
+// elipse y el sector, de dos. El dedo no arrastra el mapa, y no hay click del mapa.
+test('draw con el dedo: la forma empieza donde se apoya, la vista previa sigue al dedo y el punto queda donde se levanta', () => {
+  const casos = [
+    ['circle', [[1, 1], [1.5, 1]], ([c, p]) => ({ center: c, radius: inverso(ESFERA, c, p).s })],
+    ['ellipse', [[1, 1], [1.5, 1], [1, 1.3]],
+      ([c, p, q]) => ({ center: c, radius: [inverso(ESFERA, c, p).s, inverso(ESFERA, c, q).s], heading: 0 })],
+    ['sector', [[1, 1], [1.5, 1], [1.3, 1.3]],
+      ([c, p, q]) => ({ center: c, radius: inverso(ESFERA, c, p).s, heading: 0, sweep: 2 * inverso(ESFERA, c, q).azi })],
+  ]
+  casos.forEach(([kind, puntos, esperado]) => {
+    const esc     = montar({ kind, mode: 'draw', zoom: 10 })
+    const subidas = () => esc.spy.texImages.length + esc.spy.texSubImages.length
+    esc.tipo = 'touch'
+
+    apoyar(esc, px(puntos[0]))
+    assert.equal(esc.dragging.activo, false, `${kind}: el dedo no arrastra el mapa`)
+    let antes = subidas()
+    recorrer(esc, [px([1.2, 1.1])])
+    assert.ok(subidas() > antes, `${kind}: la vista previa sigue al dedo`)
+    recorrer(esc, [px(puntos[1])])
+    levantar(esc, px(puntos[1]))
+    puntos.slice(2).forEach(p => {
+      apoyar(esc, px([p[0] - 0.1, p[1] - 0.1]))
+      antes = subidas()
+      recorrer(esc, [px(p)])
+      assert.ok(subidas() > antes, `${kind}: también en el segundo arrastre`)
+      levantar(esc, px(p))
+    })
+
+    assert.deepEqual(
+      { changes: esc.changes.length, commits: esc.commits.length, alMapa: esc.alMapa.length, arrastre: esc.dragging.activo },
+      { changes: 1, commits: 1, alMapa: 0, arrastre: true }, kind)
+    const v = esc.ed.getValue()
+    Object.entries(esperado(puntos)).forEach(([campo, valor]) =>
+      [valor].flat().forEach((x, i) => cerca([v[campo]].flat()[i], x, 1e-6, `${kind}.${campo}`)))
+    esc.ed.destroy()
+  })
+})
+
+// Un dedo tiembla al tocar. El toque que empieza la figura pone el centro y nada más, y el siguiente pone
+// el punto donde se levantó.
+test('draw con el dedo: un toque que tiembla coloca igual, y el que empieza la figura no le pone radio', () => {
+  const esc = montar({ kind: 'circle', mode: 'draw', zoom: 10 })
+  esc.tipo  = 'touch'
+  const tocar = ([x, y]) => {
+    apoyar(esc, [x, y])
+    recorrer(esc, [[x + 4, y + 3]])
+    levantar(esc, [x + 4, y + 3])
+  }
+  tocar(px([1, 1]))
+  assert.equal(esc.commits.length, 0, 'el centro solo no asienta')
+  tocar(px([1.5, 1]))
+  assert.equal(esc.commits.length, 1)
+  cerca(esc.ed.getValue().radius, inverso(ESFERA, [1, 1], [1.53, 1.04]).s, 1e-6, 'el radio llega a donde se levantó')
+  esc.ed.destroy()
+})
+
+// Con dos dedos el mapa se mueve, y Leaflet lo avisa con `zoomstart`: la colocación en curso se corta, y
+// levantar el primero no pone el punto.
+test('draw con el dedo: un segundo dedo corta la colocación sin poner el punto', () => {
+  const esc = montar({ kind: 'sector', mode: 'draw', zoom: 10 })
+  esc.tipo  = 'touch'
+  apoyar(esc, px([1, 1]))
+  recorrer(esc, [px([1.5, 1])])
+  levantar(esc, px([1.5, 1]))
+
+  apoyar(esc, px([1.3, 1.3]))
+  esc.puntero = 2
+  apoyar(esc, px([0.5, 0.5]))
+  esc.map.fire('zoomstart')
+  levantar(esc, px([0.5, 0.5]))
+  esc.map.fire('zoomend')
+  esc.puntero = 1
+  recorrer(esc, [px([1.2, 1.4])])
+  levantar(esc, px([1.2, 1.4]))
+
+  assert.deepEqual(
+    { valor: esc.ed.getValue(), commits: esc.commits.length, alMapa: esc.alMapa.length, arrastre: esc.dragging.activo },
+    { valor: null, commits: 0, alMapa: 0, arrastre: true })
   esc.ed.destroy()
 })
 

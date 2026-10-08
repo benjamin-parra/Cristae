@@ -262,9 +262,10 @@ export class Interaction {
   }
 
   // El dueño de la pulsación en `sample`: el primer participante que reconoce el píxel, salvo que el hit
-  // de click de una capa quede por encima de él. Los hits sólo se resuelven si alguno lo reconoció.
-  #ownerAt(sample) {
-    const entry = this.#participants.find(({ participant }) => participant.handleAt(sample.x, sample.y))
+  // de click de una capa quede por encima de él. Los hits sólo se resuelven si alguno lo reconoció. `dedo` es
+  // una pulsación de dedo o de lápiz, que no pasan por el píxel antes de apoyarse.
+  #ownerAt(sample, dedo = false) {
+    const entry = this.#participants.find(({ participant }) => participant.handleAt(sample.x, sample.y, dedo))
     const top   = entry && this.#registry.resolveHits('click', sample)[0]
     return !entry || top && topFirst(top, entry) < 0 ? null : entry.participant
   }
@@ -293,13 +294,14 @@ export class Interaction {
     p.pointer = event.pointerId
     p.x       = point.x
     p.y       = point.y
-    p.owner   = event.button ? null : this.#ownerAt(this.#sampleOf(point))
+    const dedo = event.pointerType === 'touch' || event.pointerType === 'pen'
+    p.owner   = event.button ? null : this.#ownerAt(this.#sampleOf(point), dedo)
     p.click   = !event.button && !p.owner
     if (!p.owner) return
 
     consume(event)
     this.#container.setPointerCapture(event.pointerId)
-    p.owner.down(point.x, point.y)
+    p.owner.down(point.x, point.y, dedo)
   }
 
   // Sin pulsación de un participante, cada muestra es hover para todos.

@@ -65,6 +65,7 @@ const CRECEN       = new Set(['polygon', 'polyline'])    // la cantidad de vért
 const D            = Math.PI / 180
 const SEPARACION   = 24   // px: lo menos que una manija de forma se acerca a otra, dos veces su diámetro
 const PASO         = 4    // px entre muestras del trazo a mano alzada: supera CLICK_TOLERANCE, y un toque quieto no suma
+const TEMBLOR      = 10   // px, en |dx| + |dy|, que se mueve un dedo que toca sin arrastrar
 
 // Mismas claves que el `styleOf` de los polígonos y las líneas.
 const ESTILO = { color: '#2563eb', weight: 3, fillColor: '#6366f1', fillOpacity: 0.42 }
@@ -131,6 +132,9 @@ export class EditableGeometry {
   // NaN si la próxima entra sea cual sea. `vivo` es que ya hay dos muestras y el trazo se dibuja sobre el
   // valor, que `previo` guarda para devolverlo; `pausa` es que la cámara se mueve.
   #mano     = { devolver: null, xy: [], x: NaN, y: NaN, vivo: false, previo: null, pausa: false }
+  // La pulsación de un dedo que coloca en `draw`: `x`/`y` es donde se apoyó, `abrio` que ahí empezó la figura,
+  // y `cortado` que un segundo dedo la pasó a mover el mapa.
+  #toque    = { devolver: null, x: 0, y: 0, abrio: false, movido: false, cortado: false }
   #promo    = { trazo: -1, ref: -1 }
   #vivo     = { ring: 0, vertex: -1, x: 0, y: 0 }             // el vértice en arrastre, en world0 px
   #vista    = { zoom: 0, center: { x: 0, y: 0 }, size: { x: 0, y: 0 }, drag: null }
@@ -467,17 +471,19 @@ export class EditableGeometry {
   // es la edición del modo draw, y el doble click sobre un handle propio (`propio`) borra el vértice; en
   // draw, cierra el trazo. Devolver `true` desde `dblclick` lo consume: el mapa no hace zoom. En `freehand`
   // reconoce todo píxel: la pulsación es el trazo, que termina en `up`, cancelado o no. Su primera muestra es
-  // donde se apoyó el dedo, y un toque sin recorrido no pasa de ella.
+  // donde se apoyó el dedo, y un toque sin recorrido no pasa de ella. En `draw` también, si es de un dedo o un
+  // lápiz: la pulsación coloca (`#apoyar`).
   #participante = {
-    handleAt: (x, y) => {
-      if (this.#manoAlzada) return true
+    handleAt: (x, y, dedo) => {
+      if (this.#manoAlzada || dedo && this.#trazando) return true
       const p = this.#puntoDe(x, y)
       return this.#conHandles && this.#bajoElPixel(p[0], p[1]).ref >= 0
     },
     // El dueño del midpoint es el vértice de la entrada anterior: describe el segmento que ARRANCA en él.
     // Insertar asienta ACÁ, antes de tomar el gesto: un `onCommit` que pasó a draw o destruyó el editor ya
     // no oye el `up` que devolvería el arrastre del mapa, así que el gesto no empieza.
-    down: (x, y) => {
+    down: (x, y, dedo) => {
+      if (dedo && this.#trazando) return this.#apoyar(x, y)
       if (this.#manoAlzada) {
         const m = this.#mano
         m.devolver  = this.#host.input.lendDrag()
@@ -495,6 +501,7 @@ export class EditableGeometry {
     },
     move: (x, y) => {
       if (this.#mano.devolver) return this.#muestrear(x, y)
+      if (this.#toque.devolver) return this.#deslizar(x, y)
       const p = this.#puntoDe(x, y)
       if (this.#gesto.ref >= 0) return this.#arrastrar(p[0], p[1])
       if (this.#mode === 'draw') return this.#previa(p)
@@ -504,6 +511,7 @@ export class EditableGeometry {
     },
     up: (x, y, cancelado) => this.#mano.devolver
       ? this.#soltarMano(!cancelado) && this.#emit()
+      : this.#toque.devolver ? this.#levantar(x, y, cancelado)
       : this.#gesto.ref >= 0 && this.#endInteraction(this.#puntoDe(x, y)),
     // El puntero se fue del contenedor: no va a llegar otro `move` que despromueva, así que el vecindario
     // —tres nodos y el agujero que abren en el visual— se suelta acá o queda encendido con el cursor en
@@ -565,10 +573,15 @@ export class EditableGeometry {
   }
 
   // La cámara se mueve: el trazo a mano alzada no muestrea hasta que asiente, y retoma con una cuerda recta.
-  #onPausa = () => { this.#mano.pausa = true }
+  #onPausa = () => {
+    this.#mano.pausa = true
+    this.#toque.cortado ||= !!this.#toque.devolver
+  }
 
   // El dedo traza: en `freehand`, y sólo polygon y polyline. En los demás kinds el modo queda inerte.
   get #manoAlzada() { return this.#mode === 'freehand' && CRECEN.has(this.#kind) && this.#surface.attached }
+
+  get #trazando() { return this.#mode === 'draw' && this.#surface.attached }
 
   // Hay handles que tomar: en `edit` y con la superficie viva. Un `onCommit` a mitad de pulsación puede
   // haber pasado a draw o destruido el editor.
@@ -796,6 +809,7 @@ export class EditableGeometry {
   // `setMode` lo emite.
   #releaseInteraction() {
     this.#mano.devolver && this.#soltarMano(false)
+    this.#toque.devolver && this.#soltarToque()
     const g = this.#gesto
     if (g.ref < 0) return null
     const tomado   = { t: g.trazo, ref: g.ref, movido: g.movido }
@@ -977,6 +991,45 @@ export class EditableGeometry {
     const h = this.#hover
     this.#cachear(t.orden, nuevo, h.x, h.y)
     return nuevo
+  }
+
+  // Un dedo coloca en `draw`: el mapa no se arrastra con él, y con dos se mueve. La forma y el rectángulo
+  // empiezan donde se apoya; lo que sigue —el radio, el borde, el otro eje, la otra esquina, el vértice— va en
+  // la vista previa bajo el dedo y queda donde se levanta. El toque que empezó la figura —el que tiembla menos
+  // que TEMBLOR— no pone nada más. Un segundo dedo corta la colocación sin poner el punto.
+  #apoyar(x, y) {
+    const t = this.#toque
+    t.devolver = this.#host.input.lendDrag()
+    t.x        = x
+    t.y        = y
+    t.movido   = false
+    t.cortado  = false
+    t.abrio    = !this.#borrador && (!!this.#forma || this.#kind === 'rectangle')
+    t.abrio ? this.#colocar(x, y) : this.#previa(this.#puntoDe(x, y))
+  }
+
+  #deslizar(x, y) {
+    const t = this.#toque
+    t.movido ||= Math.abs(x - t.x) + Math.abs(y - t.y) > TEMBLOR
+    t.cortado || this.#previa(this.#puntoDe(x, y))
+  }
+
+  #levantar(x, y, cancelado) {
+    const { abrio, movido, cortado } = this.#toque
+    this.#soltarToque()
+    cancelado || cortado || abrio && !movido || this.#colocar(x, y)
+  }
+
+  #soltarToque() {
+    const t     = this.#toque
+    const listo = t.devolver
+    t.devolver  = null
+    listo()
+  }
+
+  #colocar(x, y) {
+    const q = this.#lugar(x, y)
+    q && this.handleMapClick(q)
   }
 
   // Trazado de rectángulo: primer click fija una esquina; el segundo cierra el bounds contra ella.

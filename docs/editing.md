@@ -142,7 +142,7 @@ la pulsación.
 
 En `mode: 'draw'` no hay gesto sobre handles: el click del mapa **es** la edición, y el doble click cierra
 el trazo de un polígono o una polilínea con dos vértices o más, sin zoom. Las figuras de tamaño fijo se
-trazan por clicks, y el mapa sigue paneando entre ellos:
+trazan por clicks, y con el mouse el mapa sigue paneando entre ellos:
 
 | Figura | Clicks |
 |---|---|
@@ -152,8 +152,17 @@ trazan por clicks, y el mapa sigue paneando entre ellos:
 | sector | 3: el centro, la punta y un borde |
 
 Entre clicks una **vista previa** sigue al puntero sin emitir: el valor no cambia hasta el último click,
-que emite `change` y `commit` una sola vez. En táctil no hay puntero que siga sin apoyar el dedo: entre
-toques la vista previa sólo se mueve con el dedo que panea, y el valor sale igual de los toques.
+que emite `change` y `commit` una sola vez.
+
+Con el dedo o un lápiz, que no pasan por el mapa antes de apoyarse, la pulsación es del editor y el mapa
+se mueve con dos dedos:
+
+- Un rectángulo o una forma **empieza donde se apoya** el dedo, y el punto siguiente va en la vista previa
+  bajo el dedo y **queda donde se levanta**. El círculo y el rectángulo salen de un arrastre; la elipse y el
+  sector, de dos.
+- Cada punto que sigue, y cada vértice de un polígono o una polilínea, también queda donde se levanta.
+- El toque que empieza la figura, si el dedo tiembla menos de 10 px, pone sólo el primer punto.
+- Un segundo dedo corta la colocación en curso sin poner el punto, y mueve el mapa.
 
 ### Mano alzada
 

@@ -218,10 +218,25 @@ test('la pulsación de un participante es suya entera: su puntero, capturado, y 
     { capturados, editor: editor.recibido, otro: otro.recibido },
     {
       capturados : [1],
-      editor     : [['down', 10, 0], ['move', 20, 0], ['up', 25, 0, false], ['move', 40, 0], ['leave']],
+      editor     : [['down', 10, 0, false], ['move', 20, 0], ['up', 25, 0, false], ['move', 40, 0], ['leave']],
       otro       : [['move', 40, 0], ['leave']],
     },
   )
+})
+
+// Un dedo o un lápiz no pasan por el píxel antes de apoyarse: la puerta le dice al participante de qué es la
+// pulsación, al reconocerla y al dársela.
+test('handleAt y down saben si la pulsación es de un dedo o de un lápiz', () => {
+  const esc    = mount()
+  const vistos = []
+  const editor = participante((x, y, dedo) => vistos.push(dedo) > 0)
+  esc.puerta.join(editor, 500, 1)
+  for (const pointerType of ['mouse', 'touch', 'pen']) {
+    pulsar(esc, 10, 0, { pointerType })
+    soltar(esc, 10, 0, { pointerType })
+  }
+  assert.deepEqual(vistos, [false, true, true])
+  assert.deepEqual(editor.recibido.filter(([tipo]) => tipo === 'down').map(([, , , dedo]) => dedo), [false, true, true])
 })
 
 // El `pointercancel` cierra la pulsación como el `pointerup`, y el dueño se entera por el tercer argumento.
