@@ -150,6 +150,11 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   redibujan en cada cuadro, en la vista del gesto. En un móvil los tiles se piden también durante el gesto,
   en a lo más una tanda cada 200 ms, y no recién al soltarlo; `updateWhenIdle: true` en `tile` vuelve a eso.
   *Migración*: ninguna.
+- **Un `maxDepth` alto ya no reserva memoria por la cota.** `readGeoJson` dimensionaba sus tablas de
+  anidamiento con `maxDepth`, así que una cota alta asignaba gigabytes y, según el node y la memoria
+  libre, lanzaba `'entrada'`, leía o abortaba el proceso. Ahora las tablas crecen con lo que el documento
+  anida, y si el runtime rechaza una asignación al crecer, el error es `'profundidad'`.
+  *Migración*: ninguna.
 
 ## [0.36.0] - 2026-10-03
 

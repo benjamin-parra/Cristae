@@ -122,7 +122,7 @@ test('el cero negativo se preserva: es un lng/lat legal y no es 0', () => {
 const PUNTO = doc({ type: 'Point', coordinates: [1, 2] })
 
 test('un maxDepth absurdo sale como GeoJsonError, nunca como excepción cruda', () => {
-  for (const valor of [1e9, -5, 0, 1.5, NaN, 'ocho'])
+  for (const valor of [-5, 0, 1.5, NaN, Infinity, 'ocho'])
     assert.throws(() => leer(PUNTO, { maxDepth: valor }),
       e => e.name === 'GeoJsonError' && e.code === 'entrada' && Number.isInteger(e.at),
       `maxDepth: ${valor}`)
@@ -131,6 +131,77 @@ test('un maxDepth absurdo sale como GeoJsonError, nunca como excepción cruda', 
 test('null y undefined caen al default, que lee bien', () => {
   assert.equal(leer(PUNTO, { maxDepth: null }).vertexCount, 1)
   assert.equal(leer(PUNTO, { maxDepth: undefined }).vertexCount, 1)
+})
+
+// La cota corta el anidamiento y no reserva memoria por ella: con una alta se lee lo que el documento
+// anida, también más hondo de lo que caben las tablas al empezar.
+test('una cota alta no reserva memoria por ella, y lo que el documento anida crece hasta la cota', () => {
+  const antes = process.memoryUsage().arrayBuffers
+  assert.equal(leer(PUNTO, { maxDepth: 1e9 }).vertexCount, 1)
+  assert.ok(process.memoryUsage().arrayBuffers - antes < 1 << 20, 'menos de 1 MB por leer un punto')
+  const hondo = Array.from({ length: 300 }).reduce(dentro => [dentro], 1)
+  const geo   = leer(doc(feature({ type: 'Point', coordinates: [1, 2] }, { hondo })), { maxDepth: 1e9 })
+  assert.equal(geo.vertexCount, 1)
+  assert.deepEqual(geo.propertiesOf(0), { hondo })
+  assert.throws(() => leer(doc(feature({ type: 'Point', coordinates: [1, 2] }, { hondo })), { maxDepth: 200 }),
+    e => e.name === 'GeoJsonError' && e.code === 'profundidad')
+})
+
+// Pasados los 64 niveles las tablas crecen también donde el lector mira: una geometría tan honda se lee.
+test('una geometría a más de 64 niveles se lee, con la cota por defecto y con una alta', () => {
+  const punto       = { type: 'Point', coordinates: [1, 2] }
+  const ajeno       = { docs: Array.from({ length: 70 }).reduce(dentro => [dentro], feature(punto)) }
+  const colecciones = Array.from({ length: 40 }).reduce(g => ({ type: 'GeometryCollection', geometries: [g] }), punto)
+  for (const maxDepth of [undefined, 1e9])
+    for (const valor of [ajeno, colecciones]) {
+      const geo = leer(doc(valor), { maxDepth })
+      assert.deepEqual([geo.geometryCount, geo.vertexCount, geo.xy[0], geo.xy[1]], [1, 1, 1, 2], `maxDepth ${maxDepth}`)
+    }
+})
+
+// `maxDepth` es el anidamiento que se lee: con la cota justa se lee, y un nivel más es 'profundidad'.
+test('con la cota justa se lee, y un nivel más es profundidad', () => {
+  const niveles = n => doc(feature({ type: 'Point', coordinates: [1, 2] }, { hondo: Array.from({ length: n - 2 }).reduce(d => [d], 1) }))
+  for (const maxDepth of [200, 512]) {
+    assert.equal(leer(niveles(maxDepth), { maxDepth }).vertexCount, 1, `${maxDepth} niveles`)
+    assert.throws(() => leer(niveles(maxDepth + 1), { maxDepth }),
+      e => e.name === 'GeoJsonError' && e.code === 'profundidad' && e.at >= 0, `${maxDepth + 1} niveles`)
+  }
+})
+
+// Las tablas de anidamiento de este lector son Int32Array: el espía ve qué se le pide al runtime. Lo que
+// pide no depende de la cota, crece duplicando, y el rechazo del runtime es 'profundidad' (§17.10-3).
+test('las tablas de anidamiento no dependen de la cota, crecen duplicando, y su rechazo es profundidad', () => {
+  const Original = globalThis.Int32Array
+  const pedidos  = []
+  let tope       = Infinity
+  globalThis.Int32Array = class extends Original {
+    constructor(n, ...resto) {
+      if (typeof n === 'number') {
+        pedidos.push(n)
+        if (n > tope) throw new RangeError('Array buffer allocation failed')
+      }
+      super(n, ...resto)
+    }
+  }
+  try {
+    leer(PUNTO)
+    const base = Math.max(...pedidos)
+    pedidos.length = 0
+    leer(PUNTO, { maxDepth: 1e9 })
+    assert.equal(Math.max(...pedidos), base, 'la cota alta pide lo mismo que la de siempre')
+
+    pedidos.length = 0
+    const hondo = doc(feature({ type: 'Point', coordinates: [1, 2] }, { hondo: Array.from({ length: 20000 }).reduce(d => [d], 1) }))
+    assert.equal(leer(hondo, { maxDepth: 1e9 }).vertexCount, 1)
+    assert.ok(pedidos.length <= 2 + Math.log2(20000), `${pedidos.length} pedidos para 20 000 niveles`)
+
+    tope = base
+    assert.throws(() => leer(hondo, { maxDepth: 1e9 }),
+      e => e.name === 'GeoJsonError' && e.code === 'profundidad' && Number.isInteger(e.at) && e.at >= 0)
+  } finally {
+    globalThis.Int32Array = Original
+  }
 })
 
 test('pasarse de la cota es GeoJsonError(profundidad), con offset', () => {

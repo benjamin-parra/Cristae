@@ -25,7 +25,7 @@ que interpretarlos por adelantado es pagar el 100 % para usar el 0,01 %.
 
 | Path | Cuándo | Costo | Mecanismo |
 |---|---|---|---|
-| **lectura** | `readGeoJson(bytes)` | O(bytes) tiempo · O(v) memoria | una pasada; el número exacto sin `parseFloat` |
+| **lectura** | `readGeoJson(bytes)` | O(bytes) tiempo · O(v + anidamiento) memoria | una pasada; el número exacto sin `parseFloat` |
 | **camino exacto** | mantisa < 2^53 y potencia de diez exacta | un `imul` + una división | cubre el 85 % de lo que emite `JSON.stringify` |
 | **respaldo exacto** | mantisa ≥ 2^53, ≤31 dígitos, sin exponente | segundo limbo + Dekker, en el mismo barrido | exacto, sin asignar, sin `BigInt` |
 | **delegación** | más de ~31 dígitos, o exponente | `Number(...)` sobre el fragmento | exacto por el estándar; asigna una string corta |
@@ -157,4 +157,5 @@ sin diagnóstico, que es justo lo que esto evita.
 - **`propertiesOf` no cachea.** Llamarlo en un bucle sobre 8.000 features paga 8.000 `JSON.parse`: si
   se necesitan todos, es señal de que el consumidor quería otra cosa.
 - **`maxDepth`** (512 por default) es una cota anti-bomba, no un límite del formato: la geometría más
-  profunda del RFC anida 4 niveles.
+  profunda del RFC anida 4 niveles. Subirla no reserva memoria por ella —lo que se reserva sigue a lo
+  que el documento anida, unos 45 bytes por nivel—, pero deja pasar bombas más hondas.

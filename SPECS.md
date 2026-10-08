@@ -756,7 +756,12 @@ cuelgan de ningún anillo y pasar igual la aserción de §17.3-3.
 
 | API | Firma | Complejidad | Notas |
 |---|---|---|---|
-| `readGeoJson` | `(input, options?) → GeoJson` | O(B) tiempo · O(v) memoria | `input`: `Uint8Array` (canónico) \| `ArrayBuffer` \| `ArrayBufferView` \| `string`. Una sola pasada. |
+| `readGeoJson` | `(input, options?) → GeoJson` | O(B) tiempo · O(v + d) memoria | `input`: `Uint8Array` (canónico) \| `ArrayBuffer` \| `ArrayBufferView` \| `string`. Una sola pasada. `d` es lo que el documento anida. |
+| `eachRing` | `(cb: (ring, first, count, part) → void) → void` | O(r) **[0-alloc]** | Recorrido sin cortar. El 4º argumento es la **parte** dueña, no relleno. |
+| `someRing` | `(pred: (ring, first, count, part) → boolean) → boolean` | O(r) **[0-alloc]** | Corte temprano con la semántica nativa de `some` — la vía para hit-test. |
+| `partOf` / `geometryOf` / `featureOfRing` | `(i) → number` | O(log n) **[0-alloc]** | Ascenso por la misma cadena CSR. |
+| `propertiesOf` / `idOf` | `(feature) → unknown` | O(largo del rango) | `JSON.parse` del fragmento. **No cachea.** Lanza `'liberado'` tras `release()`. |
+| `release` | `() → void` | O(1) | Suelta `bytes`. La geometría sobrevive; `propertiesOf`/`idOf` dejan de servir. |
 
 ```ts
 interface GeoJsonOptions {
@@ -768,12 +773,10 @@ interface GeoJsonOptions {
 
 El tope de anidamiento es una **cota anti-bomba**, no un límite del formato: la geometría más profunda
 del RFC anida 4 niveles dentro de `coordinates`, así que 512 deja margen de sobra para cualquier
-documento honesto y corta un `[[[[…` de un megabyte antes de que consuma pila o tablas.
-| `eachRing` | `(cb: (ring, first, count, part) → void) → void` | O(r) **[0-alloc]** | Recorrido sin cortar. El 4º argumento es la **parte** dueña, no relleno. |
-| `someRing` | `(pred: (ring, first, count, part) → boolean) → boolean` | O(r) **[0-alloc]** | Corte temprano con la semántica nativa de `some` — la vía para hit-test. |
-| `partOf` / `geometryOf` / `featureOfRing` | `(i) → number` | O(log n) **[0-alloc]** | Ascenso por la misma cadena CSR. |
-| `propertiesOf` / `idOf` | `(feature) → unknown` | O(largo del rango) | `JSON.parse` del fragmento. **No cachea.** Lanza `'liberado'` tras `release()`. |
-| `release` | `() → void` | O(1) | Suelta `bytes`. La geometría sobrevive; `propertiesOf`/`idOf` dejan de servir. |
+documento honesto y corta un `[[[[…` de un megabyte antes de que consuma pila o tablas. No dimensiona
+nada: las tablas crecen con lo que el documento anida, unos 45 bytes por nivel, así que subirla no
+reserva memoria por ella, pero deja pasar bombas más hondas. Una asignación que el runtime rechaza al
+crecer es `'profundidad'`. Lo que no es un entero ≥ 1 es `'entrada'`.
 
 ```js
 export const GeoJsonKind = Object.freeze({

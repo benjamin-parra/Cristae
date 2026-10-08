@@ -123,7 +123,7 @@ export const readGeoJson = (input, options = {}) => {
   if (bytes === null) throw new GeoJsonError('entrada')
 
   const len      = bytes.length
-  // La otra opción que dimensiona un buffer. `| 0` trunca a int32, así que un valor enorme se aceptaba
+  // La pista dimensiona un buffer. `| 0` trunca a int32, así que un valor enorme se aceptaba
   // en silencio y uno absurdo reventaba la asignación: las dos violan §17.10-3.
   const sizeHint = (hint, bytes) => {
     if (hint === undefined || hint === null) return (bytes / 24) | 0
@@ -134,14 +134,10 @@ export const readGeoJson = (input, options = {}) => {
   }
 
   const maxDepth = options.maxDepth ?? 512
-  // La cota es una opción del llamador y dimensiona dos buffers, así que un valor absurdo revienta en
-  // la asignación. §17.10-3 no admite que salga una excepción cruda: se convierte en la de la entrada.
   if (!Number.isInteger(maxDepth) || maxDepth < 1) throw new GeoJsonError('entrada')
-  let stack, flags
-  try {
-    stack = new Int32Array(maxDepth * D_SLOTS)
-    flags = new Uint8Array(maxDepth)
-  } catch { throw new GeoJsonError('entrada') }
+  // La cota corta el anidamiento y no dimensiona nada: las dos tablas crecen con el que el documento
+  // tiene, así que una cota alta no reserva memoria por ella (§17.10-3).
+  let stack = new Int32Array(Math.min(maxDepth, 64) * D_SLOTS), flags = new Uint8Array(Math.min(maxDepth, 64))
   const empty    = new Uint32Array(8)
   const position = new Float64Array(3)
   const stats    = {
@@ -163,6 +159,19 @@ export const readGeoJson = (input, options = {}) => {
   let i = len >= 3 && bytes[0] === 0xEF && bytes[1] === 0xBB && bytes[2] === 0xBF ? 3 : 0
 
   const fail = (code, at, hint) => { throw new GeoJsonError(code, at, hint) }
+
+  // Un nivel más de los que caben. La asignación que el runtime rechaza es 'profundidad' y no la excepción
+  // cruda (§17.10-3); con overcommit no la rechaza, así que lo que corta una bomba sigue siendo la cota.
+  const deepen = at => {
+    const n = Math.min(maxDepth, flags.length * 2)
+    try {
+      const s = new Int32Array(n * D_SLOTS), f = new Uint8Array(n)
+      s.set(stack)
+      f.set(flags)
+      stack = s
+      flags = f
+    } catch { fail('profundidad', at) }
+  }
 
   // Un elemento de `geometries` sólo es geometría si el objeto que POSEE ese array también lo es: de
   // lo contrario un `"eometry"` mal tipeado seguiría entregando las hojas de su colección.
@@ -252,6 +261,7 @@ export const readGeoJson = (input, options = {}) => {
         depth < 0 && roots++
         depth = (depth + 1) | 0
         depth >= maxDepth && fail('profundidad', i)
+        depth === flags.length && deepen(i)
 
         const s = depth * D_SLOTS
 

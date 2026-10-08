@@ -9,7 +9,8 @@ export interface GeoJsonOptions {
   bounds?       : boolean;
   /** Vértices esperados; `0` estima del largo de la entrada. Evita el recrecido. */
   capacityHint? : number;
-  /** Tope de anidamiento (cota anti-bomba). Default `512`; pasarlo lanza `'profundidad'`. */
+  /** Tope de anidamiento (cota anti-bomba). Default `512`; pasarlo lanza `'profundidad'`. No reserva
+   *  memoria por ella: lo que se reserva sigue a lo que el documento anida. */
   maxDepth?     : number;
 }
 
