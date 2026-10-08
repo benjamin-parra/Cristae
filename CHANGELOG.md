@@ -81,6 +81,12 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   [`docs/elements.md`](docs/elements.md#cristae-geodesic--geodésica-declarativa),
   [`docs/lines.md`](docs/lines.md#curva-geodésica) y [`docs/polygons.md`](docs/polygons.md#curva-geodésica).
   *Migración*: ninguna.
+- **El motor avisa cuándo el mapa entra al estado de dibujo y cuándo sale: `drawingstart` y `drawingend`.**
+  El estado dura mientras algún editor toma la pulsación para dibujar —`draw`, o `freehand` en `polygon` y
+  `polyline`—: `drawingstart` sale con el primero que entra y `drawingend` con el último que sale, también
+  al quitarlo. Marcan el estado, no un trazo, y `destroy()` no avisa. Sólo existen en el motor, con `{}` y
+  sin evento `cristae:`. Ver [SPECS §10](SPECS.md) y [`docs/editing.md`](docs/editing.md#imperativo--engineaddeditablelayer).
+  *Migración*: ninguna.
 
 ### Cambiado
 - **Los editores de polilínea y de polígono producen `line` y `polygon` en la gramática** (antes

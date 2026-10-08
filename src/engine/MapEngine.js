@@ -109,6 +109,7 @@ export class MapEngine {
   #glLayers           = new Set()      // capas GL que el motor reproyecta en move/zoom/resize
   #pendingBinds       = []             // label-layers cuyo host aún no existía (resolución por nombre)
   #signals            = new Map()      // eventos del motor (ready/viewportchange/interaction*) → handlers
+  #drawing            = new Set()      // ids de los editores que toman la pulsación para dibujar
   #iconSets           = new Map()      // nombre → IconSet registrado (resolución por nombre)
   #defaultClusters    = null           // cluster icon-set por defecto (lazy)
   #defaultSubClusters = null           // icon-set de sub-clusters de la espiral (jerarquía, lazy)
@@ -439,13 +440,27 @@ export class MapEngine {
     const order    = this.#order++
     const paneName = pane ?? `cristae-edit-${id}`
     const zIndex   = z ?? (BASE_Z + order * Z_STEP + LABEL_Z_OFFSET)   // handles por encima de las capas
+    // El estado de dibujo es del mapa: entra con el primer editor que dibuja y sale con el último, y en el
+    // teardown no avisa. Los avisos salen con el registro al día: el del constructor espera a que la capa
+    // esté registrada, y el de la baja lo da `removeLayer` con la capa ya quitada.
+    const dibuja = drawing => {
+      const ids   = this.#drawing
+      const habia = ids.size > 0
+      drawing ? ids.add(id) : ids.delete(id)
+      this.#destroying || habia === ids.size > 0 || this.#emit(habia ? 'drawingend' : 'drawingstart', {})
+    }
+    let alta = false
+    let nace = false
     const editor = this.#build(paneName, zIndex, () => new EditableGeometry({
       host: this.#host, pane: paneName, kind, value, mode, model: this.#model, style, onChange, onCommit,
-      join: participant => this.#interaction.join(participant, zIndex, order),   // los handles, en su lugar del orden
+      join:          participant => this.#interaction.join(participant, zIndex, order),   // los handles, en su lugar del orden
       onHandleLevel: level => this.#interaction.setHandleLevel(id, level),   // el árbitro del cursor lo traduce
+      onDrawing:     drawing => alta ? dibuja(drawing) : nace = drawing,
     }), true)
     const record = { kind: 'editable', editing: kind, editor, paneName, zIndex, order, visible: true, enabled: true }
     this.#layers.set(id, record)
+    alta = true
+    nace && dibuja(true)
     return {
       id,
       setValue:       v => editor.setValue(v),
@@ -732,6 +747,7 @@ export class MapEngine {
   removeLayer(id) {
     const record = this.#layers.get(id)
     if (!record) return false
+    const dibujaba = this.#drawing.delete(id)   // fuera del estado antes de su destroy, que así no avisa
     record.unsub?.()                      // bind de labels / suscripción de la capa
     record.layer?.destroy?.()
     record.editor?.destroy?.()            // editor de geometría (input controlado, sin record.layer)
@@ -746,6 +762,7 @@ export class MapEngine {
     // compartido por varias con el mismo `cfg.pane`, con la última.
     record.paneName && this.#host.surface.unmount(record.paneName)
     declarabaFoco && this.#applyFocus()
+    dibujaba && !this.#drawing.size && !this.#destroying && this.#emit('drawingend', {})
     return true
   }
 

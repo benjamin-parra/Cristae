@@ -3,12 +3,12 @@
 //
 // Contrato de "input controlado": el valor ENTRA por `value` (constructor / setValue) y las ediciones
 // SALEN por `onChange` (live, cada cambio — incluye cada frame de drag) y `onCommit` (una vez, al asentar
-// el gesto: al soltar / edición discreta). Aparte, `onHandleLevel(nivel)` —interno, lo cablea el motor—
-// le informa al mapa el nivel de handle bajo el puntero o tomado, sólo al cambiar. La primitiva POSEE los
-// handles (vértices, puntos de arista para insertar, borrado por dblclick y el trazado de uno nuevo en
-// modo draw) y también el DIBUJO de la geometría: el arrastre muestra sus dos aristas vivas SIN escribir a
-// GPU —el vértice viaja como uniform—. Atar además un addPolygonLayer/addLineLayer al mismo `value` es
-// válido: dibuja lo mismo.
+// el gesto: al soltar / edición discreta). Aparte, dos avisos internos que cablea el motor le informan al
+// mapa, sólo al cambiar: `onHandleLevel(nivel)`, el nivel de handle bajo el puntero o tomado, y
+// `onDrawing(dibuja)`, si toma la pulsación para dibujar. La primitiva POSEE los handles (vértices, puntos
+// de arista para insertar, borrado por dblclick y el trazado de uno nuevo en modo draw) y también el
+// DIBUJO de la geometría: el arrastre muestra sus dos aristas vivas SIN escribir a GPU —el vértice viaja
+// como uniform—. Atar además un addPolygonLayer/addLineLayer al mismo `value` es válido: dibuja lo mismo.
 //
 // Cada trazo tiene su stack: `ChunkedPath` (el arena en CPU) → `EditArena` (su espejo GPU) → handles como
 // sprites, más el banco `EditHandleDom`, que repone como nodo SÓLO el vecindario bajo el cursor. El gesto
@@ -97,7 +97,7 @@ const project = (lat, lng, out) => {
 
 export class EditableGeometry {
 
-  #host; #camera; #pane; #kind; #model; #forma; #onChange; #onCommit; #onHandleLevel; #surface; #gl; #iconSet
+  #host; #camera; #pane; #kind; #model; #forma; #onChange; #onCommit; #onHandleLevel; #onDrawing; #surface; #gl; #iconSet
   #bajaVista; #bajaPausa; #bajaCuadro
   #salir                                   // la baja de la puerta del puntero
   #mode       = 'edit'
@@ -122,6 +122,7 @@ export class EditableGeometry {
   #sello = 0
 
   #informado = HANDLE_NONE                 // el último nivel de handle que recibió `onHandleLevel`
+  #dibuja    = false                       // lo último que recibió `onDrawing`
 
   #hover    = { x: -1, y: -1, trazo: -1, ref: -1, sello: -1 }       // la última respuesta, por píxel
   #muestra  = { id: 0, x: 0, y: 0, trazo: -1, ref: -1, deben: 0 }   // la pedida, y lo que va resolviendo
@@ -148,7 +149,7 @@ export class EditableGeometry {
   // El pane se direcciona por NOMBRE: dos editores sobre el mismo mapa comparten el nodo, y la superficie
   // del anfitrión lo sostiene mientras quede uno. El puntero le llega por `join`, que lo suma a la puerta
   // del puntero (engine/Interaction) en su lugar del orden declarado.
-  constructor({ host, join, pane, kind = 'polygon', value = null, mode = 'edit', model = byDefault, style, onChange, onCommit, onHandleLevel } = {}) {
+  constructor({ host, join, pane, kind = 'polygon', value = null, mode = 'edit', model = byDefault, style, onChange, onCommit, onHandleLevel, onDrawing } = {}) {
     if (!KINDS.has(kind)) throw new Error(`EditableGeometry: kind inválido "${kind}"`)
     this.#style         = { ...ESTILO, ...style }
     this.#host          = host
@@ -162,6 +163,7 @@ export class EditableGeometry {
     this.#onChange      = onChange
     this.#onCommit      = onCommit
     this.#onHandleLevel = onHandleLevel
+    this.#onDrawing     = onDrawing
     this.#surface       = new EditSurface({ host, pane: this.#pane })
     this.#gl            = this.#surface.attach()
     this.#iconSet       = defineEditIconSet()
@@ -173,6 +175,7 @@ export class EditableGeometry {
     this.#bajaCuadro    = host.camera.on('zoomframe', () => this.#draw())
     this.#salir         = join(this.#participante)
     this.#rebuild()
+    this.#informarDibujo()
   }
 
   /* ── API pública ──────────────────────────────────────────────────────────────────────── */
@@ -203,6 +206,7 @@ export class EditableGeometry {
     this.#promover(-1, -1)
     this.#draw()
     this.#informar()
+    this.#informarDibujo()
     trazo && this.#emit()
   }
 
@@ -281,6 +285,7 @@ export class EditableGeometry {
     this.#fill?.destroy()
     this.#surface.destroy()
     this.#informar()
+    this.#informarDibujo()
   }
 
   /* ── Ingesta / serialización (puras respecto a Leaflet) ─────────────────────────────────── */
@@ -696,6 +701,15 @@ export class EditableGeometry {
     if (nivel === this.#informado) return
     this.#informado = nivel
     this.#onHandleLevel?.(nivel)
+  }
+
+  // Si toma la pulsación para dibujar, con los predicados de la puerta y sin mirar el dispositivo. Dependen
+  // del modo y de la superficie, que sólo cambian en el alta, `setMode` y `destroy`. Se informa al cambiar.
+  #informarDibujo() {
+    const dibuja = this.#trazando || this.#manoAlzada
+    if (dibuja === this.#dibuja) return
+    this.#dibuja = dibuja
+    this.#onDrawing?.(dibuja)
   }
 
   // El gesto empieza: el vecindario pasa a `grabbing` y el mapa presta el arrastre —el puntero es nuestro

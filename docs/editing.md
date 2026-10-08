@@ -306,6 +306,16 @@ const handle = engine.addEditableLayer({
 click del mapa, pero el consumidor que rutea su propia captura —porque el click también alimenta otra
 cosa— lo llama a mano en vez de pelearse con el que le llega.
 
+El motor avisa cuándo el mapa entra al estado de dibujo y cuándo sale: `drawingstart` sale con el primer
+editor que toma la pulsación para dibujar —`draw`, o `freehand` en `polygon` y `polyline`— y `drawingend`
+con el último que la suelta, al cambiar de modo o al quitarse. Marcan el estado, no cada trazo
+([SPECS §10](../SPECS.md)).
+
+```js
+engine.on('drawingstart', () => panel.toggleAttribute('data-drawing', true))
+engine.on('drawingend',   () => panel.toggleAttribute('data-drawing', false))
+```
+
 ---
 
 ## Costo

@@ -258,8 +258,8 @@ export interface BusChannels {
 }
 
 // ── Señales del motor ───────────────────────────────────────────────────────
-// Lo que el motor avisa sin picking: un solo payload, sin hits ni filtro por capa. Salvo `move`, son
-// también los `detail` de los `cristae:*` del elemento (SPECS §10).
+// Lo que el motor avisa sin picking: un solo payload, sin hits ni filtro por capa. Salvo `move`,
+// `zoomlevelschange` y las de dibujo, son también los `detail` de los `cristae:*` del elemento (SPECS §10).
 
 /** La vista de la cámara que viaja en `viewportchange`; cuándo sale lo fija SPECS §10. */
 export interface ViewportChangeDetail {
@@ -281,6 +281,11 @@ export interface EngineSignals {
   'map:click'        : (detail: MapClickDetail) => void;
   'interactionstart' : (detail: Record<string, never>) => void;
   'interactionend'   : (detail: Record<string, never>) => void;
+  /** Un editor empezó a tomar la pulsación para dibujar —`draw`, o `freehand` en polygon y polyline— y el
+   *  mapa entró al estado de dibujo. Marca la entrada al estado, no el inicio de un trazo (SPECS §10). */
+  'drawingstart'     : (detail: Record<string, never>) => void;
+  /** El último editor que la tomaba dejó de hacerlo, o se quitó: el mapa salió del estado. No sale en `destroy()`. */
+  'drawingend'       : (detail: Record<string, never>) => void;
 }
 
 // ── Marcadores HTML (addHtmlLayer / <cristae-html-layer>) ───────────────────
