@@ -257,7 +257,7 @@ const vaoGl = spy => ({
 // `onLose`: spy de WEBGL_lose_context.loseContext() (para caracterizar el teardown de contexto GL).
 // getExtension('WEBGL_lose_context') → { loseContext: onLose }; cualquier otra extensión → {} (como
 // antes). El resto de métodos/constantes cae al no-op del Proxy.
-export const makeGl = (onLose, spy = makePickSpy(), canvas = makeSurface()) => new Proxy({ ...GL_CONSTS, ...enSuperficie(canvas), ...pickGl(spy), ...uploadGl(spy), ...vaoGl(spy), spy }, {
+export const makeGl = (onLose, spy = makePickSpy(), canvas = makeSurface()) => new Proxy({ ...GL_CONSTS, isContextLost: () => false, ...enSuperficie(canvas), ...pickGl(spy), ...uploadGl(spy), ...vaoGl(spy), spy }, {
   get: (t, p) => {
     if (p === 'getExtension') return (name) => (name === 'WEBGL_lose_context' ? { loseContext: onLose ?? (() => {}) } : {})
     return p in t ? t[p] : () => ({})

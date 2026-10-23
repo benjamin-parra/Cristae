@@ -143,10 +143,12 @@ export class Picking {
     return result
   }
 
-  // Pick síncrono (click): lectura bloqueante directa.
+  // Pick síncrono (click): lectura bloqueante directa. Con el contexto perdido no hay nada que leer:
+  // `readPixels` no hace nada y `#buf` conservaría el parche del click anterior, que saldría como un hit
+  // nuevo. La pérdida se ve en el acto con `isContextLost()`, antes de que llegue el evento.
   pickSync(cx, cy, batch, metadata) {
     const gl = this.#gl
-    if (!gl || !this.#program) return null
+    if (!gl || !this.#program || gl.isContextLost()) return null
     this.#begin(cx, cy, batch)
     gl.readPixels(0, 0, PATCH, PATCH, gl.RGBA, gl.UNSIGNED_BYTE, this.#buf)
     this.#restore()

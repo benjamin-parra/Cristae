@@ -6,6 +6,7 @@
 
 import '../../test-helpers/engine-stub.mjs'
 import { conGlDeEdicion, makeEditGl, makeIconSet, makeLeaflet, makeMap } from '../../test-helpers/engine-stub.mjs'
+import { conNavegador, crearNavegador } from '../../test-helpers/navegador-falso.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { PointLayer } from '../../src/render/PointLayer.js'
@@ -20,11 +21,11 @@ const FLOATS = 7
 const accessors = { idOf: it => it.id, positionOf: it => it.pos }
 
 // El GL del harness: el pase lee de vuelta el parche CRUDO que el test pinta (`spy.frame`), y los canales
-// de cada slot salen del espejo de lo que la capa subió al VBO.
-const mount = items => {
-  const gl        = makeEditGl()
-  const spy       = gl.spy
-  const restaurar = conGlDeEdicion(() => gl)
+// de cada slot salen del espejo de lo que la capa subió al VBO. Con un `navegador` falso, el contexto es el que
+// éste reparte (y puede perderse); sin él, uno suelto.
+const mount = (items, navegador = null) => {
+  const gl        = navegador ? null : makeEditGl()
+  const restaurar = navegador ? conNavegador(navegador) : conGlDeEdicion(() => gl)
   const source    = {
     accessors,
     getSnapshot: () => items,
@@ -35,6 +36,7 @@ const mount = items => {
     host: adoptLeafletHost(makeMap(), { leaflet: makeLeaflet() }), pane: 'p', source, iconSet: makeIconSet(), interactive: true,
   })
   restaurar()
+  const spy = (gl ?? navegador.contextos.at(-1).gl).spy
   // Pinta un texel del parche tal como lo escribe el fragment: R = local alto + nibble bajo del chunk,
   // G = local bajo, B y A = el resto del tag. La suma es exacta (ambos sumandos son múltiplos de 1/255
   // y el packer garantiza que no desbordan el byte).
@@ -146,4 +148,27 @@ test('el decode recompone el slot global de una entrada del chunk 1', () => {
     layer.resolveClick({ x: 10, y: 10 }).map(p => p.id), [`p${slot}`],
     'el eje chunk completa la dirección que los 12 bits del local no alcanzan',
   )
+})
+
+// ── Un contexto perdido no tiene nada que leer ───────────────────────────────────────────────────
+// Sobre un contexto perdido `readPixels` no hace nada y el buffer de lectura conserva el parche del click anterior:
+// entregarlo sería un hit sobre una capa que ya no se ve. La pérdida es visible en el acto con `isContextLost()`,
+// antes de que llegue el evento que levanta la bandera de la superficie.
+
+test('un click sobre un contexto perdido no entrega el último parche leído', async () => {
+  const navegador = crearNavegador()
+  const { layer, pintar, canalDe } = mount(items, navegador)
+  layer.pickObject = 7
+  await new Promise(resolve => setTimeout(resolve, 5))   // el repintado que agendó el montaje corre con el contexto vivo
+
+  pintar(CENTRO, canalDe(2), 7)
+  assert.deepEqual(click(layer), ['C'], 'con el contexto vivo el click resuelve')
+
+  navegador.desalojar(navegador.contextos[0])            // el navegador se lo quita: perdido YA, el evento llega después
+  assert.deepEqual(click(layer), [], 'perdido, el parche viejo no es un hit')
+
+  navegador.vaciar()                                      // llega webglcontextlost
+  assert.deepEqual(click(layer), [])
+  assert.deepEqual(navegador.violaciones, [], 'ni un solo recurso del contexto muerto se tocó')
+  assert.equal(navegador.contextos[0].llamadasTrasPerdida, 0, 'ni una llamada al contexto muerto')
 })
