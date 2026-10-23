@@ -96,6 +96,10 @@ export class ShapeLayer {
     }
   }
 
+  // Lo que el motor lee para `surfaces()`: la superficie GL de la capa interna y si hay algo que dibujarle.
+  get surface()    { return this.#layer?.surface }
+  get hasContent() { return !!this.#layer?.hasContent }
+
   setVisible(visible) { return this.#layer?.setVisible(visible) }
 
   style(options) { return this.#layer?.style(options) }

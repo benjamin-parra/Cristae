@@ -422,6 +422,9 @@ export class CristaeMap extends LitElement {
     // que viewportchange: siempre activo, baja frecuencia y sin coste de picking (es el click crudo del
     // mapa, no los hits de features de `cristae:click`). El motor emite `map:click` con `{ latlng }`.
     e.on('map:click', d => this.#emit('mapclick', d))
+    // El estado de la superficie GL de una capa cambió (hoy, el navegador le quitó el contexto): baja
+    // frecuencia y sin coste de dibujo, como `viewportchange`. El detail es la fila de `engine.surfaces()`.
+    e.on('surfacechange', d => this.#emit('surfacechange', d))
     // Bajo demanda: re-cablear los tipos que ya tienen listeners DOM (agregados antes de montar, o
     // tras un re-mount). Los listeners futuros los cabla addEventListener.
     this.#demandCount.forEach((count, type) =>

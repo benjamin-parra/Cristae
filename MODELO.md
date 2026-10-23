@@ -399,6 +399,7 @@ Hit = {
 | `cristae:mapclick` | `{ latlng }` | click en vacío, sin ningún hit |
 | `cristae:viewportchange` | `{ center, zoom, bounds }` | moveend/zoomend y cambio de `viewport-insets` (SPECS §10). Centro y caja son objetos planos (SPECS §0) |
 | `cristae:interactionstart` / `cristae:interactionend` | `{}` | pan/zoom inicio/fin (para que el consumidor frene su emitter si quiere; el motor ya coalesce su propio redraw). |
+| `cristae:surfacechange` | `{ layerId, kind, pane, z, cssZoom, state, hasContent, visible }` | la superficie WebGL de una capa cambió de estado, hoy al perder el contexto (SPECS §10). |
 
 ### 8.3 Decisiones de diseño de eventos
 1. **`pointermove` separado de `hover`.** `pointermove` es continuo y barato (posición para tooltip). `hover` sale tras el picking GPU async, con el set vigente; sus cambios salen por `hover:start`/`hover:end`. Esto preserva el throttle (`hoverThrottle`) y la tolerancia a stale (`staleTolerancePx`) actuales, expuestos como config a nivel mapa.

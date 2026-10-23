@@ -276,3 +276,37 @@ test('registra webglcontextlost (el probe reporta si el navegador soltó el cont
   espia.canvases[0].emit('webglcontextlost')
   assert.equal(surface.contextLost, true)
 })
+
+test('state dice si la superficie tiene su contexto, y cssZoom devuelve el que se pidió', () => {
+  const { surface, espia, host } = montar()
+  assert.equal(surface.state, 'none', 'antes de attach no tiene contexto')
+  assert.equal(surface.cssZoom, true, 'por defecto sigue la transición del zoom')
+  assert.equal(new EditSurface({ host, pane: PANE, cssZoom: false }).cssZoom, false)
+
+  surface.attach()
+  assert.equal(surface.state, 'live')
+  espia.canvases[0].emit('webglcontextlost')
+  assert.equal(surface.state, 'lost')
+})
+
+test('onState oye la pérdida con la superficie ya perdida, y una destruida no avisa', () => {
+  const { surface, espia } = montar()
+  const avisos = []
+  surface.onState = s => avisos.push([s, s.state, s.contextLost])
+  surface.attach()
+  assert.deepEqual(avisos, [], 'tomar el contexto no es un cambio que se avise todavía')
+
+  espia.canvases[0].emit('webglcontextlost')
+  assert.deepEqual(avisos, [[surface, 'lost', true]])
+
+  surface.destroy()
+  espia.canvases[0].emit('webglcontextlost')              // el evento que el `loseContext` de destroy deja en camino
+  assert.equal(avisos.length, 1)
+})
+
+test('sin quien oiga, la pérdida no rompe', () => {
+  const { surface, espia } = montar()
+  surface.attach()
+  assert.equal(surface.onState, null)
+  assert.doesNotThrow(() => espia.canvases[0].emit('webglcontextlost'))
+})

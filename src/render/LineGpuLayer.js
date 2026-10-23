@@ -92,6 +92,10 @@ export class LineGpuLayer {
 
   get count() { return this.#recs.size }
 
+  // Lo que el motor lee para `surfaces()`: la superficie GL de la capa y si hay algo que dibujarle.
+  get surface()    { return this.#surface }
+  get hasContent() { return this.#recs.size > 0 }
+
   redraw() {
     if (!this.#visible || this.#surface.contextLost) return false
     const gl = this.#gl

@@ -276,6 +276,8 @@ const hostOf = (map, leaflet, ownsMap, zoomPolicy) => {
     setZ       : (name, z) => stylePane(name, 'zIndex', String(z)),
     setVisible : (name, visible) => stylePane(name, 'visibility', visible ? '' : 'hidden'),
     setOpacity : (name, alpha) => stylePane(name, 'opacity', alpha >= 1 ? '' : String(alpha)),
+    // El z-index vigente del pane, o null si no tiene uno.
+    zOf        : name => (z => z ? +z : null)(map.getPane(name)?.style.zIndex),
 
     // Que un nodo montado acompañe la transición del zoom animado: el transform que le da quien lo montó
     // al oír `zoomanim` se interpola con el del mapa, desde la esquina del nodo. Lo hace la clase de

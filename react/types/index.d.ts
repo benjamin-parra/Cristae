@@ -64,6 +64,7 @@ import type {
   PointerSample,
   ViewportChangeDetail,
   MapClickDetail,
+  SurfaceInfo,
   DrawingIndicator,
 } from '../../types/map'
 import type { PagedTable } from '../../types/table'
@@ -121,6 +122,8 @@ export type CristaeHit        = Hit
 export type CristaeLatLng               = LatLng
 export type CristaeViewportChangeDetail = ViewportChangeDetail
 export type CristaeMapClickDetail       = MapClickDetail
+/** La fila de `engine.surfaces()` de la capa cuya superficie WebGL cambió de estado (SPECS §10). */
+export type CristaeSurfaceInfo          = SurfaceInfo
 /** `originalEvent` es el `pointerup` de la pulsación con que el motor sintetizó el click (SPECS §10). */
 export interface CristaeClickDetail { hits: CristaeHit[]; originalEvent: PointerEvent }
 export interface CristaeHoverDetail { hits: CristaeHit[] }
@@ -271,6 +274,8 @@ export interface CristaeMapProps extends CristaeBaseProps {
   onPointerMove?      : CristaeEventHandler<CristaePointerMoveDetail>;
   onInteractionStart? : CristaeEventHandler<Record<string, never>>;
   onInteractionEnd?   : CristaeEventHandler<Record<string, never>>;
+  /** La superficie WebGL de una capa cambió de estado —hoy, el navegador le quitó el contexto—. */
+  onSurfaceChange?    : CristaeEventHandler<CristaeSurfaceInfo>;
   /** Canales del BUS (todas las capas, sin filtro): el motor no los puentea a CustomEvent. */
   onSecondaryClick?   : CristaeHitsHandler;
   onHoverStart?       : CristaeHitsHandler<PointerSample>;

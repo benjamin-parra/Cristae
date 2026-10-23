@@ -723,9 +723,9 @@ export class MapEngine {
     record.layer.destroy()
     record.source   = source
     record.controls = null
-    record.layer    = this.#trackGl(new PointLayer({
+    record.layer    = this.#watchSurface(this.#trackGl(new PointLayer({
       host: this.#host, pane: record.paneName, source, iconSet: record.iconSet, interactive: record.interactive, where: record.where,
-    }))
+    })))
     if (!record.enabled) record.layer.enabled = false   // el swap conserva el gate de la entidad deshabilitada
     if (record.interactive) {
       // La capa del pase es la MISMA entidad con otra fuente: conserva su id de objeto (no se recicla).
@@ -890,6 +890,18 @@ export class MapEngine {
   // syncSize(). Útil en el path headless (MapEngine sin elemento, sin observer) o si el contenedor
   // vuelve a ser visible sin cambiar de tamaño (no dispara resize).
   invalidateCanvas() { this.#resetCanvases() }
+
+  // Una fila por superficie GL del motor: las capas que dibujan con WebGL —no las de 2D ni las de DOM— y
+  // el editor. Se arma al pedirla, sin guardar nada: es para diagnosticar cuántos contextos toma el mapa y
+  // cuáles tiene vivos, y no entra en ningún camino de dibujo.
+  surfaces() {
+    const rows = []
+    this.#layers.forEach((record, id) => {
+      const row = this.#surfaceRow(id, record)
+      row && rows.push(row)
+    })
+    return rows
+  }
 
   // Encuadra por los bounds de VARIAS capas a la vez (`ids`, o TODAS si se omite) — la contraparte
   // multi-capa de camera.fitToLayer (una sola). Une la caja que informa la capa de lo que dibuja y, de la
@@ -1084,11 +1096,43 @@ export class MapEngine {
   #build(paneName, zIndex, create) {
     this.#mount(paneName, zIndex)
     try {
-      return create()
+      return this.#watchSurface(create())
     } catch (error) {
       this.#host.surface.unmount(paneName)
       throw error
     }
+  }
+
+  // La fila de `surfaces()` de una capa registrada, o null si no dibuja con una superficie GL. `visible` es
+  // la efectiva de la capa, la misma que lleva su pane: visible ∧ habilitada ∧ la de su host, si va ligada.
+  #surfaceRow(id, record) {
+    const target  = record.layer ?? record.editor
+    const surface = target?.surface
+    if (!surface) return null
+
+    const host = record.bindTo ? this.#layers.get(record.bindTo) : null
+    return {
+      layerId    : id,
+      kind       : record.kind,
+      pane       : record.paneName,
+      z          : this.#host.surface.zOf(record.paneName),
+      cssZoom    : surface.cssZoom,
+      state      : surface.state,
+      hasContent : target.hasContent,
+      visible    : !!(record.visible && record.enabled && (!host || host.enabled)),
+    }
+  }
+
+  // Engancha la superficie de una capa recién construida, si la tiene, para avisar sus cambios de estado
+  // con `surfacechange`: sale la fila de la capa que la tiene hoy. La de antes de `attachSource`, que ya no
+  // es la de ninguna, no avisa.
+  #watchSurface(layer) {
+    const surface = layer.surface
+    surface && (surface.onState = () => {
+      const entry = [...this.#layers].find(([, record]) => (record.layer ?? record.editor)?.surface === surface)
+      entry && this.#emit('surfacechange', this.#surfaceRow(...entry))
+    })
+    return layer
   }
 
   #applyVisibility(id, paneName, visible) {

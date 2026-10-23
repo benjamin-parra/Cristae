@@ -319,6 +319,10 @@ export class PolygonGpuLayer {
   get vertexCount() { return this.#store.vertexCount }
   get canvas()      { return this.#surface.canvas }
 
+  // Lo que el motor lee para `surfaces()`: la superficie GL de la capa y si hay algo que dibujarle.
+  get surface()    { return this.#surface }
+  get hasContent() { return this.#store.ringCount > 0 }
+
   // Mismos nombres que el alta: relleno y contorno se ajustan por separado.
   style(options = {}) {
     Object.entries(options).forEach(([k, v]) => v !== undefined && (this.#base[k] = v))

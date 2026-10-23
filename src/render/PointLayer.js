@@ -116,6 +116,10 @@ export class PointLayer {
 
   idForSlot(slot) { return this.#idBySlot[slot] }
 
+  // Lo que el motor lee para `surfaces()`: la superficie GL de la capa y si hay algo que dibujarle.
+  get surface()    { return this.#surface }
+  get hasContent() { return this.#count > 0 }
+
   /* ── Picking (la capa de interacción orquesta; la capa resuelve hits) ── */
 
   // Identidad de OBJETO de la capa dentro del pase de picking: la asigna el motor al darla de alta y la

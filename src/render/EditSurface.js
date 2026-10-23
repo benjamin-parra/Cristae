@@ -35,6 +35,10 @@ export class EditSurface {
   #animando  = false
   #ancla     = { x: 0, y: 0, zoom: 0, center: null }   // ancla y vista con las que se rasterizó el contenido
 
+  // Quien oye los cambios de estado de la superficie: hoy la pérdida del contexto, con la superficie como
+  // argumento. Es el motor, que los avisa por la señal `surfacechange`. Una superficie destruida no avisa.
+  onState = null
+
   // `antialias` y `depth` quedan fijados para toda la vida del contexto —alternarlos exigiría
   // recrearlo, que es justo lo que el presupuesto prohíbe—: con MSAA el abanico multiplica su
   // fill-rate. `cssZoom: false` es para la capa que el motor reproyecta por cuadro durante el zoom: el
@@ -51,6 +55,10 @@ export class EditSurface {
   get canvas()      { return this.#canvas }
   get attached()    { return this.#attached }
   get contextLost() { return this.#lost }
+  get cssZoom()     { return this.#cssZoom }
+  // `live`: tiene su contexto. `lost`: el navegador se lo quitó. `none`: no tiene ninguno. `released`, el
+  // de una superficie que se soltó a propósito, llega con la liberación voluntaria.
+  get state()       { return this.#lost ? 'lost' : this.#gl ? 'live' : 'none' }
 
   // Primer attach crea el contexto; los siguientes sólo re-dimensionan el canvas.
   attach() {
@@ -92,6 +100,7 @@ export class EditSurface {
   }
 
   destroy() {
+    this.onState = null                                 // el `loseContext` de abajo hace salir `webglcontextlost`, y no es una pérdida
     this.#offZoom.forEach(off => off())
     if (this.#canvas) {
       this.#canvas.remove()
@@ -139,7 +148,10 @@ export class EditSurface {
     canvas.className           = 'cristae-edit-canvas'
     canvas.style.position      = 'absolute'
     canvas.style.pointerEvents = 'none'
-    canvas.addEventListener('webglcontextlost', () => { this.#lost = true })
+    canvas.addEventListener('webglcontextlost', () => {
+      this.#lost = true
+      this.onState?.(this)
+    })
 
     const gl = canvas.getContext('webgl2', this.#attrs)
     if (!gl) throw new Error('[cristae] sin WebGL2: la geometría editable en GPU necesita gl_VertexID y texelFetch')

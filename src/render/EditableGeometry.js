@@ -242,6 +242,15 @@ export class EditableGeometry {
 
   getValue() { return this.#serialize() }
 
+  // Lo que el motor lee para `surfaces()`: la superficie GL del editor y si hay algo que mostrarle: un
+  // trazado en curso, o una geometría con algún vértice.
+  get surface() { return this.#surface }
+
+  get hasContent() {
+    const g = this.#geom
+    return this.#mode !== 'edit' || (g.rings ?? [g.path]).some(path => path.length > 0)
+  }
+
   // Los trazos del arena en orden de dibujo: los anillos del polígono, o el path único de la polilínea.
   // Vacío para point, rectangle y las formas, cuyo trazo se DERIVA de su estado y no es parte de su valor.
   get paths() {

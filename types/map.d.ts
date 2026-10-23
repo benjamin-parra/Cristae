@@ -271,6 +271,32 @@ export interface ViewportChangeDetail {
 export interface MapClickDetail {
   latlng : LatLng;
 }
+
+/** Cómo está la superficie WebGL de una capa. `live`: tiene su contexto. `lost`: el navegador se lo
+ *  quitó y la capa no dibuja más. `released` y `none`: sin contexto, soltado a propósito o sin haberlo
+ *  tomado. Hoy una superficie sólo está `live` o `lost`: las dos últimas son de las etapas siguientes. */
+export type SurfaceState = "live" | "lost" | "released" | "none";
+
+/** Una fila de `engine.surfaces()` y el `detail` de la señal `surfacechange`: la superficie WebGL de una
+ *  capa, que es uno de los ~16 contextos que el navegador da a la página. */
+export interface SurfaceInfo {
+  /** El id de la capa que la posee. Una capa interna del motor lleva el suyo, como `<host>:clusters`. */
+  layerId    : string;
+  /** La clase de capa, como el `kind` de un hit; más `editable` (el editor) y `overlay` (la ligada a un host). */
+  kind       : "point" | "line" | "polygon" | "shape" | "circle" | "editable" | "overlay";
+  /** El pane donde cuelga su canvas. */
+  pane       : string;
+  /** El z-index vigente del pane, o `null` si no tiene uno. */
+  z          : number | null;
+  /** Si el canvas sigue la transición del zoom animado; `false` en la capa que el motor reproyecta por cuadro. */
+  cssZoom    : boolean;
+  state      : SurfaceState;
+  /** Si hay algo que dibujarle: puntos, ítems, anillos, o un editor con geometría o en trazado. */
+  hasContent : boolean;
+  /** La visibilidad efectiva de la capa: la propia, su habilitación y la de su host si va ligada. */
+  visible    : boolean;
+}
+
 export interface EngineSignals {
   'ready'            : (detail: Record<string, never>) => void;
   'viewportchange'   : (detail: ViewportChangeDetail) => void;
@@ -286,6 +312,11 @@ export interface EngineSignals {
   'drawingstart'     : (detail: Record<string, never>) => void;
   /** El último editor que la tomaba dejó de hacerlo, o se quitó: el mapa salió del estado. No sale en `destroy()`. */
   'drawingend'       : (detail: Record<string, never>) => void;
+  /** La superficie WebGL de una capa cambió de estado, y el detail es su fila de `surfaces()`. Hoy sale
+   *  cuando el navegador le quita el contexto (`state: 'lost'`) al pasar el techo de contextos vivos: la
+   *  capa no dibuja más. Las etapas siguientes la emitirán también al adquirir y al soltar una superficie.
+   *  No sale en `destroy()` ni al quitar la capa (SPECS §10). */
+  'surfacechange'    : (detail: SurfaceInfo) => void;
 }
 
 // ── Marcadores HTML (addHtmlLayer / <cristae-html-layer>) ───────────────────
@@ -871,6 +902,10 @@ export class MapEngine {
   getLeafletMap(): unknown;
   syncSize(): void;
   invalidateCanvas(): void;
+  /** Una fila por superficie WebGL del motor, en el orden de alta de sus capas: las de puntos, líneas,
+   *  polígonos y formas, sus overlays y los editores. Las capas de calor, etiquetas y HTML no tienen. Se
+   *  arma al pedirla: es para diagnosticar cuántos contextos toma el mapa y cuáles siguen vivos (SPECS §6). */
+  surfaces(): SurfaceInfo[];
   /** Encuadra VARIAS capas a la vez (o todas las de datos si se omite `ids`) — multi-capa de camera.fitToLayer. */
   fitToLayers(ids?: Iterable<string> | null, options?: { insets?: Insets; maxZoom?: number }): this;
   destroy(): void;
