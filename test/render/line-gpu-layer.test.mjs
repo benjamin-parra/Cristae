@@ -257,3 +257,15 @@ test('el handle de la capa expone append', () => {
   const handle = engine.addLineLayer({ id: 'ruta', data: [{ id: 1, path: recorrido(2) }], accessors })
   assert.equal(typeof handle.append, 'function')
 })
+
+/* ── El primer pintado no espera un evento de cámara ── */
+
+test('la capa construida con la Source poblada ya pintó: el constructor dibuja, como el polígono', () => {
+  const { spy } = mount({ items: [{ id: 1, path: recorrido(50) }, { id: 2, path: recorrido(10, 1, 1) }] })
+  assert.equal(spy.draws.length, 2, 'un trazo por entidad, sin esperar moveend, resize ni un emit de la Source')
+})
+
+test('la capa construida vacía no dibuja trazos', () => {
+  const { spy } = mount({ items: [] })
+  assert.equal(spy.draws.length, 0)
+})

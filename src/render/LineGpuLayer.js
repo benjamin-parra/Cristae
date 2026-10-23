@@ -84,6 +84,7 @@ export class LineGpuLayer {
       this.#rebuild(source.getSnapshot())
       this.#offView = host.camera.on('moveend zoomend resize zoomframe', () => this.redraw())
       this.#unsub   = source.subscribe(() => { this.#sync(); this.redraw() })
+      this.redraw()     // pinta ya lo que la Source trae: no espera a un evento de cámara que quizá no llegue
     } catch (e) {
       this.destroy()
       throw e
