@@ -206,7 +206,7 @@ export class MapEngine {
     // `where`: membresía por-capa (filtra qué ítems de la Source compartida entran a ESTA capa
     // sin mutar la Source). Otras vistas de la misma Source no se ven afectadas.
     const layer = this.#build(paneName, zIndex, () =>
-      this.#trackGl(new PointLayer({ host: this.#host, pane: paneName, source, iconSet: set, interactive, where })))
+      this.#trackGl(new PointLayer({ host: this.#host, pane: paneName, source, iconSet: set, interactive, where, visible: visible && enabled })))
 
     // `where`/`enabled` en el record: si esta capa está clusterizada, el cluster indexa `source ∧ where`
     // de los hosts HABILITADOS (no la Source cruda) → cuenta lo que la capa REALMENTE muestra.
@@ -594,7 +594,7 @@ export class MapEngine {
     const set   = this.#resolveIconSet(iconSet)
     const layer = this.#build(paneName, zIndex, () => this.#trackGl(new PointLayer({
       host: this.#host, pane: paneName, source: host.source,
-      accessors, iconSet: set, interactive: false, where: membresia,
+      accessors, iconSet: set, interactive: false, where: membresia, visible: visible && host.enabled,
     })))
     layer.suppressed = host.suppressed ?? null               // hereda la supresión del cluster (si la hay)
     layer.refresh()
@@ -717,14 +717,20 @@ export class MapEngine {
 
   /* ── Fuentes externas (ruta B) ── */
 
+  // Una fuente que la capa ya tiene no es un cambio: el montaje diferido de un elemento la reasigna tal cual
+  // (`syncLayer` recibe la `source` con que se montó), y reconstruir cuesta el contexto, los programas, el atlas
+  // y el pase de picking. Una distinta sí reemplaza la capa; la nueva nace con lo que la vieja tenía y el record
+  // guarda: su supresión del cluster, su foco y su visibilidad. El pane no cambia.
   attachSource(id, source) {
     const record = this.#layers.get(id)
-    if (!record || record.kind !== 'point') return this
+    if (!record || record.kind !== 'point' || record.source === source) return this
+    const { focus } = record.layer
     record.layer.destroy()
     record.source   = source
     record.controls = null
     record.layer    = this.#watchSurface(this.#trackGl(new PointLayer({
       host: this.#host, pane: record.paneName, source, iconSet: record.iconSet, interactive: record.interactive, where: record.where,
+      visible: record.visible && record.enabled, suppressed: record.suppressed, focus,
     })))
     if (!record.enabled) record.layer.enabled = false   // el swap conserva el gate de la entidad deshabilitada
     if (record.interactive) {
@@ -811,10 +817,12 @@ export class MapEngine {
       else {
         if (r.kind === 'overlay') r.layer.enabled = next
         this.#applyVisibility(rid, r.paneName, on)
+        r.layer?.setVisible?.(on)
       }
     })
     this.#resyncBound(id)               // labels re-filtran + overlays refrescan (gateados por enabled → al volver, frescos)
     if (next) record.layer.refresh()    // catch-up del host (para capas SIN cluster es LA vía; con cluster el apply() de abajo re-refresca — costo 1 rebuild por toggle)
+    record.layer.setVisible(next && record.visible)   // deshabilitada no dibuja; habilitada pinta ya, con el buffer recién al día
     record.cluster?.reindex()           // el fold recomputa las burbujas con la unión de hosts habilitados
     return true
   }

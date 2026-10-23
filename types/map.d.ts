@@ -852,6 +852,8 @@ export class MapEngine {
    *  una capa de polígonos tipada y no interactiva, que no retiene sus tablas. Qué hace la baja: SPECS §8.6. */
   addGeodesic(config: { hostId: string }): (() => void) | null;
 
+  /** Cambia la fuente de una capa de puntos. La que ya tiene no es un cambio y no hace nada; una distinta
+   *  reconstruye la capa, que conserva su pane, la supresión del cluster, el foco y la visibilidad. */
   attachSource(id: string, source: CristaeSource): this;
   getLayer(id: string): unknown;
   /** Capa dueña de un objeto del pase de picking: el decodificador entrega (obj, chunk, local) y esto

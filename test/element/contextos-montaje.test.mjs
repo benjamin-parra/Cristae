@@ -1,11 +1,9 @@
 // Contextos WebGL al montar y al quitar un mapa de elementos REALES (Lit + custom elements en jsdom), contados por un
 // navegador falso que respeta el techo de Chromium. Dos balances:
 //
-//   T0.1  creados == vivos tras el montaje: ninguna creación espuria. ROJO hoy —una `<cristae-point-layer>` con
-//         `source` se construye dos veces: `updated()` monta y enseguida `syncLayer` trata la `source` recién
-//         montada como un reemplazo, y el reemplazo es destruir la capa y construir otra—. Va como `todo` hasta
-//         que la etapa 1 haga idempotente `attachSource`, para que la suite siga verde mientras tanto.
-//         `CRISTAE_SIN_TODO=1 node --test test/element/contextos-montaje.test.mjs` lo corre sin el `todo`.
+//   T0.1  creados == vivos tras el montaje: ninguna creación espuria. Antes de `attachSource` idempotente una
+//         `<cristae-point-layer>` con `source` se construía dos veces: `updated()` monta y enseguida `syncLayer`
+//         trataba la `source` recién montada como un reemplazo, y el reemplazo es destruir la capa y construir otra.
 //   T0.2  `map.remove()` deja 0 vivos y creados == liberados: verde hoy, fija el balance del teardown.
 //
 // Dos modelos. El de 8: polígono + cluster{overlay{puntos}} (el cluster toma 5: host, badge, burbujas, espiral y
@@ -24,8 +22,6 @@ import test, { after } from 'node:test'
 import assert from 'node:assert/strict'
 import '../../src/index.js'
 import { createSource } from '../../src/data/index.js'
-
-const PENDIENTE = process.env.CRISTAE_SIN_TODO ? false : 'etapa 1: montaje doble'
 
 const ACC     = { idOf: v => v.id, positionOf: v => ({ lat: v.lat, lng: v.lng }) }
 const POLI    = { idOf: v => v.id, ringsOf: () => [[[0, 0], [0, 1], [1, 1]]] }
@@ -88,7 +84,7 @@ const CASOS = [8, 13].flatMap(capas => ['react', 'antes'].map(orden => [capas, o
 after(() => document.body.replaceChildren())
 
 for (const [capas, orden] of CASOS) {
-  test(`T0.1 modelo de ${capas} capas, props ${orden}: creados == vivos tras el montaje`, { todo: PENDIENTE }, async t => {
+  test(`T0.1 modelo de ${capas} capas, props ${orden}: creados == vivos tras el montaje`, async t => {
     const { map, navegador } = await armar(capas, orden)
     t.after(() => map.remove())
     const estado = navegador.stat()

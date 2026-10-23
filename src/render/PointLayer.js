@@ -66,6 +66,9 @@ export class PointLayer {
   // cero CPU/GPU por emit del WS mientras el pane está oculto (mismo patrón que LabelLayer).
   // refresh() sigue operativo (es el catch-up explícito al re-habilitar).
   #enabled = true
+  // Oculta (visible ∧ habilitada, que compone el motor): su pane no se ve y no dibuja. El buffer sigue al
+  // día con la Source, así que mostrarla es un draw.
+  #visible = true
 
   // Eje focus: el alfa por ítem viaja en el SIGNO del `size` del vértice; `ids` null = sin foco.
   #focus      = { ids: null, dim: 0.3 }
@@ -81,13 +84,24 @@ export class PointLayer {
   //
   // La superficie lleva profundidad para el orden por banda del foco, y no sigue la transición del zoom:
   // el motor reproyecta la capa por cuadro (`renderAtView`).
-  constructor({ host, pane, source, iconSet, interactive = false, accessors = null, where = null }) {
-    this.#camera    = host.camera
-    this.#source    = source
-    this.#accessors = accessors ?? source.accessors
-    this.#where     = where
-    this.#iconSet   = iconSet
-    this.#surface   = new EditSurface({ host, pane, depth: true, cssZoom: false })
+  //
+  // `visible`, `suppressed` y `focus` son el estado con que nace: el motor los pasa al dar de alta una capa
+  // oculta y al intercambiar su fuente, para que la nueva herede lo de la vieja sin un primer cuadro con los
+  // puntos clusterizados, sin atenuar o dibujando en un pane que no se ve. `focus` es `{ ids, dim }`, el de
+  // `applyFocus`, y se copia.
+  constructor({
+    host, pane, source, iconSet, interactive = false, accessors = null, where = null,
+    visible = true, suppressed = null, focus = null,
+  }) {
+    this.#camera     = host.camera
+    this.#source     = source
+    this.#accessors  = accessors ?? source.accessors
+    this.#where      = where
+    this.#visible    = visible
+    this.#suppressed = suppressed
+    this.#iconSet    = iconSet
+    this.#surface    = new EditSurface({ host, pane, depth: true, cssZoom: false })
+    focus && Object.assign(this.#focus, focus)
     const gl = this.#gl = this.#surface.attach()
     // La superficie ya tomó uno de los ~16 contextos: lo que siga puede tirar y nadie devuelve uno solo.
     try {
@@ -119,6 +133,10 @@ export class PointLayer {
   // Lo que el motor lee para `surfaces()`: la superficie GL de la capa y si hay algo que dibujarle.
   get surface()    { return this.#surface }
   get hasContent() { return this.#count > 0 }
+
+  // El foco aplicado: `{ ids, dim }`, con `ids` null si no hay. El motor lo lee para pasárselo a la capa que
+  // releva a ésta al intercambiar la fuente. Es el estado vivo, no una copia.
+  get focus() { return this.#focus }
 
   /* ── Picking (la capa de interacción orquesta; la capa resuelve hits) ── */
 
@@ -201,8 +219,18 @@ export class PointLayer {
 
   /* ── Lifecycle ── */
 
-  // Repinta en el próximo cuadro; los pedidos del mismo cuadro son un solo dibujo.
-  redraw() { this.#frame ||= requestAnimationFrame(this.#paint) }
+  // Repinta en el próximo cuadro; los pedidos del mismo cuadro son un solo dibujo. Oculta no agenda nada: al
+  // mostrarla se pinta en el acto.
+  redraw() { return this.#visible && (this.#frame ||= requestAnimationFrame(this.#paint)) }
+
+  // Oculta no dibuja —ni al reasentar, ni en un cuadro del zoom, ni en un repintado—, pero reasienta el
+  // canvas y mantiene el buffer al día. Mostrarla pinta en la misma tarea la vista que se ve ahora, la
+  // inyectada si hay un zoom animado en curso, y devuelve si pintó. Repetir el mismo estado no cuesta nada.
+  setVisible(visible = true) {
+    const mostrada = visible && !this.#visible
+    this.#visible  = visible
+    return mostrada && this.#draw(this.#injected ? this.#view : readView(this.#camera, this.#view))
+  }
   syncPickingSize() { this.#picking?.syncSize() }
 
   // Reasienta el canvas a la vista viva y la dibuja en el acto; el motor la invoca en move/moveend/zoomend.
@@ -240,8 +268,9 @@ export class PointLayer {
   }
 
   // El orden por banda limpia y prueba profundidad en cada draw: el pase de picking la apaga al salir.
+  // Devuelve si dibujó: oculta, o con el contexto perdido, no.
   #draw(view) {
-    if (this.#surface.contextLost) return
+    if (!this.#visible || this.#surface.contextLost) return false
     const gl = this.#gl
     this.#binding.sync(this.#iconSet.atlas)
     gl.useProgram(this.#program)
@@ -253,14 +282,18 @@ export class PointLayer {
     gl.bindVertexArray(this.#vao)
     gl.drawArrays(gl.POINTS, 0, this.#count)
     gl.bindVertexArray(null)
+    return true
   }
 
   // Px del drawing buffer por px CSS. Se remide sólo si cambió el ancho del buffer: `clientWidth` fuerza
-  // layout, y esto corre por cuadro de paneo. Devuelve si la escala cambió.
+  // layout, y esto corre por cuadro de paneo. Un buffer sin ancho —el de un contexto perdido, o el de un
+  // contenedor oculto— no tiene escala observable: rige la última medida, y los tamaños que ya están en el
+  // espejo no se recodifican. Devuelve si la escala cambió.
   #rescale() {
     const gl = this.#gl
-    if (gl.drawingBufferWidth === this.#scaledAt) return false
-    this.#scaledAt = gl.drawingBufferWidth
+    const w  = gl.drawingBufferWidth
+    if (!w || w === this.#scaledAt) return false
+    this.#scaledAt = w
     const scale = pixelScaleOf(gl)
     if (scale === this.#scale) return false
     this.#scale = scale
