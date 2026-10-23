@@ -37,7 +37,7 @@ const elemento = (base = {}) => Object.assign(base, {
 
 // Un contexto 2D que no dibuja: todo es no-op salvo `measureText`, que mide 0 como un texto vacío, para
 // que un painter de etiquetas pueda maquetar.
-const NOOP_CTX = new Proxy({ measureText: () => ({ width: 0 }) }, { get: (t, p) => t[p] ?? (() => {}), set: () => true })
+export const NOOP_CTX = new Proxy({ measureText: () => ({ width: 0 }) }, { get: (t, p) => t[p] ?? (() => {}), set: () => true })
 // Un canvas que pide `webgl2` recibe su propio doble de GL (el de una superficie: ver makeEditGl).
 const makeCanvas = () => ({ width: 0, height: 0, style: {}, getContext: kind => (kind === 'webgl2' ? makeEditGl() : NOOP_CTX) })
 
