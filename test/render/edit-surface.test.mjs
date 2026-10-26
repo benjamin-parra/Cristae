@@ -298,6 +298,49 @@ test('al asentar, zoomend devuelve el ancla, suelta la escala y RECUERDA la vist
   assert.equal(espia.traslados.at(-1).escala, 2)
 })
 
+test('zooming dice si hay un zoom animado en curso: desde el zoomanim hasta el zoomend', () => {
+  const { surface, map } = montar()
+  assert.equal(surface.zooming, false, 'sin contexto no oye la vista')
+  surface.acquire()
+  assert.equal(surface.zooming, false, 'tampoco antes de que haya un zoom')
+  map.animarZoom(ZOOM_INICIAL + 1)
+  assert.equal(surface.zooming, true)
+  map.animarZoom(ZOOM_INICIAL + 1)                      // un pellizco emite un zoomanim por cuadro
+  assert.equal(surface.zooming, true)
+  map.fire('zoomend')
+  assert.equal(surface.zooming, false, 'el zoomend lo apaga en el acto')
+})
+
+test('un zoomanim al que nunca le llega el zoomend deja de contar a los 400 ms', () => {
+  const { surface, map } = montar()
+  surface.acquire()
+  map.animarZoom(ZOOM_INICIAL + 1)
+  desfase += 399
+  assert.equal(surface.zooming, true)
+  desfase += 2
+  assert.equal(surface.zooming, false, 'una recuperación no se queda esperando un zoom que ya terminó')
+})
+
+test('zooming sigue la vista aunque la superficie esté perdida o soltada', () => {
+  const { surface, map, espia } = montar()
+  surface.acquire()
+  surface.release()
+  map.animarZoom(ZOOM_INICIAL + 1)                      // el canvas es un marcador: no hay transform que escribir
+  assert.equal(surface.zooming, true, 'es lo que la recuperación necesita saber')
+  assert.equal(espia.traslados.filter(t => t.escala === 2).length, 0)
+  map.fire('zoomend')
+  assert.equal(surface.zooming, false)
+})
+
+test('una superficie sin cssZoom no oye la vista: zooming vale siempre falso', () => {
+  espiaVigente = { stencilOtorgado: true, perdido: false, contexts: 0, lost: 0, canvases: [], viewports: [], traslados: [] }
+  const map     = makeMap()
+  const surface = new EditSurface({ host: adoptLeafletHost(map), pane: PANE, cssZoom: false })
+  surface.acquire()
+  map.animarZoom(ZOOM_INICIAL + 1)
+  assert.equal(surface.zooming, false, 'el motor la reproyecta por cuadro')
+})
+
 test('destroy desengancha del zoom animado y suelta su pane', () => {
   const { surface, map, oyentes } = montar()
   surface.acquire()
@@ -437,6 +480,26 @@ test('con dueño, la perdida se re-adquiere en el cuadro siguiente en un canvas 
   assert.equal(surface.canvas, espia.canvases[1])
   assert.deepEqual(owner.avisos.map(([que]) => que), ['buildGl', 'dropGl', 'buildGl'])
   assert.equal(owner.avisos[2][1], surface.gl)
+  surface.destroy()
+})
+
+test('perdida en pleno zoom animado, espera a que asiente y el canvas nuevo se ancla a la vista final', async () => {
+  const owner = makeOwner()
+  const { surface, espia, map } = montar({ owner })
+  surface.acquire()
+  map.animarZoom(ZOOM_INICIAL + 1)
+  espia.canvases[0].emit('webglcontextlost')
+
+  await cuadro()
+  await cuadro()
+  assert.equal(espia.contexts, 1, 'dos cuadros de zoom y todavía ningún getContext')
+  assert.equal(surface.state, 'lost')
+
+  map.fire('zoomend')
+  await cuadro()
+  assert.equal(espia.contexts, 2, 'asentó: vuelve')
+  assert.equal(surface.state, 'live')
+  assert.deepEqual(espia.traslados.at(-1), ANCLA, 'el canvas nuevo se ancla a la vista asentada, sin escala')
   surface.destroy()
 })
 

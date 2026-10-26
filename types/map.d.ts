@@ -274,8 +274,8 @@ export interface MapClickDetail {
 
 /** Cómo está la superficie WebGL de una capa. `live`: tiene su contexto. `lost`: el navegador se lo
  *  quitó. Una capa de puntos, de líneas, de polígonos, de formas o un editor —también un overlay o una burbuja
- *  de cluster— lo vuelve a tomar en el cuadro siguiente si hay cupo. `released`: lo soltó a propósito. `none`: no
- *  lo tomó. */
+ *  de cluster— lo vuelve a tomar en el cuadro siguiente si hay cupo, salvo en pleno zoom animado, que espera a que
+ *  asiente. `released`: lo soltó a propósito. `none`: no lo tomó. */
 export type SurfaceState = "live" | "lost" | "released" | "none";
 
 /** Una fila de `engine.surfaces()` y el `detail` de la señal `surfacechange`: la superficie WebGL de una

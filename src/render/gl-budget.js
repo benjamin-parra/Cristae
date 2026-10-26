@@ -4,7 +4,8 @@
 // contexto que no pidió una capa al construirse.
 //
 // La política es la mínima que recupera sin ciclos. Una superficie perdida que tiene dueño se re-adquiere en el
-// cuadro siguiente, una por cuadro, porque `getContext` cuesta más que un cuadro. Si una propia se pierde hasta
+// cuadro siguiente, una por cuadro, porque `getContext` cuesta más que un cuadro; y no en medio de un zoom animado,
+// donde ese costo caería en el gesto más sensible y el canvas nuevo se vería corrido. Si una propia se pierde hasta
 // un segundo después de una recuperación, no hay cupo: recuperarla desalojaría a otra propia, o a un ajeno que se
 // rehace al perder y vuelve a desalojar. Ahí se deja de recuperar, y las que esperaban se quedan sin contexto,
 // como antes de que hubiera recuperación. La prioridad, la liberación bajo presión, los reintentos y la señal de
@@ -20,6 +21,13 @@ const recuperar = () => {
   cuadro = 0
   const surface = pendientes.values().next().value
   if (!surface) return
+
+  // En pleno zoom animado no: el canvas nuevo no recibe el `zoomanim` que ya pasó y se vería corrido hasta el `zoomend`, y el
+  // `getContext` caería en el gesto más sensible. Espera con un cuadro agendado, que se apaga solo cuando asienta.
+  if (surface.zooming) {
+    cuadro = requestAnimationFrame(recuperar)
+    return
+  }
 
   pendientes.delete(surface)
   recuperada = performance.now()

@@ -31,6 +31,10 @@ export const blendOver = gl => {
 
 const dprOf = () => globalThis.devicePixelRatio || 1
 
+// Cuánto dura en pie un zoom animado sin su `zoomend`: la transición de Leaflet son 250 ms y un pellizco emite `zoomanim` por
+// cuadro, así que pasado esto sin otro aviso el zoom terminó aunque el `zoomend` no haya llegado.
+const ZOOM_MS = 400
+
 export class EditSurface {
 
   #camera; #surface; #paneName; #attrs; #cssZoom; #owner
@@ -41,6 +45,7 @@ export class EditSurface {
   #attached  = false
   #destroyed = false
   #animando  = false
+  #zoomAt    = -Infinity  // cuándo llegó el último `zoomanim`; el `zoomend` lo borra
   #ancla     = { x: 0, y: 0, zoom: 0, center: null }   // ancla y vista con las que se rasterizó el contenido
 
   // Quien oye los cambios de estado de la superficie —tomar el contexto, perderlo, soltarlo—, con la superficie
@@ -66,6 +71,10 @@ export class EditSurface {
   get attached()    { return this.#attached }   // tomó un contexto alguna vez y no se destruyó
   get contextLost() { return this.#state === 'lost' }
   get cssZoom()     { return this.#cssZoom }
+  // Hay un zoom animado en curso, visto desde que la superficie oye la vista (con su primer contexto; una `cssZoom: false`
+  // no la oye y da siempre falso). Un canvas que nace en pleno zoom no recibe el `zoomanim` que ya pasó y queda en la vista
+  // destino mientras los tiles aún viajan, así que quien re-adquiere espera a que asiente.
+  get zooming()     { return performance.now() - this.#zoomAt < ZOOM_MS }
   // `live`: tiene su contexto. `lost`: el navegador se lo quitó. `released`: se soltó. `none`: no tiene ni tuvo
   // uno, o se destruyó. La pérdida se lee del contexto, que la sabe en el acto; `webglcontextlost` llega en otra
   // tarea.
@@ -174,8 +183,12 @@ export class EditSurface {
   #seguirZoom(canvas) {
     this.#surface.followZoom(canvas)
     this.#offZoom.length || (this.#offZoom = [
-      this.#camera.on('zoomanim', ({ center, zoom }) => this.#animar(center, zoom)),
+      this.#camera.on('zoomanim', ({ center, zoom }) => {
+        this.#zoomAt = performance.now()
+        this.#animar(center, zoom)
+      }),
       this.#camera.on('zoomend', () => {
+        this.#zoomAt   = -Infinity
         this.#animando = false
         this.resetCanvasReference()
       }),
