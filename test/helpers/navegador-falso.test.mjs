@@ -9,11 +9,13 @@ import assert from 'node:assert/strict'
 import { JSDOM } from 'jsdom'
 import { MapEngine } from '../../src/engine/MapEngine.js'
 import { adoptLeafletHost } from '../../src/host/LeafletHost.js'
+import { linkPointProgram } from '../../src/render/point-program.js'
 
 const WAIT_FAILED             = 0x911D
 const CONTEXT_LOST_WEBGL      = 37442
 const FRAMEBUFFER_COMPLETE    = 0x8CD5
 const FRAMEBUFFER_UNSUPPORTED = 0x8CDD
+const INVALID_OPERATION       = 0x0502
 
 const canvas = pane => Object.assign(new EventTarget(), {
   parentNode: pane ? { nodeType: 1, className: `leaflet-pane leaflet-${pane}-pane` } : null,
@@ -389,6 +391,122 @@ test('un canvas sin medidas, un objeto pelado de un test, deja la del doble base
   const navegador = crearNavegador()
   const gl        = navegador.getContext({}, 'webgl2')
   assert.deepEqual([gl.drawingBufferWidth, gl.drawingBufferHeight], [800, 600])
+})
+
+/* ── El ARRAY_BUFFER enlazado: un puntero de atributos sin buffer es INVALID_OPERATION ── */
+
+// Un VAO armado sobre un VBO que todavía no existe (`linkPointProgram(gl, null)`) es el error que el doble tapaba: el
+// `null` no lleva sello, así que ninguna validación lo miraba. Chromium lo rechaza con «no ARRAY_BUFFER is bound and
+// offset is non-zero» y los handles no se ven ni se pican.
+test('vertexAttribPointer sin ARRAY_BUFFER enlazado y con offset: INVALID_OPERATION, queda en violaciones y lanza con estricto', () => {
+  const navegador = crearNavegador()
+  const { gl }    = crear(navegador, 1)[0]
+  gl.bindVertexArray(gl.createVertexArray())
+  assert.equal(gl.getError(), gl.NO_ERROR)
+  assert.equal(gl.INVALID_OPERATION, INVALID_OPERATION)
+
+  assert.throws(() => gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 28, 8), /sin buffer enlazado a ARRAY_BUFFER y con el offset 8/)
+  assert.deepEqual(navegador.violaciones.map(v => [v.contexto, v.metodo, v.perdido]), [[0, 'vertexAttribPointer', false]])
+  assert.equal(gl.getError(), INVALID_OPERATION, 'el contexto retiene el error hasta que se lee')
+  assert.equal(gl.getError(), gl.NO_ERROR, 'getError lo borra')
+  assert.equal(gl.spy.vao.buffer, undefined, 'y la llamada no llegó al doble: el VAO no tiene de dónde leer')
+})
+
+test('sin ARRAY_BUFFER enlazado también falla vertexAttribIPointer, y con offset 0 no: es lo que Chromium acepta', () => {
+  const navegador = crearNavegador()
+  const { gl }    = crear(navegador, 1)[0]
+  assert.throws(() => gl.vertexAttribIPointer(2, 1, gl.FLOAT, 4, 12), /offset 12/)
+  assert.doesNotThrow(() => gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 28, 0), 'offset 0: el puntero nulo no es un error')
+  assert.equal(navegador.violaciones.length, 1)
+})
+
+test('con un buffer enlazado a ARRAY_BUFFER el puntero vale; si se desenlaza, o se borra el enlazado, vuelve a fallar', () => {
+  const navegador = crearNavegador()
+  const { gl }    = crear(navegador, 1)[0]
+  const buffer    = gl.createBuffer()
+  gl.bindBuffer(gl.ARRAY_BUFFER, buffer)
+  assert.doesNotThrow(() => gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 28, 8))
+  assert.doesNotThrow(() => gl.vertexAttribIPointer(2, 1, gl.FLOAT, 4, 12))
+  assert.equal(gl.getError(), gl.NO_ERROR)
+
+  gl.bindBuffer(gl.ARRAY_BUFFER, null)
+  assert.throws(() => gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 28, 8), /sin buffer enlazado/)
+
+  gl.bindBuffer(gl.ARRAY_BUFFER, buffer)
+  gl.deleteBuffer(buffer)                               // borrar el enlazado lo desenlaza
+  assert.throws(() => gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 28, 8), /sin buffer enlazado/)
+
+  const otro = gl.createBuffer()
+  gl.deleteBuffer(otro)                                 // borrar uno que no está enlazado no desenlaza nada
+  gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer())
+  gl.deleteBuffer(otro)
+  assert.doesNotThrow(() => gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 28, 8))
+  assert.equal(navegador.violaciones.length, 2)
+})
+
+test('el ARRAY_BUFFER es el único destino que cuenta: enlazar otro target no habilita el puntero', () => {
+  const navegador = crearNavegador()
+  const { gl }    = crear(navegador, 1)[0]
+  gl.bindBuffer(gl.PIXEL_PACK_BUFFER, gl.createBuffer())
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, gl.createBuffer())
+  assert.throws(() => gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 28, 8), /sin buffer enlazado/)
+})
+
+test('el enlace de ARRAY_BUFFER es del contexto, no del VAO: bindVertexArray no lo toca', () => {
+  const navegador = crearNavegador()
+  const { gl }    = crear(navegador, 1)[0]
+  gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer())
+  gl.bindVertexArray(gl.createVertexArray())
+  assert.doesNotThrow(() => gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 28, 8))
+  gl.bindVertexArray(null)
+  assert.doesNotThrow(() => gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 28, 8))
+})
+
+test('con estricto: false el puntero sin buffer no lanza, deja el error pendiente y la violación en el registro', () => {
+  const navegador = crearNavegador({ estricto: false })
+  const { gl }    = crear(navegador, 1)[0]
+  assert.doesNotThrow(() => gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 28, 8))
+  assert.doesNotThrow(() => gl.vertexAttribPointer(2, 1, gl.FLOAT, false, 28, 24))
+  assert.equal(navegador.violaciones.length, 2)
+  assert.equal(gl.getError(), INVALID_OPERATION)
+  assert.equal(gl.getError(), gl.NO_ERROR)
+})
+
+test('el enlace y el error pendiente no sobreviven a una pérdida: un contexto restaurado empieza sin buffer enlazado y sin error', () => {
+  const navegador = crearNavegador({ estricto: false })
+  const lienzo    = canvas()
+  lienzo.addEventListener('webglcontextlost', e => e.preventDefault())
+  const gl  = navegador.getContext(lienzo, 'webgl2')
+  const ext = gl.getExtension('WEBGL_lose_context')
+  gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer())
+  gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 28, 8)
+  assert.equal(navegador.violaciones.length, 0)
+
+  ext.loseContext()
+  navegador.vaciar()
+  ext.restoreContext()
+  navegador.vaciar()
+  assert.equal(gl.getError(), gl.NO_ERROR)
+  gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 28, 8)
+  assert.equal(navegador.violaciones.length, 1, 'restaurado no tiene el buffer de antes enlazado')
+  assert.equal(gl.getError(), INVALID_OPERATION)
+})
+
+test('sobre un perdido el puntero no se valida: la llamada no hace nada y sólo se cuenta', () => {
+  const navegador = crearNavegador()
+  const entrada   = crear(navegador, 1)[0]
+  entrada.gl.getExtension('WEBGL_lose_context').loseContext()
+  assert.doesNotThrow(() => entrada.gl.vertexAttribPointer(1, 4, entrada.gl.FLOAT, false, 28, 8))
+  assert.equal(entrada.llamadasTrasPerdida, 1)
+  assert.deepEqual(navegador.violaciones, [])
+})
+
+test('linkPointProgram sobre el VBO del arena armado no falla; sobre uno que todavía no existe (null) sí', () => {
+  const navegador = crearNavegador()
+  const { gl }    = crear(navegador, 1)[0]
+  assert.doesNotThrow(() => linkPointProgram(gl, gl.createBuffer()))
+  assert.throws(() => linkPointProgram(gl, null), /vertexAttribPointer\(\) se llamó sin buffer enlazado/)
+  assert.equal(navegador.violaciones.length, 1)
 })
 
 /* ── Enchufes ── */

@@ -353,6 +353,46 @@ for (const [nombre, opciones] of ESCENARIOS.filter(([, o]) => ['polygon', 'circl
   })
 }
 
+/* ── E02 · el VAO de los handles se enlaza sobre el VBO del arena, que se arma antes ── */
+
+// `EditableGeometry.buildGl` arma el arena de cada trazo (textura y VBO) ANTES que sus handles: el VAO de los handles
+// se enlaza con `linkPointProgram(gl, arena.vbo)`, y con el VBO todavía en null el enlace queda sobre ningún buffer
+// (`vertexAttribPointer` con offset sin ARRAY_BUFFER es INVALID_OPERATION): los handles no se ven ni se pican después
+// de re-adquirir. El navegador falso no lanza acá para que el error se lea: sin violaciones y con `getError` limpio.
+const sinErrorGl = (esc, i) => {
+  const { navegador } = esc
+  assert.deepEqual(navegador.violaciones, [], 'ningún vertexAttribPointer sin ARRAY_BUFFER enlazado')
+  assert.equal(esc.contexto(i).gl.getError(), esc.contexto(i).gl.NO_ERROR, `el contexto #${i} no retiene ningún error`)
+}
+
+for (const [nombre, opciones] of ESCENARIOS) {
+  test(`E02 ${nombre}: los handles enlazan su VAO sobre el VBO del arena, al construirse y re-adquirido`, () => {
+    const esc = montar({ ...opciones, navegador: nuevoNavegador({ estricto: false }) })
+    sinErrorGl(esc, 0)
+
+    esc.ed.surface.release()
+    esc.ed.surface.acquire()
+    sinErrorGl(esc, 1)
+
+    esc.navegador.desalojar(esc.vivo())                  // y desalojado, en el cuadro de la política
+    esc.navegador.vaciar()
+    cuadro()
+    assert.equal(esc.ed.surface.state, 'live')
+    sinErrorGl(esc, 2)
+    esc.ed.destroy()
+  })
+}
+
+// El arena del contorno es otro si la polilínea es curva, y se arma antes que su trazo.
+test('E02 polyline curva: el contorno también arma su arena antes de enlazar nada', () => {
+  const esc = montar({ kind: 'polyline', value: DIAGONAL, navegador: nuevoNavegador({ estricto: false }) })
+  esc.ed.setCurve(byDefault)
+  esc.ed.surface.release()
+  esc.ed.surface.acquire()
+  sinErrorGl(esc, 1)
+  esc.ed.destroy()
+})
+
 /* ── T2.3 · un desalojo se re-adquiere y pinta en el cuadro siguiente ── */
 
 test('T2.3: desalojado, se re-adquiere en el cuadro siguiente al aviso y pinta en ese mismo cuadro', () => {

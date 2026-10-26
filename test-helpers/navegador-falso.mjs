@@ -26,6 +26,13 @@
 //   · `drawingBufferWidth` y `drawingBufferHeight` siguen al `width` y al `height` del canvas, vivos: un
 //     contenedor de 0×0 da un buffer de 0×0.
 //
+// El buffer enlazado a ARRAY_BUFFER se anota por contexto (`bindBuffer`, y `deleteBuffer` del que está enlazado lo
+// suelta), y `vertexAttribPointer` o `vertexAttribIPointer` sin ninguno y con un offset distinto de 0 es
+// INVALID_OPERATION en WebGL [especificación; Chromium: «no ARRAY_BUFFER is bound and offset is non-zero»]. El
+// doble lo trata como un recurso mal usado: la llamada no hace nada, queda en `violaciones` (con `perdido: false`),
+// el contexto retiene el error hasta que `getError()` lo lee, y con `estricto` lanza. Un VAO armado sobre un VBO que
+// todavía no existe (`linkPointProgram(gl, null)`) cae acá.
+//
 // Las épocas son un rigor del doble, no de Chromium (que sólo marca INVALID_OPERATION): un recurso (programa,
 // shader, buffer, textura, VAO, framebuffer, fence, ubicación de uniform) nace en un contexto y en una época,
 // y se pierde con ella. Dónde se nota su uso inválido:
@@ -64,6 +71,7 @@ const PLANO                   = new Set(['2d', 'bitmaprenderer'])
 const CRITERIO                = { creacion: 'serie', ultimoUso: 'ultimoUso' }    // qué campo manda en cada política
 const NO_ERROR                = 0
 const CONTEXT_LOST_WEBGL      = 37442
+const INVALID_OPERATION       = 0x0502
 const FRAMEBUFFER_COMPLETE    = 0x8CD5
 const FRAMEBUFFER_UNSUPPORTED = 0x8CDD
 const WAIT_FAILED             = 0x911D
@@ -72,10 +80,13 @@ const AVISO_TECHO             = 'WARNING: Too many active WebGL contexts. Oldest
 // Lo único que renueva un contexto ante el techo [medido]: vaciar la cola de comandos.
 const USOS = new Set(['flush', 'finish'])
 
+// Las llamadas que leen el buffer enlazado a ARRAY_BUFFER, y la posición de su offset entre los argumentos.
+const PUNTEROS = new Map([['vertexAttribPointer', 5], ['vertexAttribIPointer', 4]])
+
 // Constantes que el doble base no define (ahí caen a un no-op): sin ellas `gl.getError() === gl.NO_ERROR` no se
 // puede escribir.
 const ENUMS = new Map([
-  ['NO_ERROR', NO_ERROR], ['CONTEXT_LOST_WEBGL', CONTEXT_LOST_WEBGL],
+  ['NO_ERROR', NO_ERROR], ['CONTEXT_LOST_WEBGL', CONTEXT_LOST_WEBGL], ['INVALID_OPERATION', INVALID_OPERATION],
   ['FRAMEBUFFER_COMPLETE', FRAMEBUFFER_COMPLETE], ['FRAMEBUFFER_UNSUPPORTED', FRAMEBUFFER_UNSUPPORTED],
 ])
 
@@ -185,6 +196,8 @@ export const crearNavegador = ({
     entrada.causa         = causa
     entrada.eventoPerdida = null
     entrada.errorAvisado  = false
+    entrada.arrayBuffer   = null
+    entrada.errorGl       = NO_ERROR
     entrada.epoca++
     programar(() => emitir(entrada, 'webglcontextlost'))
   }
@@ -263,6 +276,15 @@ export const crearNavegador = ({
     }
   }
 
+  // Un puntero de atributos sin buffer enlazado: INVALID_OPERATION. La llamada no llega al doble base (en Chromium no
+  // hace nada), el error queda pendiente para `getError()` y la violación en el registro; con `estricto` lanza.
+  const sinBuffer = (entrada, nombre, args) => {
+    const porque = `se llamó sin buffer enlazado a ARRAY_BUFFER y con el offset ${args[PUNTEROS.get(nombre)]}: INVALID_OPERATION`
+    entrada.errorGl ||= INVALID_OPERATION                 // WebGL retiene el primer error hasta que se lee
+    nav.violaciones.push({ contexto: entrada.id, metodo: nombre, porque, perdido: false })
+    if (nav.estricto) throw new Error(`[navegador-falso] ${nombre}() ${porque}`)
+  }
+
   const metodo = (entrada, nombre, original) => {
     if (nombre === 'getExtension')
       return ext => entrada.estado === 'perdido' ? null
@@ -275,7 +297,15 @@ export const crearNavegador = ({
       }
       entrada.paneEl || ubicar(entrada)
       USOS.has(nombre) && (entrada.ultimoUso = ++reloj)
+      if (PUNTEROS.has(nombre) && !entrada.arrayBuffer && args[PUNTEROS.get(nombre)]) return sinBuffer(entrada, nombre, args)
+      nombre === 'bindBuffer'   && args[0] === entrada.gl.ARRAY_BUFFER && (entrada.arrayBuffer = args[1] ?? null)
+      nombre === 'deleteBuffer' && args[0] === entrada.arrayBuffer     && (entrada.arrayBuffer = null)
       const resultado = original(...args)
+      if (nombre === 'getError' && entrada.errorGl) {
+        const pendiente = entrada.errorGl
+        entrada.errorGl = NO_ERROR
+        return pendiente
+      }
       if (VIVO.has(nombre)) return typeof resultado === 'number' ? resultado : VIVO.get(nombre)
       NACE.test(nombre) && resultado !== null && typeof resultado === 'object'
         && Object.defineProperty(resultado, MARCA, { value: { entrada, epoca: entrada.epoca }, configurable: true })
@@ -324,6 +354,8 @@ export const crearNavegador = ({
       ultimoUso           : ++reloj,      // el reloj de su último flush; la creación es el primero
       eventoPerdida       : null,
       errorAvisado        : false,        // getError ya dio CONTEXT_LOST_WEBGL en esta pérdida
+      arrayBuffer         : null,         // el buffer enlazado a ARRAY_BUFFER: lo que lee vertexAttribPointer
+      errorGl             : NO_ERROR,     // el error que el contexto retiene hasta que getError() lo lee
       restaurando         : false,
       llamadasTrasPerdida : 0,
       paneEl              : null,
