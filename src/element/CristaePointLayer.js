@@ -25,7 +25,7 @@ export class CristaePointLayer extends CristaeLayerElement {
     autoFit    : { attribute: 'auto-fit' },      // "once": encuadra la capa al llegar los primeros puntos
   }
 
-  #autoFitUnsub = null
+  #autoFitUnsub = null   // la espera de `auto-fit="once"` mientras no encuadró; null = no espera
 
   constructor() {
     super()
@@ -58,8 +58,10 @@ export class CristaePointLayer extends CristaeLayerElement {
   }
 
   syncLayer(changed) {
-    if (changed.has('source') && this.source) this._engine.attachSource(this._handle.id, this.source)
-    else if (changed.has('data') && this.data) this._handle.set(this.data)
+    if (changed.has('source') && this.source) {
+      this._engine.attachSource(this._handle.id, this.source)
+      this.#autoFitUnsub && this.#autoFitOnce(this._engine, this._handle)   // la espera sigue a la fuente nueva
+    } else if (changed.has('data') && this.data) this._handle.set(this.data)
     if (changed.has('where')) this._handle.setWhere(this.where)
     if (changed.has('visible')) this._handle.setVisible(this.visible)
     if (changed.has('enabled')) this._handle.setEnabled(this.enabled)
@@ -73,8 +75,11 @@ export class CristaePointLayer extends CristaeLayerElement {
 
   // `auto-fit="once"`: encuadra la capa cuando hay puntos, una sola vez. Se respalda en el handle
   // imperativo `camera.fitToLayer` (no recalcula bounds). Si los datos ya están, encuadra al toque;
-  // si no, espera el primer snapshot no vacío del Source y se desuscribe.
+  // si no, espera el primer snapshot no vacío del Source y se desuscribe. Si la capa cambia de fuente
+  // antes de encuadrar, la espera se pasa a la nueva (la vieja, que puede ser compartida, ya no cuenta).
   #autoFitOnce(engine, handle) {
+    this.#autoFitUnsub?.()
+    this.#autoFitUnsub = null
     const src = handle.source
     const fit = () => engine.camera.fitToLayer(handle.id)
     if (src?.getSnapshot()?.length) { fit(); return }
