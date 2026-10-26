@@ -14,6 +14,10 @@ import { anchorMatrix } from './anchor-matrix.js'
 //
 // El ancla de una parte la fija su escritura entera (el centro de su caja) y no se mueve al agregar:
 // un vértice lejano pierde algo de precisión float32 antes que reescribir todo el rango.
+//
+// Las texturas son del contexto, y el contexto puede faltar (el navegador lo quita, o la superficie lo
+// suelta) y volver en otro. El espejo en CPU es la fuente: sin contexto las partes se escriben igual y la
+// subida queda pendiente, entera, para `buildGl`; `dropGl` olvida las texturas sin tocar el contexto.
 
 // Tope del ANCHO de la textura; las filas crecen debajo.
 const MAX_WIDTH = 2048
@@ -42,7 +46,9 @@ class LineView {
 
 export class LineStore {
 
-  #gl; #gradient
+  #gradient
+  #gl           = null                 // null sin contexto: el espejo se escribe igual y no se sube nada
+  #limit        = Infinity             // lado máximo de textura del último contexto que tuvo; sin contexto, el que rige
   #size         = 0                    // vértices que caben, potencia de 2
   #used         = 0                    // marca de agua del arreglo: lo que hay detrás está libre
   #garbage      = 0                    // huecos abandonados por las partes que se mudaron o se fueron
@@ -63,18 +69,22 @@ export class LineStore {
   #views  = []
   #matrix = new Float32Array(16)
 
-  constructor({ gl, gradient = false }) {
-    this.#gl       = gl
+  // `limit` es el tope que midió el store al que releva: sin contexto no hay de dónde leerlo, y las partes siguen
+  // creciendo contra el último que se midió.
+  constructor({ gl = null, gradient = false, limit = Infinity }) {
     this.#gradient = gradient
+    this.#limit    = limit
+    gl && this.buildGl(gl)
   }
 
   get texture()      { return this.#texture }
   get textureWidth() { return this.#width }
   get colorTexture() { return this.#colorTexture }
   get slotCount()    { return this.#first.length }
+  get limit()        { return this.#limit }
 
   // Se arma al primer pedido y la textura nueva queda ligada a la unidad activa: quien dibuja la pide
-  // ANTES de ligar las suyas.
+  // ANTES de ligar las suyas. Sin contexto no hay textura de posiciones, y tampoco ésta.
   get arcTexture() {
     return this.#arcTexture ??= this.#texture && this.#image(this.#gl.createTexture(), this.#gl.R32F, this.#gl.RED, this.#arcs)
   }
@@ -140,11 +150,31 @@ export class LineStore {
     this.#free.push(slot)
   }
 
+  // Las texturas del contexto que sigue vivo se devuelven; las de uno perdido no, porque ya no hay a quién.
   destroy() {
-    ;[this.#texture, this.#arcTexture, this.#colorTexture].forEach(t => t && this.#gl.deleteTexture(t))
-    this.#texture = this.#arcTexture = this.#colorTexture = null
+    const gl = this.#gl
+    gl && [this.#texture, this.#arcTexture, this.#colorTexture].forEach(t => t && gl.deleteTexture(t))
+    this.dropGl()
     this.#first.length = 0
     this.#views.length = 0
+    return this
+  }
+
+  // Crea las texturas en el contexto que llega y sube el espejo entero, si ya hay partes. Las de arcos se arman al
+  // primer pedido. El tope de textura se vuelve a medir, y lo que ya cabía tiene que seguir cabiendo.
+  buildGl(gl) {
+    const limit = gl.getParameter?.(gl.MAX_TEXTURE_SIZE)
+    Number.isFinite(limit) && (this.#limit = limit)
+    this.#fit()
+    this.#gl = gl
+    this.#size && this.#uploadAll()
+    return this
+  }
+
+  // Olvida las texturas sin tocar el contexto, que se perdió o que la superficie va a soltar con `loseContext`, que
+  // libera todo de una vez. Tienen que quedar en null: se crean con `??=`, y una vieja no se recrearía.
+  dropGl() {
+    this.#gl = this.#texture = this.#arcTexture = this.#colorTexture = null
     return this
   }
 
@@ -222,15 +252,19 @@ export class LineStore {
     this.#arcs  = arcs
     this.#rgba  = rgba
     this.#width = Math.min(MAX_WIDTH, this.#size)
-    const limit = this.#gl.getParameter?.(this.#gl.MAX_TEXTURE_SIZE)
-    if (Number.isFinite(limit) && this.#size / this.#width > limit)
-      throw new Error(`[cristae] ${this.#size} vértices no entran en una textura de ${limit}×${limit}`)
+    this.#fit()
     this.#uploadAll()
+  }
+
+  #fit() {
+    if (this.#size / this.#width > this.#limit)
+      throw new Error(`[cristae] ${this.#size} vértices no entran en una textura de ${this.#limit}×${this.#limit}`)
   }
 
   // Las texturas se rehacen con las dimensiones nuevas; el espejo ya es del tamaño exacto.
   #uploadAll() {
     const gl = this.#gl
+    if (!gl) return
     this.#texture ??= gl.createTexture()
     this.#image(this.#texture, gl.RG32F, gl.RG, this.#rel)
     this.#arcTexture && this.#image(this.#arcTexture, gl.R32F, gl.RED, this.#arcs)
@@ -252,7 +286,8 @@ export class LineStore {
 
   // Las filas que cubren los `n` vértices desde `lo`: una subida por textura, sin importar cuántos sean.
   #upload(lo, n) {
-    const gl   = this.#gl
+    const gl = this.#gl
+    if (!gl) return
     const row  = lo >> Math.log2(this.#width)
     const rows = ((lo + n - 1) >> Math.log2(this.#width)) - row + 1
     const at   = row * this.#width
