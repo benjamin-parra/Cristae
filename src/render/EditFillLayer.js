@@ -123,11 +123,11 @@ export class EditFillLayer {
   #opacity
   #rgba
   #step                                 // entradas entre dos vértices consecutivos del mismo rango
-  #gl
-  #parity
-  #live
-  #cover
-  #vao
+  #gl     = null                        // lo GL: el contexto, sus tres programas y el VAO de esta capa
+  #parity = null
+  #live   = null
+  #cover  = null
+  #vao    = null
   #arena  = null                        // anillo en curso, para los callbacks estables de eachRange
   #matrix = null
   #box    = new Float64Array(4)         // scratch de boxOfChunk
@@ -137,16 +137,31 @@ export class EditFillLayer {
   #ranges = 0
   #promo  = { ring: -1, vertex: -1, prev: -1, next: -1, x: 0, y: 0 }
 
-  constructor({ gl, rings = [], color = '#6366f1', opacity = 0.42, step = 2 }) {
-    const pass = passPrograms(gl, step)
-    this.rings   = rings
+  // Sin `gl` nace sin contexto: lo GL se arma con `buildGl(gl)` y se olvida con `dropGl()`, sin tocar el contexto,
+  // cuando la superficie de la capa toma uno o lo pierde. Los anillos y el estilo son de CPU y sobreviven, y `draw`
+  // exige contexto: la capa no lo llama sin uno.
+  constructor({ gl = null, rings = [], color = '#6366f1', opacity = 0.42, step = 2 }) {
+    this.rings = rings
+    this.#step = step
+    this.style({ color, opacity })
+    gl && this.buildGl(gl)
+  }
+
+  // Los programas son del contexto (`sharedProgram`), y la caché es por contexto: en uno nuevo se enlazan y se les
+  // fija `uPos` otra vez.
+  buildGl(gl) {
+    const pass = passPrograms(gl, this.#step)
     this.#gl     = gl
-    this.#step   = step
     this.#vao    = gl.createVertexArray()
     this.#parity = pass.parity
     this.#live   = pass.live
     this.#cover  = pass.cover
-    this.style({ color, opacity })
+    return this
+  }
+
+  dropGl() {
+    this.#gl = this.#vao = this.#parity = this.#live = this.#cover = null
+    return this
   }
 
   // Un hex con alpha propio manda sobre `opacity`.
@@ -224,9 +239,10 @@ export class EditFillLayer {
     return true
   }
 
-  // El VAO es de esta capa; los tres programas son del contexto y los comparten todas las geometrías.
+  // El VAO es de esta capa; los tres programas son del contexto y los comparten todas las geometrías. Sin
+  // contexto no hay nada que borrar.
   destroy() {
-    this.#gl.deleteVertexArray(this.#vao)
+    this.#gl?.deleteVertexArray(this.#vao)
     this.rings = []
   }
 

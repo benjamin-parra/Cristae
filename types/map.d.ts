@@ -273,8 +273,8 @@ export interface MapClickDetail {
 }
 
 /** Cómo está la superficie WebGL de una capa. `live`: tiene su contexto. `lost`: el navegador se lo
- *  quitó y la capa no dibuja más. `released` y `none`: sin contexto, soltado a propósito o sin haberlo
- *  tomado. Hoy una superficie sólo está `live` o `lost`: las dos últimas son de las etapas siguientes. */
+ *  quitó. Una capa de puntos —también un overlay o una burbuja de cluster— lo vuelve a tomar en el cuadro
+ *  siguiente si hay cupo, y las demás no dibujan más. `released`: lo soltó a propósito. `none`: no lo tomó. */
 export type SurfaceState = "live" | "lost" | "released" | "none";
 
 /** Una fila de `engine.surfaces()` y el `detail` de la señal `surfacechange`: la superficie WebGL de una
@@ -315,10 +315,9 @@ export interface EngineSignals {
   'drawingstart'     : (detail: Record<string, never>) => void;
   /** El último editor que la tomaba dejó de hacerlo, o se quitó: el mapa salió del estado. No sale en `destroy()`. */
   'drawingend'       : (detail: Record<string, never>) => void;
-  /** La superficie WebGL de una capa cambió de estado, y el detail es su fila de `surfaces()`. Hoy sale
-   *  cuando el navegador le quita el contexto (`state: 'lost'`) al pasar el techo de contextos vivos: la
-   *  capa no dibuja más. Las etapas siguientes la emitirán también al adquirir y al soltar una superficie.
-   *  No sale en `destroy()` ni al quitar la capa (SPECS §10). */
+  /** La superficie WebGL de una capa cambió de estado, y el detail es su fila de `surfaces()`: sale cuando
+   *  el navegador le quita el contexto (`state: 'lost'`), cuando la capa lo vuelve a tomar (`live`) y cuando
+   *  lo suelta (`released`). No sale al dar de alta la capa, ni en `destroy()` ni al quitarla (SPECS §10). */
   'surfacechange'    : (detail: SurfaceInfo) => void;
 }
 

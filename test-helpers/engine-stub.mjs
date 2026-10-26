@@ -27,12 +27,14 @@ const nodoDom = () => {
   return () => { vivo && registro.muertes.push(serie); vivo = false }
 }
 
-// Elemento del `document` del shim: no-op salvo lo que las capas tocan, más su baja.
+// Elemento del `document` del shim: no-op salvo lo que las capas tocan, más su baja. El shim no arma árbol, así
+// que reemplazar un nodo es sólo darlo de baja (el canvas de una superficie que re-adquiere su contexto).
 const elemento = (base = {}) => Object.assign(base, {
   style:  base.style ?? {},
   remove: nodoDom(),
   setAttribute() {}, appendChild() {}, addEventListener() {}, removeEventListener() {},
   removeChild(hijo) { hijo?.remove?.() },
+  replaceWith() { this.remove() },
 })
 
 // Un contexto 2D que no dibuja: todo es no-op salvo `measureText`, que mide 0 como un texto vacío, para

@@ -148,7 +148,7 @@ instancia** (resuelve al primer montaje, con su propio tiempo si hay varios mapa
 | `cristae:pointermove` | la muestra del puntero, `{ lat, lng, x, y }`: su posición y su píxel del contenedor. Llega congelada ([SPECS §10](../SPECS.md)) |
 | `cristae:viewportchange` | `{ center: { lat, lng }, zoom, bounds: { south, west, north, east } }` |
 | `cristae:interactionstart` / `cristae:interactionend` | `{}` |
-| `cristae:surfacechange` | `{ layerId, kind, pane, z, cssZoom, state, hasContent, visible }` — la fila de `engine.surfaces()` de la capa cuya superficie WebGL cambió de estado; hoy sale cuando el navegador le quita el contexto, con `state: 'lost'` ([SPECS §10](../SPECS.md)) |
+| `cristae:surfacechange` | `{ layerId, kind, pane, z, cssZoom, state, hasContent, visible }` — la fila de `engine.surfaces()` de la capa cuya superficie WebGL cambió de estado: cuando el navegador le quita el contexto (`state: 'lost'`), cuando la capa lo vuelve a tomar (`live`) y cuando lo suelta (`released`) ([SPECS §10](../SPECS.md)) |
 
 Ningún `detail` lleva valores de Leaflet: posiciones, píxeles y cajas son objetos planos. Una caja se
 agranda, se consulta y se centra con las funciones de [`cristae/geometry`](./geometry.md#cajas).

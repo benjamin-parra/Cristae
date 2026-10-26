@@ -77,7 +77,7 @@ export class LineGpuLayer {
     this.#rgba     = new Uint8Array(this.#scalarOf ? 128 : 0)
     this.#base     = { ...DEFAULT_STYLE, ...(color && { color }), ...(weight != null && { weight }), ...(opacity != null && { opacity }) }
     this.#surface  = new EditSurface({ host, pane })
-    this.#gl       = this.#surface.attach()
+    this.#gl       = this.#surface.acquire()
     // La superficie ya tomó uno de los ~16 contextos: lo que siga puede tirar y nadie devuelve uno solo.
     try {
       this.#stroke = new StrokePass({ gl: this.#gl, closed: false, gradient: !!this.#scalarOf })

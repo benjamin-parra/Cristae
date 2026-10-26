@@ -7,7 +7,9 @@
 // La caché toma el contexto como clave DÉBIL y no lo referencia de ninguna otra forma: cuando el mapa
 // muere —`loseGlContext` libera de una vez todo lo que colgaba del contexto— la entrada entera queda
 // recolectable. De ahí que ninguna capa borre un programa al destruirse: no es suyo, vive lo que vive el
-// contexto, y volver a entrar en edición sobre el mismo mapa ya no enlaza nada.
+// contexto, y volver a entrar en edición sobre el mismo mapa ya no enlaza nada. Una superficie que re-adquiere
+// trae un contexto NUEVO: su entrada nace vacía y la del perdido queda recolectable, así que nunca se entrega un
+// programa de un contexto muerto.
 
 const byContext = new WeakMap()
 

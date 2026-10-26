@@ -152,7 +152,7 @@ export class PolygonGpuLayer {
     this.#styleOf = styleOf ?? source?.accessors?.styleOf ?? null
     this.#base    = { color, weight, opacity, fillColor, fillOpacity }
     this.#surface = new EditSurface({ host, pane })
-    this.#gl      = this.#surface.attach()
+    this.#gl      = this.#surface.acquire()
     // La superficie ya tomó uno de los ~16 contextos del navegador. Lo que siga puede tirar —el store
     // rechaza una geometría que no entra en la textura, y el estilo llama a `styleOf` e `idOf`, que son
     // código del consumidor—, y un contexto que nadie devuelve no vuelve en toda la vida de la página.

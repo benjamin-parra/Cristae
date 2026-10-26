@@ -165,7 +165,7 @@ export class EditableGeometry {
     this.#onHandleLevel = onHandleLevel
     this.#onDrawing     = onDrawing
     this.#surface       = new EditSurface({ host, pane: this.#pane })
-    this.#gl            = this.#surface.attach()
+    this.#gl            = this.#surface.acquire()
     this.#iconSet       = defineEditIconSet()
     this.#fill          = CERRADOS.has(kind) ? new EditFillLayer({ gl: this.#gl, rings: this.#contornos, color: this.#style.fillColor, opacity: this.#style.fillOpacity }) : null
     this.#geom          = this.#ingest(value)
