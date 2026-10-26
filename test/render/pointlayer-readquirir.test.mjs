@@ -188,6 +188,52 @@ test('T2.1: re-adquirida, la escala se mide sobre el canvas nuevo y los tamaños
   layer.destroy()
 })
 
+// Con otra escala la capa recodifica los tamaños, y no por eso pinta más tarde: el contexto nace en blanco y el
+// contrato es «pintada en la misma tarea». Un solo bufferData, un solo dibujo y ningún cuadro agendado.
+test('H3: re-adquirida con otra escala, pinta en la misma tarea, sube una vez y no deja un cuadro agendado', () => {
+  const caja = { ancho: 400 }                             // 800 px de buffer en 400 px CSS: escala 2
+  const { layer, contexto } = montar()
+  cuadro()
+  const sinCaja = decorarElementos((el, tag) => (tag === 'canvas' && Object.defineProperty(el, 'clientWidth', { get: () => caja.ancho }), el))
+  try {
+    layer.surface.release()
+    layer.surface.acquire()                               // el primero no tenía caja: escala 1
+    const nuevo = contexto(1)
+    assert.equal(llamados(nuevo, 'bufferData').at(-1)[2][SIZE], 48, 'los tamaños con la escala nueva')
+    assert.deepEqual(subidas(nuevo).map(([m]) => m), ['bufferData', 'texImage2D', 'texSubImage2D', 'drawArrays'], 'sube y dibuja en la tarea del acquire')
+    assert.equal(llamados(nuevo, 'bufferData').length, 1, 'el espejo se sube una vez')
+    assert.deepEqual(llamados(nuevo, 'drawArrays').at(-1).slice(1), [0, 0, 3])
+    assert.equal(agendados.size, 0, 'el cuadro que agenda el rebuild se cancela: nada queda por pintar')
+
+    cuadro()
+    assert.equal(llamados(nuevo, 'drawArrays').length, 1, 'y el cuadro siguiente no repite el dibujo')
+  } finally {
+    sinCaja()
+  }
+  layer.destroy()
+})
+
+test('H3: oculta y re-adquirida con otra escala, sube recodificado y no pinta; mostrarla sí', () => {
+  const caja = { ancho: 400 }
+  const { layer, contexto } = montar()
+  cuadro()
+  layer.setVisible(false)
+  const sinCaja = decorarElementos((el, tag) => (tag === 'canvas' && Object.defineProperty(el, 'clientWidth', { get: () => caja.ancho }), el))
+  try {
+    layer.surface.release()
+    layer.surface.acquire()
+    const nuevo = contexto(1)
+    assert.equal(llamados(nuevo, 'bufferData').at(-1)[2][SIZE], 48)
+    assert.equal(llamados(nuevo, 'drawArrays').length, 0)
+    assert.equal(agendados.size, 0, 'oculta no agenda cuadros')
+    assert.equal(layer.setVisible(true), true)
+    assert.equal(llamados(nuevo, 'drawArrays').length, 1)
+  } finally {
+    sinCaja()
+  }
+  layer.destroy()
+})
+
 /* ── T2.2 · programas en el contexto nuevo, profundidad y atlas reaplicados ── */
 
 for (const interactive of [false, true]) {
@@ -331,6 +377,75 @@ test('T2.7: un hover en vuelo cuando se pierde el contexto sale vacío, el encol
   intacto(navegador, 0)
   layer.destroy()
 })
+
+/* ── P01 · un repintado pendiente al perder el contexto no deja a la capa sin repintar ── */
+
+// `dropGl` cancela el cuadro agendado y lo pone en 0. Si el id viejo quedara, `redraw()` creería que hay uno en pie y
+// no agendaría nada: tras re-adquirir, la capa no repintaría datos, foco ni atlas hasta que la vista se moviera.
+for (const [como, perder, enPie] of [
+  ['soltada',    ({ layer }) => layer.surface.release(), 0],
+  ['desalojada', ({ navegador, contexto }) => { navegador.desalojar(contexto(0)); navegador.vaciar() }, 1],
+]) {
+  test(`P01 ${como} con un repintado agendado: el cuadro se cancela y, re-adquirida, un dato nuevo se repinta en el cuadro siguiente`, () => {
+    const h = montar()
+    const { layer, source, contexto } = h
+    cuadro()
+    assert.ok(layer.redraw(), 'agendó un repintado')
+    assert.equal(agendados.size, 1)
+
+    perder(h)
+    assert.equal(agendados.size, enPie, enPie ? 'dropGl cancela el repintado; sólo queda el cuadro de la recuperación' : 'dropGl cancela el repintado')
+    layer.surface.state === 'released' ? layer.surface.acquire() : cuadro()           // la política la recupera en el cuadro siguiente
+    assert.equal(layer.surface.state, 'live')
+    assert.equal(llamados(contexto(1), 'drawArrays').length, 1, 'la re-adquisición pinta en el acto')
+    assert.equal(agendados.size, 0)
+
+    source.mover('B', 5, 5)
+    assert.equal(agendados.size, 1, 'un repintado nuevo SÍ se agenda')
+    cuadro()
+    assert.equal(llamados(contexto(1), 'drawArrays').length, 2, 'y pinta el dato nuevo')
+    layer.destroy()
+  })
+}
+
+test('P01: el foco y el atlas que llegan tras re-adquirir también se repintan', () => {
+  const { layer, contexto } = montar()
+  cuadro()
+  layer.redraw()
+  layer.surface.release()
+  layer.surface.acquire()
+  layer.applyFocus(new Set(['A']))
+  assert.equal(agendados.size, 1, 'el foco agenda su cuadro')
+  cuadro()
+  assert.equal(llamados(contexto(1), 'drawArrays').length, 2)
+  layer.destroy()
+})
+
+// La imagen que una capa oculta conserva es la del contexto que tenía. El contexto nuevo nace en blanco, y por muy
+// quieta que haya estado, mostrarla tiene que pintar.
+for (const [como, perder] of [
+  ['soltada',    ({ layer }) => layer.surface.release()],
+  ['desalojada', ({ navegador, contexto }) => { navegador.desalojar(contexto(0)); navegador.vaciar() }],
+]) {
+  test(`mostrar: oculta con la imagen al día y ${como} mientras tanto, mostrarla pinta en el contexto nuevo`, () => {
+    const h = montar()
+    const { layer, contexto } = h
+    cuadro()
+    layer.setVisible(false)
+    assert.equal(layer.setVisible(true), false, 'quieta, mostrarla no cuesta')
+    layer.setVisible(false)
+
+    perder(h)
+    layer.surface.state === 'released' ? layer.surface.acquire() : cuadro()
+    assert.equal(layer.surface.state, 'live')
+    assert.equal(llamados(contexto(1), 'drawArrays').length, 0, 'oculta, no pinta al re-adquirir')
+
+    assert.equal(layer.setVisible(true), true, 'el canvas nuevo está en blanco: pinta')
+    assert.equal(llamados(contexto(1), 'drawArrays').length, 1)
+    assert.equal(layer.setVisible(true), false)
+    layer.destroy()
+  })
+}
 
 /* ── La política: una por cuadro, y sin ciclos cuando no hay cupo ── */
 

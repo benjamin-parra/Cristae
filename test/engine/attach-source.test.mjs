@@ -245,7 +245,23 @@ test('T1.3 repetir el estado no repinta: mostrar la que ya se ve, ni ocultar la 
   engine.setLayerVisibility('flota', false)
   engine.setLayerVisibility('flota', false)
   engine.setLayerVisibility('flota', true)
-  assert.equal(draws.length, 1, 'sólo pasar de oculta a visible pinta, y una vez')
+  assert.equal(draws.length, 0, 'oculta y mostrada sin que nada cambie: la imagen del canvas sigue valiendo')
+  engine.destroy()
+})
+
+test('T1.3 mostrarla pinta si el mapa se movió mientras estaba oculta, una vez y en la misma tarea', async () => {
+  const { engine, map, gl } = await montar()
+  const { draws } = gl(0).spy
+  engine.setLayerVisibility('flota', false)
+  map.fire('moveend')                                // el mapa se movió con la capa oculta
+  await flush()
+  draws.length = 0
+
+  engine.setLayerVisibility('flota', true)
+  assert.equal(draws.length, 1, 'pinta la vista de ahora, en la misma tarea')
+  engine.setLayerVisibility('flota', false)
+  engine.setLayerVisibility('flota', true)
+  assert.equal(draws.length, 1, 'y ocultarla y mostrarla de nuevo, ya quieta, no cuesta nada')
   engine.destroy()
 })
 

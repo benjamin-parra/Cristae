@@ -47,6 +47,7 @@ export class PointLayer {
   #view        = { zoom: 0, center: { x: 0, y: 0 }, size: { x: 0, y: 0 } }
   #injected    = false  // `#view` es un cuadro del zoom animado: rige hasta que el motor reasienta la capa
   #frame       = 0      // rAF del repintado agendado; 0 = ninguno
+  #stale       = true   // el canvas quedó atrás: nunca dibujó, o se pidió un dibujo que no pudo hacerse (oculta, sin contexto)
   #scale       = 1      // px del drawing buffer por px CSS: la unidad de `gl_PointSize`
   #scaledAt    = 0      // ancho del buffer con el que se midió `#scale`
   #hoverPick   = { hits: [], sample: null }   // cache del último pick de hover, atado a su muestra
@@ -74,7 +75,7 @@ export class PointLayer {
   // refresh() sigue operativo (es el catch-up explícito al re-habilitar).
   #enabled = true
   // Oculta (visible ∧ habilitada, que compone el motor): su pane no se ve y no dibuja. El buffer sigue al
-  // día con la Source, así que mostrarla es un draw.
+  // día con la Source, así que mostrarla es un draw si algo cambió mientras tanto, y nada si no.
   #visible = true
 
   // Eje focus: el alfa por ítem viaja en el SIGNO del `size` del vértice; `ids` null = sin foco.
@@ -233,8 +234,11 @@ export class PointLayer {
     gl.depthFunc(gl.LEQUAL)     // banda igual → gana el último: la precedencia de slot queda intacta
     this.#picking && this.#binding.register(this.#picking.attach(gl, this.#program, true))
     if (this.#snapLen < 0) return this.#rescale()
-    if (this.#rescale()) return this.refresh()
-    this.#upload()
+    if (this.#rescale()) {
+      this.refresh()                     // recodifica los tamaños con la escala nueva y sube el espejo; agenda un cuadro
+      cancelAnimationFrame(this.#frame)  // que sobra: el contexto nace en blanco y se pinta en esta tarea
+      this.#frame = 0
+    } else this.#upload()
     return this.#draw(this.#injected ? this.#view : readView(this.#camera, this.#view))
   }
 
@@ -252,16 +256,23 @@ export class PointLayer {
   }
 
   // Repinta en el próximo cuadro; los pedidos del mismo cuadro son un solo dibujo. Oculta o sin contexto no
-  // agenda nada: al mostrarla se pinta en el acto, y al volver a tener contexto también.
-  redraw() { return this.#visible && !!this.#gl && (this.#frame ||= requestAnimationFrame(this.#paint)) }
+  // agenda nada, pero deja anotado que el canvas quedó atrás: al mostrarla se pinta en el acto, y al volver a
+  // tener contexto también.
+  redraw() {
+    const dibujable = this.#visible && !!this.#gl
+    this.#stale ||= !dibujable
+    return dibujable && (this.#frame ||= requestAnimationFrame(this.#paint))
+  }
 
   // Oculta no dibuja —ni al reasentar, ni en un cuadro del zoom, ni en un repintado—, pero reasienta el
   // canvas y mantiene el buffer al día. Mostrarla pinta en la misma tarea la vista que se ve ahora, la
-  // inyectada si hay un zoom animado en curso, y devuelve si pintó. Repetir el mismo estado no cuesta nada.
+  // inyectada si hay un zoom animado en curso, y devuelve si pintó. Sólo pinta si algo pidió un dibujo
+  // mientras estaba oculta (la vista, un dato, el foco, el contexto): si no, la imagen del canvas sigue
+  // valiendo y no cuesta nada. Repetir el mismo estado tampoco.
   setVisible(visible = true) {
     const mostrada = visible && !this.#visible
     this.#visible  = visible
-    return mostrada && this.#draw(this.#injected ? this.#view : readView(this.#camera, this.#view))
+    return mostrada && this.#stale && this.#draw(this.#injected ? this.#view : readView(this.#camera, this.#view))
   }
   syncPickingSize() { this.#picking?.syncSize() }
 
@@ -302,10 +313,13 @@ export class PointLayer {
   }
 
   // El orden por banda limpia y prueba profundidad en cada draw: el pase de picking la apaga al salir.
-  // Devuelve si dibujó: oculta, o sin contexto, no. Un contexto que el navegador ya quitó y todavía no
-  // avisó ignora el dibujo.
+  // Devuelve si dibujó: oculta, o sin contexto, no, y el canvas queda anotado como atrasado. Un contexto que el
+  // navegador ya quitó y todavía no avisó ignora el dibujo.
   #draw(view) {
-    if (!this.#visible || !this.#gl) return false
+    if (!this.#visible || !this.#gl) {
+      this.#stale = true
+      return false
+    }
     const gl = this.#gl
     this.#binding.sync(this.#iconSet.atlas)
     gl.useProgram(this.#program)
@@ -317,6 +331,7 @@ export class PointLayer {
     gl.bindVertexArray(this.#vao)
     gl.drawArrays(gl.POINTS, 0, this.#count)
     gl.bindVertexArray(null)
+    this.#stale = false
     return true
   }
 
