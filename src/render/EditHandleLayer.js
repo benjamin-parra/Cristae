@@ -7,6 +7,10 @@
 // derivados por frame de la promoción vigente. El agujero es sólo del VISUAL: el PASE recorre el run
 // entero, porque el nodo del banco es afordancia —`pointer-events: none`, nunca pickea— y sacar al
 // promovido del pase lo volvería inagarrable.
+//
+// Lo GL es del contexto de la superficie y se arma con `buildGl(gl)` —el binding del atlas, el programa, el VAO sobre
+// el VBO del arena y el picking— y se olvida con `dropGl()` sin tocar el contexto. La promoción, los agujeros y la
+// vista sobreviven. Sin contexto no hay nada que dibujar ni que picar: `pickBatch` sale vacío.
 import { GpuAtlasBinding } from '../atlas/GpuAtlasBinding.js'
 import { defineIconSet } from '../atlas/IconSet.js'
 import { ROLE } from '../geometry/ChunkedPath.js'
@@ -90,7 +94,9 @@ export const editHandleChannels = (iconSet, scale = 1) => ({
 
 export class EditHandleLayer {
 
-  #gl; #arena; #path; #picking; #iconSet; #binding
+  #arena; #path; #picking; #iconSet
+  #gl      = null
+  #binding = null
   #program = null
   #uMatrix = null
   #vao     = null
@@ -110,23 +116,40 @@ export class EditHandleLayer {
   // La identidad que le asigna el motor. El pase descarta el objeto 0.
   pickObject = 0
 
-  constructor({ gl, arena, path, picking, iconSet = defineEditIconSet() }) {
-    this.#gl      = gl
+  // Sin `gl` nace sin contexto, y lo GL llega con `buildGl`, que necesita el VBO del arena ya armado en ese contexto.
+  constructor({ gl = null, arena, path, picking, iconSet = defineEditIconSet() }) {
     this.#arena   = arena
     this.#path    = path
     this.#picking = picking
     this.#iconSet = iconSet
-    this.#binding = new GpuAtlasBinding(gl)
-
-    ;({ program: this.#program, vao: this.#vao } = linkPointProgram(gl, arena.vbo))
-    this.#uMatrix = gl.getUniformLocation(this.#program, 'matrix')
-
-    this.#binding.register(this.#program)
-    this.#binding.register(picking.attach(gl, this.#program))
+    gl && this.buildGl(gl)
   }
 
   get iconSet()  { return this.#iconSet }
   get promoted() { return this.#promoted }
+
+  // Un binding del atlas NUEVO por contexto: decide por identidad del atlas y su textura es del contexto que la creó.
+  buildGl(gl) {
+    this.#gl      = gl
+    this.#binding = new GpuAtlasBinding(gl)
+
+    ;({ program: this.#program, vao: this.#vao } = linkPointProgram(gl, this.#arena.vbo))
+    this.#uMatrix = gl.getUniformLocation(this.#program, 'matrix')
+
+    this.#binding.register(this.#program)
+    this.#binding.register(this.#picking.attach(gl, this.#program))
+    return this
+  }
+
+  // Los draws del pase guardan la textura del binding de antes, y el pick en vuelo muere con el contexto: se cobra
+  // vacío acá, porque nadie lo espera y vivo haría pasar por la cola cada pedido del contexto nuevo.
+  dropGl() {
+    this.#picking.drop()
+    this.#picking.collect()
+    this.#draws.length = 0
+    this.#gl = this.#binding = this.#program = this.#vao = this.#uMatrix = null
+    return this
+  }
 
   // El vértice cuyo vecindario toma el banco DOM (-1 = ninguno). Sólo abre agujeros: no escribe un byte.
   promote(ref) {
@@ -168,11 +191,11 @@ export class EditHandleLayer {
   }
 
   // Un PickDraw por chunk VISIBLE, con `bind` estable y el ORDINAL como chunk. Scratch reusado: vale
-  // hasta el próximo pedido. Sin vista todavía no hay nada que pickear.
+  // hasta el próximo pedido. Sin vista, o sin contexto, no hay nada que pickear: el batch lee handles.
   pickBatch() {
     const batch = this.#batch
     batch.length = 0
-    if (!this.#view) return batch
+    if (!this.#view || !this.#gl) return batch
     batch.matrix = this.#matrix()
     this.#arena.eachRange(this.#pickRange)
     return batch
@@ -193,12 +216,15 @@ export class EditHandleLayer {
     return this.#hit
   }
 
+  // Sin contexto —lo olvidó `dropGl`— no hay nada que borrar. El picking es del dueño, que lo suelta aparte.
   destroy() {
     const gl = this.#gl
-    gl.deleteVertexArray(this.#vao)
-    gl.deleteProgram(this.#program)
-    this.#binding.destroy()
-    this.#vao = this.#program = this.#view = null
+    if (gl) {
+      gl.deleteVertexArray(this.#vao)
+      gl.deleteProgram(this.#program)
+      this.#binding.destroy()
+    }
+    this.#gl = this.#binding = this.#vao = this.#program = this.#view = null
     return this
   }
 

@@ -416,3 +416,81 @@ test('el `bind` de cada PickDraw es ESTABLE y bindea nuestro VAO', () => {
   assert.equal(log.vaos.length, 1)
   assert.equal(log.vaos[0]?.vao, true, 'el VAO de la capa, no el default')
 })
+
+/* ── 8. Contexto: buildGl y dropGl ── */
+
+// Un doble de GL que cuenta cada llamada: lo que no debe tocar el contexto se mide en llamadas.
+const contando = gl => {
+  const cuenta = { llamadas: 0 }
+  return [new Proxy(gl, { get: (t, p) => (typeof t[p] === 'function' ? (...args) => (cuenta.llamadas++, t[p](...args)) : t[p]) }), cuenta]
+}
+
+test('dropGl: sin contexto no hay nada que picar, y ni eso ni destroy tocan el contexto perdido', () => {
+  const [gl, cuenta] = contando(conPrograma(makeGl(), { vaos: [], attribs: [] }))
+  const path    = new ChunkedPath({ points: puntos(23), localBits: BITS })
+  const iconSet = defineEditIconSet()
+  const arena   = new EditArena({ gl, path, project, ...editHandleChannels(iconSet) })
+  const picking = new Picking()
+  const layer   = new EditHandleLayer({ gl, arena, path, picking, iconSet })
+  layer.pickObject = OBJ
+  layer.draw(vistaSobre(arena, 8))
+  layer.requestPick(10, 10, 1)                               // un pick en vuelo cuando se pierde
+  const antes = cuenta.llamadas
+
+  assert.equal(layer.dropGl(), layer)
+  arena.dropGl()
+  assert.equal(layer.pickBatch().length, 0, 'el batch lee handles: sin contexto sale vacío')
+  assert.equal(layer.pickRef(10, 10), -1)
+  assert.equal(layer.requestPick(10, 10, 2), false)
+  assert.equal(layer.collectPick(), null, 'y el vuelo muerto ya se cobró al olvidarlo')
+  assert.equal(layer.promote(refs(path)[2]), layer, 'la promoción es de CPU')
+  layer.destroy()
+  arena.destroy()
+  picking.detach()
+  assert.equal(cuenta.llamadas, antes, 'ni una llamada')
+})
+
+test('buildGl en otro contexto rehace programa, VAO, binding del atlas y picking: dibuja y pica lo mismo', () => {
+  const { spy, path, arena, layer, vista } = montar(23)
+  layer.draw(vista)
+  const antes    = dibujadas(spy)
+  const atlas    = spy.texImages.length
+  const texVieja = delBatch(layer.pickBatch())[0].texture
+  assert.ok(antes.length > 0 && texVieja)
+
+  layer.dropGl()
+  arena.dropGl()
+  const log2 = { vaos: [], attribs: [] }
+  const gl2  = conPrograma(makeGl(), log2)
+  arena.buildGl(gl2)
+  layer.buildGl(gl2)
+  layer.draw(vista)
+  assert.deepEqual(dibujadas(gl2.spy), antes, 'los mismos draws, sobre el VBO nuevo')
+  assert.equal(gl2.spy.texImages.length, atlas, 'el atlas se sube de nuevo, a la textura del binding nuevo')
+  assert.equal(log2.attribs.length, 3, 'un VAO con los tres atributos sobre el VBO del contexto nuevo')
+
+  const ref = refs(path)[3]
+  apuntar(gl2.spy, path, ref)
+  assert.equal(layer.pickRef(10, 10), ref, 'el pase de picking ya es el del contexto nuevo')
+  const texNueva = delBatch(layer.pickBatch())[0].texture
+  assert.ok(texNueva && texNueva !== texVieja, 'y los draws del pase llevan la textura del binding nuevo, no la vieja')
+})
+
+test('nace sin contexto: la promoción y la vista no lo necesitan, y buildGl lo deja listo para dibujar', () => {
+  const path    = new ChunkedPath({ points: puntos(23), localBits: BITS })
+  const iconSet = defineEditIconSet()
+  const arena   = new EditArena({ path, project, ...editHandleChannels(iconSet) })
+  const layer   = new EditHandleLayer({ arena, path, picking: new Picking(), iconSet })
+  layer.pickObject = OBJ
+  const v = refs(path)[3]
+  layer.promote(v)
+  assert.equal(layer.promoted, v)
+  assert.equal(layer.pickRef(10, 10), -1)
+
+  const gl = conPrograma(makeGl(), { vaos: [], attribs: [] })
+  arena.buildGl(gl)
+  layer.buildGl(gl)
+  layer.draw(vistaSobre(arena, 8))
+  const ocultas = vecindario(path, v)
+  assert.deepEqual(dibujadas(gl.spy), vivas(arena).filter(ref => !ocultas.includes(ref)), 'y el agujero de la promoción sigue')
+})

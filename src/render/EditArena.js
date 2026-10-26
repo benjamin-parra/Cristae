@@ -6,6 +6,11 @@
 // float32 alcanza a z18 y el desplazamiento absoluto vive en la matriz, así que el pan y el zoom no
 // reescriben un byte. El batching se numera por el ORDINAL del chunk en el orden del TRAZO, no por su
 // índice en el arena —que duplica al crecer—, porque el pase de picking lo direcciona con 6 bits.
+//
+// Los dos espejos de CPU (`#pos` y `#vert`) son la única copia de lo que hay en GPU y se escriben siempre, haya
+// contexto o no. La textura y el VBO son del contexto: `buildGl(gl)` los crea y sube los espejos enteros, y
+// `dropGl()` los olvida sin tocar el contexto, que se perdió o va a soltar la superficie. Sin contexto, las
+// subidas no hacen nada y quedan pendientes para `buildGl`.
 import { ROLE } from '../geometry/ChunkedPath.js'
 import { anchorMatrix } from './anchor-matrix.js'
 import { POINT_FLOATS } from './point-program.js'
@@ -61,12 +66,12 @@ export class EditArena {
   #hull    = new Float64Array(4)
   #out     = new Float64Array(4)
 
-  // `project(x, y, out)` lleva el par que guarda el trazo a world0 px en float64 y escribe en `out`.
-  constructor({ gl, path, project, textureWidth = 2048, tiles = TILES, sizes = SIZES }) {
+  // `project(x, y, out)` lleva el par que guarda el trazo a world0 px en float64 y escribe en `out`. Sin `gl` nace
+  // sólo con los espejos de CPU, y lo GL llega con `buildGl`.
+  constructor({ gl = null, path, project, textureWidth = 2048, tiles = TILES, sizes = SIZES }) {
     if (textureWidth & (textureWidth - 1))
       throw new Error('[cristae] el ancho de la textura de posiciones tiene que ser potencia de dos: '
         + 'el índice→texel es una máscara')
-    this.#gl      = gl
     this.#path    = path
     this.#project = project
     this.#width   = textureWidth
@@ -74,6 +79,7 @@ export class EditArena {
     this.#tiles   = tiles
     this.#sizes   = sizes
     this.reset()
+    gl && this.buildGl(gl)
   }
 
   get texture()       { return this.#texture }
@@ -86,6 +92,33 @@ export class EditArena {
 
   relX(ref) { return this.#pos[ref * 2] }
   relY(ref) { return this.#pos[ref * 2 + 1] }
+
+  // Textura y VBO sobre el contexto que la superficie acaba de tomar, con los espejos subidos enteros. Los canales
+  // de los handles (tile y tamaño por rol) pueden venir otros: el buffer nuevo tiene la escala de su canvas, y los
+  // tamaños van en px del buffer. Si cambiaron, el espejo del VBO se escribe de nuevo con ellos.
+  buildGl(gl, tiles = this.#tiles, sizes = this.#sizes) {
+    const igual = sizes.every((s, i) => s === this.#sizes[i]) && tiles.every((t, i) => t === this.#tiles[i])
+    this.#gl    = gl
+    this.#tiles = tiles
+    this.#sizes = sizes
+    // NEAREST y CLAMP porque no es una imagen: es un array de posiciones direccionado por
+    // `texelFetch`, y filtrar o repetir sería interpolar coordenadas.
+    this.#texture = gl.createTexture()
+    gl.bindTexture(gl.TEXTURE_2D, this.#texture)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+    this.#vbo = gl.createBuffer()
+    igual || this.#rev.fill(-1)                  // otros canales: el espejo del VBO se escribe de nuevo
+    return this.#reload()
+  }
+
+  // Olvida lo GL sin tocar el contexto: el espejo de CPU conserva todo, y `buildGl` lo sube al contexto que venga.
+  dropGl() {
+    this.#gl = this.#texture = this.#vbo = null
+    return this
+  }
 
   // Re-ingesta completa, y ÚNICO punto donde el ancla se congela. El ancla es el centro del bbox
   // proyectado, y el abanico del relleno la exige MISMA para todos los chunks y anillos del objeto.
@@ -213,11 +246,10 @@ export class EditArena {
     if (!this.#texture) return this
     this.#gl.deleteTexture(this.#texture)
     this.#gl.deleteBuffer(this.#vbo)
-    this.#texture = this.#vbo = null
-    return this
+    return this.dropGl()
   }
 
-  // Espejo del run vivo de cada chunk, y una sola subida entera.
+  // Espejo del run vivo de cada chunk, y una sola subida entera si hay contexto.
   #reload() {
     const gl   = this.#gl
     const path = this.#path
@@ -226,6 +258,7 @@ export class EditArena {
       this.#mirrorRun(from, from + path.chunkUsed(k))
       this.#exactBox(k)
     })
+    if (!gl) return this
     gl.bindTexture(gl.TEXTURE_2D, this.#texture)
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RG32F, this.#width, this.#rows, 0, gl.RG, gl.FLOAT, this.#pos)
     gl.bindBuffer(gl.ARRAY_BUFFER, this.#vbo)
@@ -296,7 +329,6 @@ export class EditArena {
   }
 
   #allocate() {
-    const gl      = this.#gl
     const path    = this.#path
     const entries = path.chunkCount * path.entriesPerChunk
     this.#rows      = Math.max(1, Math.ceil(entries / this.#width))
@@ -308,23 +340,13 @@ export class EditArena {
     this.#ordinalOf = resize(Int32Array,   this.#ordinalOf, path.chunkCount)
     this.#chunkOf   = resize(Int32Array,   this.#chunkOf,   path.chunkCount)
     this.#chunks    = path.chunkCount
-    if (!this.#texture) {
-      // NEAREST y CLAMP porque no es una imagen: es un array de posiciones direccionado por
-      // `texelFetch`, y filtrar o repetir sería interpolar coordenadas.
-      this.#texture = gl.createTexture()
-      gl.bindTexture(gl.TEXTURE_2D, this.#texture)
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
-    }
-    this.#vbo ??= gl.createBuffer()
   }
 
   // Filas ENTERAS cuando el tramo cruza la frontera de fila: la fuente es el espejo, así que rescribir los
   // texels vecinos con su valor actual es inocuo y deja la subida en UNA llamada, sin `UNPACK_ROW_LENGTH`.
   #uploadTexels(from, to) {
-    const gl     = this.#gl
+    const gl = this.#gl
+    if (!gl) return
     const row    = from >> this.#shift
     const last   = to >> this.#shift
     const oneRow = row === last
@@ -336,6 +358,7 @@ export class EditArena {
 
   #uploadVerts(from, to) {
     const gl = this.#gl
+    if (!gl) return
     gl.bindBuffer(gl.ARRAY_BUFFER, this.#vbo)
     gl.bufferSubData(gl.ARRAY_BUFFER, from * BYTES_PER_ENTRY, this.#vert,
       from * POINT_FLOATS, (to - from + 1) * POINT_FLOATS)

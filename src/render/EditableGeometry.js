@@ -28,6 +28,12 @@
 // El trazo vive en `#mano` como muestras lat/lng, se dibuja sobre el trazo del editor mientras dura, y al
 // soltar se hornea (`geometry/freehand.js`) y asienta como una edición discreta.
 //
+// El contexto GL es de la superficie, que puede perderlo (el navegador lo quita) o soltarlo, y volver a tomar otro en
+// un canvas nuevo. Lo GL de cada trazo —textura y VBO del arena, programas, VAO, binding del atlas, picking— se
+// arma en `buildGl(gl)` y se olvida en `dropGl()` sin tocar el contexto; los `ChunkedPath` y los espejos de CPU del
+// arena son lo único que hace falta para rehacerlo. Sin contexto el editor sigue editando, sin dibujar ni picar:
+// los handles no se pueden tomar, pero el trazado en `draw` y a mano alzada sí, y todo sale al volver a tener uno.
+//
 // Sistema de coordenadas: pares [lat, lng] (la entrada acepta además las otras formas de punto de
 // `data/path.js`; la salida SIEMPRE es [lat, lng]). Una capa atada al mismo `value` lo lee con su
 // propio contrato: la de líneas, en las mismas formas; la de polígonos, en pares. Formas por `kind`:
@@ -97,9 +103,10 @@ const project = (lat, lng, out) => {
 
 export class EditableGeometry {
 
-  #host; #camera; #pane; #kind; #model; #forma; #onChange; #onCommit; #onHandleLevel; #onDrawing; #surface; #gl; #iconSet
+  #host; #camera; #pane; #kind; #model; #forma; #onChange; #onCommit; #onHandleLevel; #onDrawing; #surface; #iconSet
   #bajaVista; #bajaPausa; #bajaCuadro
   #salir                                   // la baja de la puerta del puntero
+  #gl         = null                       // el contexto vivo de la superficie; null mientras no tiene uno
   #mode       = 'edit'
   #geom       = null                       // representación interna viva (mutada in place por el gesto)
   #simpleRing = true                       // polygon: recordar si la entrada era anillo simple (para la salida)
@@ -164,16 +171,16 @@ export class EditableGeometry {
     this.#onCommit      = onCommit
     this.#onHandleLevel = onHandleLevel
     this.#onDrawing     = onDrawing
-    this.#surface       = new EditSurface({ host, pane: this.#pane })
-    this.#gl            = this.#surface.acquire()
     this.#iconSet       = defineEditIconSet()
-    this.#fill          = CERRADOS.has(kind) ? new EditFillLayer({ gl: this.#gl, rings: this.#contornos, color: this.#style.fillColor, opacity: this.#style.fillOpacity }) : null
-    this.#geom          = this.#ingest(value)
-    this.#mode          = mode
-    this.#bajaVista     = host.camera.on('moveend zoomend resize', this.#onView)
-    this.#bajaPausa     = host.camera.on('movestart zoomstart', this.#onPausa)
-    this.#bajaCuadro    = host.camera.on('zoomframe', () => this.#draw())
-    this.#salir         = join(this.#participante)
+    this.#fill          = CERRADOS.has(kind) ? new EditFillLayer({ rings: this.#contornos, color: this.#style.fillColor, opacity: this.#style.fillOpacity }) : null
+    this.#surface       = new EditSurface({ host, pane: this.#pane, owner: this })
+    this.#surface.acquire()                    // → buildGl: todavía sin trazos, que `#rebuild` monta sobre este contexto
+    this.#geom       = this.#ingest(value)
+    this.#mode       = mode
+    this.#bajaVista  = host.camera.on('moveend zoomend resize', this.#onView)
+    this.#bajaPausa  = host.camera.on('movestart zoomstart', this.#onPausa)
+    this.#bajaCuadro = host.camera.on('zoomframe', () => this.#draw())
+    this.#salir      = join(this.#participante)
     this.#rebuild()
     this.#informarDibujo()
   }
@@ -283,12 +290,49 @@ export class EditableGeometry {
     this.#settle()
   }
 
+  // Lo GL de todo el editor sobre el contexto que la superficie acaba de tomar, al construirse y cada vez que lo
+  // vuelve a tomar: el relleno, y por cada trazo el arena con sus espejos subidos enteros, los handles, el arena
+  // del contorno si es otro y el trazo. Los tamaños de los handles van en px del buffer, y el buffer nuevo puede
+  // tener otra escala: se leen de nuevo. Con trazos pinta en el acto, que el contexto nace en blanco. Al
+  // construirse todavía no los tiene: se montan después, sobre este contexto.
+  buildGl(gl) {
+    this.#gl = gl
+    this.#fill?.buildGl(gl)
+    if (!this.#trazos.length) return
+    const { tiles, sizes } = this.#canales()
+    this.#trazos.forEach(({ arena, handles, contorno }) => {
+      arena.buildGl(gl, tiles, sizes)
+      handles.buildGl(gl)
+      contorno.arena === arena || contorno.arena.buildGl(gl)
+      contorno.stroke.buildGl(gl)
+    })
+    this.#draw()
+  }
+
+  // Olvida lo GL sin tocar el contexto, que se perdió o va a soltar la superficie. Lo que el pase resolvió sobre él
+  // ya no vale, y sin contexto nadie lo vuelve a resolver: el vecindario promovido se suelta —salvo el del gesto
+  // vivo, que sigue siendo el que el dedo tiene tomado— y el nivel de handle vuelve a ninguno.
+  dropGl() {
+    this.#trazos.forEach(({ arena, handles, contorno }) => {
+      handles.dropGl()
+      arena.dropGl()
+      contorno.arena.dropGl()
+      contorno.stroke.dropGl()
+    })
+    this.#fill?.dropGl()
+    this.#gl = null
+    this.#invalidar()
+    this.#gesto.ref < 0 && this.#promover(-1, -1)
+    this.#informar()
+  }
+
   destroy() {
     this.#releaseInteraction()
     this.#salir()
     this.#bajaVista()
     this.#bajaPausa()
     this.#bajaCuadro()
+    this.dropGl()                              // `loseContext` libera todo de una vez: ningún `delete*` por trazo
     this.#trazos.splice(0).forEach(t => this.#soltar(t))
     this.#contornos.splice(0)
     this.#fill?.destroy()
@@ -1151,7 +1195,7 @@ export class EditableGeometry {
   // arena, salvo en las formas y con curva, que dibujan su anillo o su curva con un path y un arena propios,
   // sin canales de handle. El objeto de picking es el orden + 1 —el pase descarta el 0—.
   #montar(path, orden) {
-    const gl       = this.#gl
+    const gl       = this.#gl                         // null sin contexto: el trazo nace en CPU y `buildGl` lo arma
     const iconSet  = this.#iconSet
     const arena    = new EditArena({ gl, path, project, ...this.#canales() })
     const picking  = new Picking()
@@ -1195,7 +1239,7 @@ export class EditableGeometry {
   // taparía el handle del anterior.
   #draw() {
     const gl = this.#gl
-    if (!this.#surface.attached || this.#surface.contextLost) return
+    if (!gl) return
     this.#surface.resetCanvasReference()
     // El encuadre que leen las tres capas, con el vértice que arrastra el gesto. Su `vertex` es un ref del
     // path de manijas y el relleno lo busca en el del contorno: sólo va cuando el contorno es ese path.

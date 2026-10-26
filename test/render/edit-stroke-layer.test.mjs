@@ -446,3 +446,48 @@ test('anillo estático: un span contiguo de n-1 segmentos y el cierre del anillo
   assert.deepEqual(sueltos[0].loose, [store.relX(N - 1), store.relY(N - 1), store.relX(0), store.relY(0)],
     'que es el cierre: del último vértice al primero')
 })
+
+/* ── Contexto: buildGl y dropGl ── */
+
+const contando = gl => {
+  const cuenta = { llamadas: 0 }
+  return [new Proxy(gl, { get: (t, p) => (typeof t[p] === 'function' ? (...args) => (cuenta.llamadas++, t[p](...args)) : t[p]) }), cuenta]
+}
+
+test('dropGl suelta programa y VAO sin tocar el contexto; buildGl los toma de otro y dibuja lo mismo, con el mismo estilo', () => {
+  const { log, path, arena, layer, vista } = montar(23, { width: 7 })
+  layer.draw(vista)
+  const antes = log.draws.map(({ mode, first, count, loose, base }) => ({ mode, first, count, loose, base }))
+  assert.ok(antes.length > 0)
+
+  assert.equal(layer.dropGl(), layer)
+  arena.dropGl()
+  const log2 = { draws: [], uniformes: {} }
+  const gl2  = conPrograma(makeGl(), log2)
+  arena.buildGl(gl2)
+  assert.equal(layer.buildGl(gl2), layer)
+  layer.draw(vista)
+  assert.deepEqual(log2.draws.map(({ mode, first, count, loose, base }) => ({ mode, first, count, loose, base })), antes)
+  assert.equal(log2.uniformes.halfWidth, 3.5, 'el ancho del trazo sobrevive al contexto')
+  assert.deepEqual(dibujados(log2, arena, path), dibujados(log, arena, path))
+})
+
+test('sin contexto la capa sigue promoviendo y destroy no borra; nacer sin contexto y armarse después es lo mismo', () => {
+  const [gl, cuenta] = contando(conPrograma(makeGl(), { draws: [], uniformes: {} }))
+  const path  = new ChunkedPath({ points: puntos(23), localBits: BITS })
+  const arena = new EditArena({ gl, path, project })
+  const layer = new EditStrokeLayer({ gl, arena, path, project })
+  layer.dropGl()
+  arena.dropGl()
+  const antes = cuenta.llamadas
+
+  layer.promote(refs(path)[3])
+  layer.live(-33.4, -70.6)
+  layer.style({ width: 9 })
+  assert.equal(layer.promoted, refs(path)[3])
+  layer.destroy()
+  assert.equal(cuenta.llamadas, antes, 'ni una llamada al contexto perdido')
+
+  const nacida = new EditStrokeLayer({ arena, path, project, width: 5 })
+  assert.equal(nacida.destroy(), nacida)
+})
