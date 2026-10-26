@@ -275,6 +275,18 @@ export const decorarElementos = decorar => {
   return () => { document.createElement = crear }
 }
 
+// Los eventos de un elemento del shim: `elemento()` los deja en no-op, y un canvas que tiene que oír
+// `webglcontextlost` necesita el reparto de un EventTarget real (oyentes que se suman y se quitan,
+// `defaultPrevented` observable, `dispatchEvent` que devuelve false si alguien canceló).
+export const conEventos = el => {
+  const destino = new EventTarget()
+  return Object.assign(el, {
+    addEventListener    : destino.addEventListener.bind(destino),
+    removeEventListener : destino.removeEventListener.bind(destino),
+    dispatchEvent       : destino.dispatchEvent.bind(destino),
+  })
+}
+
 // El contexto que abre `EditSurface`. `gl()` se lee por llamada: cada montaje estrena el suyo. Cualquier
 // otro contexto cae al no-op del shim, como sin decorar.
 export const conGlDeEdicion = gl => decorarElementos((el, tag) => {
