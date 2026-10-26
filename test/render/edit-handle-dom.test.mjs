@@ -22,7 +22,8 @@ import { adoptLeafletHost } from '../../src/host/LeafletHost.js'
 const espia = { listeners: 0, pintadas: [], escrituras: [] }
 
 const ctxEspia = el => new Proxy({
-  drawImage: tile => espia.pintadas.push({ el, tile }),
+  drawImage    : tile => espia.pintadas.push({ el, tile }),
+  getImageData : (_x, _y, w, h) => ({ data: new Uint8ClampedArray(w * h * 4) }),   // los píxeles que lee el IconSet al rasterizar
 }, { get: (t, p) => t[p] ?? (() => {}), set: () => true })
 
 after(decorarElementos(el => {

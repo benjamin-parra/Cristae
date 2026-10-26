@@ -116,19 +116,22 @@ test('fonts cargando pero NADA resuelto (count===0) con prerender: al cargar es 
   delete doc.fonts
 })
 
-test('fonts cargando: también re-rasteriza las variantes SEMBRADAS en el constructor', async () => {
+test('fonts cargando: lo declarado no se rasteriza hasta usarlo; resuelto antes de ready, se re-rasteriza tras ready', async () => {
   const doc = globalThis.document
   let resolveReady
   doc.fonts = { status: 'loading', ready: new Promise((r) => { resolveReady = r }) }
 
-  const { set, rasterCount } = makeSet({ variants: ['sembrada'] })
+  const { set, rasterCount } = makeSet({ variants: ['declarada'] })
   await set.ready
-  assert.equal(rasterCount.get('sembrada'), 1, 'la siembra rasteriza 1 vez en #init')
+  assert.equal(rasterCount.get('declarada'), undefined, 'declarar no rasteriza: con las fuentes cargando el tile saldría en tofu')
+
+  set.resolve('declarada')
+  assert.equal(rasterCount.get('declarada'), 1, 'el primer uso la rasteriza')
 
   resolveReady()
   await flushMicrotasks()
 
-  assert.equal(rasterCount.get('sembrada'), 2, 'la variante sembrada también se re-rasteriza tras ready')
+  assert.equal(rasterCount.get('declarada'), 2, 'la variante declarada y ya resuelta también se re-rasteriza tras ready')
   delete doc.fonts
 })
 

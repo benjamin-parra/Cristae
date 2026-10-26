@@ -38,8 +38,14 @@ const elemento = (base = {}) => Object.assign(base, {
 })
 
 // Un contexto 2D que no dibuja: todo es no-op salvo `measureText`, que mide 0 como un texto vacío, para
-// que un painter de etiquetas pueda maquetar.
-export const NOOP_CTX = new Proxy({ measureText: () => ({ width: 0 }) }, { get: (t, p) => t[p] ?? (() => {}), set: () => true })
+// que un painter de etiquetas pueda maquetar, y `getImageData`, que entrega los píxeles transparentes del
+// tamaño pedido: es lo que lee el IconSet al rasterizar un tile.
+export const NOOP_CTX = new Proxy({
+  measureText  : () => ({ width: 0 }),
+  getImageData : (_x, _y, w, h) => ({ data: new Uint8ClampedArray(w * h * 4) }),
+}, { get: (t, p) => t[p] ?? (() => {}), set: () => true })
+// El constructor con el que `sprite()` arma el canvas de un tile; sin datos propios, sólo guarda lo que recibe.
+globalThis.ImageData ??= class ImageData { constructor(data, width, height) { Object.assign(this, { data, width, height }) } }
 // Un canvas que pide `webgl2` recibe su propio doble de GL (el de una superficie: ver makeEditGl).
 const makeCanvas = () => ({ width: 0, height: 0, style: {}, getContext: kind => (kind === 'webgl2' ? makeEditGl() : NOOP_CTX) })
 

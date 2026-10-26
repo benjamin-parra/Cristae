@@ -70,6 +70,8 @@ const P = 100                            // el harness proyecta lineal: un grado
 
 // El canal del tile TRANSPARENTE, con el que el editor apaga un handle del visual y del pase a la vez.
 const TILE_VACIO = editHandleChannels(defineEditIconSet()).tiles[ROLE.free]
+// Los canvases que `sprite()` arma para el banco DOM salen del atlas, una vez por proceso: se adelantan para que los conteos de nodos midan el gesto.
+;['off', 'vertex', 'midpoint', 'hover', 'grabbing'].forEach(v => defineEditIconSet().sprite(v))
 
 const nuevoNavegador = (opciones = {}) => crearNavegador({
   crearGl: canvas => {

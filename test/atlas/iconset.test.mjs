@@ -1,15 +1,14 @@
 // Fija la LÓGICA PURA del IconSet: la LUT de clusters (variantForCount O(1), bordes de bucket, `plus`
 // derivado de la topología), el round-trip describe ⇄ marked/expandedVariant, y la normalización de
-// `scale` (footprint) que expone tileScale. El IconSet rasteriza a <canvas>; en node no hay DOM → stub
-// mínimo cuyo getContext basta porque el `draw`/renderer de prueba ignora el contexto: probamos
-// direccionamiento y derivación, NO el pixel rasterizado.
+// `scale` (footprint) que expone tileScale. El IconSet rasteriza a <canvas>; en node no hay DOM → canvas
+// de utilería (test-helpers/canvas-2d.mjs) que no dibuja pero lee píxeles: el `draw`/renderer de prueba
+// ignora el contexto, así que probamos direccionamiento y derivación, NO el pixel rasterizado.
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { instalarCanvas2d } from '../../test-helpers/canvas-2d.mjs'
 import { defineClusterIconSet, defineIconSet } from '../../src/atlas/IconSet.js'
 
-// Canvas de utilería: #rasterize hace createElement('canvas').getContext('2d') y le asigna width/height;
-// un objeto vacío que acepta esas escrituras y devuelve un ctx cualquiera alcanza. Se instala una vez.
-globalThis.document = { createElement: () => ({ getContext: () => ({}) }) }
+instalarCanvas2d()
 
 test('variantForCount: piso por bucket (mayor threshold ≤ count) con clamp en 0 y en top', async () => {
   const set = defineClusterIconSet({ buckets: [2, 3, 10], draw: () => {} })
@@ -51,7 +50,9 @@ test('describe (round-trip vía draw): las variantes plain derivan `plus` de la 
     buckets: [2, 3, 10],
     draw: (_ctx, _size, count, plus, dim, marked) => calls.push({ count, plus, dim, marked }),
   })
-  await set.ready                                 // siembra '2','3','10' en orden ascendente
+  await set.ready
+  assert.deepEqual(calls, [], 'declarar los buckets no rasteriza ninguno: cada uno se dibuja al usarlo')
+  ;['2', '3', '10'].forEach(v => set.resolve(v))
   assert.deepEqual(calls, [
     { count: 2,  plus: false, dim: false, marked: false },   // 3 es bucket ⇒ 2 es exacto, sin '+'
     { count: 3,  plus: true,  dim: false, marked: false },   // 4 no es bucket ⇒ '+'
@@ -66,7 +67,6 @@ test('describe (round-trip): marked/expandedVariant prenden su flag sin alterar 
     draw: (_ctx, _size, count, plus, dim, marked) => calls.push({ count, plus, dim, marked }),
   })
   await set.ready
-  calls.length = 0                                // descartar la siembra
 
   set.resolve(set.markedVariant(3))               // 'm3' → prefijo 'm'
   assert.deepEqual(calls.at(-1), { count: 3, plus: true, dim: false, marked: true })

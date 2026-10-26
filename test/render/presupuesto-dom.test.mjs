@@ -22,7 +22,7 @@
 //   polilínea editable ·    400 vértices  →     1 nodo vivo    (era 799: 400 vértices + 399 midpoints)
 //   · agregar UN vértice                  →     1 vivo y CERO ops de DOM  (eran 1.600: 799 bajas + 801 altas)
 //   polígono editable  ·    400 vértices  →     1 nodo vivo    (era 800, con el midpoint del cierre)
-//   atlas de handles   ·      N editores  →     5 nodos vivos  (era 5 POR editor)
+//   atlas de handles   ·      N editores  →     1 canvas de trabajo  (eran 5 tiles POR editor)
 //   capa de polígonos  ·    200 features  →     1 nodo vivo    (era 200: un path SVG por feature; ahora el canvas GPU)
 //   capa de formas     ·    200 features  →     1 nodo vivo    (era 200: un `L.circle` por círculo; ahora el canvas GPU)
 //   capa de marcadores HTML · 200 marcas  →   401 nodos vivos  (la raíz + envoltorio e icono por marca)
@@ -31,7 +31,7 @@
 // El único nodo de la geometría editable es CONSTANTE —no escala con el trazo, ni con los anillos—: el
 // canvas de la superficie WebGL2; los vértices y los midpoints son puntos de un VBO. Los cinco tiles del
 // atlas de sprites de los handles (off / vertex / midpoint / hover / grabbing) no son del editor sino de su
-// CONFIGURACIÓN: se rasterizan una vez por proceso y los comparten todos los editores.
+// CONFIGURACIÓN: se rasterizan una vez por proceso, sobre UN canvas de trabajo, y los comparten todos los editores.
 //
 // Este archivo mide el REPOSO, que es lo que el navegador mantiene con la pantalla abierta. Los ÚNICOS
 // nodos que el editor monta además son los ≤ 3 del vecindario bajo el cursor mientras dura el gesto: el
@@ -60,12 +60,13 @@ const VERTICES = 400        // un recorrido real; es la unidad de N de `editable
 const FEATURES = 200        // geocercas de una operación mediana
 const PUNTOS   = 10_000     // flota grande en vivo
 const EDITABLE = 1          // el costo CONSTANTE de UN editor: el canvas de su superficie
-const ATLAS    = 5          // los tiles del atlas de handles: uno por CONFIGURACIÓN, y nunca cuelgan del documento
+const TRABAJO  = 1          // el canvas con que el atlas de handles rasteriza sus tiles: uno por CONFIGURACIÓN, y nunca cuelga del documento
 
-// El atlas se rasteriza en el primer `defineEditIconSet` del proceso y de ahí en más se comparte, así que
-// se adelanta acá: cada presupuesto mide entonces lo que cuesta SU editor y no el azar de cuál corrió
-// primero. Que sean cinco y una sola vez lo aserta el test del atlas, más abajo.
-defineEditIconSet()
+// El atlas rasteriza sus tiles al usarlos por primera vez en el proceso y de ahí en más se comparte, así que
+// se adelantan acá: cada presupuesto mide entonces lo que cuesta SU editor y no el azar de cuál corrió
+// primero. Que el canvas de trabajo sea uno por configuración lo aserta el test del atlas, más abajo.
+const TILES = ['off', 'vertex', 'midpoint', 'hover', 'grabbing']
+defineEditIconSet().seed(TILES)
 
 // La geometría editable abre su propia superficie WebGL2 (con stencil) sobre un canvas propio, y el
 // `document` del harness devuelve un contexto no-op. La costura del harness se lo enchufa: el canvas lo
@@ -141,8 +142,8 @@ test('el atlas de handles es UNO por configuración: N editores no lo vuelven a 
   assert.equal(contador.vivos, 0, 'y montar y destruir editores no acumula nada')
 
   contador.marcar()
-  defineEditIconSet({ color: '#123456' })                 // otra configuración: ésta sí se rasteriza
-  assert.equal(contador.creados, ATLAS, 'lo que cuesta una vez son los cinco tiles de CADA configuración')
+  defineEditIconSet({ color: '#123456' }).seed(TILES)     // otra configuración: ésta sí se rasteriza
+  assert.equal(contador.creados, TRABAJO, 'lo que cuesta una vez es UN canvas de trabajo por configuración, no uno por tile')
 })
 
 test('agregar UN vértice no toca el DOM: la edición es incremental en el espejo GPU', () => {
