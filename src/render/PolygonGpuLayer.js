@@ -24,6 +24,13 @@ import { at, count } from '../geometry/curve.js'
 //
 // Con curva, las tablas se densifican sobre la geodésica al entrar, y el relleno, el picking y el encuadre
 // leen las curvadas.
+//
+// La superficie puede quedarse sin contexto (el navegador lo desaloja, o se suelta) y volver a tenerlo en otro. Lo
+// único GL de la capa es la textura del store y los programas y VAO de los pases: `dropGl` lo olvida sin tocar el
+// contexto y `buildGl` lo rehace, subiendo el espejo del store (`RingStore.#rel`, la única copia de los anillos de
+// una capa tipada no interactiva). Todo lo demás es de CPU y sigue: las tablas, el estilo, las cajas, el índice del
+// picking y la geometría que llega sin contexto, que se arma igual y se sube al volver. Sin contexto `#gl` es null,
+// y es lo único que miran los caminos que dibujan.
 
 const project = (lat, lng, out) => {
   out[0] = projX0(lng)
@@ -112,7 +119,9 @@ const curveTables = (geometry, model) => {
 
 export class PolygonGpuLayer {
 
-  #camera; #surface; #gl; #store; #fill
+  #camera; #surface; #store; #fill
+  #gl      = null
+  #max     = maxTextureOf(null)       // el último lado máximo de textura medido; sin medir, el garantizado
   #index   = null
   #idOf    = null
   #offView = null                     // baja del repintado en vista asentada
@@ -151,12 +160,12 @@ export class PolygonGpuLayer {
     this.#idOf    = idOf ?? source?.accessors?.idOf ?? null
     this.#styleOf = styleOf ?? source?.accessors?.styleOf ?? null
     this.#base    = { color, weight, opacity, fillColor, fillOpacity }
-    this.#surface = new EditSurface({ host, pane })
-    this.#gl      = this.#surface.acquire()
-    // La superficie ya tomó uno de los ~16 contextos del navegador. Lo que siga puede tirar —el store
-    // rechaza una geometría que no entra en la textura, y el estilo llama a `styleOf` e `idOf`, que son
-    // código del consumidor—, y un contexto que nadie devuelve no vuelve en toda la vida de la página.
+    this.#surface = new EditSurface({ host, pane, owner: this })
+    // Tomar el contexto ocupa uno de los ~16 del navegador. Lo que siga puede tirar —el store rechaza una
+    // geometría que no entra en la textura, y el estilo llama a `styleOf` e `idOf`, que son código del
+    // consumidor—, y un contexto que nadie devuelve no vuelve en toda la vida de la página.
     try {
+      this.#surface.acquire()                 // → buildGl: todavía sin geometría
       const items = source ? source.getSnapshot() : null
       this.#ingest(geometry ?? tablesFromRings(items, source.accessors.ringsOf), items)
       this.#fill   = fill ? new EditFillLayer({ gl: this.#gl, rings: [], step: 1, color: fillColor ?? color, opacity: fillOpacity }) : null
@@ -184,7 +193,7 @@ export class PolygonGpuLayer {
     if ((geometry.rings === undefined) !== (geometry.parts === undefined))
       throw new Error('[cristae] la selección necesita `rings` y `parts` juntas, o ninguna')
     const drawn = curve ? curveTables(geometry, curve) : geometry
-    const store = new RingStore({ gl: this.#gl, project, rings: { ...drawn, ringIds: drawn.rings } })
+    const store = new RingStore({ gl: this.#gl, max: this.#max, project, rings: { ...drawn, ringIds: drawn.rings } })
     const owner = drawn.owner ?? null
     try {
       const { parts, partBox } = this.#agrupar(store, drawn)
@@ -310,8 +319,9 @@ export class PolygonGpuLayer {
     }
   }
 
-  // Los vértices que caben en la textura de este contexto: lo que pase de ahí `setGeometry` lo rechaza.
-  get maxVertices() { return maxTextureOf(this.#gl) ** 2 }
+  // Los vértices que caben en la textura de su contexto, el último que tuvo: lo que pase de ahí `setGeometry` lo
+  // rechaza.
+  get maxVertices() { return this.#max ** 2 }
 
   get ringCount()      { return this.#store.ringCount }
   get drawnPartCount() { return this.#onScreenParts.length }
@@ -355,8 +365,9 @@ export class PolygonGpuLayer {
   // reencuadre, así que el relleno se rehace entero.
   resetCanvasReference() { return this.redraw() }
 
+  // Oculta o sin contexto no dibuja. Al volver a tenerlo, `buildGl` pinta en el acto.
   redraw() {
-    if (!this.#visible || this.#surface.contextLost) return false
+    if (!this.#visible || !this.#gl) return false
     const gl = this.#gl
     this.#surface.resetCanvasReference()
     gl.clearColor(0, 0, 0, 0)
@@ -426,13 +437,37 @@ export class PolygonGpuLayer {
     }, [])
   }
 
-  // Seguro a medio construir: el alta puede fallar en cualquier paso y esto corre igual.
+  /* ── Contexto: la superficie lo toma y lo suelta, y la capa rehace su parte GL desde el espejo del store ── */
+
+  // Al construirse y cada vez que la superficie vuelve a tomar un contexto: sube el espejo del store a una textura
+  // nueva y arma los programas y el VAO de los pases sobre el contexto nuevo. Al construirse todavía no hay
+  // geometría, y el constructor sube y pinta; en una re-adquisición pinta en el acto, porque el contexto nace en
+  // blanco. Oculta, sube y no dibuja.
+  buildGl(gl) {
+    this.#gl  = gl
+    this.#max = maxTextureOf(gl)
+    if (!this.#store) return false
+    this.#store.buildGl(gl)
+    this.#fill?.buildGl(gl)
+    this.#stroke?.buildGl(gl)
+    return this.redraw()
+  }
+
+  // Olvida lo GL sin tocar el contexto, que se perdió o que la superficie va a soltar con `loseContext`, que lo
+  // libera todo de una vez. Las vistas de anillo de las partes siguen valiendo: apuntan al store, no a su textura.
+  dropGl() {
+    this.#store?.dropGl()
+    this.#fill?.dropGl()
+    this.#stroke?.dropGl()
+    this.#gl = null
+  }
+
+  // Seguro a medio construir: el alta puede fallar en cualquier paso y esto corre igual. Soltar el contexto libera
+  // la textura, el VAO y los programas de una vez.
   destroy() {
     this.#unsub?.()
     this.#offView?.()
-    this.#fill?.destroy()
-    this.#stroke?.destroy()
-    this.#store?.destroy()
+    this.dropGl()
     this.#surface.destroy()
     this.#index = null
   }

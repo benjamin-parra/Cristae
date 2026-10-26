@@ -13,6 +13,10 @@
 //
 // Un cambio del Source rehace las tablas enteras: el store sube su textura completa de todos modos, y el
 // perfil de la capa son magnitudes que cambian poco, no un feed por frame.
+//
+// La superficie es de la capa interna y puede quedarse sin contexto. Sin él, esta capa sigue armando registros, tablas
+// e índice del hit con cada cambio de la Source y de zoom; al volver a tenerlo, la interna sube su espejo y pinta. El
+// tope de textura que lee `#draw` es el último que midió esa capa, así que también vale sin contexto.
 
 import { MIN_SEGMENTS } from '../geometry/density.js'
 import { prepareRangeIndex, partsAtPoint } from '../geometry/polygon.js'

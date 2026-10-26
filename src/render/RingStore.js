@@ -13,10 +13,11 @@ import { anchorMatrix } from './anchor-matrix.js'
 // Tope cuando el contexto no declara el suyo; todo WebGL2 real garantiza al menos 2048.
 const MAX_TEXTURE = 2048
 
-// El lado máximo de textura que declara el contexto. Una textura de ese lado al cuadrado es todo lo que
-// cabe: quien arma la geometría lo lee antes de subirla para no llegar al rechazo de `#upload`.
+// El lado máximo de textura que declara el contexto, o el que garantiza WebGL2 sin contexto. Una textura de ese
+// lado al cuadrado es todo lo que cabe: quien arma la geometría lo lee antes de subirla para no llegar al rechazo
+// de `#fit`.
 export const maxTextureOf = gl => {
-  const declarado = gl.MAX_TEXTURE_SIZE === undefined ? null : gl.getParameter?.(gl.MAX_TEXTURE_SIZE)
+  const declarado = gl?.MAX_TEXTURE_SIZE === undefined ? null : gl.getParameter?.(gl.MAX_TEXTURE_SIZE)
   return Number.isFinite(declarado) && declarado >= 1 ? declarado : MAX_TEXTURE
 }
 
@@ -63,7 +64,8 @@ class RingView {
 
 export class RingStore {
 
-  #gl
+  #fixed                             // el ancho de textura que fija quien arma el store, si lo fija
+  #gl      = null
   #rel     = new Float32Array(0)
   #texture = null
   #arcs    = null
@@ -88,10 +90,14 @@ export class RingStore {
   // `{ xy, vertexAt, ringCount, closed }` con `xy` en [lng, lat, …] —orden del RFC—, y `ringIds`
   // opcional para restringir la ingesta a esos anillos.
   // `project(lat, lng, out)` los baja a world0 px.
-  constructor({ gl, points, rings, project, textureWidth }) {
-    this.#gl  = gl
-    this.#rel = rings ? this.#projectRings(rings, project) : this.#projectPoints(points, project)
-    this.#upload(textureWidth)
+  //
+  // El espejo `#rel` es de CPU y la única copia de los anillos. Con `gl` se sube en el acto; sin él, el store
+  // nace dimensionado para el lado máximo `max` —el último que midió quien lo arma— y `buildGl(gl)` lo sube
+  // cuando haya contexto.
+  constructor({ gl = null, max = MAX_TEXTURE, points, rings, project, textureWidth }) {
+    this.#rel   = rings ? this.#projectRings(rings, project) : this.#projectPoints(points, project)
+    this.#fixed = textureWidth
+    gl ? this.buildGl(gl) : this.#fit(max)
   }
 
   get texture()      { return this.#texture }
@@ -143,9 +149,8 @@ export class RingStore {
   }
 
   // Vista con el contrato de arena para UN anillo. Estable entre llamadas: el mismo `ring` devuelve
-  // siempre la misma vista.
+  // siempre la misma vista, y sigue valiendo cuando la textura se rehace en otro contexto.
   viewOf(ring) {
-    if (!this.#texture) return null
     this.#views ??= Array.from({ length: this.ringCount }, (_, r) =>
       new RingView(this, r, this.#vertexAt[r], this.#vertexAt[r + 1] - this.#vertexAt[r]))
     return this.#views[ring]
@@ -176,6 +181,25 @@ export class RingStore {
     return anchorMatrix(this.#matrix, this.#anchorX, this.#anchorY, zoom, center, size)
   }
 
+  // Sube el espejo entero como la textura de posiciones del contexto dado: lo que hace el alta con `gl` y lo
+  // que hace la capa cuando su superficie vuelve a tomar uno. La de arcos se arma al primer pedido.
+  buildGl(gl) {
+    this.#fit(maxTextureOf(gl))
+    const data = new Float32Array(this.#width * this.#rows * 2)
+    data.set(this.#rel)
+    this.#gl      = gl
+    this.#texture = this.#texImage(gl.RG32F, gl.RG, data)
+    return this
+  }
+
+  // Olvida las texturas sin tocar el contexto, que se perdió o que la superficie va a soltar con `loseContext`.
+  // Los anillos, las cajas y las vistas son de CPU y siguen.
+  dropGl() {
+    this.#gl = this.#texture = this.#arcs = null
+    return this
+  }
+
+  // Borra las texturas que el store tiene en un contexto vivo; sin contexto no hay nada que borrar.
   destroy() {
     this.#texture && this.#gl.deleteTexture(this.#texture)
     this.#arcs && this.#gl.deleteTexture(this.#arcs)
@@ -294,16 +318,11 @@ export class RingStore {
   // El ancho sale del tope REAL del contexto, no de una constante: con el tope fijo en 2048 un conteo
   // grande pide más filas de las que la GPU acepta y la textura queda corta, que se ve como geometría
   // faltante y no como error.
-  #upload(textureWidth) {
-    const gl  = this.#gl
-    const max = maxTextureOf(gl)
-    this.#width = textureWidth ?? widthFor(this.#count, max)
+  #fit(max) {
+    this.#width = this.#fixed ?? widthFor(this.#count, max)
     this.#rows  = Math.max(1, Math.ceil(this.#count / this.#width))
     if (this.#rows > max)
       throw new Error(`[cristae] ${this.#count} vértices no entran en una textura de ${max}×${max}`)
-    const data = new Float32Array(this.#width * this.#rows * 2)
-    data.set(this.#rel)
-    this.#texture = this.#texImage(gl.RG32F, gl.RG, data)
   }
 
   // Una textura float32 de `#width` × `#rows` texels, muestreada por índice exacto.
