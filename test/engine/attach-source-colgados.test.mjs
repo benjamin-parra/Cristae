@@ -20,7 +20,12 @@ import { createSource } from '../../src/data/index.js'
 const navegador = crearNavegador()
 after(conNavegador(navegador))
 
-const flush = () => new Promise(r => setTimeout(r, 5))
+// Los cuadros del stub son `setTimeout(0)` y el realce encadena dos (el Emitter difiere el aviso a un cuadro y el realce dibuja en
+// otro). Un solo timer de 5 ms los alcanzaba si la máquina iba holgada y no si iba cargada; cuatro timers seguidos no dependen del
+// reloj: cada uno vence después de todo lo que el anterior dejó agendado.
+const flush = async () => {
+  for (let i = 0; i < 4; i++) await new Promise(r => setTimeout(r, 0))
+}
 
 const FLOATS = 7
 const SIZE   = 6
