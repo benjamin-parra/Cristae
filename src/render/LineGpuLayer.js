@@ -93,7 +93,8 @@ export class LineGpuLayer {
 
   get count() { return this.#recs.size }
 
-  // Lo que el motor lee para `surfaces()`: la superficie GL de la capa y si hay algo que dibujarle.
+  // Lo que el motor lee para `surfaces()`: la superficie GL de la capa y si tiene contenido: que la Source le
+  // entregue algún ítem, tenga o no tramos que dibujar.
   get surface()    { return this.#surface }
   get hasContent() { return this.#recs.size > 0 }
 

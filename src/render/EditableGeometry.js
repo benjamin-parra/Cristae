@@ -242,8 +242,8 @@ export class EditableGeometry {
 
   getValue() { return this.#serialize() }
 
-  // Lo que el motor lee para `surfaces()`: la superficie GL del editor y si hay algo que mostrarle: un
-  // trazado en curso, o una geometría con algún vértice.
+  // Lo que el motor lee para `surfaces()`: la superficie GL del editor y si tiene contenido, que en un editor es
+  // su valor: un trazado en curso, o una geometría con algún vértice.
   get surface() { return this.#surface }
 
   get hasContent() {

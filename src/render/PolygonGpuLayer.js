@@ -319,7 +319,9 @@ export class PolygonGpuLayer {
   get vertexCount() { return this.#store.vertexCount }
   get canvas()      { return this.#surface.canvas }
 
-  // Lo que el motor lee para `surfaces()`: la superficie GL de la capa y si hay algo que dibujarle.
+  // Lo que el motor lee para `surfaces()`: la superficie GL de la capa y si tiene contenido. Con Source es que le
+  // entregue algún ítem, tenga o no vértices que dibujar: un ítem sin anillos entra igual como un anillo vacío. Con las
+  // tablas del lector, que traigan algún anillo.
   get surface()    { return this.#surface }
   get hasContent() { return this.#store.ringCount > 0 }
 

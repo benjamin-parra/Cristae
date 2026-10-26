@@ -405,6 +405,102 @@ test('visibilidad — `visible: false` en el constructor: nace oculta y nunca di
   h.layer.destroy()
 })
 
+test('visibilidad — repetir el estado no cuesta nada: mostrar la que ya se ve no repinta, ni ocultar la oculta', async () => {
+  const h = mount([{ id: 1, pos: { lat: 0, lng: 0 } }], { idOf, positionOf })
+  await flushRaf()
+  h.spy.draws.length = 0
+
+  assert.equal(h.layer.setVisible(true), false, 'ya se veía: no pintó')
+  assert.equal(h.layer.setVisible(true), false)
+  assert.equal(h.spy.draws.length, 0)
+
+  h.layer.setVisible(false)
+  assert.equal(h.layer.setVisible(false), false)
+  assert.equal(h.layer.setVisible(true), true, 'y sólo pasar de oculta a visible pinta')
+  assert.equal(h.spy.draws.length, 1)
+  h.layer.destroy()
+})
+
+// El rAF agendado de una capa oculta no dibujaría —`#draw` lo frena—, así que contar draws no distingue agendarlo de
+// no agendarlo. Lo que cuesta es el cuadro pedido: se cuenta lo que la capa le pide al navegador.
+const cuadrosPedidos = fn => {
+  const original = globalThis.requestAnimationFrame
+  let pedidos = 0
+  globalThis.requestAnimationFrame = callback => { pedidos++; return original(callback) }
+  try { fn() } finally { globalThis.requestAnimationFrame = original }
+  return pedidos
+}
+
+test('visibilidad — oculta no agenda cuadros: ni un repintado, ni un dato que llega, ni un foco', async () => {
+  const items = [{ id: 1, pos: { lat: 0, lng: 0 } }]
+  const h = mount(items, { idOf, positionOf })
+  await flushRaf()
+  h.layer.setVisible(false)
+
+  const pedidos = cuadrosPedidos(() => {
+    h.layer.redraw()
+    h.layer.refresh()
+    h.layer.applyFocus(new Set([1]))
+    items.push({ id: 2, pos: { lat: 1, lng: 1 } })
+    h.source.emitDirty(2)
+  })
+  assert.equal(pedidos, 0, 'ningún requestAnimationFrame')
+  assert.equal(h.layer.count, 2, 'el buffer sí siguió al día')
+
+  assert.equal(cuadrosPedidos(() => h.layer.setVisible(true)), 0, 'mostrarla pinta en el acto, no agenda')
+  assert.equal(cuadrosPedidos(() => h.layer.redraw()), 1, 'y visible, un repintado sí agenda su cuadro')
+  h.layer.destroy()
+})
+
+/* ── Contenido: lo que la Source le entrega, no lo que queda por dibujar ── */
+
+// `hasContent` es lo que el motor publica en `surfaces()` y lo que decide si una capa vale un contexto. Una capa bajo
+// burbujas no está vacía: tiene datos que el zoom deja a la vista.
+
+test('contenido — con ítems de la Source tiene contenido, y sin ítems no', async () => {
+  const items = []
+  const h = mount(items, { idOf, positionOf })
+  assert.equal(h.layer.hasContent, false, 'vacía')
+
+  items.push({ id: 1, pos: { lat: 0, lng: 0 } })
+  h.source.emitDirty(1)
+  await flushRaf()
+  assert.equal(h.layer.hasContent, true)
+
+  items.length = 0
+  h.source.emitDirty()
+  await flushRaf()
+  assert.equal(h.layer.hasContent, false, 'y al vaciarla, deja de tenerlo')
+  h.layer.destroy()
+})
+
+test('contenido — todo suprimido por el cluster sigue siendo contenido: no hay nada en el buffer, pero la Source entrega', () => {
+  const items = [1, 2, 3].map(id => ({ id, pos: { lat: 0, lng: id * 1e-4 } }))
+  const h = mount(items, { idOf, positionOf }, { suppressed: new Set([1, 2, 3]) })
+  assert.equal(h.layer.count, 0, 'nada que dibujar')
+  assert.equal(h.layer.hasContent, true, 'pero la Source le entrega tres ítems')
+
+  h.layer.suppressed = null
+  h.layer.refresh()
+  assert.equal(h.layer.hasContent, true)
+  h.layer.destroy()
+})
+
+test('contenido — cuenta lo que pasa el `where` de la capa: si lo rechaza todo, está vacía', () => {
+  const items = [{ id: 1, pos: { lat: 0, lng: 0 }, ok: false }, { id: 2, pos: { lat: 1, lng: 1 }, ok: false }]
+  const h = mount(items, { idOf, positionOf }, { where: it => it.ok })
+  assert.equal(h.layer.hasContent, false, 'dos ítems en la Source, ninguno para esta capa')
+
+  items[1].ok = true
+  h.layer.refresh()
+  assert.equal(h.layer.hasContent, true)
+
+  h.layer.where = it => it.id > 9
+  h.layer.refresh()
+  assert.equal(h.layer.hasContent, false)
+  h.layer.destroy()
+})
+
 /* ── La superficie ── */
 
 test('superficie — pide profundidad para el orden por banda y no sigue la transición del zoom', () => {

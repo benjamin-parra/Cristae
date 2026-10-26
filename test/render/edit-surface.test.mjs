@@ -15,6 +15,7 @@ import { adoptLeafletHost } from '../../src/host/LeafletHost.js'
 const makeGl = (espia, attrs) => ({
   getContextAttributes : () => ({ ...attrs, stencil: attrs.stencil && espia.stencilOtorgado }),
   getExtension         : nombre => (nombre === 'WEBGL_lose_context' ? { loseContext: () => { espia.lost++ } } : null),
+  isContextLost        : () => espia.perdido,
   viewport             : (x, y, w, h) => espia.viewports.push({ x, y, w, h }),
 })
 
@@ -90,7 +91,7 @@ const enContenedor = (map, ll, zoom, center) => ({
 const PANE = 'cristae-edit-0'
 
 const montar = ({ stencil = true, ...opciones } = {}) => {
-  espiaVigente = { stencilOtorgado: stencil, contexts: 0, lost: 0, canvases: [], viewports: [], traslados: [] }
+  espiaVigente = { stencilOtorgado: stencil, perdido: false, contexts: 0, lost: 0, canvases: [], viewports: [], traslados: [] }
   const map     = makeMap(opciones)
   const host    = adoptLeafletHost(map)
   const oyentes = oyentesDeVista(host)
@@ -287,6 +288,18 @@ test('state dice si la superficie tiene su contexto, y cssZoom devuelve el que s
   assert.equal(surface.state, 'live')
   espia.canvases[0].emit('webglcontextlost')
   assert.equal(surface.state, 'lost')
+})
+
+test('state lee la pérdida del contexto, que la sabe en el acto: no espera al evento, que llega en otra tarea', () => {
+  const { surface, espia } = montar()
+  surface.attach()
+  espia.perdido = true
+  assert.equal(surface.state, 'lost', 'isContextLost() ya es verdadero')
+  assert.equal(surface.contextLost, false, 'la bandera del evento sigue en pie hasta que webglcontextlost llegue')
+
+  espia.canvases[0].emit('webglcontextlost')
+  assert.equal(surface.state, 'lost')
+  assert.equal(surface.contextLost, true)
 })
 
 test('onState oye la pérdida con la superficie ya perdida, y una destruida no avisa', () => {

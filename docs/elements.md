@@ -117,8 +117,12 @@ Acceso (getters/métodos): `el.engine`, `el.camera` (ver *Cámara* abajo), `el.r
 [layerId], cb)`, `el.getLayer(id)`, `el.invalidateCanvas()`. `el.engine` es la **escotilla de bajo
 nivel** para lo no declarativo (`createIcon`, `registerIconSet`, etc.). Compartir una Source es
 declarativo (prop `.source` de la capa); `engine.attachSource` es el interno que ese setter usa,
-no API de consumidor. Asignar la `source` que la capa ya tiene no hace nada; una distinta reemplaza la capa, que
-conserva la supresión del cluster, el foco y la visibilidad.
+no API de consumidor. Asignar la `source` que la capa ya tiene no hace nada. Una distinta reemplaza la capa, que
+conserva su pane y su lugar en él, la supresión del cluster, el foco por ítem, la visibilidad y el gate de habilitación; y
+lo que cuelga del host pasa a la fuente nueva: los overlays y labels ligados (el overlay conserva sus accessors, su
+`where`, su foco y su visibilidad), el realce de interacción, y el cluster que lo envuelve, que re-indexa sobre los ids
+nuevos y recalcula la supresión. Nada sigue oyendo a la fuente vieja. Lo único que no la sigue es el seguimiento de la
+cámara (`camera.followPoint`), que queda en la fuente con que empezó: se reanuda pidiéndolo de nuevo.
 
 > **`invalidateCanvas()`:** reposiciona y redibuja todas las capas de puntos del mapa. Para `<cristae-map>`
 > **rara vez hace falta**: el `ResizeObserver` interno llama `syncSize()` (que ahora redibuja), así que

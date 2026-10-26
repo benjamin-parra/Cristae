@@ -5,7 +5,10 @@
 //   T1.2  Otra `source` es un intercambio legítimo y la capa nueva hereda lo que la vieja tenía: la supresión
 //         del cluster, el foco por ítem y el gate de visibilidad.
 //   T1.3  Una capa de puntos oculta no dibuja al mover; al mostrarla pinta en la misma tarea. «Oculta» es lo que
-//         el motor compone —visible ∧ habilitada—, también al nacer.
+//         el motor compone —visible ∧ habilitada—, también al nacer. Repetir el estado no repinta, y habilitar una
+//         capa que cambió mientras estaba deshabilitada pinta lo nuevo, una sola vez y con la supresión puesta.
+//
+// Lo que cuelga del host (overlays, labels, cluster y realce) está en attach-source-colgados.test.mjs.
 //
 // Corre con: node --test test/engine/attach-source.test.mjs
 import '../../test-helpers/engine-stub.mjs'
@@ -214,13 +217,68 @@ test('T1.3 una capa deshabilitada tampoco dibuja, y al habilitarla pinta en la m
   engine.destroy()
 })
 
-test('T1.3 mandan las dos: mostrar una capa deshabilitada no la hace dibujar', async () => {
-  const { engine, gl } = await montar()
+test('T1.3 mandan las dos: mostrar una capa deshabilitada no la hace dibujar, ni al mostrarla ni al mover el mapa', async () => {
+  const { engine, map, gl } = await montar()
   const { draws } = gl(0).spy
   engine.setLayerEnabled('flota', false)
   draws.length = 0
   engine.setLayerVisibility('flota', true)
   assert.equal(draws.length, 0, 'visible ∧ habilitada es falso')
+
+  map.fire('moveend')
+  await flush()
+  assert.equal(draws.length, 0, 'y el paneo tampoco la dibuja: el gate de la entidad sigue en pie')
+
+  engine.setLayerEnabled('flota', true)
+  assert.ok(draws.length >= 1, 'habilitada, ahora sí')
+  engine.destroy()
+})
+
+test('T1.3 repetir el estado no repinta: mostrar la que ya se ve, ni ocultar la que ya está oculta', async () => {
+  const { engine, gl } = await montar()
+  const { draws } = gl(0).spy
+  draws.length = 0
+  engine.setLayerVisibility('flota', true)
+  engine.setLayerVisibility('flota', true)
+  assert.equal(draws.length, 0, 'visible ya, no hay nada que pintar')
+
+  engine.setLayerVisibility('flota', false)
+  engine.setLayerVisibility('flota', false)
+  engine.setLayerVisibility('flota', true)
+  assert.equal(draws.length, 1, 'sólo pasar de oculta a visible pinta, y una vez')
+  engine.destroy()
+})
+
+test('T1.3 al habilitarla pinta lo que hay ahora, aunque los datos hayan cambiado mientras estaba deshabilitada', async () => {
+  const source = llena()
+  const { engine, gl } = await montar({ source })
+  const { draws } = gl(0).spy
+
+  engine.setLayerEnabled('flota', false)
+  source.set([{ id: 9, lat: 0, lng: 0 }])            // deshabilitada no reacciona a la Source: su buffer sigue con cinco
+  await flush()
+  draws.length = 0
+  engine.setLayerEnabled('flota', true)
+  assert.deepEqual(draws.map(d => d.count), [1], 'un draw, con el único punto que quedó y no con los cinco de antes')
+
+  await flush()
+  assert.equal(draws.length, 1, 'y ningún cuadro agendado detrás')
+  engine.destroy()
+})
+
+test('T1.3 habilitar un host clusterizado pinta una sola vez, con la supresión puesta y sin un dibujo intermedio de todos los puntos', async () => {
+  const lejos = () => [...JUNTOS(), { id: 6, lat: 40, lng: 40 }]
+  const { engine, gl } = await montar({ source: llena(lejos()) }, { cluster: true })
+  const { draws } = gl(0).spy
+  const visibles = engine.getLayer('flota').layer.count
+  assert.ok(visibles > 0 && visibles < lejos().length, 'el cluster suprime una parte y deja otra suelta')
+
+  engine.setLayerEnabled('flota', false)             // deshabilitado aporta ∅ al cluster: su supresión queda vacía
+  draws.length = 0
+  engine.setLayerEnabled('flota', true)
+  await flush()
+  await flush()
+  assert.deepEqual(draws.map(d => d.count), [visibles], 'un solo draw, el de la supresión vigente; no uno con los seis y otro con los sueltos')
   engine.destroy()
 })
 

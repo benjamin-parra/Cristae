@@ -62,7 +62,7 @@ export function createClusterFold(bridge, targets, { radius, maxZoom, minPoints,
   const hosts = []
   for (const t of targets) {
     const rec = bridge.layerOf(t.id)
-    if (rec && rec.kind === 'point') hosts.push({ id: t.id, rec })
+    if (rec && rec.kind === 'point') hosts.push({ id: t.id, rec, source: null, off: null })
   }
   if (!hosts.length) return null
 
@@ -80,7 +80,6 @@ export function createClusterFold(bridge, targets, { radius, maxZoom, minPoints,
   }
   const cluster = new Cluster({ radius, maxZoom, minPoints, enabled })
   const base = hosts[0].rec
-  const { idOf, positionOf } = base.source.accessors   // ids deben ser únicos entre hosts (precondición)
 
   const foldId = `cluster-${bridge.nextOrder()}`
   const bubblePane = `${foldId}-bubbles`
@@ -339,7 +338,14 @@ export function createClusterFold(bridge, targets, { radius, maxZoom, minPoints,
       }
     }
   }
-  const doIndex = () => { cluster.index(snapshot(), idOf, positionOf); if (cluster.recluster(bridge.camera.zoom())) apply() }
+  // Los accessors son los del primer host (los ids deben ser únicos entre hosts: precondición) y se leen al indexar,
+  // no al montar: attachSource le cambia la fuente a un host, y con ella pueden cambiar los ids.
+  const doIndex = () => {
+    follow()
+    const { idOf, positionOf } = base.source.accessors
+    cluster.index(snapshot(), idOf, positionOf)
+    if (cluster.recluster(bridge.camera.zoom())) apply()
+  }
   // ¿hubo cambio ESTRUCTURAL (alta/baja/patch del set) en algún host esta ventana? Un move de
   // posición NO marca dirtyIds (sólo moveDirtyIds) → se trata como deriva, no como cambio de set.
   // Si un host no expone dirtyIds (ruta B sin la señal) caemos al comportamiento previo (inmediato)
@@ -360,7 +366,14 @@ export function createClusterFold(bridge, targets, { radius, maxZoom, minPoints,
     }
   }
   const onZoom = () => cluster.recluster(bridge.camera.zoom()) && apply()
-  const unsubs = hosts.map(({ rec }) => rec.source.subscribe(onData))
+  // Cada host se oye en la fuente que tiene AHORA. attachSource se la cambia al host y llama a `reindex`, que pasa por
+  // acá: suelta la suscripción a la vieja, oye a la nueva y re-indexa sobre sus ids, con la supresión recalculada.
+  const follow = () => hosts.forEach(h => {
+    if (h.source === h.rec.source) return
+    h.off?.()
+    h.source = h.rec.source
+    h.off    = h.source.subscribe(onData)
+  })
   const offZoom = bridge.camera.on('zoomend', onZoom)
   doIndex()                                        // primer index inmediato (no esperar la ventana)
 
@@ -482,7 +495,7 @@ export function createClusterFold(bridge, targets, { radius, maxZoom, minPoints,
       offBubbleClick?.()
       offSubClick?.()
       if (reindexTimer != null) { clearTimeout(reindexTimer); reindexTimer = null }   // cancela re-index diferido pendiente
-      unsubs.forEach(u => u()); offZoom(); offZoomStart(); sink.dispose()
+      hosts.forEach(h => h.off?.()); offZoom(); offZoomStart(); sink.dispose()
       // Sesión spider: cada capa se lleva su pane.
       bridge.removeLayer(spiderId)
       bridge.removeLayer(spiderSubId)

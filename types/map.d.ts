@@ -290,8 +290,11 @@ export interface SurfaceInfo {
   z          : number | null;
   /** Si el canvas sigue la transición del zoom animado; `false` en la capa que el motor reproyecta por cuadro. */
   cssZoom    : boolean;
+  /** Se lee del contexto: vale `lost` apenas el navegador lo quita, sin esperar al evento `webglcontextlost`. */
   state      : SurfaceState;
-  /** Si hay algo que dibujarle: puntos, ítems, anillos, o un editor con geometría o en trazado. */
+  /** Si su fuente le entrega algún ítem —pasado el `where` de la capa y antes de la supresión del cluster—, haya o
+   *  no algo que dibujar ahora: un host entero bajo burbujas tiene contenido. En un editor, que su valor tenga
+   *  vértices o esté trazando. */
   hasContent : boolean;
   /** La visibilidad efectiva de la capa: la propia, su habilitación y la de su host si va ligada. */
   visible    : boolean;
@@ -853,7 +856,10 @@ export class MapEngine {
   addGeodesic(config: { hostId: string }): (() => void) | null;
 
   /** Cambia la fuente de una capa de puntos. La que ya tiene no es un cambio y no hace nada; una distinta
-   *  reconstruye la capa, que conserva su pane, la supresión del cluster, el foco y la visibilidad. */
+   *  reconstruye la capa, que conserva su pane y su lugar en él, la supresión del cluster, el foco por ítem, la
+   *  visibilidad y el gate de habilitación. Lo que cuelga del host pasa a la fuente nueva: sus overlays y labels
+   *  ligados, el realce de interacción y el cluster que lo envuelve, que re-indexa sobre los ids nuevos. Nada sigue
+   *  oyendo a la vieja, salvo el seguimiento de la cámara (`followPoint`), que se reanuda pidiéndolo de nuevo. */
   attachSource(id: string, source: CristaeSource): this;
   getLayer(id: string): unknown;
   /** Capa dueña de un objeto del pase de picking: el decodificador entrega (obj, chunk, local) y esto

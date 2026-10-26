@@ -57,8 +57,9 @@ export class EditSurface {
   get contextLost() { return this.#lost }
   get cssZoom()     { return this.#cssZoom }
   // `live`: tiene su contexto. `lost`: el navegador se lo quitó. `none`: no tiene ninguno. `released`, el
-  // de una superficie que se soltó a propósito, llega con la liberación voluntaria.
-  get state()       { return this.#lost ? 'lost' : this.#gl ? 'live' : 'none' }
+  // de una superficie que se soltó a propósito, llega con la liberación voluntaria. La pérdida se lee del
+  // contexto, que la sabe en el acto; la bandera sólo cambia cuando llega `webglcontextlost`, en otra tarea.
+  get state()       { return this.#lost || this.#gl?.isContextLost() ? 'lost' : this.#gl ? 'live' : 'none' }
 
   // Primer attach crea el contexto; los siguientes sólo re-dimensionan el canvas.
   attach() {

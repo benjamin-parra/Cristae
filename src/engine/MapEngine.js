@@ -509,6 +509,7 @@ export class MapEngine {
 
     const bind = () => this.#bindLabels(id, record, { bindTo, textOf, accessors, source: cfg.source })
     if (!bind()) this.#pendingBinds.push({ id, bind })           // host no existe aún → reintentar al crearlo
+    record.rebind = () => { record.unsub?.(); bind() }           // el host cambió de fuente (attachSource): se liga a la nueva
 
     return {
       id,
@@ -579,30 +580,39 @@ export class MapEngine {
     const paneName = `${host.paneName}-overlay-${order}`
     const zIndex   = BASE_Z + host.order * Z_STEP + 7        // sobre el host (y sobre la burbuja, +5)
 
-    // Comparte la Source del host (mismo dato → move/patch en vivo) pero RENDERIZA con
-    // accessors propios (badge, sin rotar) y filtra con `where` (sólo los que tienen badge).
-    const accessors = { ...host.source.accessors }
-    if (variantOf) accessors.variantOf = variantOf
-    if (sizeOf) accessors.sizeOf = sizeOf
-    accessors.headingOf = null                              // el overlay no rota (badge de esquina)
-
     // Membresía del overlay = la del HOST ∧ la propia. `host.where` se lee VIVO, así que un cambio de
     // membresía del host arrastra al badge sin que el consumidor lo espeje (su `resync` refresca).
     let propio = where ?? null
     const membresia = item => (!host.where || host.where(item)) && (!propio || propio(item))
 
+    // Comparte la Source del host (mismo dato → move/patch en vivo) pero RENDERIZA con accessors propios (badge,
+    // sin rotar) y filtra con `where` (sólo los que tienen badge). Parte de los accessors de la fuente que recibe:
+    // la que releva a la del host (attachSource) trae los suyos. Hereda la supresión del cluster (si la hay) y nace
+    // oculto si su host está deshabilitado.
     const set   = this.#resolveIconSet(iconSet)
-    const layer = this.#build(paneName, zIndex, () => this.#trackGl(new PointLayer({
-      host: this.#host, pane: paneName, source: host.source,
-      accessors, iconSet: set, interactive: false, where: membresia, visible: visible && host.enabled,
-    })))
-    layer.suppressed = host.suppressed ?? null               // hereda la supresión del cluster (si la hay)
-    layer.refresh()
+    const crear = (source, visible, focus) => {
+      const accessors = { ...source.accessors }
+      if (variantOf) accessors.variantOf = variantOf
+      if (sizeOf) accessors.sizeOf = sizeOf
+      accessors.headingOf = null                            // el overlay no rota (badge de esquina)
+      return new PointLayer({
+        host: this.#host, pane: paneName, source, accessors, iconSet: set, interactive: false, where: membresia,
+        visible: visible && host.enabled, suppressed: host.suppressed ?? null, focus,
+      })
+    }
+    const layer = this.#build(paneName, zIndex, () => this.#trackGl(crear(host.source, visible)))
 
     const record = {
       kind: 'overlay', source: host.source, layer, paneName, order, bindTo: hostId, visible, enabled: true,
       // el cluster reinvoca esto al re-suprimir (#resyncBound): re-apunta al ref vivo del host + reconstruye.
-      resync: () => { layer.suppressed = this.#layers.get(hostId)?.suppressed ?? null; layer.refresh() },
+      resync: () => { record.layer.suppressed = this.#layers.get(hostId)?.suppressed ?? null; record.layer.refresh() },
+      // el host cambió de fuente (attachSource): la capa se rehace sobre la nueva, con su foco y en su lugar del pane.
+      rebind: source => {
+        const { focus } = record.layer
+        record.source   = source
+        this.#swapLayer(record, () => crear(source, record.visible, focus))
+        if (!host.enabled) record.layer.enabled = false
+      },
     }
     this.#layers.set(id, record)
     this.#applyVisibility(id, paneName, visible && host.enabled)   // ligado: nace oculto si su host está deshabilitado
@@ -612,8 +622,8 @@ export class MapEngine {
       id,
       get source() { return record.source },
       get layer() { return record.layer },
-      refresh:    () => layer.refresh(),
-      setWhere:   fn => { propio = fn ?? null; layer.refresh() },   // se compone con la del host, no la pisa
+      refresh:    () => record.layer.refresh(),
+      setWhere:   fn => { propio = fn ?? null; record.layer.refresh() },   // se compone con la del host, no la pisa
       setVisible: v => this.setLayerVisibility(id, v),
     }
   }
@@ -634,11 +644,12 @@ export class MapEngine {
     const host = this.#layers.get(layerId)
     if (!host || host.kind !== 'point' || typeof drawHighlight !== 'function') return null
 
-    const source  = host.source
+    // El tamaño se lee de la fuente que el host tiene AHORA: attachSource se la cambia, y el realce la sigue.
     const iconSet = host.iconSet
-    const sizeOf  = source.accessors.sizeOf
-      ? item => source.accessors.sizeOf(item)
-      : () => iconSet?.defaultSize ?? 32
+    const sizeOf  = item => {
+      const sizeOfHost = host.source.accessors.sizeOf
+      return sizeOfHost ? sizeOfHost(item) : iconSet?.defaultSize ?? 32
+    }
 
     const hostCamera = this.#host.camera
     const surface    = this.#host.surface
@@ -674,7 +685,7 @@ export class MapEngine {
     reposition()
 
     const overlay = createHighlightOverlay({
-      source,
+      source: host.source,
       project: (lat, lng) => this.camera.latLngToContainerPoint([lat, lng]),
       ctx,
       clear: () => { reposition(); ctx.clearRect(0, 0, cssW, cssH) },   // reasienta el pane antes de dibujar
@@ -687,6 +698,8 @@ export class MapEngine {
     const offView = hostCamera.on('moveend zoomend resize', () => overlay.onViewportChange())
 
     const entry = {
+      layerId,
+      follow: source => overlay.setSource(source),           // el host cambió de fuente (attachSource)
       // Mismo cálculo que la matriz GL del sprite, para que el tratamiento caiga exacto sobre su punto.
       renderAtView: (z, c) => {
         const size     = hostCamera.size()
@@ -719,25 +732,29 @@ export class MapEngine {
 
   // Una fuente que la capa ya tiene no es un cambio: el montaje diferido de un elemento la reasigna tal cual
   // (`syncLayer` recibe la `source` con que se montó), y reconstruir cuesta el contexto, los programas, el atlas
-  // y el pase de picking. Una distinta sí reemplaza la capa; la nueva nace con lo que la vieja tenía y el record
-  // guarda: su supresión del cluster, su foco y su visibilidad. El pane no cambia.
+  // y el pase de picking. Una distinta reemplaza la capa; la nueva nace con lo que la vieja tenía y el record
+  // guarda —su supresión del cluster, su foco y su visibilidad— y ocupa su lugar en el pane. Lo que cuelga del
+  // host sigue a la fuente nueva: sus overlays y labels ligados, el realce de interacción y el cluster que lo
+  // envuelve, que re-indexa y recalcula la supresión sobre los ids nuevos.
   attachSource(id, source) {
     const record = this.#layers.get(id)
     if (!record || record.kind !== 'point' || record.source === source) return this
     const { focus } = record.layer
-    record.layer.destroy()
     record.source   = source
     record.controls = null
-    record.layer    = this.#watchSurface(this.#trackGl(new PointLayer({
+    this.#swapLayer(record, () => new PointLayer({
       host: this.#host, pane: record.paneName, source, iconSet: record.iconSet, interactive: record.interactive, where: record.where,
       visible: record.visible && record.enabled, suppressed: record.suppressed, focus,
-    })))
+    }))
     if (!record.enabled) record.layer.enabled = false   // el swap conserva el gate de la entidad deshabilitada
     if (record.interactive) {
       // La capa del pase es la MISMA entidad con otra fuente: conserva su id de objeto (no se recicla).
       const entry = this.#pick.entries.find(e => e.layerId === id)
       if (entry) { entry.layer = record.layer; record.layer.pickObject = entry.obj }
     }
+    this.#layers.forEach(r => r.bindTo === id && r.rebind?.(source))
+    this.#highlightOverlays.forEach(e => e.layerId === id && e.follow(source))
+    record.cluster?.reindex()
     return this
   }
 
@@ -822,8 +839,10 @@ export class MapEngine {
     })
     this.#resyncBound(id)               // labels re-filtran + overlays refrescan (gateados por enabled → al volver, frescos)
     if (next) record.layer.refresh()    // catch-up del host (para capas SIN cluster es LA vía; con cluster el apply() de abajo re-refresca — costo 1 rebuild por toggle)
-    record.layer.setVisible(next && record.visible)   // deshabilitada no dibuja; habilitada pinta ya, con el buffer recién al día
     record.cluster?.reindex()           // el fold recomputa las burbujas con la unión de hosts habilitados
+    // Al final, con la supresión ya puesta: deshabilitada no dibuja; habilitada pinta ya, con el buffer recién al día
+    // y sin un dibujo intermedio de todos los puntos que el reindex repintaría.
+    record.layer.setVisible(next && record.visible)
     return true
   }
 
@@ -1109,6 +1128,16 @@ export class MapEngine {
       this.#host.surface.unmount(paneName)
       throw error
     }
+  }
+
+  // Reemplaza la capa de puntos de un record por la que arma `create`. La vieja se suelta antes de construir, así que
+  // su contexto se devuelve antes de tomar el nuevo, y el canvas nuevo ocupa el lugar del viejo en el pane: el orden de
+  // las capas que lo comparten no cambia con el recambio.
+  #swapLayer(record, create) {
+    const vecino = record.layer.surface.canvas?.nextSibling
+    record.layer.destroy()
+    record.layer = this.#watchSurface(this.#trackGl(create()))
+    vecino?.before(record.layer.surface.canvas)
   }
 
   // La fila de `surfaces()` de una capa registrada, o null si no dibuja con una superficie GL. `visible` es

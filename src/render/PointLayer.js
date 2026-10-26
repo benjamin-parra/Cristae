@@ -60,6 +60,7 @@ export class PointLayer {
   #idBySlot   = []          // slot → id (traduce hits de picking)
   #slot       = new Map()   // id → slot
   #count      = 0
+  #fed        = false       // la Source le entrega algún ítem a esta capa (pasado el `where`), se dibuje o no
   #snapLen    = -1          // tamaño del snapshot del último rebuild (detecta alta/baja)
   #suppressed = null        // ids a omitir del buffer (p. ej. clusterizados); null = ninguno
   // Deshabilitada como ENTIDAD (setLayerEnabled): la suscripción a la Source no procesa nada —
@@ -130,9 +131,11 @@ export class PointLayer {
 
   idForSlot(slot) { return this.#idBySlot[slot] }
 
-  // Lo que el motor lee para `surfaces()`: la superficie GL de la capa y si hay algo que dibujarle.
+  // Lo que el motor lee para `surfaces()`: la superficie GL de la capa y si tiene contenido. Lo tiene si la Source
+  // le entrega algún ítem —pasado el `where` y ANTES de la supresión del cluster—, no si queda algo que dibujar: un
+  // host entero bajo burbujas no está vacío, y el zoom que las deshace le pide el contexto en pleno gesto.
   get surface()    { return this.#surface }
-  get hasContent() { return this.#count > 0 }
+  get hasContent() { return this.#fed }
 
   // El foco aplicado: `{ ids, dim }`, con `ids` null si no hay. El motor lo lee para pasárselo a la capa que
   // releva a ésta al intercambiar la fuente. Es el estado vivo, no una copia.
@@ -448,6 +451,7 @@ export class PointLayer {
   // del cluster vuelve solo, sin depender de qué clase de omisión lo dejó afuera.
   #renderablePos(item, id) {
     if (this.#where && !this.#where(item)) return null
+    this.#fed = true                                  // entregado: la supresión sólo decide si se dibuja
     if (this.#suppressed?.has(id)) return null
     const pos = this.#accessors.positionOf(item)
     return pos && Number.isFinite(pos.lat) && Number.isFinite(pos.lng) ? pos : null
@@ -474,6 +478,7 @@ export class PointLayer {
     if (this.#verts.length < snap.length * POINT_FLOATS)
       this.#verts = new Float32Array(Math.max(snap.length, 2 * this.#verts.length / POINT_FLOATS) * POINT_FLOATS)
     this.#slot.clear()
+    this.#fed = false
     let n = 0
     for (let i = 0; i < snap.length; i++) {
       const item = snap[i]
