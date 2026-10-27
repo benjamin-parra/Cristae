@@ -324,6 +324,18 @@ window.__nav = {
     vaciar(i) { N.compo[i].gl.flush() },
     perdidos: () => N.compo.filter(e => e.gl.isContextLost()).map(e => e.i),
   },
+  // Muestra una capa y, en la MISMA tarea, lee su estado y el píxel (x, y) de su canvas: con `preserveDrawingBuffer` apagado el
+  // buffer sólo se puede leer antes de que el cuadro se presente, así que un píxel con su color prueba que pintó en esa tarea.
+  mostrarYLeer(capa, x, y) {
+    const t0 = ahora()
+    N.eng.setLayerVisibility(capa, true)
+    const ms = ahora() - t0, f = filas(N.eng).find(r => r.layerId === capa)
+    const canvas = [...N.mapa.shadowRoot.querySelectorAll(`.leaflet-${f.pane}-pane canvas`)].find(c => { const gl = T.canvas.get(c); return gl && !gl.isContextLost() })
+    const gl = canvas && T.canvas.get(canvas)
+    let pixel = null
+    if (gl) { const b = new Uint8Array(4); gl.readPixels(x, gl.drawingBufferHeight - 1 - y, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, b); pixel = [...b] }
+    return { estado: f.state, pixel, ms }
+  },
   setVisible: (id, visible) => N.eng.setLayerVisibility(id, visible),
 
   // Una línea en una capa que nació vacía: la medición o las rutas.

@@ -106,6 +106,27 @@ const ajenosB = n => ({
   },
 })
 
+const MOSTRAR = {
+  id: 'i', titulo: 'mostrar una capa que la presión de cupo soltó: toma el contexto y pinta en la misma tarea', motores: ['chromium', 'shell'],
+  async correr(c) {
+    await c.ev('__nav.montar()')
+    const sonda = (await c.ev('__nav.sondas()')).find(s => s.capa === 'marcas')
+    await c.ev('__nav.setVisible("marcas", false)')
+    await c.ev('__nav.quieto(400, 5000)')
+    // la capa oculta no suelta su contexto por tiempo: sólo cuando una necesaria lo pierde y la política devuelve las prescindibles
+    await c.ev('__nav.ajenos(8, { entre: 80 })')
+    await c.ev('__nav.quieto(1500, 15000)')
+    const antes = (await c.ev('__nav.estado()')).filas.find(f => f.layerId === 'marcas')
+    c.comprobar('precondición: la capa oculta quedó soltada por la presión de cupo', antes.state === 'released' && !antes.visible, { estado: antes.state, visible: antes.visible })
+    const r = await c.ev(`__nav.mostrarYLeer("marcas", ${sonda.x}, ${sonda.y})`)
+    c.nota('mostrar', r)
+    c.comprobar('al mostrarla vuelve a tener su contexto en la misma tarea', r.estado === 'live', r)
+    c.comprobar('y en esa misma tarea su píxel ya tiene su color (sin un cuadro en blanco)', !!r.pixel && r.pixel.every((v, i) => Math.abs(v - [...sonda.rgb, 255][i]) <= 40), { leido: r.pixel, esperado: sonda.rgb })
+    await c.ev('__nav.quieto(1200, 15000)')
+    await revisarFinal(c, 'tras mostrarla', {})
+  },
+}
+
 const MEDICIONES = [
   {
     id: 'g', titulo: 'medición: costo de vaciar la cola (flush) de los contextos propios, lo que paga la política por evento', motores: ['chromium', 'shell', 'firefox'],
@@ -339,5 +360,6 @@ export const ESCENARIOS = [
       c.comprobar('sin errores de la página', fin.errores.length === 0, fin.errores)
     },
   },
+  MOSTRAR,
   ...MEDICIONES,
 ]
