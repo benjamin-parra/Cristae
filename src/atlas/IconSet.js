@@ -153,9 +153,10 @@ export class IconSet {
   // `ready` espera lo que el raster necesita (fuentes, imágenes). Lo declarado NO se siembra acá: se
   // rasteriza al usarlo y, adelantado, en ranuras ociosas (ver `#arm`), que no empiezan antes de esto.
   async #init() {
-    if (this.#prerender) {
+    if (this.#prerender) try {
       await this.#prerender()
-      this.#waiting = false
+    } finally {
+      this.#waiting = false                      // si rechaza, el adelanto dibuja lo mismo que el uso: no espera para siempre
       this.#atlas.count && this.#arm()
     }
     return this

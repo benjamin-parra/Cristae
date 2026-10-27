@@ -287,6 +287,18 @@ test('R3: con `prerender` pendiente el adelanto espera a que termine: lo declara
   assert.deepEqual(['2', '5', '9'].map(v => set.atlas.tileAt(set.resolve(v))[0]), [2, 5, 9], 'las declaradas, con la fuente')
 })
 
+test('si `prerender` rechaza, `ready` rechaza y el adelanto igual arranca: lo declarado no queda esperando para siempre', async () => {
+  const { set } = crear(NUEVE, {
+    prerender: () => Promise.reject(new Error('la imagen no cargó')),
+    renderers: { num: (ctx, _size, d) => { ctx.marca = d.n } },
+  })
+  set.resolve('1')
+  await assert.rejects(set.ready, /no cargó/)
+  assert.equal(ranuras.length, 1, 'rechazado, arranca el adelanto')
+  vaciarRanuras()
+  assert.deepEqual(['2', '5', '9'].map(v => set.atlas.tileAt(set.resolve(v))[0]), [2, 5, 9], 'las declaradas, como al usarlas')
+})
+
 test('cargadas las fuentes, sprite() entrega el tile nuevo y la escala de footprint es la del raster nuevo', async () => {
   let listas
   let fuente = false
