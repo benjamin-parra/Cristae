@@ -129,7 +129,10 @@ cámara (`camera.followPoint`), que queda en la fuente con que empezó: se reanu
 > tanto el resize simétrico (cambia el alto, maximizar columna) como el show tras `display:none` (un tab
 > panel que se activa, un modal con el mapa ya montado — el tamaño salta de 0 a N y dispara el observer)
 > se **auto-curan**. `invalidateCanvas()` es el escape hatch manual para el motor headless (`MapEngine`
-> sin elemento, sin observer) o el raro caso de volver a visible sin cambiar de tamaño. **Multi-mapa:**
+> sin elemento, sin observer) o el raro caso de volver a visible sin cambiar de tamaño. Es también una
+> **señal de cupo** de contextos WebGL: si la página se saturó y una capa quedó sin superficie
+> (`surfacechange` con `state: 'released'`), llamarlo al cerrar el widget que tomaba contextos (un panorama,
+> otro visor) hace que el mapa lo intente de nuevo ([SPECS §10](../SPECS.md)). **Multi-mapa:**
 > destruir un `<cristae-map>` no afecta a los demás de la página: el consumer no necesita hacer nada.
 
 `el.engine`/`el.camera` son **`null` hasta montar** y getters **vivos**: no deben cachearse en una variable
@@ -148,7 +151,7 @@ instancia** (resuelve al primer montaje, con su propio tiempo si hay varios mapa
 | `cristae:pointermove` | la muestra del puntero, `{ lat, lng, x, y }`: su posición y su píxel del contenedor. Llega congelada ([SPECS §10](../SPECS.md)) |
 | `cristae:viewportchange` | `{ center: { lat, lng }, zoom, bounds: { south, west, north, east } }` |
 | `cristae:interactionstart` / `cristae:interactionend` | `{}` |
-| `cristae:surfacechange` | `{ layerId, kind, pane, z, cssZoom, state, hasContent, visible }` — la fila de `engine.surfaces()` de la capa cuya superficie WebGL cambió de estado: cuando el navegador le quita el contexto (`state: 'lost'`), cuando la capa lo vuelve a tomar (`live`) y cuando lo suelta (`released`) ([SPECS §10](../SPECS.md)) |
+| `cristae:surfacechange` | `{ layerId, kind, pane, z, cssZoom, state, hasContent, visible }` — la fila de `engine.surfaces()` de la capa cuya superficie WebGL cambió de estado: cuando la capa toma el contexto (`live`, también la primera vez si lo difirió por nacer vacía), cuando el navegador se lo quita (`lost`) y cuando lo suelta o la política la deja sin él (`released`) ([SPECS §10](../SPECS.md)) |
 
 Ningún `detail` lleva valores de Leaflet: posiciones, píxeles y cajas son objetos planos. Una caja se
 agranda, se consulta y se centra con las funciones de [`cristae/geometry`](./geometry.md#cajas).
