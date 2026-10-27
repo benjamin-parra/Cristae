@@ -902,3 +902,35 @@ test('una que esperaba cupo y se toma por fuera sale de la espera: después no h
     warn.mock.restore()
   }
 })
+
+test('R8: una vacía que toma su primer contexto en pleno zoom animado sigue la transición, como las que ya lo tenían', () => {
+  nuevoNavegador()
+  const oyentes = new Map()
+  const camara  = {
+    ...host.camera,
+    on      : (ev, cb) => (oyentes.set(ev, [...(oyentes.get(ev) ?? []), cb]), () => {}),
+    project : () => ({ x: 0, y: 0 }),
+  }
+  const h  = { ...host, camera: camara }
+  const mk = (nombre, contenido) => {
+    const pane = `r8-${nombre}`
+    h.pane(pane).style.zIndex = '5'
+    const owner = { hasContent: contenido, buildGl() {}, dropGl() {} }
+    const s     = new EditSurface({ host: h, pane, owner })
+    Object.assign(s, { nombre, owner })
+    vivas.push(s)
+    s.open(contenido)
+    return s
+  }
+  const vieja = mk('vieja', true)
+  const nueva = mk('nueva', false)
+  glBudget.motion(GESTO, true)
+  oyentes.get('zoomanim').forEach(cb => cb({ center: { lat: 0, lng: 0 }, zoom: 4 }))   // zoom 3 → 4, en curso
+  nueva.owner.hasContent = true
+  assert.equal(nueva.need(), true, 'la toma en esa tarea, aun en pleno gesto')
+  assert.match(vieja.canvas.style.transform, /scale\(2\)/)
+  assert.equal(nueva.canvas.style.transform, vieja.canvas.style.transform, 'las dos, en el mismo lugar durante la transición')
+  oyentes.get('zoomend').forEach(cb => cb())
+  assert.equal(nueva.canvas.style.transform, vieja.canvas.style.transform, 'y al terminar')
+  assert.doesNotMatch(nueva.canvas.style.transform, /scale/)
+})

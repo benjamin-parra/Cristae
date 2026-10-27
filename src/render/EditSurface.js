@@ -57,6 +57,7 @@ export class EditSurface {
   #destroyed = false
   #lazy      = false      // la abrió `open`: su dueña avisa cuando recibe contenido
   #animando  = false
+  #destino   = null       // el zoom animado en curso ({ center, zoom }): un canvas que nace en él toma su transform
   #ancla     = { x: 0, y: 0, zoom: 0, center: null }   // ancla y vista con las que se rasterizó el contenido
 
   // Quien oye los cambios de estado de la superficie —tomar el contexto, perderlo, soltarlo—, con la superficie
@@ -109,6 +110,7 @@ export class EditSurface {
     const marcador = nuevoCanvas()
     this.#surface.mount(this.#paneName).appendChild(marcador)
     this.#canvas = this.#marker = marcador
+    this.#cssZoom && this.#seguirZoom(null)            // si el primer dato llega en pleno zoom animado, el canvas sigue la transición
     glBudget.reserved(this)
     return null
   }
@@ -155,6 +157,9 @@ export class EditSurface {
     this.#animando = false                              // un canvas nuevo no viene de ningún zoom: se ancla a la vista que hay
     this.#cssZoom && this.#seguirZoom(canvas)
     this.resetCanvasReference()
+    // Nace en pleno zoom animado —la vista todavía no llegó a su destino—: toma el transform de la transición. Un
+    // `zoomanim` cuyo `zoomend` no llegó ya está en su destino, y el canvas queda anclado sin escala.
+    this.#destino && this.#destino.zoom !== this.#camera.zoom() && this.#animar(this.#destino)
     this.#owner?.buildGl(gl)
     this.#owner && glBudget.acquired(this, gl)
     this.onState?.(this)
@@ -234,12 +239,13 @@ export class EditSurface {
 
   // Zoom animado: el canvas NO se re-rasteriza por frame —eso vibra— ni espera a `zoomend` —eso
   // teletransporta—. Recibe el mismo transform que los tiles y la transición del zoom lo lleva. La vista se
-  // oye una vez, con el primer contexto: una superficie que no lo consiguió no queda colgada de ella.
+  // oye una vez, con el primer contexto o al diferirlo: una superficie que no lo consiguió no queda colgada de ella.
   #seguirZoom(canvas) {
-    this.#surface.followZoom(canvas)
+    canvas && this.#surface.followZoom(canvas)
     this.#offZoom.length || (this.#offZoom = [
-      this.#camera.on('zoomanim', ({ center, zoom }) => this.#animar(center, zoom)),
+      this.#camera.on('zoomanim', destino => this.#animar(this.#destino = destino)),
       this.#camera.on('zoomend', () => {
+        this.#destino  = null
         this.#animando = false
         this.resetCanvasReference()
       }),
@@ -263,7 +269,7 @@ export class EditSurface {
   // contenedor— reproyectada a la vista destino, y la escala entre ambos zooms, que en Web Mercator es la
   // potencia de 2 de su diferencia. Con el origen del transform en esa esquina (lo pone `followZoom`) eso
   // lleva CADA píxel del canvas a donde le toca.
-  #animar(center, zoom) {
+  #animar({ center, zoom }) {
     if (this.#state !== 'live') return
     const camera = this.#camera
     const a      = this.#ancla
