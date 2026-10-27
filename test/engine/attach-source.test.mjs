@@ -7,6 +7,8 @@
 //   T1.3  Una capa de puntos oculta no dibuja al mover; al mostrarla pinta en la misma tarea. «Oculta» es lo que
 //         el motor compone —visible ∧ habilitada—, también al nacer. Repetir el estado no repinta, y habilitar una
 //         capa que cambió mientras estaba deshabilitada pinta lo nuevo, una sola vez y con la supresión puesta.
+//   E1    Tras un recambio el handle de la capa no escribe en la Source interna que el motor poseía y la capa soltó, ni en la
+//         del consumidor, que es de él.
 //
 // Lo que cuelga del host (overlays, labels, cluster y realce) está en attach-source-colgados.test.mjs.
 //
@@ -329,5 +331,45 @@ test('T1.3 un overlay que nace oculto no dibuja', async () => {
 
   engine.setLayerVisibility('badge', true)
   assert.equal(draws.length, 1)
+  engine.destroy()
+})
+
+/* ── E1 · el handle sigue a la fuente vigente ── */
+
+test('E1 tras attachSource el handle no escribe en la Source interna que la capa soltó ni en la del consumidor', async () => {
+  const engine = new MapEngine({ host: adoptLeafletHost(makeMap(), { leaflet: makeLeaflet() }) })
+  const handle = engine.addPointLayer({ id: 'flota', accessors: puntos, iconSet: makeIconSet(), data: JUNTOS() })
+  await flush()
+  const interna = handle.source
+  assert.deepEqual(interna.getSnapshot().map(it => it.id), [1, 2, 3, 4, 5], 'el motor posee la Source de la ruta `data`')
+
+  const ajena = llena([{ id: 9, lat: 5, lng: 5 }])
+  engine.attachSource('flota', ajena)
+  await flush()
+  assert.equal(handle.source, ajena)
+  const antes = [interna.version(), ajena.version()]
+
+  handle.set([{ id: 1, lat: 1, lng: 1 }])
+  handle.patch([{ id: 1, lat: 2, lng: 2 }], [1])
+  handle.move(1, 3, 3)
+  handle.remove(1)
+  handle.addFilter(() => false)
+  handle.removeFilter('inexistente')
+  await flush()
+  assert.deepEqual([interna.version(), ajena.version()], antes, 'ninguna de las dos recibió una escritura')
+  assert.deepEqual(interna.getSnapshot().map(it => it.id), [1, 2, 3, 4, 5])
+  assert.deepEqual(ajena.getSnapshot().map(it => it.id), [9])
+  assert.equal(engine.getLayer('flota').layer.count, 1, 'y la capa sigue dibujando lo de la Source del consumidor')
+  engine.destroy()
+})
+
+test('E1 antes de attachSource el handle escribe en la Source que posee el motor, y la capa lo dibuja', async () => {
+  const engine = new MapEngine({ host: adoptLeafletHost(makeMap(), { leaflet: makeLeaflet() }) })
+  const handle = engine.addPointLayer({ id: 'flota', accessors: puntos, iconSet: makeIconSet(), data: JUNTOS() })
+  await flush()
+  handle.set([{ id: 7, lat: 0, lng: 0 }])
+  await flush()
+  assert.deepEqual(handle.source.getSnapshot().map(it => it.id), [7])
+  assert.equal(engine.getLayer('flota').layer.count, 1)
   engine.destroy()
 })

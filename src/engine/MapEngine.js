@@ -1273,19 +1273,21 @@ export class MapEngine {
     }
   }
 
+  // Lo que el handle escribe es la Source que el motor posee, y `attachSource` se la quita: desde entonces el dueño de los
+  // datos es el consumidor y el handle no escribe en ninguna, ni en la que la capa soltó. Por eso lee `record.controls` en
+  // cada llamada y no la captura.
   #pointHandle(id, record, iconSet) {
-    const { controls } = record
     record.iconSet = iconSet
     return {
       id,
       get source() { return record.source },
       get layer() { return record.layer },
-      set:          items => controls?.set(items),
-      patch:        (items, dirtyIds) => controls?.patch(items, dirtyIds),
-      move:         (itemId, lat, lng) => controls?.move(itemId, lat, lng),
-      remove:       itemId => controls?.remove(itemId),
-      addFilter:    f => controls?.addFilter(f),
-      removeFilter: fid => controls?.removeFilter(fid),
+      set:          items => record.controls?.set(items),
+      patch:        (items, dirtyIds) => record.controls?.patch(items, dirtyIds),
+      move:         (itemId, lat, lng) => record.controls?.move(itemId, lat, lng),
+      remove:       itemId => record.controls?.remove(itemId),
+      addFilter:    f => record.controls?.addFilter(f),
+      removeFilter: fid => record.controls?.removeFilter(fid),
       // Membresía declarativa por-capa: cambia el predicado `where` y reconstruye SOLO esta
       // capa (no toca la Source compartida → otras vistas no se ven afectadas). Lee record.layer
       // (no captura) porque attachSource puede swapear la capa. Espejo del setWhere del overlay.
