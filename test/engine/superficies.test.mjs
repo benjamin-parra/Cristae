@@ -190,6 +190,7 @@ test('la capa que attachSource cambió avisa con su superficie nueva, y la de an
   engine.on('surfacechange', detail => avisos.push(detail.layerId))
 
   const source = createSource(puntos)
+  source.set(flota)                                     // con algo que dibujar, la capa nueva toma el contexto ya
   engine.attachSource('flota', source)
   const nueva = canvasDe(engine, 'flota')
   assert.notEqual(nueva, vieja, 'la capa nueva tiene su superficie')

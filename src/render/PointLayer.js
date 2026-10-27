@@ -111,9 +111,10 @@ export class PointLayer {
     this.#picking    = interactive ? new Picking() : null
     this.#surface    = new EditSurface({ host, pane, depth: true, cssZoom: false, owner: this })
     focus && Object.assign(this.#focus, focus)
-    // Tomar el contexto ocupa uno de los ~16, y lo que siga puede tirar: nadie lo devuelve solo.
+    // Tomar el contexto ocupa uno de los ~16, y lo que siga puede tirar: nadie lo devuelve solo. Una capa que nace
+    // vacía deja su marcador en el pane y la política le da el contexto en un rato ocioso, o en la tarea del primer dato.
     try {
-      this.#surface.acquire()
+      this.#surface.open(this.#feeds(source.getSnapshot()))   // → buildGl(gl): todavía sin datos
       this.#unsub = source.subscribe(() => this.#onChange())
       this.#onChange()
     } catch (e) {
@@ -133,6 +134,9 @@ export class PointLayer {
   // host entero bajo burbujas no está vacío, y el zoom que las deshace le pide el contexto en pleno gesto.
   get surface()    { return this.#surface }
   get hasContent() { return this.#fed }
+
+  // Si la Source le entrega algún ítem a esta capa, pasado el `where`: es lo que decide si nace con contexto.
+  #feeds(snap) { return this.#where ? snap.some(item => this.#where(item)) : snap.length > 0 }
 
   // El foco aplicado: `{ ids, dim }`, con `ids` null si no hay. El motor lo lee para pasárselo a la capa que
   // releva a ésta al intercambiar la fuente. Es el estado vivo, no una copia.
@@ -525,6 +529,7 @@ export class PointLayer {
       this.#verts = new Float32Array(Math.max(snap.length, 2 * this.#verts.length / POINT_FLOATS) * POINT_FLOATS)
     this.#slot.clear()
     this.#fed = false
+    if (!this.#gl && snap.length) this.#claim(snap)
     let n = 0
     for (let i = 0; i < snap.length; i++) {
       const item = snap[i]
@@ -544,6 +549,16 @@ export class PointLayer {
     this.#snapLen         = snap.length
     this.#upload()
     this.redraw()
+    this.#gl && this.#surface.need()      // viva: si pasó a necesaria con estos datos, se rehace el orden de desalojo
+  }
+
+  // Con datos y sin contexto lo pide antes de codificar, en esta tarea: el contexto da la escala del buffer en que se
+  // codifican los tamaños, y pedirlo después obligaría a recodificar todo. `buildGl` sólo mide la escala mientras no
+  // haya nada subido (`#snapLen < 0`), y el cierre del rebuild sube y pinta.
+  #claim(snap) {
+    this.#fed     = this.#feeds(snap)
+    this.#snapLen = -1
+    this.#surface.need()
   }
 
   // El espejo entero al VBO, lo que ocupa el set: el rebuild, y el contexto nuevo que todavía no tiene nada.

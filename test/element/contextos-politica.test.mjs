@@ -2,8 +2,8 @@
 // con el modelo de 13 capas del Mapa Geotáctico (test-helpers/modelo-capas.mjs) y el navegador falso, que desaloja por último
 // flush y comparte el techo entre ventanas. Lo que la política decide con las capas de verdad:
 //
-//   T3.1  el montaje no toma contexto para las dos líneas vacías del kit: las toma en ratos ociosos, de a una; una vacía que
-//         recibe su primer dato antes lo toma en esa tarea y pinta
+//   T3.1  el montaje no toma contexto para las cuatro capas vacías, dos líneas del kit y la espiral y la sub-espiral del cluster:
+//         las toma en ratos ociosos, de a una; una vacía que recibe su primer dato antes lo toma en esa tarea y pinta
 //   T3.2  una capa oculta conserva su contexto: alternarla no toma ni suelta nada
 //   T3.5  con 4, 8 y 12 ajenos que dibujan, caen primero las prescindibles, ninguna necesaria queda sin contexto mientras
 //         quede una prescindible viva, y sin cupo quedan sin superficie las de menor z, con una rotación como mucho
@@ -83,14 +83,16 @@ const montar = async (opciones = {}) => {
   return { map, engine: map.engine, navegador }
 }
 
-const VACIAS     = ['medicion', 'rutas']                // las dos líneas que el kit monta «siempre, también vacías»
+// Las prescindibles del modelo son las capas sin contenido: las dos líneas que el kit monta «siempre, también vacías», y la
+// espiral y la sub-espiral del cluster, que esperan una expansión. Se leen del motor apenas montado.
+const vaciasDe   = engine => engine.surfaces().filter(s => !s.hasContent).map(s => s.layerId)
 const superficie = (engine, id) => (r => (r.layer ?? r.editor).surface)(engine.getLayer(id))
 const contextoDe = (navegador, engine, id) => navegador.contextos.find(c => c.gl === superficie(engine, id).gl)
 const estados    = engine => Object.fromEntries(engine.surfaces().map(s => [s.layerId, s.state]))
 const dibujos    = contexto => contexto.gl.llamadas.filter(([m]) => /^draw/.test(m)).length
 const propias    = navegador => navegador.contextos.filter(c => !c.ajeno).length
 // Las necesarias del modelo, de menor a mayor z: el orden en que quedan sin superficie cuando falta cupo.
-const necesariasPorZ = engine => engine.surfaces().filter(s => !VACIAS.includes(s.layerId)).sort((a, b) => a.z - b.z).map(s => s.layerId)
+const necesariasPorZ = engine => engine.surfaces().filter(s => s.hasContent).sort((a, b) => a.z - b.z).map(s => s.layerId)
 
 const intactos = navegador => {
   const tocados = navegador.contextos.filter(c => c.llamadasTrasPerdida).map(c => `#${c.id} ${c.pane}: ${c.llamadasTrasPerdida}`)
@@ -111,7 +113,7 @@ const asentarCuadros = (navegador, ajenos = [], n = 4) => {
 
 /* ── T3.1 · el alta difiere las vacías ── */
 
-test('T3.1 el montaje no toma contexto para las dos líneas vacías: las toma en ratos ociosos, de a una, y creados == vivos', async () => {
+test('T3.1 el montaje no toma contexto para las cuatro capas vacías: las toma en ratos ociosos, de a una, y creados == vivos', async () => {
   await esperar(20)                                     // los ratos ociosos de los tests de antes ya pasaron
   const ociosos = []
   globalThis.requestIdleCallback = cb => ociosos.push(cb)
@@ -119,21 +121,23 @@ test('T3.1 el montaje no toma contexto para las dos líneas vacías: las toma en
     const { map, navegador } = await armar(13, 'react', { crearGl, asentado: false })
     limpiar.push(() => map.remove())
     const { engine } = map
-    assert.deepEqual(VACIAS.map(id => estados(engine)[id]), ['none', 'none'], 'las vacías sólo dejaron su marcador')
-    assert.deepEqual([navegador.creados, navegador.vivos], [11, 11])
-    VACIAS.forEach(id => assert.ok(superficie(engine, id).canvas.isConnected, `el marcador de ${id} guarda su lugar`))
+    const vacias = vaciasDe(engine)
+    assert.equal(vacias.length, 4, 'las dos líneas del kit, y la espiral y la sub-espiral del cluster')
+    assert.deepEqual(vacias.map(id => estados(engine)[id]), ['none', 'none', 'none', 'none'], 'las vacías sólo dejaron su marcador')
+    assert.deepEqual([navegador.creados, navegador.vivos], [9, 9])
+    vacias.forEach(id => assert.ok(superficie(engine, id).canvas.isConnected, `el marcador de ${id} guarda su lugar`))
 
     const tomadas = []
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 5; i++) {
       ociosos.splice(0).forEach(cb => cb({ didTimeout: false, timeRemaining: () => 50 }))
       tomadas.push(navegador.creados)
     }
-    assert.deepEqual(tomadas, [12, 13, 13], 'una por rato ocioso')
+    assert.deepEqual(tomadas, [10, 11, 12, 13, 13], 'una por rato ocioso')
     assert.deepEqual([navegador.creados, navegador.vivos, navegador.desalojados], [13, 13, 0])
-    const z = Object.fromEntries(engine.surfaces().map(s => [s.layerId, s.z]))
-    const primera = navegador.contextos[11].pane
-    assert.equal(primera, `cristae-line-${z.rutas > z.medicion ? 'rutas' : 'medicion'}`, 'la de mayor z primero')
-    VACIAS.forEach(id => assert.equal(dibujos(contextoDe(navegador, engine, id)), 0, `${id} no dibuja: no tiene qué`))
+    const porZ = engine.surfaces().filter(s => !s.hasContent).sort((a, b) => b.z - a.z)
+    assert.deepEqual(porZ.map(s => s.pane), navegador.contextos.slice(9, 13).map(c => c.pane), 'la de mayor z primero')
+    vacias.filter(id => engine.getLayer(id).kind === 'line').forEach(id =>
+      assert.equal(dibujos(contextoDe(navegador, engine, id)), 0, `${id} no dibuja: no tiene qué`))
     intactos(navegador)
   } finally {
     delete globalThis.requestIdleCallback
@@ -185,22 +189,23 @@ for (const n of [4, 8, 12]) {
   test(`T3.5 13 capas + ${n} ajenos que dibujan: caen primero las prescindibles y, sin cupo, las necesarias de menor z`, async () => {
     const { engine, navegador } = await montar()
     const orden   = necesariasPorZ(engine)
+    const vacias  = vaciasDe(engine)
     const antes   = propias(navegador)
     const ajenos  = []
     for (let k = 0; k < n; k++) {
       ajenos.push(navegador.ajeno())
       asentarCuadros(navegador, ajenos)
       const e = estados(engine)
-      VACIAS.some(id => e[id] === 'live') && orden.forEach(id =>
+      vacias.some(id => e[id] === 'live') && orden.forEach(id =>
         assert.equal(e[id], 'live', `con una prescindible viva, ${id} no queda sin contexto (ajeno ${k + 1})`))
       assert.ok(Object.values(e).every(s => s !== 'lost'), `ninguna queda esperando una recuperación (ajeno ${k + 1})`)
     }
 
     const sinLugar   = 13 - (16 - n)
-    const vaciasFuera = Math.min(2, sinLugar)
-    const fuera      = Math.max(0, sinLugar - 2)
+    const vaciasFuera = Math.min(vacias.length, sinLugar)
+    const fuera      = Math.max(0, sinLugar - vacias.length)
     const e          = estados(engine)
-    assert.equal(VACIAS.filter(id => e[id] === 'released').length, vaciasFuera)
+    assert.equal(vacias.filter(id => e[id] === 'released').length, vaciasFuera)
     assert.deepEqual(orden.map(id => e[id]), orden.map((_, i) => i < fuera ? 'released' : 'live'),
       `sin superficie quedan las ${fuera} necesarias de menor z`)
     assert.equal(navegador.vivos, 16)
@@ -225,14 +230,15 @@ test('T3.6 con ajenos que se rehacen al perder: una rotación, la de menor z que
     canvas.addEventListener('webglcontextlost', insistente)
     navegador.ajeno(canvas)
   }
-  const orden = necesariasPorZ(engine)
+  const orden  = necesariasPorZ(engine)
+  const vacias = vaciasDe(engine)
 
   navegador.ajeno()
   insistente()                                          // trece y dos ajenos
   navegador.desalojar(contextoDe(navegador, engine, 'enlaces'))
   asentarCuadros(navegador)                             // la presión suelta las vacías y enlaces vuelve: las propias, más jóvenes
-  assert.deepEqual(VACIAS.map(id => estados(engine)[id]), ['released', 'released'])
-  ;[1, 2, 3, 4, 5].forEach(insistente)                  // el techo se llena y los ajenos se desalojan entre sí, y a una propia
+  assert.deepEqual(vacias.map(id => estados(engine)[id]), ['released', 'released', 'released', 'released'])
+  ;[1, 2, 3, 4, 5, 6, 7].forEach(insistente)           // el techo se llena y los ajenos se desalojan entre sí, y a una propia
   asentarCuadros(navegador, [], 10)
 
   const e = estados(engine)
@@ -285,9 +291,9 @@ test('T3.7 un mapa montado por portal en otra ventana comparte el registro: perd
 test('T3.8 invalidateCanvas() vuelve a intentar lo que la saturación dejó sin superficie, y con cupo lo consigue', async () => {
   const { engine, navegador } = await montar()
   const orden  = necesariasPorZ(engine)
-  const ajenos = Array.from({ length: 6 }, () => navegador.ajeno())
+  const ajenos = Array.from({ length: 8 }, () => navegador.ajeno())
   asentarCuadros(navegador, ajenos)
-  assert.equal(estados(engine)[orden[0]], 'released', 'trece, menos dos vacías, más seis ajenos: falta un lugar')
+  assert.equal(estados(engine)[orden[0]], 'released', 'trece, menos cuatro vacías, más ocho ajenos: falta un lugar')
 
   navegador.desalojar(ajenos[0])                        // un ajeno se cierra, y nadie lo avisa
   asentarCuadros(navegador, ajenos.slice(1))
@@ -335,7 +341,7 @@ test('quitar una capa sin superficie por saturación, o una vacía que esperaba 
     engine.removeLayer('rutas')
     ociosos.splice(0).forEach(cb => cb({ didTimeout: false, timeRemaining: () => 50 }))
     ociosos.splice(0).forEach(cb => cb({ didTimeout: false, timeRemaining: () => 50 }))
-    const ajenos = Array.from({ length: 6 }, () => navegador.ajeno())   // once necesarias, una vacía y seis ajenos
+    const ajenos = Array.from({ length: 8 }, () => navegador.ajeno())   // nueve necesarias, dos vacías tomadas y ocho ajenos
     asentarCuadros(navegador, ajenos)
     assert.equal(estados(engine)[orden[0]], 'released')
     const creados = navegador.creados

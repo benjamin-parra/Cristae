@@ -37,13 +37,13 @@ const ZONAS     = { accessors: { idOf: it => it.id, ringsOf: () => [[[0, 0], [0,
 
 // El GL de cada superficie, con lo que el eje necesita observar y el doble no trae: los enums reales de
 // arriba y `uniform1f` por NOMBRE —`getUniformLocation` devuelve el nombre, que es lo único que distingue
-// `uDim` de los uniforms del atlas—. Las capas toman su contexto en el orden en que se dan de alta.
-const contextos = []
+// `uDim` de los uniforms del atlas—. Una capa nacida vacía toma su contexto al llegarle el primer dato, y no al darse de
+// alta: el registro se busca por el contexto de la capa, no por el orden de creación.
+const porGl = new WeakMap()
 const espiar = () => {
   const base = makeEditGl()
   const rec  = { spy: base.spy, uniformes: [], clears: [], enables: [], disables: [], depthFuncs: [] }
-  contextos.push(rec)
-  return new Proxy(base, {
+  const gl   = new Proxy(base, {
     get: (t, p) => {
       if (Object.hasOwn(GL, p)) return GL[p]
       // Fuera del draw el contexto tiene el test APAGADO: así se ve si el pase restaura o se lo deja.
@@ -57,27 +57,27 @@ const espiar = () => {
       return t[p]
     },
   })
+  porGl.set(gl, rec)
+  return gl
 }
 
 after(conGlDeEdicion(espiar))   // puntos y zonas toman su contexto del harness
 
 const mount = async ({ data = FLOTA(), interactive = false, where = null, zonas = false, cluster = false } = {}) => {
-  contextos.length = 0
   const map    = makeMap()
   const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeLeaflet() }) })
   const flota  = engine.addPointLayer({ id: 'flota', accessors, iconSet: makeIconSet(), data, interactive, where })
   engine.addPointLayer({ id: 'otra', accessors, iconSet: makeIconSet(), data: FLOTA() })
-  const capas  = { flota: contextos[0], otra: contextos[1] }
   zonas && engine.addPolygonLayer({ id: 'zonas', ...ZONAS })
   cluster && engine.addClusterFold([{ id: 'flota' }], { radius: 80, maxZoom: 18, minPoints: 2 })
   await flushRaf()
   await flushRaf()     // dos cuadros: el emit coalescido de la Source y el repintado que agenda
-  return { engine, map, capas, flota, datos: data }
+  return { engine, map, flota, datos: data }
 }
 
 // Opacidad efectiva del pane de una capa ('' = plena). El nombre sale del record: no se calca a mano.
 const opacidad = (h, id) => h.map.getPane(h.engine.getLayer(id).paneName)?.style.opacity ?? ''
-const capa     = (h, id) => h.capas[id]
+const capa     = (h, id) => porGl.get(h.engine.getLayer(id).layer.surface.gl)
 const uDim     = rec => rec.uniformes.filter(u => u.name === 'uDim').map(u => u.v)
 const dibujos  = rec => rec.spy.draws.length
 

@@ -10,6 +10,7 @@ import { JSDOM } from 'jsdom'
 import { MapEngine } from '../../src/engine/MapEngine.js'
 import { adoptLeafletHost } from '../../src/host/LeafletHost.js'
 import { linkPointProgram } from '../../src/render/point-program.js'
+import { createSource } from '../../src/data/index.js'
 
 const WAIT_FAILED             = 0x911D
 const CONTEXT_LOST_WEBGL      = 37442
@@ -717,10 +718,9 @@ test('conNavegador en el motor: la pérdida llega a la superficie de la capa, en
   try {
     const señales = []
     engine.on('surfacechange', fila => señales.push(fila.state))
-    engine.addPointLayer({
-      id: 'p', iconSet: makeIconSet(), data: [{ id: 1, lat: 0, lng: 0 }],
-      accessors: { idOf: it => it.id, positionOf: it => ({ lat: it.lat, lng: it.lng }) },
-    })
+    const source = createSource({ idOf: it => it.id, positionOf: it => ({ lat: it.lat, lng: it.lng }) })
+    source.set([{ id: 1, lat: 0, lng: 0 }])             // con algo que dibujar, la capa toma su contexto al darse de alta
+    engine.addPointLayer({ id: 'p', iconSet: makeIconSet(), source })
     const superficie = engine.getLayer('p').layer.surface
 
     navegador.desalojar(navegador.contextos[0])

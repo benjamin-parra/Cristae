@@ -8,8 +8,8 @@
 //   T2.6  `destroy` durante la pérdida o después deja 0 vivos, en cada clase: quitar la capa, y desmontar el mapa.
 //   13    El modelo de 13 capas del Mapa Geotáctico con contextos ajenos que se crean después del montaje: toda capa
 //         necesaria desalojada vuelve a pintar dentro del cupo, una por cuadro y la de mayor z primero, las prescindibles
-//         (las dos líneas vacías) quedan soltadas, y ninguna llamada va a un `gl` viejo. La política con más ajenos, el
-//         ping-pong y la saturación están en `contextos-politica`.
+//         (las cuatro capas vacías: dos líneas y la espiral y la sub-espiral del cluster) quedan soltadas, y ninguna llamada va a
+//         un `gl` viejo. La política con más ajenos, el ping-pong y la saturación están en `contextos-politica`.
 //
 // Los cuadros los corre el test (`cuadro()`), así «una por cuadro» es determinista. Los eventos del navegador llegan con
 // `navegador.vaciar()`. Corre con: node --test test/element/contextos-readquirir.test.mjs
@@ -103,12 +103,15 @@ const porZ = (engine, ids) => {
   assert.equal(new Set(ids.map(id => z[id])).size, ids.length, 'sin empates de z')
   return [...ids].sort((p, q) => z[q] - z[p])
 }
-const VACIAS = ['medicion', 'rutas']                    // las dos líneas que el kit monta «siempre, también vacías»
+// Las prescindibles del modelo son las capas sin contenido: las dos líneas que el kit monta «siempre, también vacías», y la
+// espiral y la sub-espiral del cluster, que esperan una expansión.
+const vaciasDe = engine => engine.surfaces().filter(s => !s.hasContent).map(s => s.layerId)
 
 /* ── El modelo de 13 capas con contextos ajenos ── */
 
 test('13 capas + 3 ajenos caben en el techo: una ráfaga de pérdidas suelta las vacías y vuelve a pintar de a una por cuadro, por z', async () => {
   const { engine, navegador } = await montar()
+  const VACIAS = vaciasDe(engine)
   ajenos(navegador, 3)
   assert.equal(navegador.vivos, 16)
   assert.equal(navegador.desalojados, 0, 'trece más tres son el techo: nadie cae')
@@ -121,7 +124,7 @@ test('13 capas + 3 ajenos caben en el techo: una ráfaga de pérdidas suelta las
   const creados = navegador.creados
 
   assert.deepEqual(perdidas.map(id => estados(engine)[id]), ['lost', 'lost', 'lost', 'lost'])
-  assert.deepEqual(VACIAS.map(id => estados(engine)[id]), ['released', 'released'], 'bajo presión se sueltan las prescindibles')
+  assert.deepEqual(VACIAS.map(id => estados(engine)[id]), VACIAS.map(() => 'released'), 'bajo presión se sueltan las prescindibles')
   assert.equal(navegador.creados, creados, 'recuperar espera al cuadro: el evento no toma contexto')
 
   const orden = porZ(engine, perdidas)
@@ -136,15 +139,16 @@ test('13 capas + 3 ajenos caben en el techo: una ráfaga de pérdidas suelta las
   cuadro()
   assert.equal(navegador.creados, creados + 4, 'con la cola vacía, un cuadro más no toma nada')
   assert.equal(navegador.desalojados, 4, 'sólo cayeron las cuatro que pidió el test: recuperarlas no desalojó a nadie')
-  assert.equal(navegador.vivos, 14, 'las once necesarias y los tres ajenos')
+  assert.equal(navegador.vivos, 12, 'las nueve necesarias y los tres ajenos')
   assert.deepEqual(avisos.filter(([, e]) => e !== 'released'), [...perdidas.map(id => [id, 'lost']), ...orden.map(id => [id, 'live'])],
     'cada una avisó perderse, con el evento, y volver, con su cuadro')
-  assert.deepEqual(avisos.filter(([, e]) => e === 'released').map(([id]) => id).sort(), VACIAS)
+  assert.deepEqual(avisos.filter(([, e]) => e === 'released').map(([id]) => id).sort(), [...VACIAS].sort())
   intactos(navegador)
 })
 
 test('13 capas + 4 ajenos pasan el techo por una: cae una vacía, que queda soltada, y no se recupera nada', async () => {
   const { engine, navegador } = await montar()
+  const VACIAS = vaciasDe(engine)
   const avisos = []
   engine.on('surfacechange', detail => avisos.push([detail.layerId, detail.state]))
   const creados = navegador.creados
@@ -161,8 +165,9 @@ test('13 capas + 4 ajenos pasan el techo por una: cae una vacía, que queda solt
   intactos(navegador)
 })
 
-test('un reinicio de la GPU les quita el contexto a las trece: vuelven las once necesarias de a una por cuadro, y pintan', async () => {
+test('un reinicio de la GPU les quita el contexto a las trece: vuelven las nueve necesarias de a una por cuadro, y pintan', async () => {
   const { engine, navegador } = await montar()
+  const VACIAS = vaciasDe(engine)
   ajenos(navegador, 3)
   const ids = engine.surfaces().map(s => s.layerId)
   assert.equal(ids.length, 13)
@@ -182,10 +187,10 @@ test('un reinicio de la GPU les quita el contexto a las trece: vuelven las once 
   })
   necesarias.forEach(id => assert.ok(dibujos(contextoDe(navegador, engine, id)) > 0, `${id} pinta al volver`))
   cuadro()
-  assert.equal(navegador.creados, creados + 11)
-  assert.deepEqual(VACIAS.map(id => estados(engine)[id]), ['released', 'released'], 'las vacías no vuelven hasta tener contenido')
-  assert.equal(navegador.desalojados, 13, 'recuperar once con los trece cupos libres no desaloja a ninguna')
-  assert.equal(navegador.vivos, 14)
+  assert.equal(navegador.creados, creados + 9)
+  assert.deepEqual(VACIAS.map(id => estados(engine)[id]), VACIAS.map(() => 'released'), 'las vacías no vuelven hasta tener contenido')
+  assert.equal(navegador.desalojados, 13, 'recuperar nueve con los trece cupos libres no desaloja a ninguna')
+  assert.equal(navegador.vivos, 12)
   viejos.forEach(contexto => assert.equal(contexto.llamadasTrasPerdida, 0, `#${contexto.id} ${contexto.pane}: intacto`))
   intactos(navegador)
 })
