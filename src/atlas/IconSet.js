@@ -13,8 +13,9 @@ import Atlas from './Atlas.js'
 // 1–2 corren al PRIMER USO de cada variante (`resolve`) y, para las declaradas en `variants`, ADELANTADAS en
 // ranuras ociosas de unos ms: lo declarado no se rasteriza ni se sube entero, sólo lo que se usa; lo que ya
 // se adelantó espera en un depósito (`#prepared`) hasta que alguien lo pide y entonces sólo toma celda.
-// Declarar un espacio grande (199 buckets de cluster) no cuesta al definir, y re-adquirir sube sólo lo pedido. Con más
-// de la mitad de lo declarado en uso a la vez, re-adquirir cuesta más que con los tiles en canvas.
+// Declarar un espacio grande (199 buckets de cluster) no cuesta al definir, y re-adquirir sube sólo lo pedido. Los tiles
+// suben desde bytes: con muchos en uso, en Chromium cuesta más que desde canvases (los de un canvas acelerado ya están en
+// la GPU) y en Firefox menos (desde un canvas hay que leerlo). Ninguna forma gana en los dos (etapa3/ARREGLOS.md, R2).
 //
 // CONTRATO DEL ESPACIO DE DESCRIPTOR (responsabilidad del consumidor):
 //   `describe(variant)` DEBE ser TOTAL sobre el espacio de variantes: para CUALQUIER string que
