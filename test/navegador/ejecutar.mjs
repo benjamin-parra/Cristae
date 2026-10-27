@@ -127,12 +127,12 @@ const abrirChromium = async (pw, motor) => {
 }
 
 const abrirFirefox = async () => {
-  let ff = null
+  let ff = null, lanzamientos = 0
   return {
     version: null,
     async abrir(nombre) {
       ff?.cerrar()
-      ff = await lanzarFirefox({ url: URL_PAGINA, ejecutable: process.env.CRISTAE_FIREFOX ?? '/usr/bin/firefox' })
+      ff = await lanzarFirefox({ url: URL_PAGINA, ejecutable: process.env.CRISTAE_FIREFOX ?? '/usr/bin/firefox', puerto: 2830 + ++lanzamientos })   // un puerto por lanzamiento: el Firefox anterior puede estar muriendo
       for (let i = 0; i < 100; i++) { if (await ff.evaluar('window.__listo === true')) break; await new Promise(r => setTimeout(r, 100)) }
       const c = interfaz('firefox', { evaluar: ff.evaluar, captura: ff.captura }, nombre)
       c.version = ff.version
@@ -157,15 +157,21 @@ for (const motor of motores) {
     console.log(`\n  [${e.id}] ${e.titulo}`)
     const c = await nav.abrir(e.id)
     const t0 = Date.now()
+    // un escenario colgado no se come el tiempo de los demás: tope de 150 s (el más largo, el ping-pong, dura 45 s)
+    let reloj
+    const tope = new Promise((_, mal) => { reloj = setTimeout(() => mal(new Error('tope de 150 s: el escenario no terminó')), 150_000) })
     try {
-      await e.correr(c)
-      const est = await c.ev('__nav.estado()').catch(() => null)
-      c.nota('renderer', est?.renderer)
-      const evs = await c.ev('__nav.eventos()').catch(() => null)
-      evs && writeFileSync(`${A.salida}/${motor}-${e.id}-eventos.json`, JSON.stringify(evs))
+      await Promise.race([tope, (async () => {
+        await e.correr(c)
+        const est = await c.ev('__nav.estado()').catch(() => null)
+        c.nota('renderer', est?.renderer)
+        const evs = await c.ev('__nav.eventos()').catch(() => null)
+        evs && writeFileSync(`${A.salida}/${motor}-${e.id}-eventos.json`, JSON.stringify(evs))
+      })()])
     } catch (err) {
       c.comprobar('el escenario corre sin excepciones', false, String(err?.stack ?? err).slice(0, 600))
     }
+    clearTimeout(reloj)
     c.resultado.version = nav.version ?? c.version
     c.resultado.ms = Date.now() - t0
     c.resultado.paso = c.resultado.checks.every(k => k.ok)

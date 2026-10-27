@@ -218,6 +218,8 @@ window.__nav = {
     N.eng.addHtmlLayer({ id: 'hitos', pane: 'cristae-ruta-620', z: 620, accessors: { idOf: h => h.id, positionOf: h => ({ lat: h.lat, lng: h.lng }), htmlOf: () => '<b>I</b>' }, data: items([[100, 700]], 500) })
     const montaje = ahora() - t0
     const sincrono = { ...contar(), filas: filas(N.eng) }
+    // las capas que nacieron vacías toman su contexto en ratos ociosos, de a una: se espera a que no quede ninguna sin tomarlo
+    while (ahora() - t0 < 12_000 && filas(N.eng).some(f => f.state === 'none')) await dormir(20)
     await quieto()
     return { montajeMs: Math.round(montaje), alMontar: sincrono, ...this.estado() }
   },
@@ -287,16 +289,18 @@ window.__nav = {
   // Lo que cuesta vaciar la cola de los contextos propios vivos (el `flush` dirigido de la política), por llamada: cinco rondas de
   // `ms` ms cada una, tomando la mediana. Acotado por tiempo, no por cantidad: en un navegador con la composición por software una
   // llamada puede costar milisegundos.
-  flushCosto({ ms = 200 } = {}) {
-    const gls = [...T.ctx.values()].filter(c => !c.ajeno && !c.gl.isContextLost()).map(c => c.gl)
+  flushCosto({ ms = 200, tope = 4000 } = {}) {
+    const gls = [...T.ctx.values()].filter(c => !c.ajeno && !c.gl.isContextLost()).map(c => c.gl), t0 = ahora()
     const ronda = () => {
       const a = ahora()
       let n = 0
-      while (ahora() - a < ms) { for (const gl of gls) gl.flush(); n += gls.length }
+      while (ahora() - a < ms) for (const gl of gls) { gl.flush(); n++; if (ahora() - a >= ms) break }
       return (ahora() - a) / n * 1000
     }
-    const m = [ronda(), ronda(), ronda(), ronda(), ronda()].sort((x, y) => x - y)
-    return { contextos: gls.length, usPorFlush: m[2], min: m[0], max: m[4] }
+    const m = []
+    for (let i = 0; i < 5 && ahora() - t0 < tope; i++) m.push(ronda())
+    m.sort((x, y) => x - y)
+    return { contextos: gls.length, rondas: m.length, usPorFlush: m[m.length >> 1], min: m[0], max: m.at(-1), totalMs: ahora() - t0 }
   },
 
   // ¿La composición de un canvas visible renueva el orden de desalojo? Contextos simples, visibles, sin Cristae de por medio.
