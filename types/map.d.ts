@@ -40,7 +40,8 @@ export interface IconDescriptor {
 
 export interface IconSetConfig {
   rotates?   : boolean;
-  /** Variantes preseed (cero regrow en runtime). */
+  /** Variantes declaradas: dimensionan el atlas (cero regrow en runtime). Declararlas no las rasteriza ni las sube:
+   *  cada una se dibuja al primer uso y el resto se adelanta en ratos ociosos. */
   variants?  : string[];
   sizes?     : { default?: number; canvas?: number };
   /** Debe ser TOTAL: cualquier string (o null/undefined) → descriptor completo. */
@@ -272,10 +273,11 @@ export interface MapClickDetail {
   latlng : LatLng;
 }
 
-/** Cómo está la superficie WebGL de una capa. `live`: tiene su contexto. `lost`: el navegador se lo
- *  quitó. Una capa de puntos, de líneas, de polígonos, de formas o un editor —también un overlay o una burbuja
- *  de cluster— lo vuelve a tomar en el cuadro siguiente si hay cupo, salvo en pleno zoom animado, que espera a que
- *  asiente. `released`: lo soltó a propósito. `none`: no lo tomó. */
+/** Cómo está la superficie WebGL de una capa. `live`: tiene su contexto. `lost`: el navegador se lo quitó, y
+ *  la capa lo vuelve a tomar en un cuadro siguiente, de a una por cuadro, la de mayor z primero y nunca en pleno
+ *  gesto. `released`: no lo tiene por decisión propia: lo soltó a mano, o la política la soltó por prescindible
+ *  (vacía u oculta) bajo presión de cupo, o la dejó sin superficie por saturación (SPECS §10). `none`: todavía no lo
+ *  tomó, como una capa que nació vacía y lo toma en un rato ocioso o con su primer dato. */
 export type SurfaceState = "live" | "lost" | "released" | "none";
 
 /** Una fila de `engine.surfaces()` y el `detail` de la señal `surfacechange`: la superficie WebGL de una
@@ -317,8 +319,9 @@ export interface EngineSignals {
   /** El último editor que la tomaba dejó de hacerlo, o se quitó: el mapa salió del estado. No sale en `destroy()`. */
   'drawingend'       : (detail: Record<string, never>) => void;
   /** La superficie WebGL de una capa cambió de estado, y el detail es su fila de `surfaces()`: sale cuando
-   *  el navegador le quita el contexto (`state: 'lost'`), cuando la capa lo vuelve a tomar (`live`) y cuando
-   *  lo suelta (`released`). No sale al dar de alta la capa, ni en `destroy()` ni al quitarla (SPECS §10). */
+   *  la capa toma el contexto (`live`, también la primera vez si lo difirió), cuando el navegador se lo quita
+   *  (`lost`) y cuando lo suelta o la política la deja sin él (`released`). No sale al dar de alta la capa, ni en
+   *  `destroy()` ni al quitarla (SPECS §10). */
   'surfacechange'    : (detail: SurfaceInfo) => void;
 }
 
@@ -909,6 +912,8 @@ export class MapEngine {
   /** @deprecated Fuera de contrato: el mapa de Leaflet es un detalle del anfitrión. Se retira en 1.0 (SPECS §6). */
   getLeafletMap(): unknown;
   syncSize(): void;
+  /** Reposiciona y redibuja las capas de puntos. Es también una señal de cupo: lo que la saturación de contextos dejó
+   *  sin superficie se intenta de nuevo (la app la da al cerrar un widget que tomaba contextos; SPECS §10). */
   invalidateCanvas(): void;
   /** Una fila por superficie WebGL del motor, en el orden de alta de sus capas: las de puntos, líneas,
    *  polígonos y formas, sus overlays y los editores. Las capas de calor, etiquetas y HTML no tienen. Se

@@ -393,7 +393,7 @@ kinds })` · `engine.unfocus(ids)` · `engine.unfocusAll()`.
 |---|---|---|
 | `id` | string | atributo (= id de capa) |
 | `interactive` | boolean | atributo |
-| `visible` | boolean (default `true`) | atributo — pintado puro: oculta los sprites sin sacar la capa de la composición (un cluster que la envuelva sigue contándola). Oculta no dibuja, ni siquiera al mover el mapa; mostrarla pinta en el acto |
+| `visible` | boolean (default `true`) | atributo — pintado puro: oculta los sprites sin sacar la capa de la composición (un cluster que la envuelva sigue contándola). Oculta no dibuja, ni siquiera al mover el mapa; mostrarla pinta en el acto si algo cambió mientras estaba oculta (la vista, un dato, el foco), y si no, la imagen que tenía sigue valiendo |
 | `enabled` | boolean (default `true`) | atributo — membresía de la **entidad** en la composición, ortogonal a `visible`: deshabilitada aporta ∅ a los modificadores que la consumen (un cluster re-indexa sin sus puntos y recomputa las burbujas), oculta pane + picking y deja de dibujar, arrastra a sus ligados (labels `bind-to`, overlays) y su pipeline deja de reaccionar a la Source (cero CPU/GPU por emit). Handle: `setEnabled` / `engine.setLayerEnabled` |
 | `auto-fit` | `"once"` | atributo — encuadra la capa al llegar los **primeros** puntos (una vez), vía `camera.fitToLayer` |
 | `icon-set` | string (nombre registrado) \| objeto IconSet | atributo (string) o prop `iconSet` (objeto) |

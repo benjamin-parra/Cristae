@@ -58,7 +58,7 @@ interface Source<Item> {
     variantOf?(item): string              // clave de icono en el IconSet
     textOf?(item): string                 // para label-layer
   }
-  variants?: string[]                     // espacio declarado → preseed del atlas (§6 de esta spec)
+  variants?: string[]                     // espacio declarado → dimensiona el atlas (§6 de esta spec)
   getSnapshot(): Item[]                    // ref ESTABLE entre flushes (no copiar por emit)
   version(): number                       // dirty-check monotónico
   subscribe(cb: () => void): () => void    // retorna unsubscribe
@@ -143,9 +143,9 @@ interface Atlas {
   readonly rows: number
   readonly tileSize: number
   indexOf(variant: string): number   // variante → índice entero estable, o -1
-  append(variant, bitmap): number    // registra y devuelve el índice; NO sube a GPU
+  append(variant, tile): number      // registra y devuelve el índice; NO sube a GPU
   cellOf(index): void                // escribe col/row en scratch (ver abajo) [0-alloc]
-  tileAt(index): ImageBitmap|Canvas  // bitmap de una celda
+  tileAt(index): Uint8ClampedArray   // píxeles RGBA (tileSize²·4 bytes) de una celda
   tileChannel(index): number         // canal r del tile = index/(C-1); el resto del color lo compone la capa [0-alloc]
 }
 ```
@@ -174,7 +174,8 @@ class GpuAtlasBinding {
 ```js
 sync(atlas) {
   if (this.#atlas !== atlas) {                       // regrow → atlas nuevo (identidad)
-    realloc(this.#texture, atlas.capacity); texImage2D(/* atlas completo */)
+    realloc(this.#texture, atlas.capacity)            // texImage2D sin datos, del tamaño de la grilla
+    for (i < atlas.count) texSubImage2D(/* el tile i, en su celda */)
     this.#atlas = atlas; this.#uploaded = atlas.count
   } else {
     while (this.#uploaded < atlas.count) {            // append → cursor sobre log
@@ -189,7 +190,7 @@ sync(atlas) {
 |---|---|---|
 | estable (sin cambios) | O(1) — 2 comparaciones **[0-alloc]** | nada |
 | append de Δ variantes | O(Δ) | `texSubImage2D` × Δ |
-| regrow | O(C) | `texImage2D` completo (copia el bitmap previo por `drawImage`, no redibuja canvases) |
+| regrow / primera generación | O(`count`) | una reserva sin datos + una `texSubImage2D` por celda pedida: sube las celdas **pedidas**, no el espacio declarado; los tiles no se copian ni se redibujan |
 
 - **Dims → uniforms:** `cols/rows/tileSize` se setean como uniforms una vez por generación → **el shader nunca recompila** (ni en regrow). El programa de picking comparte el mismo `Atlas` vía su propio binding.
 - **Ejemplo:** una capa con 2 contextos (mapa A y B) tiene **un** `Atlas` compartido y **dos** bindings; cada uno converge a su ritmo.
@@ -211,7 +212,7 @@ MODELO §7.3. Un pack de iconos es un `IconSet` distribuible (módulo JS).
 ```ts
 defineIconSet(cfg: {
   rotates?: boolean
-  variants?: string[]                         // espacio declarado → preseed
+  variants?: string[]                         // espacio declarado → capacidad con headroom; se rasteriza al primer uso y se adelanta en ratos ociosos
   sizes?: { canvas: number, default: number }
   describe(variant: string): Descriptor       // declarativo: variante → forma/color/badge
   renderers: Record<string, (ctx, size, d) => void>   // imperativo: forma → canvas
@@ -224,7 +225,7 @@ createIcon(descriptor) → IconHandle           // icono suelto, no toca el atla
 
 | Operación | Complejidad | Notas |
 |---|---|---|
-| preseed (de `variants`) | O(v) rasterizaciones, una vez | antes del primer render → 0 append en runtime |
+| adelanto de `variants` | hasta O(v) rasterizaciones en ranuras ociosas de ≤ 3 ms, nunca por cuadro | ninguna al definir; una variante se rasteriza en su primer `resolve` y toma celda entonces → 0 regrow en runtime |
 | resolver variante nueva (no declarada) | O(1) append + O(1) sync | red de seguridad; `console.warn` en debug |
 | `describe`/`renderers` | corren en **append**, no por frame | no tocan el hot-path de GC |
 
@@ -232,7 +233,7 @@ createIcon(descriptor) → IconHandle           // icono suelto, no toca el atla
 - **Reactividad (clave):** asignar `layer.iconSet = pack` es **reactivo** (MODELO §5.4/§7.2): reseed automático (de `pack.variants` ∪ variantes presentes en datos) + rebuild, coalescido a rAF. Reasignar = swap controlado (genera `Atlas` nuevo). **Sin timing privilegiado** (HTML, `<script src module>`, `import()`, swap en caliente — idénticos).
 - **`preloadIcons(variants)`** (método de capa): seeding manual idempotente — agrega variantes al seed sin esperar a que lleguen en los datos.
 - **Ruta declarativa por nombre:** `map.registerIconSet('flota', pack)` + atributo `icon-set="flota"`; resuelve orden-independiente (mientras no resuelve, la capa usa un IconSet por defecto, nunca en blanco).
-- **Test:** definir `variants:['a','b']`, render con datos que usan `'a'` → 0 append en runtime (todo preseed). Llega un `'c'` no declarado → exactamente 1 append, 0 repack, marcador visible.
+- **Test:** definir `variants:['a','b']` no rasteriza ni sube nada; render con datos que usan `'a'` → exactamente 1 append (`'a'`) y 1 subida, `'b'` no sube. Llega un `'c'` no declarado → exactamente 1 append, 0 repack, marcador visible en ese mismo cuadro.
 - **Bordes ELIMINADOS:** los listados en §4.2 (todos derivan del atlas). **Borde que requiere manejo:** `prerender()` que rechaza → `ready` rechaza; la capa sigue con el IconSet por defecto (no rompe).
 
 ---
@@ -250,7 +251,7 @@ new MapEngine({ host: adoptLeafletHost(map, { leaflet? }), … }) → engine
 
 | Método | Tipo | Complejidad | Notas |
 |---|---|---|---|
-| `addPointLayer(cfg) → handle` | acción | O(1) + preseed | crea capa + store interno |
+| `addPointLayer(cfg) → handle` | acción | O(1) | crea capa + store interno |
 | `addPolygonLayer(cfg) → handle` | acción | O(1) | |
 | `addShapeLayer(cfg) → handle` | acción | O(1) | círculos, elipses y sectores en metros (§8.7) |
 | `addEditableLayer(cfg) → handle` | acción | O(1) | editor de una geometría, input controlado (§8.8) |
@@ -307,7 +308,7 @@ new MapEngine({ host: adoptLeafletHost(map, { leaflet? }), … }) → engine
 `addPointLayer`, `addPolygonLayer`, `addLabelLayer`, `removeLayer`, `getLayer`, `attachSource`, cámara (§9), `createIcon`, `registerIconSet`, `syncSize()`, `invalidateCanvas()`, `destroy()`, `ready`.
 
 - **`syncSize()`**: resize del contenedor — `map.invalidateSize()` + reajuste del FBO de picking + **redibujo de las capas de puntos** (`invalidateSize()` solo emite `move`/`moveend` si el resize desplaza el centro, así que un resize simétrico limpiaría el canvas de la capa sin redibujarlo). Llamado por el `ResizeObserver` interno del elemento; el consumer raramente lo necesita.
-- **`invalidateCanvas()`**: reposiciona y redibuja todas las capas de puntos. Escape hatch manual: con `<cristae-map>`, resize y show-tras-`display:none` ya se auto-curan vía el observer → `syncSize()`; este método es para el motor headless (sin elemento, sin observer) o el raro show sin cambio de tamaño. Varios motores en la página son independientes: cada capa tiene su contexto, así que `destroy()` de uno no toca a los demás.
+- **`invalidateCanvas()`**: reposiciona y redibuja todas las capas de puntos, y es una señal de cupo: lo que la saturación de contextos dejó sin superficie se intenta de nuevo (la app la da al cerrar un widget que tomaba contextos; §10). Escape hatch manual: con `<cristae-map>`, resize y show-tras-`display:none` ya se auto-curan vía el observer → `syncSize()`; este método es para el motor headless (sin elemento, sin observer) o el raro show sin cambio de tamaño. Varios motores en la página son independientes: cada capa tiene su contexto, así que `destroy()` de uno no toca a los demás.
 
 ### 7.3 Lifecycle
 
@@ -543,7 +544,7 @@ Hit = { layerId, kind: 'point'|'polygon'|'line'|'shape'|'html'|'circle', ref, id
 - **`move`, sólo en el motor:** `engine.on('move', fn)` avisa cada paso del movimiento —arrastre, inercia, `panBy`, vuelo—, con `{}`; es para lo que sigue la vista en continuo, como la tarjeta de `<cristae-popup>` (§8.5) y el botón central de `<cristae-cluster>`. No tiene evento `cristae:`: la vista que viaja es la asentada, en `viewportchange`.
 - **`zoomlevelschange`, sólo en el motor:** `engine.on('zoomlevelschange', fn)` avisa con `{minZoom, maxZoom}` cada cambio de un tope de `getMinZoom()/getMaxZoom()` (§9) —un límite, o una capa que trae los suyos—. Abrir un tope no mueve la vista, así que no sale `viewportchange`; es para la UI que se deshabilita en los topes, como el zoom de `<cristae-map>`. No tiene evento `cristae:`.
 - **`drawingstart` / `drawingend`, sólo en el motor:** marcan la entrada y la salida del estado de dibujo, no de un trazo, con `{}`. El estado dura mientras algún editor toma la pulsación para dibujar —`draw` en cualquier kind, o `freehand` en `polygon` y `polyline`—, con el criterio de la puerta del puntero y sin mirar el dispositivo: con el mouse en `draw` el mapa sigue paneando, y el estado igual. `drawingstart` sale con el primero que entra, con su capa ya registrada, y `drawingend` con el último que sale, también por `removeLayer`, con la capa ya quitada; `destroy()` no avisa. No tienen evento `cristae:`: `<cristae-map>` las sigue con su indicador (§7.1).
-- **`surfaces()` y `surfacechange`:** cada capa que dibuja con WebGL —puntos, líneas, polígonos, formas, overlays y editores; no el calor, las etiquetas ni el HTML— posee una superficie con su propio contexto, y el navegador da ~16 a la página. `engine.surfaces()` devuelve una fila por superficie, en el orden de alta de su capa, armada al pedirla: `layerId`, `kind` (`point`, `line`, `polygon`, `shape`, `circle`, `editable` u `overlay`), `pane`, `z` (el z-index vigente del pane, o `null`), `cssZoom`, `state`, `hasContent` y `visible` (la efectiva de la capa). `hasContent` es que la Source de la capa le entregue algún ítem —pasado su `where` y antes de la supresión del cluster—, no que quede algo por dibujar: un host entero bajo burbujas tiene contenido; en un editor, que su valor tenga vértices o esté trazando. `state` es `live`, `lost` (el navegador le quitó el contexto; se lee del contexto, así que vale `lost` apenas lo quita y no cuando llega el evento), `released` (la superficie lo soltó) o `none` (no lo tomó). Una capa que pierde el suyo —de puntos, de líneas, de polígonos, de formas, un editor, un overlay o una burbuja de cluster— lo vuelve a tomar en el cuadro siguiente, de a una superficie por cuadro, en un canvas nuevo en el mismo lugar de su pane, y rehace lo GL desde lo que guarda en CPU; en pleno zoom animado espera a que asiente, y si una propia se pierde hasta un segundo después de una recuperación no hay cupo, y se deja de recuperar. `surfacechange` entrega esa misma fila cuando cambia el estado de una superficie: al perderse, al volver a tomarse y al soltarse; no al dar de alta la capa, ni en `destroy()` ni al quitarla. En el elemento es `cristae:surfacechange`, siempre activo.
+- **`surfaces()` y `surfacechange`:** cada capa que dibuja con WebGL —puntos, líneas, polígonos, formas, overlays y editores; no el calor, las etiquetas ni el HTML— posee una superficie con su propio contexto, y el navegador da ~16 a la página. `engine.surfaces()` devuelve una fila por superficie, en el orden de alta de su capa, armada al pedirla: `layerId`, `kind` (`point`, `line`, `polygon`, `shape`, `circle`, `editable` u `overlay`), `pane`, `z` (el z-index vigente del pane, o `null`), `cssZoom`, `state`, `hasContent` y `visible` (la efectiva de la capa). `hasContent` es que la Source de la capa le entregue algún ítem —pasado su `where` y antes de la supresión del cluster—, no que quede algo por dibujar: un host entero bajo burbujas tiene contenido; en un editor, que su valor tenga vértices o esté trazando. `state` es `live`, `lost` (el navegador le quitó el contexto; se lee del contexto, así que vale `lost` apenas lo quita y no cuando llega el evento), `released` (no lo tiene por decisión propia: lo soltó a mano, o la política bajo presión o por saturación) o `none` (todavía no lo tomó). Los contextos los reparte una política por realm —el módulo: la comparten los mapas que monta el mismo JS, también los de otra ventana montados por portal—, porque el techo de Chromium es del proceso de render. Una capa con contenido toma el suyo al darse de alta. Una de puntos, líneas, polígonos o formas que nace vacía —la de puntos que recibe sus datos por la Source del motor, la espiral y la sub-espiral del cluster— deja en su pane un canvas sin contexto que le guarda el lugar (`none`) y lo toma en un rato ocioso después del montaje, de a una y la de mayor z primero, o en la tarea en que recibe su primer dato, antes de codificarlo. Nada se suelta por tiempo: oculta o vacía, una capa conserva su contexto, y mostrarla no toma nada. Sólo bajo presión —el navegador le quita el suyo a una capa que se ve y tiene contenido— se sueltan en el acto las prescindibles (vacías u ocultas; nunca un editor con un trazo o un vértice tomado), y la perdida lo vuelve a tomar en un cuadro siguiente: de a una superficie por cuadro, la de mayor z primero, nunca en pleno gesto de un mapa del realm (arrastre, zoom, pellizco o vuelo), en un canvas nuevo en el mismo lugar de su pane, y rehace lo GL desde lo que guarda en CPU. Una prescindible que pierde el suyo queda `released` y lo vuelve a tomar cuando se ve con contenido. Sin prescindibles, si volver a tomar una desaloja a otra propia, o si una que volvió lo pierde otra vez antes de una señal de cupo, la página está saturada: la de menor z queda `released`, con su `surfacechange` y un `console.warn` (uno solo), y no se insiste hasta una señal de cupo —una capa propia que se suelta o se quita, la pestaña que vuelve a verse, `invalidateCanvas()`— o hasta uno de dos reintentos, a los 5 s y a los 30 s. Un reinicio de la GPU, que las pierde a varias sin que una adquisición propia lo explique, no es saturación: vuelven todas, de a una por cuadro. Tras cada adquisición de la política, al asentar un montaje y cuando una capa viva pasa a verse con contenido, las que se ven con contenido vacían su cola de comandos (`flush`) por z ascendente: Chromium desaloja al contexto de flush más viejo, así que caen primero las prescindibles y, entre las demás, la de menor z. Es por evento, nunca por cuadro. `surfacechange` entrega esa misma fila cuando cambia el estado de una superficie: al tomar el contexto (también la primera vez, si lo difirió), al perderlo y al soltarlo; no al dar de alta la capa, ni en `destroy()` ni al quitarla. En el elemento es `cristae:surfacechange`, siempre activo.
 - **Cursor automático (affordance de interactividad):** el motor pone `cursor:pointer` cuando el puntero cae sobre una feature de una capa interactiva con demanda de **click _u_ hover**, y lo restaura. **No requiere suscribir `cristae:hover`:** una capa clickeable (listener de `cristae:click`) ya muestra el puntero, igual que `.leaflet-interactive` en Leaflet. Para conseguirlo, la sesión de picking de hover (la que sabe si el puntero cae sobre una feature) corre también bajo demanda de click — aunque los EVENTOS `cristae:hover` se sigan emitiendo solo si hay demanda de hover. Implica que un mapa solo-click paga el picking de hover (throttled por `hover-throttle`) por el cursor. El consumidor pide el suyo con `cursor` (§7.1), que gana sobre este y apaga ese picking.
 - **Sin `onDisambiguate` en el core:** `click` entrega todos los hits; el popup de desambiguación lo arma el consumidor con el `originalEvent` provisto.
 - **La muestra del puntero es una:** `PointerSample` es el detail de `cristae:pointermove`, el segundo argumento de los canales `pointer:move`, `hover`, `hover:start` y `hover:end` del motor y la entrada de los resolvers de cada capa. Llega congelada: la comparten los handlers y el picking del mismo evento. Un click trae la del píxel donde se soltó. Los canales `click` y `secondary-click` entregan el evento del DOM, nunca el de Leaflet.
@@ -620,8 +621,8 @@ La **ley** (MODELO §5.4) formalizada como contrato que un implementador debe cu
 |---|---|
 | `safe`/`safeDispatch` | aislamiento (un throw no detiene al resto); 0 asignaciones (medir con allocation profiler) |
 | `Atlas` | append no mueve celdas; encoding estable al crecer; exceder C → objeto nuevo |
-| `GpuAtlasBinding` | append = `texSubImage2D` × Δ; multi-mapa converge; regrow re-sube sin recompilar shader |
-| `IconSet` | preseed de `variants` ⇒ 0 append runtime; variante no declarada ⇒ 1 append visible |
+| `GpuAtlasBinding` | append = `texSubImage2D` × Δ; adquirir = 1 reserva + 1 subida por celda pedida; multi-mapa converge; regrow re-sube sin recompilar shader |
+| `IconSet` | declarar `variants` ⇒ 0 rasterizaciones al definir y 1 append por variante usada; variante no declarada ⇒ 1 append visible |
 | `Source`/handle | version igual ⇒ 0 rebuild; `move` ⇒ 0 `bufferData` (espiar): hace `bufferSubData` desde el mismo espejo y [0-alloc] (allocation profiler); `set` en zoom ⇒ update no descartado |
 | buffer incremental | `move`/recolor escribe el slot correcto del espejo (leer de vuelta lo subido al buffer GL); un rebuild reescribe el espejo entero |
 | reactividad | N asignaciones/tick ⇒ 1 rebuild con el valor final |

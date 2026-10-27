@@ -208,7 +208,7 @@ interface Source<Item> {
     variantOf?(item): string          // clave de icono en el IconSet
     textOf?(item): string             // para label-layer
   }
-  variants?: string[]                 // espacio declarado para preseed del atlas (§7)
+  variants?: string[]                 // espacio declarado: dimensiona el atlas (§7)
   getSnapshot(): Item[]               // estado actual (ref estable entre flushes)
   version(): number                   // dirty-check (== Store.dataVersion)
   subscribe(cb: () => void): () => void
@@ -216,7 +216,7 @@ interface Source<Item> {
 }
 ```
 
-Esto **es** el patrón `Store`+`Emitter` ya existente, generalizado. El motor: preseed desde `variants`, mantiene su render-store version-trackeado por capa, y aplica la decisión patch/rebuild (§5.3). Nunca expone `rebuild()` ni el atlas al consumidor.
+Esto **es** el patrón `Store`+`Emitter` ya existente, generalizado. El motor: dimensiona el atlas desde `variants`, mantiene su render-store version-trackeado por capa, y aplica la decisión patch/rebuild (§5.3). Nunca expone `rebuild()` ni el atlas al consumidor.
 
 ### 5.2 Tres ergonomías apiladas (una sola lógica interna)
 
@@ -230,7 +230,7 @@ Source (contrato núcleo)                         ← B: layer.source = defineSo
 
 - **B (attach):** el consumidor con store propio (WingLogistics) envuelve su `Store`/`Emitter` como `Source` → coste casi nulo, reaprovecha todo el version-tracking y filtros existentes.
 - **C (handle):** proyecto sin store propio → `handle.set(items)`, `handle.patch(items, dirtyIds)`, `handle.move(id, lat, lng)`, `handle.remove(id)`. El motor crea el store internamente.
-- **A (prop):** elemento hijo declarativo; `.data` llama `handle.set()`; `variants`/`iconSet` configuran preseed.
+- **A (prop):** elemento hijo declarativo; `.data` llama `handle.set()`; `variants`/`iconSet` configuran el atlas.
 
 ### 5.3 Política patch vs rebuild (generalizada, idéntica a la actual)
 - **`set(items)`** → `store.update` → diff de set de IDs. Si **cambió el set** ó hay **cambio de filtro pendiente** ó **clusters cambiaron** → `rebuild` (deferido a rAF). Si solo cambiaron posiciones/variantes detectables por `versionOf` → `patch`.
@@ -342,9 +342,9 @@ Es el patrón de los atlas de glyphs en renderers de texto / streaming buffers: 
 **Política (auto, sin fallar). El `iconSet` es una entrada reactiva de la capa:** asignarlo o reemplazarlo **en cualquier momento, por cualquier loader** (en el HTML, por `<script src type=module>`, por `import()` dinámico, o en caliente) reconstruye la capa con reseed automático. No hay momento ni loader privilegiado, y no hay nada que el consumidor deba orquestar.
 - **(Re)asignar `iconSet`:** reseed automático del atlas desde el conjunto `variants` del pack **∪** las variantes presentes en los datos actuales (derivadas por `variantOf`) → `Atlas` nuevo (generación+1) que **cada** `GpuAtlasBinding` detecta por identidad (`this.atlas !== atlas`) y re-sube completo en su próximo `sync` (camino regrow, ya definido). Rebuild coalescido a rAF (§5.3). El swap **no** es caso especial ni corrupción: es el camino normal, idéntico para el pack que ya existía, el que llega tarde y el que se cambia en caliente.
 - **Seeding manual (opcional):** `layer.preloadIcons(variants)` agrega variantes al conjunto de seed sin esperar a que aparezcan en los datos — p. ej. el pack nuevo en esa capa trae más estados de los que los datos actuales reflejan, o se anticipan variantes futuras. Idempotente; dispara el mismo reseed+rebuild.
-- **Declarado:** `IconSet({ variants })` preseed-ea → atlas con capacidad+headroom y celdas ocupadas antes del primer render (ruta rápida, cero append en runtime).
+- **Declarado:** `IconSet({ variants })` dimensiona el atlas con capacidad+headroom (cero regrow en runtime); cada variante toma su celda al primer uso y las que faltan se adelantan en ranuras ociosas de la CPU, sin subirse a la GPU hasta que se pidan.
 - **No declarado (red de seguridad):** variante nueva → append por celda en el siguiente `sync` de **cada** binding; `console.warn` en debug. **Nunca** invisibles, **nunca** repack salvo agotar capacidad.
-- **Regrow** (raro): nuevo `Atlas`; cada binding re-sube completo en su próximo `sync`, copiando el bitmap previo por `drawImage` (no redibujar canvases).
+- **Regrow** (raro): nuevo `Atlas`; cada binding re-sube las celdas ocupadas en su próximo `sync`, con los mismos tiles (no se redibujan).
 - **Hot-path cero-alloc (§17):** el atlas expone `tileChannel(index)` (canal r, `index/(C-1)`) y `cellOf` (que computa `col/row` como **enteros inline** `i%cols`, `(i/cols)|0`, sin objeto de coordenadas) — ambos O(1) [0-alloc], **sin concerns de picking/heading**. La composición del color por punto es **render-side**: `PointLayer` escribe los canales directo en su espejo —r de `tileChannel`, g del `headingOf` y b,a del slot—, sin objeto por punto. `sync` en estado estable = 2 comparaciones.
 
 > Dos propiedades que el diseño garantiza: **(1)** el atlas se **reusa y se le agregan** variantes (append por celda con `texSubImage2D`), nunca se reconstruye desde cero; **(2)** con **dos mapas no se rompe** — cada capa tiene su binding con cursor propio sobre el mismo `Atlas` compartido, y el `#dirty` global (booleano consume-once, raíz del 2º-mapa-en-blanco) desaparece, reemplazado por identidad intrínseca (cuenta + identidad de objeto).
@@ -353,7 +353,7 @@ Es el patrón de los atlas de glyphs en renderers de texto / streaming buffers: 
 ```js
 const fleetIcons = defineIconSet({
   rotates: true,
-  variants: enumerateVariants(),          // espacio completo declarado → preseed
+  variants: enumerateVariants(),          // espacio completo declarado → dimensiona el atlas
   sizes: { canvas: 160, default: 48 },
   // DECLARATIVO: variante → descriptor
   describe: (variant) => ({ shape:'arrow', fill: colorFor(variant), stroke:'#333', badge: badgeFor(variant) }),
@@ -362,7 +362,7 @@ const fleetIcons = defineIconSet({
   prerender: async () => {…},             // opcional (SVG/imágenes)
 })
 ```
-- `defineIconSet` resuelve preseed/atlas/encoding internamente.
+- `defineIconSet` resuelve atlas/encoding internamente.
 - `variant` es **una string arbitraria** que el consumidor compone (estado de conexión, etapa, alerta de sensor, batería…). El core no la interpreta.
 - `map.createIcon(descriptor)` para iconos sueltos (un marcador puntual) sin tocar el atlas de una capa.
 - Cluster usa un `IconSet` keyed por *bucket de conteo* (genérico): `defineClusterIconSet({ buckets, draw })`.
@@ -399,7 +399,7 @@ Hit = {
 | `cristae:mapclick` | `{ latlng }` | click en vacío, sin ningún hit |
 | `cristae:viewportchange` | `{ center, zoom, bounds }` | moveend/zoomend y cambio de `viewport-insets` (SPECS §10). Centro y caja son objetos planos (SPECS §0) |
 | `cristae:interactionstart` / `cristae:interactionend` | `{}` | pan/zoom inicio/fin (para que el consumidor frene su emitter si quiere; el motor ya coalesce su propio redraw). |
-| `cristae:surfacechange` | `{ layerId, kind, pane, z, cssZoom, state, hasContent, visible }` | la superficie WebGL de una capa cambió de estado, hoy al perder el contexto (SPECS §10). |
+| `cristae:surfacechange` | `{ layerId, kind, pane, z, cssZoom, state, hasContent, visible }` | la superficie WebGL de una capa cambió de estado: tomó el contexto, lo perdió o lo soltó (SPECS §10). |
 
 ### 8.3 Decisiones de diseño de eventos
 1. **`pointermove` separado de `hover`.** `pointermove` es continuo y barato (posición para tooltip). `hover` sale tras el picking GPU async, con el set vigente; sus cambios salen por `hover:start`/`hover:end`. Esto preserva el throttle (`hoverThrottle`) y la tolerancia a stale (`staleTolerancePx`) actuales, expuestos como config a nivel mapa.
