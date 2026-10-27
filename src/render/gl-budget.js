@@ -390,7 +390,7 @@ export const glBudget = {
   // Una señal de cupo: lo que pierda después es un accidente nuevo, y lo que la saturación dejó sin superficie se intenta
   // de nuevo, de a una por cuadro.
   retry() {
-    clearTimeout(retryId)
+    retryId && clearTimeout(retryId)  // `invalidateCanvas` es frecuente: sin reintento agendado no se cruza al navegador
     retryId = 0
     if (episodic) {
       episode  = new WeakSet()
