@@ -23,12 +23,12 @@
 //   · Pérdida masiva (un reinicio de la GPU: varias propias a la vez sin una adquisición propia que lo explique): vuelven
 //     todas las necesarias, de a una por cuadro y por prioridad.
 //   · Orden de desalojo. Chromium desaloja al contexto de `flush` más viejo, y un `flush` sin comandos pendientes también
-//     lo renueva (etapa3/FLUSH.md). Tras cada adquisición de la política cada necesaria viva vacía su cola por z
+//     lo renueva (etapa3/FLUSH.md). Cuando la política toma una prescindible, cada necesaria viva vacía su cola por z
 //     ascendente: las prescindibles quedan como las más viejas y, entre las necesarias, cae primero la de menor z. Desde
-//     la primera pérdida de un contexto propio, también al asentar un montaje y cuando una viva pasa a necesaria (recibe
-//     contenido, o se vuelve a ver). Antes no: lejos del techo el orden no se usa, y cada `flush` es un viaje al proceso
-//     de la GPU (16 µs en Chromium, 77 µs en Firefox) que poblar una capa o abrir una espiral pagarían por nada. Por
-//     evento, nunca por cuadro.
+//     la primera pérdida de un contexto propio, también tras toda adquisición de la política, al asentar un montaje y
+//     cuando una viva pasa a necesaria (recibe contenido, o se vuelve a ver). Antes no: lejos del techo el orden entre
+//     necesarias no se usa, y cada `flush` es un viaje al proceso de la GPU (16 µs en Chromium, 77 µs en Firefox) que
+//     poblar una capa o abrir una espiral pagarían por nada. Por evento, nunca por cuadro.
 //   · El registro no retiene a nadie: una superficie que nadie destruye se recolecta, y la de un documento sin ventana
 //     (un popup que se cerró sin desmontar su mapa) no es necesaria.
 
@@ -131,7 +131,9 @@ const drop = s => {
 }
 
 // El efecto: toma el contexto de `s`, anota a qué propia desalojó en el acto —la de `flush` más viejo, cuyo aviso llega
-// en otra tarea— y renueva el orden de desalojo. Si ya lo había tenido, es una vuelta: entra en la tanda.
+// en otra tarea— y renueva el orden de desalojo si hace falta: desde la primera presión, siempre; antes, sólo si la
+// tomada no se ve con contenido, que si no nace como la más joven y es necesaria. Si ya lo había tenido, es una vuelta:
+// entra en la tanda.
 const take = s => {
   const antes  = unprocessed()
   const previa = pumping
@@ -149,7 +151,7 @@ const take = s => {
   }
   vuelta && episode.add(s)
   unprocessed().forEach(v => antes.includes(v) || blamed.set(v, s))
-  renew()
+  ;(pressed || !s.needed) && renew()
   return true
 }
 

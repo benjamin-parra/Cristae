@@ -583,6 +583,9 @@ test('sin presión en el realm, ni poblar una vacía, ni mostrar, ni una alta qu
   const usos    = () => navegador.contextos.slice(0, previos).map(c => c.ultimoUso).join()
   const antes   = usos()
   superficie('con contenido después', { z: 30 })      // se ve y toma el suyo al alta: nace como la más joven
+  const diferida = superficie('diferida', { z: 35, contenido: false })
+  diferida.owner.hasContent = true
+  assert.equal(diferida.need(), true, 'toma su primer contexto con su dato: se ve, y nace como la más joven')
   vacia.owner.hasContent = true
   assert.equal(vacia.need(), false)
   assert.equal(mostrar(oculta), false)
