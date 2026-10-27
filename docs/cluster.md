@@ -67,12 +67,13 @@ sin re-propagar. Datos nuevos (`index`) o reconfig invalidan la firma.
 2. **`recluster` es idempotente por firma**: dos llamadas al mismo zoom sin cambio de datos →
    la segunda devuelve `false` y no muta nada.
 3. **Warmup opcional, no obligatorio**: el [Atlas append-only](./atlas.md) hace que pre-fijar el nº
-   de iconos de cluster **nunca** sea necesario para la corrección — un bucket no preseed se
+   de iconos de cluster **nunca** sea necesario para la corrección — un bucket no declarado se
    rasteriza on-demand y, si desborda, el regrow lo acomoda sin corromper índices. Aun así, el
-   **default** de `defineClusterIconSet` (sin `buckets`) **preseed-ea el ladder fino completo
-   (~278 variantes)**: no por necesidad del atlas, sino para que el conteo mostrado sea **fiel**
-   (exacto < 100, redondeo a decena/centena arriba) y no haya regrow en runtime. Ver
-   [icons.md](./icons.md).
+   **default** de `defineClusterIconSet` (sin `buckets`) **declara el ladder fino completo
+   (199 variantes)**: no por necesidad del atlas, sino para que el conteo mostrado sea **fiel**
+   (exacto < 100, redondeo a decena/centena arriba) y no haya regrow en runtime. Declararlo **no
+   cuesta**: cada bucket se rasteriza y sube al usarlo, y el resto se adelanta en la CPU en ratos
+   ociosos. Ver [icons.md](./icons.md).
 4. **La supresión es un set compartido, no una copia.** `clusteredIds` (ref estable) lo observan
    **dos** renderers del host: la capa de puntos (lo omite del buffer GL) y **toda label ligada al
    host** (no pinta etiquetas flotantes de lo clusterizado). El motor re-filtra las labels en cada

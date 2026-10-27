@@ -14,7 +14,7 @@ const { contextos, imagenes } = instalarCanvas2d()
 // que el navegador dejaría libre.
 let ranuras = []
 globalThis.requestIdleCallback = (cb, opciones) => (ranuras.push({ cb, opciones }), ranuras.length)
-const correrRanura = (restante = 0.5) => ranuras.shift().cb({ timeRemaining: () => restante, didTimeout: false })
+const correrRanura = (restante = 0.5, vencida = false) => ranuras.shift().cb({ timeRemaining: () => restante, didTimeout: vencida })
 const vaciarRanuras = () => { for (let i = 0; ranuras.length && i < 1000; i++) correrRanura(50) }
 
 afterEach(() => {
@@ -113,19 +113,39 @@ test('T4.1 el primer uso arranca el adelanto de lo declarado: UNA ranura ociosa,
   const { set } = crear(NUEVE)
   set.resolve('1')
   assert.equal(ranuras.length, 1)
-  assert.equal(ranuras[0].opciones.timeout, 1000, 'sin ocio, igual avanza')
+  assert.ok(ranuras[0].opciones.timeout > 900 && ranuras[0].opciones.timeout <= 1000, 'sin ocio, igual avanza en un segundo')
   set.resolve('2')
   assert.equal(ranuras.length, 1, 'otro pedido no agenda otra ranura mientras hay una en espera')
 })
 
-test('el adelanto rasteriza de a un tile por ranura si el navegador deja poco, y NO les da celda', async () => {
+test('una ranura vencida con poco ocio rasteriza UN tile, y NO le da celda', async () => {
   const { set, dibujadas } = crear(NUEVE)
   set.resolve('5')                                       // dibuja el 5; arranca el adelanto
   assert.deepEqual(dibujadas, [5])
-  correrRanura(0.5)                                      // menos de 1 ms libre: un solo tile
+  correrRanura(0, true)                                  // la espera venció sin ocio: un solo tile
   assert.deepEqual(dibujadas, [5, 1], 'el primero declarado que falta')
   assert.equal(set.atlas.count, 1, 'lo adelantado espera en el depósito: no ocupa celda ni se sube')
   assert.equal(ranuras.length, 1, 'y deja agendada la siguiente')
+})
+
+test('una ranura con menos ocio que un tile cede el turno sin dibujar, y no reinicia el vencimiento', async () => {
+  let ahora = 10_000
+  const hora = mock.method(performance, 'now', () => ahora)
+  try {
+    const { set, dibujadas } = crear(NUEVE)
+    set.resolve('5')
+    assert.equal(ranuras[0].opciones.timeout, 1000)
+    ahora += 600
+    correrRanura(0.5)                                    // el navegador no dejó ocio
+    assert.deepEqual(dibujadas, [5], 'no dibujó nada')
+    assert.equal(ranuras.length, 1, 'quedó agendada otra')
+    assert.equal(ranuras[0].opciones.timeout, 400, 'con lo que faltaba del segundo, no con otro segundo entero')
+    ahora += 400
+    correrRanura(0, true)                                // venció: avanza aunque no haya ocio
+    assert.deepEqual(dibujadas, [5, 1])
+  } finally {
+    hora.mock.restore()
+  }
 })
 
 test('una ranura con tiempo trocea por SLICE_MS: unos pocos tiles, nunca todos de una vez', async () => {

@@ -9,8 +9,7 @@ import Atlas from './Atlas.js'
 //   1 dibujar     variante → describe → renderer sobre UN canvas de trabajo, reusado por todas las variantes
 //   2 leer        canvas de trabajo → tile de píxeles RGBA (`Uint8ClampedArray` de tileSize²·4 bytes)
 //   3 direccionar tile → celda del Atlas (`resolve`): índice estable, `count` = celdas pedidas
-//   4 subir       celdas nuevas → textura (GpuAtlasBinding): una llamada por fila de la grilla al adquirir
-//                 y un tile por variante nueva después
+//   4 subir       celdas pedidas → textura (GpuAtlasBinding): una subida por tile, al adquirir y por variante nueva
 // 1–2 corren al PRIMER USO de cada variante (`resolve`) y, para las declaradas en `variants`, ADELANTADAS en
 // ranuras ociosas de unos ms: lo declarado no se rasteriza ni se sube entero, sólo lo que se usa; lo que ya
 // se adelantó espera en un depósito (`#prepared`) hasta que alguien lo pide y entonces sólo toma celda.
@@ -31,11 +30,12 @@ import Atlas from './Atlas.js'
 //   footprint), default 1. Deja que una variante rinda un ícono MÁS grande que su `sizeOf` sin
 //   re-rasterizar ni tocar el accessor — p. ej. un realce dibujado alrededor que excede el ícono.
 
-const HEADROOM = 1.5
-const MIN_CAPACITY = 16
-const SLICE_MS = 3             // tope de CPU de una ranura ociosa de adelanto: un par de tiles, nunca un cuadro entero
-const IDLE_TIMEOUT_MS = 1000   // si la página nunca queda ociosa, igual avanza (un tile por ranura vencida)
-const IDLE_FALLBACK_MS = 50    // sin `requestIdleCallback` (Safari, node) se agenda por tiempo
+const HEADROOM         = 1.5
+const MIN_CAPACITY     = 16
+const SLICE_MS         = 3      // tope de CPU de una ranura ociosa de adelanto: un par de tiles, nunca un cuadro entero
+const MIN_IDLE_MS      = 2      // una ranura con menos ocio que un tile no se usa, salvo que haya vencido
+const IDLE_TIMEOUT_MS  = 1000   // si la página nunca queda ociosa, igual avanza (un tile por ranura vencida)
+const IDLE_FALLBACK_MS = 50     // sin `requestIdleCallback` (Safari, node) se agenda por tiempo
 
 const capacityFor = count => Math.max(MIN_CAPACITY, Math.ceil((count || 1) * HEADROOM))
 
@@ -61,6 +61,7 @@ export class IconSet {
   #declared                  // variantes declaradas, en orden: lo que el adelanto ocioso recorre
   #next = 0                  // cursor de `#declared`
   #idle = 0                  // ranura ociosa agendada (0 = ninguna)
+  #due  = 0                  // cuándo vence la espera de esa ranura: ceder el turno no la reinicia
   // Suscriptores a 'atlasrefreshed' (el motor fuerza re-subida/re-encode). NO necesita teardown propio:
   // el IconSet es long-lived (vive tanto como el binding GPU que muestrea su atlas), así que el Set no
   // sobrevive a sus suscriptores. La baja POR suscriptor ya existe —`onAtlasRefresh` devuelve su
@@ -170,17 +171,21 @@ export class IconSet {
 
   // Adelanto ocioso de lo declarado: agenda UNA ranura (no corre mientras las fuentes cargan: sus tiles
   // saldrían en tofu) y `#advance` la gasta en rasterizar lo que todavía no tiene tile. Nada por cuadro.
-  #arm() {
+  #arm(due = performance.now() + IDLE_TIMEOUT_MS) {
     if (this.#idle || this.#fontsPending || this.#next >= this.#declared.length) return
+    this.#due  = due
     this.#idle = typeof requestIdleCallback === 'function'
-      ? requestIdleCallback(this.#advance, { timeout: IDLE_TIMEOUT_MS })
+      ? requestIdleCallback(this.#advance, { timeout: Math.max(1, due - performance.now()) })
       : setTimeout(this.#advance, IDLE_FALLBACK_MS)
     this.#idle.unref?.()                         // node: el adelanto no mantiene vivo el proceso
   }
 
-  // Una ranura: al menos un tile, y los que quepan en SLICE_MS y en lo que el navegador deja libre.
+  // Una ranura: los tiles que quepan en SLICE_MS y en lo que el navegador deja libre, y al menos uno si la
+  // espera venció. Una ranura con menos ocio que un tile cede el turno y conserva el vencimiento: una página
+  // siempre ocupada igual avanza, un tile por segundo.
   #advance = deadline => {
     this.#idle = 0
+    if (deadline && !deadline.didTimeout && deadline.timeRemaining() < MIN_IDLE_MS) return this.#arm(this.#due)
     const t0 = performance.now()
     do {
       const variant = this.#declared[this.#next++]

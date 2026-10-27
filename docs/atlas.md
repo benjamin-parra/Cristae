@@ -4,8 +4,8 @@
 > del atlas evolutivo; la mitad GPU (`GpuAtlasBinding`, SPECS §4.2) es un espejo por contexto
 > que consume este valor y no se documenta acá.
 
-El `Atlas` es un **valor puro de CPU**: cero WebGL, cero DOM (solo recibe un bitmap/canvas ya
-rasterizado por el `IconSet` y lo guarda). Resuelve un único problema: dar a cada variante de
+El `Atlas` es un **valor puro de CPU**: cero WebGL, cero DOM (solo recibe el tile ya rasterizado
+por el `IconSet` —los píxeles RGBA de la celda— y lo guarda tal cual). Resuelve un único problema: dar a cada variante de
 icono un **índice entero estable** y una **celda fija** en una grilla, de forma que crecer el
 conjunto de iconos **no corrompa** los marcadores ya dibujados ni obligue a recompilar el shader.
 
@@ -54,11 +54,11 @@ Propiedades de solo lectura: `generation`, `capacity` (C), `count` (ocupadas ≤
 | Método | Firma | Complejidad | Notas |
 |---|---|---|---|
 | `indexOf(variant)` | `(string) → number` | O(1) | índice estable de la variante, o `-1` si ausente |
-| `append(variant, bitmap)` | `(string, bitmap) → number` | O(1) amort. | asigna la siguiente celda (índice = `count++`), registra variante+bitmap, devuelve el índice. Si está lleno (`count === capacity`) devuelve `-1` y **no muta** (el caller hace regrow) |
-| `cellOf(index)` | `(number) → {col,row}` | O(1) **[0-alloc]** | escribe `col = index % cols`, `row = (index/cols)|0` en el scratch compartido `this.cell` y lo retorna (muta-y-retorna). El binding ubica `texSubImage2D` en `(col*tileSize, row*tileSize)` |
-| `tileAt(index)` | `(number) → bitmap` | O(1) | el bitmap/canvas registrado para ese índice |
+| `append(variant, tile)` | `(string, tile) → number` | O(1) amort. | asigna la siguiente celda (índice = `count++`), registra variante+tile, devuelve el índice. Si está lleno (`count === capacity`) devuelve `-1` y **no muta** (el caller hace regrow) |
+| `cellOf(index)` | `(number) → {col,row}` | O(1) **[0-alloc]** | escribe `col = index % cols`, `row = (index/cols)|0` en el scratch compartido `this.cell` y lo retorna (muta-y-retorna). El binding ubica la subida del tile en `(col*tileSize, row*tileSize)` |
+| `tileAt(index)` | `(number) → tile` | O(1) | el tile registrado para ese índice (`Uint8ClampedArray` RGBA de `tileSize²·4` bytes) |
 | `tileChannel(index)` | `(number) → number` | O(1) **[0-alloc]** | canal `r` del color de tile = `index / max(C-1, 1)`, normalizado por **capacidad fija**. **Solo el canal de tile** — el shader recupera `floor(r*(C-1)+0.5)` |
-| `Atlas.grow(previous)` | `(Atlas) → Atlas` | O(C) | factory estática: nuevo Atlas (`generation+1`, capacidad doble) que **preserva todo mapeo variante→índice y bitmap**; los índices existentes siguen válidos |
+| `Atlas.grow(previous)` | `(Atlas) → Atlas` | O(C) | factory estática: nuevo Atlas (`generation+1`, capacidad doble) que **preserva todo mapeo variante→índice y tile**; los índices existentes siguen válidos |
 
 **Notas [0-alloc]:** `cellOf` y `tileChannel` están en el hot-path del render
 (se llaman por celda en cada `sync`, y `tileChannel` por punto en cada recolor). No deben
@@ -91,13 +91,37 @@ Cuando `append` devuelve `-1` (capacidad agotada), el caller llama `Atlas.grow(p
 - Cada variante conserva **el mismo índice** (el re-append es en orden, índice `i` → celda `i`),
   así ningún marcador existente cambia de icono.
 - El caller cambia su referencia al nuevo Atlas.
-- Cada `GpuAtlasBinding` detecta el cambio **por identidad de objeto** (`!==`) y re-sube la textura
-  completa en su próximo `sync`.
+- Cada `GpuAtlasBinding` detecta el cambio **por identidad de objeto** (`!==`) y re-sube las celdas
+  ocupadas en su próximo `sync` (los tiles son los mismos objetos: no se copian ni se redibujan).
 - La **capa re-encoda el buffer de puntos** porque `C` cambió → el denominador `C-1` de
   `tileChannel` es otro (SPECS §15.2). El regrow es un rebuild, no solo re-subir la textura.
 
-Esto ocurre rara vez si el `IconSet` declara su espacio `variants` (preseed con headroom → cero
+Esto ocurre rara vez si el `IconSet` declara su espacio `variants` (capacidad con headroom → cero
 regrow en runtime). Es la red de seguridad para variantes no declaradas que desbordan `C`.
+
+---
+
+## Qué sube el binding
+
+El `GpuAtlasBinding` sube **las celdas pedidas** (`count`), nunca el espacio declarado. Los tiles son
+píxeles RGBA contiguos, así que cada subida es una copia de memoria sin conversión:
+
+| Situación | Subida |
+|---|---|
+| primera generación, o regrow (contexto nuevo, contexto re-adquirido) | una reserva (`texImage2D` sin datos, del tamaño de la grilla) y **una `texSubImage2D` por celda pedida**, desde el tile mismo |
+| `uploaded < count` (variantes nuevas) | **una `texSubImage2D` por variante nueva**, de su tile, en el `sync` del dibujo que la pidió: aparece en ese mismo cuadro |
+| estable | nada: dos comparaciones **[0-alloc]** |
+
+Antes se subían las 199 celdas del espacio declarado, cada una desde un canvas suelto; ahora sólo las
+pedidas (unas pocas decenas con las burbujas de una vista), y cada subida es una copia de memoria. Una
+subida desde un canvas suelto cuesta ~2 ms en Firefox; desde el tile de píxeles, 0,3–0,6 ms.
+
+Subir varias celdas de una vez (una banda por fila de la grilla, o la hoja entera compuesta en un buffer
+o en un canvas) no compensa: no gana de forma consistente en ningún navegador, y exige un buffer del
+tamaño de la grilla y una copia por tile. Un canvas compuesto sube casi gratis en Chromium (si es un canvas
+acelerado) y es lo más lento en Firefox: elegir según el navegador sería detectarlo.
+La textura se reserva entera (`cols·tileSize × rows·tileSize`): las celdas sin pedir no cuestan subida,
+pero sí memoria de la textura.
 
 ---
 

@@ -1,6 +1,6 @@
 // El atlas de cluster sobre una capa de puntos REAL (etapa 4, D2): con el IconSet por defecto —199 buckets
-// declarados, una textura de 2304×2176 px— la capa sube sólo las celdas que sus puntos piden, en una llamada
-// por fila ocupada, y una variante que aparece con los datos sube en el cuadro que la dibuja. El GL es el doble
+// declarados, una textura de 2304×2176 px— la capa sube sólo las celdas que sus puntos piden, un tile por
+// subida, y una variante que aparece con los datos sube en el cuadro que la dibuja. El GL es el doble
 // del harness (anota origen y tamaño de cada subida); el IconSet, el binding y la capa son los reales.
 import '../../test-helpers/engine-stub.mjs'
 import { NOOP_CTX, decorarElementos, makeEditGl, makeLeaflet, makeMap, makePickSpy, makeSurface } from '../../test-helpers/engine-stub.mjs'
@@ -51,15 +51,14 @@ const montar = conteos => {
   }
 }
 
-test('T4.1 una capa con tres burbujas distintas sube tres tiles del atlas de 199, en una llamada', async () => {
+test('T4.1 una capa con tres burbujas distintas sube tres tiles del atlas de 199', async () => {
   const h = montar([5, 5, 12, 40, 40])
   await flush()
   assert.equal(h.iconSet.atlas.capacity, 299, 'la grilla es la de los 199 buckets: 18 × 17 celdas de 128 px')
   assert.deepEqual([h.iconSet.atlas.cols, h.iconSet.atlas.rows], [18, 17])
   assert.equal(h.spy.texImages.length, 1, 'una reserva')
   assert.deepEqual(h.spy.texImages[0], { width: 18 * TILE, height: 17 * TILE }, 'del tamaño de la grilla (la geometría no cambia)')
-  assert.equal(h.spy.texSubImages.length, 1, 'una subida')
-  assert.deepEqual(h.spy.texSubImages[0], { x: 0, y: 0, width: 3 * TILE, height: TILE, srcOffset: undefined }, 'las tres celdas pedidas de la primera fila')
+  assert.deepEqual(h.spy.texSubImages.map(({ x, y, width, height }) => [x, y, width, height]), [0, 1, 2].map(i => [i * TILE, 0, TILE, TILE]), 'una subida por celda pedida: las tres primeras')
   assert.equal(h.subido(), 3 * TILE * TILE, 'ni un tile de los 196 que nadie usa')
   h.layer.destroy()
 })

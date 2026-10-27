@@ -6,9 +6,11 @@
 //
 // Etapa 4 del pipeline del atlas (ver IconSet): lo que se sube son las celdas PEDIDAS (`count`), nunca el espacio
 // declarado, y los tiles son píxeles RGBA contiguos, así que cada subida es una copia de memoria sin conversión:
-//   adquirir / regrow  → una reserva (`texImage2D` sin datos) + UNA `texSubImage2D` por fila ocupada de la grilla
-//                        (en Firefox, 199 subidas desde canvases sueltos eran ~440 ms; así son decenas)
+//   adquirir / regrow  → una reserva (`texImage2D` sin datos) + una `texSubImage2D` por celda pedida
 //   variante nueva     → UNA `texSubImage2D` de su tile, en el `sync` del dibujo que la pidió
+// Medido: desde canvases sueltos cada subida cuesta ~2 ms en Firefox (199 → ~440 ms); desde el tile de píxeles, 0,3–0,6 ms.
+// Juntar los tiles en una banda por fila, o en la hoja entera, y subirla de una vez no gana de forma consistente en ningún
+// navegador y exige un buffer y una copia más: por eso un tile, una llamada.
 
 const setF = (gl, program, name, v) => gl.uniform1f(gl.getUniformLocation(program, name), v)
 
@@ -47,26 +49,7 @@ export class GpuAtlasBinding {
 
     if (this.#atlas !== atlas) {                 // regrow / primera generación → re-sube lo pedido
       this.#allocate(atlas)
-      // Las celdas ocupadas, una subida por fila de la grilla: las filas de píxeles de los tiles de la fila se
-      // juntan en una banda de `n·t` px de ancho (una copia de memoria por tile) y la banda sube de una vez. Una
-      // fila de un solo tile sube el tile tal cual. La banda de trabajo mide una fila de la grilla, no el atlas,
-      // y no sobrevive a la subida.
-      const { cols, count, tileSize: t } = atlas
-      const rowBytes = t * 4
-      let band = null
-      for (let first = 0; first < count; first += cols) {
-        const n = Math.min(cols, count - first)
-        let pixels = atlas.tileAt(first)
-        if (n > 1) {
-          band ??= new Uint8Array(cols * t * rowBytes)
-          for (let c = 0; c < n; c++) {
-            const tile = atlas.tileAt(first + c)
-            for (let y = 0; y < t; y++) band.set(tile.subarray(y * rowBytes, (y + 1) * rowBytes), (y * n * t + c * t) * 4)
-          }
-          pixels = band.subarray(0, n * t * rowBytes)
-        }
-        gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, first / cols * t, n * t, t, gl.RGBA, gl.UNSIGNED_BYTE, pixels)
-      }
+      for (let i = 0; i < atlas.count; i++) this.#upload(atlas, i)   // sólo las celdas pedidas
       this.#atlas    = atlas
       this.#uploaded = atlas.count
       this.#programs.forEach(p => this.#applyDims(p, atlas))   // dims → uniforms, sin recompilar
