@@ -834,3 +834,71 @@ test('R5: una superficie cuyo documento se quedó sin ventana no es necesaria: p
   assert.deepEqual(estados(viva, cerrada), ['live', 'released'])
   assert.equal(navegador.creados, creados, 'ningún contexto para un documento sin ventana')
 })
+
+/* ── Huecos que dejaban vivir mutantes (etapa3/REVISION.md, «Tests que no prueban») ── */
+
+test('una perdida que se oculta antes de su cuadro no se vuelve a tomar: queda soltada, y vuelve al verse', () => {
+  nuevoNavegador()
+  const a = superficie('a', { z: 10 })
+  superficie('b', { z: 20 })
+  desalojar(a)
+  navegador.vaciar()
+  assert.equal(a.state, 'lost')
+  a.nodo.style.visibility = 'hidden'
+  const creados = navegador.creados
+  cuadro()
+  assert.equal(navegador.creados, creados, 'ni un getContext por una capa que no se ve')
+  assert.equal(a.state, 'released')
+  assert.equal(mostrar(a), true)
+  assert.equal(a.state, 'live')
+})
+
+test('un rato ocioso con una recuperación pendiente no toma una diferida: el cuadro es de la recuperación, y la diferida va después', () => {
+  nuevoNavegador()
+  const a = superficie('a', { z: 10 })
+  desalojar(a)
+  navegador.vaciar()
+  const v = superficie('vacía', { z: 5, contenido: false })   // nace después de la presión: espera su rato ocioso
+  const creados = navegador.creados
+  ocio()
+  assert.deepEqual(estados(a, v), ['lost', 'none'], 'ni la diferida en el rato ocioso antes del cuadro')
+  assert.equal(navegador.creados, creados)
+  cuadro()
+  assert.deepEqual(estados(a, v), ['live', 'none'])
+  ocio()
+  assert.deepEqual(estados(a, v), ['live', 'live'])
+})
+
+test('el fin del gesto retoma las diferidas en el rato ocioso siguiente, sin esperar el plazo del gesto', () => {
+  nuevoNavegador()
+  superficie('a')
+  glBudget.motion(GESTO, true)
+  const v = superficie('vacía', { contenido: false })
+  ocio()
+  assert.equal(v.state, 'none', 'en pleno gesto no se toma')
+  assert.equal(ociosos.length, 0, 'ni pide ratos ociosos mientras espera')
+  glBudget.motion(GESTO, false)
+  ocio()
+  assert.equal(v.state, 'live')
+})
+
+test('una que esperaba cupo y se toma por fuera sale de la espera: después no hace lugar a costa de las vivas', () => {
+  const warn = mock.method(console, 'warn', () => {})
+  try {
+    nuevoNavegador({ techo: 2 })
+    const a = superficie('a', { z: 10 })
+    const b = superficie('b', { z: 20 })
+    const c = superficie('c', { z: 30 })
+    asentar(10)
+    assert.deepEqual(estados(a, b, c), ['released', 'live', 'live'])
+    navegador.techo = 8                                 // hay cupo, sin una señal que la política oiga
+    a.acquire()                                         // la toma su dueña, por su cuenta
+    const d = superficie('d', { z: 40, contenido: false })
+    d.owner.hasContent = true
+    assert.equal(d.need(), true)
+    asentar(3)
+    assert.deepEqual(estados(a, b, c, d), ['live', 'live', 'live', 'live'], 'nadie queda sin superficie: no hay saturación')
+  } finally {
+    warn.mock.restore()
+  }
+})

@@ -328,6 +328,29 @@ for (const [gesto, abre, cierra] of [
   }
 }
 
+test('quitar un mapa en pleno gesto cierra su gesto: los otros mapas del realm recuperan en el cuadro siguiente', async () => {
+  const { map, navegador } = await armarVacio({ crearGl })
+  limpiar.push(() => map.remove())
+  const otro = document.createElement('cristae-map')
+  otro.style.cssText = 'display:block;width:800px;height:600px'
+  document.body.appendChild(otro)
+  limpiar.push(() => otro.remove())
+  await esperar(40)
+  const linea = { id: 1, pts: [[0, 0], [1, 1]], color: '#00f', weight: 2, opacity: 1 }
+  map.engine.addLineLayer({ id: 'aqui', accessors: LINEA, data: [linea] })
+  otro.engine.addLineLayer({ id: 'alla', accessors: LINEA, data: [linea] })
+  await esperar(40)
+  cuadros()
+  otro.engine.getLeafletMap().fire('movestart')
+  navegador.desalojar(contextoDe(navegador, map.engine, 'aqui'))
+  asentarCuadros(navegador)
+  assert.equal(estados(map.engine).aqui, 'lost', 'el gesto del otro mapa frena la recuperación')
+  otro.engine.destroy()
+  cuadro()
+  assert.equal(estados(map.engine).aqui, 'live', 'sin esperar el plazo de un gesto sin fin')
+  intactos(navegador)
+})
+
 /* ── Quitar en cada estado de la política ── */
 
 test('quitar una capa sin superficie por saturación, o una vacía que esperaba su rato ocioso, no toma nada', async () => {

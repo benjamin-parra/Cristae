@@ -286,3 +286,28 @@ test('R3: con `prerender` pendiente el adelanto espera a que termine: lo declara
   vaciarRanuras()
   assert.deepEqual(['2', '5', '9'].map(v => set.atlas.tileAt(set.resolve(v))[0]), [2, 5, 9], 'las declaradas, con la fuente')
 })
+
+test('cargadas las fuentes, sprite() entrega el tile nuevo y la escala de footprint es la del raster nuevo', async () => {
+  let listas
+  let fuente = false
+  document.fonts = { status: 'loading', ready: new Promise(r => { listas = r }) }
+  try {
+    const { set } = crear(NUEVE, {
+      describe : v => ({ shape: 'num', n: Number(v), scale: fuente ? 2 : 1 }),
+      renderers: { num: (ctx, _size, d) => { ctx.marca = fuente ? d.n : 0 } },      // sin la fuente, tofu (0)
+    })
+    const antes = set.sprite('3')
+    const i     = set.resolve('3')
+    assert.equal(imagenes.at(-1).img.data[0], 0, 'en tofu mientras carga')
+    assert.equal(set.tileScale(i), 1)
+    fuente = true
+    listas()
+    await new Promise(r => setTimeout(r, 0))
+    const despues = set.sprite('3')
+    assert.notEqual(despues, antes, 'el canvas de antes era del tile en tofu')
+    assert.equal(imagenes.at(-1).img.data[0], 3)
+    assert.equal(set.tileScale(i), 2)
+  } finally {
+    delete document.fonts
+  }
+})
