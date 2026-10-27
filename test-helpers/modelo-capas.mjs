@@ -1,7 +1,7 @@
 // El modelo de capas del Mapa Geotáctico de la app, montado con elementos REALES (Lit + custom elements en jsdom) bajo un
 // navegador falso que respeta el techo de contextos de Chromium. Lo comparten los tests que cuentan contextos:
-// `contextos-montaje` (balances del montaje y del remove) y `contextos-readquirir` (lo que pasa cuando el navegador los
-// quita). Hay dos modelos. El de 8: polígono + cluster{overlay{puntos}} (el cluster toma 5: host, badge, burbujas, espiral y
+// `contextos-montaje` (balances del montaje y del remove), `contextos-readquirir` (lo que pasa cuando el navegador los
+// quita) y `contextos-politica` (cuándo se toman y se sueltan, con contextos ajenos). Hay dos modelos. El de 8: polígono + cluster{overlay{puntos}} (el cluster toma 5: host, badge, burbujas, espiral y
 // sub-espiral) + dos capas de puntos. El de 13 es la pila en reposo del Mapa Geotáctico: ese mismo, más las cinco capas que el
 // kit del shell monta por código con `engine.add*` (marcas, extremos de ruta, mediciones, rutas calculadas y enlaces de
 // seguimiento); esas no se construyen dos veces.
@@ -24,6 +24,13 @@ export const iconSet = makeIconSet()
 export const esperar = ms => new Promise(r => setTimeout(r, ms))
 export const items   = n => Array.from({ length: n }, (_, i) => ({ id: i + 1, lat: i * 1e-4, lng: i * 1e-4 }))
 
+// Una capa vacía al construirse toma su contexto en un rato ocioso, y una que recibe sus datos por la Source del motor, al
+// llegarle el primero: se espera a que ninguna quede sin tomarlo, o el `tope` en ms.
+export const asentar = async (engine, tope = 2000) => {
+  const desde = Date.now()
+  while (Date.now() - desde < tope && engine.surfaces().some(s => s.state === 'none')) await esperar(10)
+}
+
 export const fuente = n => {
   const source = createSource(ACC)
   source.set(items(n))
@@ -40,8 +47,8 @@ export const capasDelKit = engine => {
 }
 
 // `capas`: 8 o 13. `orden`: 'react' asigna las props después de conectar, 'antes' antes. `opciones` van al navegador falso
-// (`crearGl`, `techo`…).
-export const armar = async (capas, orden, opciones = {}) => {
+// (`crearGl`, `techo`…), salvo `asentado`: en falso no espera los ratos ociosos en que se toman las capas vacías.
+export const armar = async (capas, orden, { asentado = true, ...opciones } = {}) => {
   const navegador = instalarNavegador(window, opciones)
   document.body.replaceChildren()
   const map = document.createElement('cristae-map')
@@ -70,6 +77,7 @@ export const armar = async (capas, orden, opciones = {}) => {
   await esperar(80)
   capas === 13 && capasDelKit(map.engine)
   await esperar(40)
+  asentado && await asentar(map.engine)
   return { map, navegador }
 }
 

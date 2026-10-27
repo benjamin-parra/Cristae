@@ -7,13 +7,15 @@
 //         los mismos antes y después de soltar, perder y re-adquirir. El canvas nuevo ocupa el lugar del marcador.
 //   T2.6  `destroy` durante la pérdida o después deja 0 vivos, en cada clase: quitar la capa, y desmontar el mapa.
 //   13    El modelo de 13 capas del Mapa Geotáctico con contextos ajenos que se crean después del montaje: toda capa
-//         desalojada vuelve a pintar dentro del cupo, una por cuadro, y ninguna llamada va a un `gl` viejo.
+//         necesaria desalojada vuelve a pintar dentro del cupo, una por cuadro y la de mayor z primero, las prescindibles
+//         (las dos líneas vacías) quedan soltadas, y ninguna llamada va a un `gl` viejo. La política con más ajenos, el
+//         ping-pong y la saturación están en `contextos-politica`.
 //
 // Los cuadros los corre el test (`cuadro()`), así «una por cuadro» es determinista. Los eventos del navegador llegan con
 // `navegador.vaciar()`. Corre con: node --test test/element/contextos-readquirir.test.mjs
 //
 // El harness va PRIMERO: window, customElements y lo que Lit toca al evaluar.
-import { armar, armarVacio, esperar, ACC, LINEA, POLI, iconSet, items } from '../../test-helpers/modelo-capas.mjs'
+import { armar, armarVacio, asentar, esperar, ACC, LINEA, POLI, iconSet, items } from '../../test-helpers/modelo-capas.mjs'
 import { makeEditGl, makePickSpy } from '../../test-helpers/engine-stub.mjs'
 import { afterEach, beforeEach, test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -37,19 +39,20 @@ const cuadro = () => {
   ahora.forEach(cb => cb(0))
 }
 
-// La política no recupera una pérdida que llega hasta un segundo después de otra recuperación: cada test empieza lejos de
-// la del anterior.
+// Un reloj que avanza entre test y test: nada de la política depende de él, y así lo fija.
 const reloj   = performance.now.bind(performance)
 let   desfase = 0
 performance.now = () => reloj() + desfase
 beforeEach(() => { desfase += 10_000 })
 
+// Se quita el mapa antes de correr lo agendado: quitar una viva es una señal de cupo, y el cuadro que agenda tiene que correr
+// acá, con nada que tomar, o la política lo esperaría en el test siguiente.
 let mapa = null
 afterEach(() => {
-  for (let i = 0; agendados.size && i < 30; i++) cuadro()
-  agendados.clear()
   mapa?.remove()
   mapa = null
+  for (let i = 0; agendados.size && i < 30; i++) cuadro()
+  agendados.clear()
   globalThis.requestAnimationFrame = rafPrevio
   globalThis.cancelAnimationFrame  = cancelPrevio
   document.body.replaceChildren()
@@ -94,9 +97,17 @@ const intactos = navegador => {
 
 const ajenos = (navegador, n) => Array.from({ length: n }, () => navegador.ajeno())
 
+// Las capas por z descendente, que es el orden en que la política las recupera.
+const porZ = (engine, ids) => {
+  const z = Object.fromEntries(engine.surfaces().map(s => [s.layerId, s.z]))
+  assert.equal(new Set(ids.map(id => z[id])).size, ids.length, 'sin empates de z')
+  return [...ids].sort((p, q) => z[q] - z[p])
+}
+const VACIAS = ['medicion', 'rutas']                    // las dos líneas que el kit monta «siempre, también vacías»
+
 /* ── El modelo de 13 capas con contextos ajenos ── */
 
-test('13 capas + 3 ajenos caben en el techo: una ráfaga de pérdidas vuelve a pintar de a una por cuadro', async () => {
+test('13 capas + 3 ajenos caben en el techo: una ráfaga de pérdidas suelta las vacías y vuelve a pintar de a una por cuadro, por z', async () => {
   const { engine, navegador } = await montar()
   ajenos(navegador, 3)
   assert.equal(navegador.vivos, 16)
@@ -110,63 +121,52 @@ test('13 capas + 3 ajenos caben en el techo: una ráfaga de pérdidas vuelve a p
   const creados = navegador.creados
 
   assert.deepEqual(perdidas.map(id => estados(engine)[id]), ['lost', 'lost', 'lost', 'lost'])
+  assert.deepEqual(VACIAS.map(id => estados(engine)[id]), ['released', 'released'], 'bajo presión se sueltan las prescindibles')
   assert.equal(navegador.creados, creados, 'recuperar espera al cuadro: el evento no toma contexto')
 
-  perdidas.forEach((id, i) => {
+  const orden = porZ(engine, perdidas)
+  orden.forEach((id, i) => {
     cuadro()
     assert.equal(navegador.creados, creados + i + 1, `el cuadro ${i + 1} toma exactamente un contexto`)
-    assert.equal(estados(engine)[id], 'live', `${id} vuelve en su cuadro, en el orden en que se perdió`)
-    perdidas.slice(i + 1).forEach(otra => assert.equal(estados(engine)[otra], 'lost', `${otra} espera su turno`))
-    const fila = engine.surfaces().find(s => s.layerId === id)
-    fila.hasContent && assert.ok(dibujos(contextoDe(navegador, engine, id)) > 0, `${id} pinta en el mismo cuadro en que vuelve`)
+    assert.equal(estados(engine)[id], 'live', `${id} vuelve en su cuadro, la de mayor z primero`)
+    orden.slice(i + 1).forEach(otra => assert.equal(estados(engine)[otra], 'lost', `${otra} espera su turno`))
+    assert.ok(dibujos(contextoDe(navegador, engine, id)) > 0, `${id} pinta en el mismo cuadro en que vuelve`)
   })
 
   cuadro()
   assert.equal(navegador.creados, creados + 4, 'con la cola vacía, un cuadro más no toma nada')
   assert.equal(navegador.desalojados, 4, 'sólo cayeron las cuatro que pidió el test: recuperarlas no desalojó a nadie')
-  assert.equal(navegador.vivos, 16)
-  assert.deepEqual(avisos, [...perdidas.map(id => [id, 'lost']), ...perdidas.map(id => [id, 'live'])],
+  assert.equal(navegador.vivos, 14, 'las once necesarias y los tres ajenos')
+  assert.deepEqual(avisos.filter(([, e]) => e !== 'released'), [...perdidas.map(id => [id, 'lost']), ...orden.map(id => [id, 'live'])],
     'cada una avisó perderse, con el evento, y volver, con su cuadro')
+  assert.deepEqual(avisos.filter(([, e]) => e === 'released').map(([id]) => id).sort(), VACIAS)
   intactos(navegador)
 })
 
-test('13 capas + 4 ajenos pasan el techo por una: la desalojada vuelve en el cuadro siguiente y su recuperación no arma un ciclo', async () => {
+test('13 capas + 4 ajenos pasan el techo por una: cae una vacía, que queda soltada, y no se recupera nada', async () => {
   const { engine, navegador } = await montar()
   const avisos = []
   engine.on('surfacechange', detail => avisos.push([detail.layerId, detail.state]))
-
-  ajenos(navegador, 4)                                  // el cuarto pasa de 16: cae la capa de flush más viejo
-  assert.deepEqual(navegador.victimas, [0], 'cae `geo`, la primera que se creó')
-  navegador.vaciar()
-  assert.deepEqual(avisos, [['geo', 'lost']])
   const creados = navegador.creados
 
-  cuadro()
-  assert.equal(navegador.creados, creados + 1, 'un solo getContext')
-  assert.equal(estados(engine).geo, 'live', 'volvió')
-  assert.ok(dibujos(contextoDe(navegador, engine, 'geo')) > 0, 'y pintó en el mismo cuadro')
-
-  // Trece propias más cuatro ajenas son diecisiete contextos para un techo de dieciséis: tomar el de `geo` desalojó a la
-  // siguiente más vieja. Pierde su contexto dentro del segundo de una recuperación, y eso es falta de cupo, no un accidente:
-  // no se recupera, o las dos se turnarían el contexto de a uno por cuadro para siempre.
-  assert.deepEqual(navegador.victimas, [0, 1], 'la recuperación desalojó a `veh`, la siguiente')
+  ajenos(navegador, 4)                                  // el cuarto pasa de 16: cae la capa de flush más viejo
   navegador.vaciar()
   for (let i = 0; i < 5; i++) cuadro()
-
-  assert.equal(navegador.creados, creados + 1, 'ni un getContext más: no hay turnos')
+  assert.equal(avisos.length, 1)
+  const [[caida, estado]] = avisos
+  assert.ok(VACIAS.includes(caida), `cae una prescindible, la de flush más viejo (cayó ${caida})`)
+  assert.equal(estado, 'released')
+  assert.equal(navegador.creados, creados + 4, 'ni un getContext propio')
   assert.equal(navegador.vivos, 16)
-  const perdidas = Object.entries(estados(engine)).filter(([, estado]) => estado === 'lost')
-  assert.deepEqual(perdidas, [['veh', 'lost']], 'queda una sola capa sin contexto: la que el techo no deja mantener')
-  assert.deepEqual(avisos, [['geo', 'lost'], ['geo', 'live'], ['veh', 'lost']])
   intactos(navegador)
 })
 
-test('un reinicio de la GPU les quita el contexto a las trece: vuelven de a una por cuadro, y las que tienen contenido pintan', async () => {
+test('un reinicio de la GPU les quita el contexto a las trece: vuelven las once necesarias de a una por cuadro, y pintan', async () => {
   const { engine, navegador } = await montar()
   ajenos(navegador, 3)
   const ids = engine.surfaces().map(s => s.layerId)
   assert.equal(ids.length, 13)
-  const conContenido = engine.surfaces().filter(s => s.hasContent).map(s => s.layerId)
+  const necesarias = ids.filter(id => !VACIAS.includes(id))
 
   const viejos = ids.map(id => contextoDe(navegador, engine, id))
   viejos.forEach(contexto => navegador.desalojar(contexto))
@@ -174,16 +174,18 @@ test('un reinicio de la GPU les quita el contexto a las trece: vuelven de a una 
   assert.equal(navegador.vivos, 3, 'sólo quedan los ajenos')
   const creados = navegador.creados
 
-  ids.forEach((id, i) => {
+  necesarias.forEach((_, i) => {
     cuadro()
     assert.equal(navegador.creados, creados + i + 1, `el cuadro ${i + 1} toma un contexto`)
-    assert.equal(estados(engine)[id], 'live')
-    conContenido.includes(id) && assert.ok(dibujos(contextoDe(navegador, engine, id)) > 0, `${id} pinta al volver`)
+    const vuelta = necesarias.filter(id => estados(engine)[id] === 'live')
+    assert.equal(vuelta.length, i + 1)
   })
-
-  assert.deepEqual(Object.values(estados(engine)), Array(13).fill('live'))
-  assert.equal(navegador.desalojados, 13, 'recuperar trece con los trece cupos libres no desaloja a ninguna')
-  assert.equal(navegador.vivos, 16)
+  necesarias.forEach(id => assert.ok(dibujos(contextoDe(navegador, engine, id)) > 0, `${id} pinta al volver`))
+  cuadro()
+  assert.equal(navegador.creados, creados + 11)
+  assert.deepEqual(VACIAS.map(id => estados(engine)[id]), ['released', 'released'], 'las vacías no vuelven hasta tener contenido')
+  assert.equal(navegador.desalojados, 13, 'recuperar once con los trece cupos libres no desaloja a ninguna')
+  assert.equal(navegador.vivos, 14)
   viejos.forEach(contexto => assert.equal(contexto.llamadasTrasPerdida, 0, `#${contexto.id} ${contexto.pane}: intacto`))
   intactos(navegador)
 })
@@ -203,6 +205,7 @@ const clases = async (engine, pane) => {
   engine.addShapeLayer({ id: 'forma', accessors: forma, data: [{ id: 1, center: [0, 0], radius: 1e5 }], ...en })
   engine.addEditableLayer({ id: 'editor', kind: 'polygon', value: SQUARE, mode: 'edit', ...en })
   await esperar(40)       // los datos entran por la Source, que avisa en el cuadro de jsdom y no en los que corre el test
+  await asentar(engine)   // y el primero le pide su contexto a la capa que nació vacía
   return CLASES
 }
 
@@ -243,10 +246,8 @@ for (const [nombre, pane] of [['en un pane compartido', 'comun'], ['en panes sep
       igual(`${id} vuelta a tomar`)
     })
 
-    // Una por una, perdida por el navegador y recuperada por la política en el cuadro siguiente. Cada pérdida llega a más de un
-    // segundo de la recuperación anterior: antes sería falta de cupo, y la política no recupera.
+    // Una por una, perdida por el navegador y recuperada por la política en el cuadro siguiente.
     ids.forEach(id => {
-      desfase += 2000
       navegador.desalojar(contextoDe(navegador, engine, id))
       igual(`${id} desalojada, antes del evento`)
       navegador.vaciar()
@@ -264,17 +265,16 @@ for (const [nombre, pane] of [['en un pane compartido', 'comun'], ['en panes sep
       igual(`${id} vuelta a tomar, en orden inverso`)
     })
 
-    // Un reinicio de la GPU las pierde a todas; la política las recupera de a una, y entre medio hay las que ya volvieron,
-    // las que esperan y la que se suelta a mano.
-    desfase += 2000
+    // Un reinicio de la GPU las pierde a todas; la política las recupera de a una, la de mayor z primero (el editor, la última
+    // dada de alta), y entre medio hay las que ya volvieron, las que esperan y la que se suelta a mano.
     ids.forEach(id => navegador.desalojar(contextoDe(navegador, engine, id)))
     navegador.vaciar()
     igual('todas perdidas')
     cuadro()
     igual('la primera recuperada, las demás perdidas')
-    assert.deepEqual(ids.map(id => superficie(engine, id).state), ['live', 'lost', 'lost', 'lost', 'lost'])
-    superficie(engine, 'punto').release()                        // la que acaba de volver se suelta: sale de la política
-    igual('una recuperada que se suelta')
+    assert.deepEqual(ids.map(id => superficie(engine, id).state), ['lost', 'lost', 'lost', 'lost', 'live'])
+    superficie(engine, 'punto').release()                        // la que espera su turno se suelta: sale de la política
+    igual('una perdida que se suelta')
     for (let i = 0; i < ids.length - 1; i++) {
       cuadro()
       igual(`recuperación ${i + 2}`)
@@ -372,10 +372,10 @@ for (const [momento, llevar] of MOMENTOS) {
   })
 }
 
-/* ── Una capa oculta que pierde el contexto vuelve a tomarlo sin dibujar, y al mostrarla pinta ── */
+/* ── Una capa oculta conserva su contexto; perdido, no lo vuelve a tomar hasta que se muestra, y entonces pinta ── */
 
 for (const clase of ['punto', 'linea', 'poligono', 'forma']) {
-  test(`${clase} oculta: perdida y recuperada no dibuja; al mostrarla pinta en la misma tarea`, async () => {
+  test(`${clase} oculta: conserva su contexto; desalojada queda soltada, y al mostrarla lo toma y pinta en la misma tarea`, async () => {
     const { map, navegador } = await armarVacio({ crearGl })
     mapa = map
     cuadros()
@@ -383,19 +383,19 @@ for (const clase of ['punto', 'linea', 'poligono', 'forma']) {
     await clases(engine)
 
     engine.setLayerVisibility(clase, false)
-    cuadro()
-    const oculta = superficie(engine, clase).canvas.style.display          // 'none' en las que ocultan su canvas; las de puntos, su pane
+    for (let i = 0; i < 3; i++) cuadro()
+    assert.equal(superficie(engine, clase).state, 'live', 'ocultarla no suelta nada')
+    const creados = navegador.creados
     navegador.desalojar(contextoDe(navegador, engine, clase))
     navegador.vaciar()
-    cuadro()
-    const nuevo = contextoDe(navegador, engine, clase)
-    assert.equal(superficie(engine, clase).state, 'live', 'volvió a tomar su contexto aunque no se vea')
-    assert.equal(superficie(engine, clase).canvas.style.display, oculta, 'el canvas nuevo nace tan oculto como el que reemplaza')
-    assert.equal(dibujos(nuevo), 0, 'y no gastó un solo draw')
     for (let i = 0; i < 3; i++) cuadro()
-    assert.equal(dibujos(nuevo), 0, 'ni con los cuadros siguientes')
+    assert.equal(superficie(engine, clase).state, 'released', 'prescindible: no se recupera mientras no se vea')
+    assert.equal(navegador.creados, creados, 'ni un getContext')
 
     engine.setLayerVisibility(clase, true)
+    const nuevo = contextoDe(navegador, engine, clase)
+    assert.equal(superficie(engine, clase).state, 'live')
+    assert.equal(navegador.creados, creados + 1)
     assert.equal(superficie(engine, clase).canvas.style.display, '')
     assert.ok(dibujos(nuevo) > 0, 'al mostrarla, pinta en el acto')
     intactos(navegador)

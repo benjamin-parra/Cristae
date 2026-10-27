@@ -7,6 +7,7 @@ import { montarMapa } from '../../test-helpers/element-stub.mjs'
 import { decorarElementos } from '../../test-helpers/engine-stub.mjs'
 import { after, test } from 'node:test'
 import assert from 'node:assert/strict'
+import { createSource } from '../../src/data/Source.js'
 
 // Cada <canvas> guarda los oyentes que se le registran, por donde el navegador avisa `webglcontextlost`.
 const sinOyentes = decorarElementos((el, tag) => {
@@ -20,14 +21,17 @@ after(sinOyentes)
 
 const lineas = { idOf: r => r.id, pathOf: r => r.path }
 
-// Un mapa con una capa de líneas, y los eventos `cristae:surfacechange` que despacha, en orden.
+// Un mapa con una capa de líneas que trae su recorrido —toma su contexto al darse de alta—, y los eventos
+// `cristae:surfacechange` que despacha, en orden.
 const montar = async () => {
   const eventos = []
   const { el }  = await montarMapa({
     noZoomControl : true,
     dispatchEvent : e => (e.type === 'cristae:surfacechange' && eventos.push(e), true),
   })
-  el.engine.addLineLayer({ id: 'rutas', accessors: lineas, z: 380 })
+  const source = createSource(lineas)
+  source.set([{ id: 1, path: [[0, 0], [0, 1]] }])
+  el.engine.addLineLayer({ id: 'rutas', source, z: 380 })
   const canvas = el.engine.getLayer('rutas').layer.surface.canvas
   return { el, eventos, perder: () => canvas.oyentes.webglcontextlost.forEach(fn => fn()) }
 }
@@ -41,7 +45,7 @@ test('al perderse el contexto de una capa sale cristae:surfacechange con su fila
   const [evento] = eventos
   assert.deepEqual(evento.detail, el.engine.surfaces()[0], 'el detail es la fila de surfaces()')
   assert.deepEqual(evento.detail, {
-    layerId: 'rutas', kind: 'line', pane: 'cristae-line-rutas', z: 380, cssZoom: true, state: 'lost', hasContent: false, visible: true,
+    layerId: 'rutas', kind: 'line', pane: 'cristae-line-rutas', z: 380, cssZoom: true, state: 'lost', hasContent: true, visible: true,
   })
   assert.equal(evento.bubbles, true, 'como los demás cristae:*, sube y cruza el shadow root')
   assert.equal(evento.composed, true)

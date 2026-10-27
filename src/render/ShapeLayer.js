@@ -50,13 +50,15 @@ export class ShapeLayer {
     this.#interactive = interactive
     this.#circle      = circle
     this.#order       = circle ? ASCENDING : DESCENDING
-    // Nace vacía para leer el tope de textura de su contexto antes de armar la primera geometría.
+    // Nace vacía, sin contexto. Con formas lo toma ya, como toda capa con contenido al construirse, y lee el tope de
+    // textura de su contexto antes de armar la primera geometría; sin ellas lo toma la política en un momento ocioso.
     this.#layer = new PolygonGpuLayer({
       host, pane, ...style, geometry: EMPTY,
       idOf: k => this.#recs[k].id, styleOf: k => this.#recs[k].style,
     })
-    // El contexto ya está tomado: si la primera lectura lanza, se devuelve.
+    // Si la primera lectura lanza, el contexto se devuelve.
     try {
+      source.getSnapshot().length && this.#layer.surface.acquire()
       this.refresh()
     } catch (e) {
       this.destroy()

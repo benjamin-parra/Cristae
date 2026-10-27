@@ -1,6 +1,8 @@
 // `engine.surfaces()` y la señal `surfacechange`: una fila por superficie WebGL del motor —su capa, su
 // clase, su pane, su z, su estado, si hay algo que dibujarle y si se ve— y el aviso cuando el navegador
-// le quita el contexto a una. Corre con:
+// le quita el contexto a una. Perder una necesaria es presión de cupo: la política suelta las prescindibles
+// (acá, la línea vacía), y cada una avisa. El doble no cuelga los canvases de su pane, así que para la política
+// toda capa se ve. Corre con:
 //   node --test test/engine/superficies.test.mjs
 //
 // El harness va PRIMERO: instala el shim window/document que la carga del árbol toca por top-level.
@@ -23,6 +25,10 @@ const sinOyentes = decorarElementos((el, tag) => {
 after(sinOyentes)
 
 const flush     = () => new Promise(r => setTimeout(r, 5))
+// Una capa vacía toma su contexto en un rato ocioso, después del alta: se espera a que ninguna quede sin tomarlo.
+const asentar   = async engine => {
+  for (let i = 0; i < 50 && engine.surfaces().some(s => s.state === 'none'); i++) await flush()
+}
 const flota     = [{ id: 1, lat: 0, lng: 0, size: 24 }]
 const puntos    = { idOf: it => it.id, positionOf: it => ({ lat: it.lat, lng: it.lng }), sizeOf: it => it.size }
 const lineas    = { idOf: r => r.id, pathOf: r => r.path }
@@ -39,6 +45,7 @@ const montar = async () => {
   engine.addPolygonLayer({ id: 'zonas', accessors: zonas, data: [{ id: 'z1' }], visible: false, z: 382 })
   engine.addHeatLayer({ id: 'calor', accessors: puntos, data: flota })
   await flush()
+  await asentar(engine)
   return { engine, map, rutas }
 }
 
@@ -105,6 +112,7 @@ test('las formas y los círculos, que dibujan con un polígono por dentro, tiene
   engine.addCircleLayer({ id: 'radios', accessors: forma, data: datos })
   engine.addShapeLayer({ id: 'vacia', accessors: forma })
   await flush()
+  await asentar(engine)
 
   const resumen = id => [fila(engine, id).kind, fila(engine, id).state, fila(engine, id).hasContent]
   assert.deepEqual(resumen('alcances'), ['shape', 'live', true])
@@ -139,22 +147,24 @@ test('quitar una capa saca su fila, y destruir el motor las saca todas', async (
 
 /* ── El contexto perdido ── */
 
-test('al perderse el contexto de una capa, su fila queda lost y las demás siguen vivas', async () => {
+test('al perderse el contexto de una necesaria, su fila queda lost y la vacía se suelta', async () => {
   const { engine } = await montar()
-  perder(engine, 'rutas')
-  assert.deepEqual(engine.surfaces().map(s => [s.layerId, s.state]), [['flota', 'live'], ['rutas', 'lost'], ['zonas', 'live']])
+  perder(engine, 'flota')
+  assert.deepEqual(engine.surfaces().slice(0, 2).map(s => [s.layerId, s.state]), [['flota', 'lost'], ['rutas', 'released']])
   engine.destroy()
 })
 
 test('surfacechange avisa la pérdida con la fila de la capa, y sólo de esa', async () => {
-  const { engine } = await montar()
+  const { engine, rutas } = await montar()
+  rutas.source.set([recorrido])                         // con contenido es necesaria, y no hay prescindibles que soltar
+  await flush()
   const avisos = []
   const baja   = engine.on('surfacechange', detail => avisos.push(detail))
 
-  perder(engine, 'zonas')
+  perder(engine, 'rutas')
   assert.equal(avisos.length, 1)
-  assert.deepEqual(avisos[0], fila(engine, 'zonas'), 'el detail es la fila de surfaces()')
-  assert.deepEqual([avisos[0].layerId, avisos[0].state], ['zonas', 'lost'])
+  assert.deepEqual(avisos[0], fila(engine, 'rutas'), 'el detail es la fila de surfaces()')
+  assert.deepEqual([avisos[0].layerId, avisos[0].state], ['rutas', 'lost'])
 
   baja()
   perder(engine, 'flota')
@@ -169,7 +179,7 @@ test('el editor también avisa su pérdida', async () => {
   engine.on('surfacechange', detail => avisos.push([detail.layerId, detail.kind, detail.state]))
 
   perder(engine, 'geo')
-  assert.deepEqual(avisos, [['geo', 'editable', 'lost']])
+  assert.deepEqual(avisos, [['rutas', 'line', 'released'], ['geo', 'editable', 'lost']], 'la vacía se suelta primero')
   engine.destroy()
 })
 
@@ -190,7 +200,7 @@ test('la capa que attachSource cambió avisa con su superficie nueva, y la de an
   assert.equal(fila(engine, 'flota').state, 'live')
 
   nueva.oyentes.webglcontextlost.forEach(fn => fn())
-  assert.deepEqual(avisos, ['flota'])
+  assert.deepEqual(avisos, ['rutas', 'flota'], 'la nueva avisa su pérdida, y la vacía se suelta')
   assert.equal(fila(engine, 'flota').state, 'lost')
   engine.destroy()
   source.destroy()

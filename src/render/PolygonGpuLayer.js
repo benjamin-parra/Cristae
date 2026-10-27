@@ -1,6 +1,7 @@
 import { EditFillLayer } from './EditFillLayer.js'
 import { FEATHER, StrokePass, ownDash } from './StrokePass.js'
 import { EditSurface } from './EditSurface.js'
+import { glBudget } from './gl-budget.js'
 import { RingStore, maxTextureOf } from './RingStore.js'
 import { projX0, projY0, readView } from './project.js'
 import { prepareRangeIndex, partsAtPoint } from '../geometry/polygon.js'
@@ -30,7 +31,8 @@ import { at, count } from '../geometry/curve.js'
 // contexto y `buildGl` lo rehace, subiendo el espejo del store (`RingStore.#rel`, la única copia de los anillos de
 // una capa tipada no interactiva). Todo lo demás es de CPU y sigue: las tablas, el estilo, las cajas, el índice del
 // picking y la geometría que llega sin contexto, que se arma igual y se sube al volver. Sin contexto `#gl` es null,
-// y es lo único que miran los caminos que dibujan.
+// y es lo único que miran los caminos que dibujan. Vacía al construirse no toma contexto: lo toma la política en un
+// momento ocioso, o la primera geometría que llega.
 
 const project = (lat, lng, out) => {
   out[0] = projX0(lng)
@@ -121,7 +123,8 @@ export class PolygonGpuLayer {
 
   #camera; #surface; #store; #fill
   #gl      = null
-  #max     = maxTextureOf(null)       // el último lado máximo de textura medido; sin medir, el garantizado
+  // El último lado máximo de textura medido; sin contexto todavía, el del realm, o el que garantiza WebGL2.
+  #max     = glBudget.maxTexture ?? maxTextureOf(null)
   #index   = null
   #idOf    = null
   #offView = null                     // baja del repintado en vista asentada
@@ -165,8 +168,8 @@ export class PolygonGpuLayer {
     // geometría que no entra en la textura, y el estilo llama a `styleOf` e `idOf`, que son código del
     // consumidor—, y un contexto que nadie devuelve no vuelve en toda la vida de la página.
     try {
-      this.#surface.acquire()                 // → buildGl: todavía sin geometría
       const items = source ? source.getSnapshot() : null
+      this.#surface.open((geometry ? geometry.ringCount : items.length) > 0)   // → buildGl: todavía sin geometría
       this.#ingest(geometry ?? tablesFromRings(items, source.accessors.ringsOf), items)
       this.#fill   = fill ? new EditFillLayer({ gl: this.#gl, rings: [], step: 1, color: fillColor ?? color, opacity: fillOpacity }) : null
       this.#stroke = stroke ? new StrokePass({ gl: this.#gl, color, width: weight, opacity }) : null
@@ -235,7 +238,7 @@ export class PolygonGpuLayer {
   // las capas que derivan sus anillos de otra cosa: el contexto WebGL queda, sólo se rehace el store.
   setGeometry(geometry, items = this.#items) {
     this.#ingest(geometry, items)
-    return this.redraw()
+    return this.#surface.need() || this.redraw()   // la geometría se avisa: sin contexto lo pide, y buildGl sube y pinta
   }
 
   // El estilo se resuelve por parte y se guarda: `styleOf` puede depender de la selección o de un

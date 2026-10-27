@@ -13,6 +13,7 @@ import { createSource } from '../../src/data/Source.js'
 import { byDefault } from '../../src/geometry/geodesic.js'
 import { adoptLeafletHost } from '../../src/host/LeafletHost.js'
 import { PolygonGpuLayer } from '../../src/render/PolygonGpuLayer.js'
+import { glBudget } from '../../src/render/gl-budget.js'
 import { RingStore } from '../../src/render/RingStore.js'
 import { ShapeLayer } from '../../src/render/ShapeLayer.js'
 
@@ -276,11 +277,14 @@ const ultimoCuadro = contexto => {
   return llamadas.slice(llamadas.findLastIndex(([m]) => m === 'clear')).filter(([m]) => DIBUJO.has(m)).map(datos)
 }
 
+// La geometría llega en pleno gesto: fuera de él, le pediría el contexto a la política en esa tarea.
 test('T2.1: lo que llega sin contexto queda en CPU y sube entero, con su estilo, al volver a tener uno', () => {
   const { layer, navegador, contexto } = montar({ interactive: true })
   const fresca = montar({ navegador, geometry: DOS(), interactive: true, fillColor: '#00ff00', fillOpacity: 0.5, styleOf: () => ({ weight: 5 }) })
+  const gesto  = {}
   fresca.layer.applyFocus(new Set([0]), 0.2)
   layer.surface.release()
+  glBudget.motion(gesto, true)
 
   layer.setGeometry(DOS())
   layer.style({ fillColor: '#00ff00', fillOpacity: 0.5 })
@@ -295,6 +299,7 @@ test('T2.1: lo que llega sin contexto queda en CPU y sube entero, con su estilo,
   assert.equal(agendados.size, 0, 'sin contexto no se agenda ningún cuadro')
 
   layer.surface.acquire()
+  glBudget.motion(gesto, false)
 
   // La misma capa hecha de cero con todo eso (el contexto #1) dibuja lo mismo que la que lo rehízo (el #2).
   assert.deepEqual(llamados(contexto(2), 'texImage2D').map(datos), llamados(contexto(1), 'texImage2D').map(datos), 'las posiciones nuevas')

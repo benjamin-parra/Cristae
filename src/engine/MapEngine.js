@@ -13,6 +13,7 @@ import { HtmlLayer } from '../render/HtmlLayer.js'
 import { LabelLayer } from '../render/LabelLayer.js'
 import { createHighlightOverlay } from '../render/HighlightOverlay.js'
 import { frameTransform } from '../render/frame.js'
+import { glBudget } from '../render/gl-budget.js'
 import { createClusterFold } from '../cluster/ClusterFold.js'
 import { defineClusterIconSet } from '../atlas/IconSet.js'
 import { createSource } from '../data/index.js'
@@ -168,9 +169,16 @@ export class MapEngine {
       pickLayers: () => this.#pick.entries,
       hoverThrottleMs,
       cursor,
-      onInteractionStart: () => this.#emit('interactionstart', {}),
-      onInteractionEnd:   () => this.#emit('interactionend', {}),
-      onEmptyClick:       latlng => this.#emit('map:click', { latlng }),   // click en espacio vacío → latlng
+      // El gesto —arrastre, zoom animado, pellizco, vuelo— es el que la política de contextos no interrumpe con un getContext.
+      onInteractionStart: () => {
+        glBudget.motion(this, true)
+        this.#emit('interactionstart', {})
+      },
+      onInteractionEnd: () => {
+        glBudget.motion(this, false)
+        this.#emit('interactionend', {})
+      },
+      onEmptyClick: latlng => this.#emit('map:click', { latlng }),   // click en espacio vacío → latlng
     })
 
     this.#host.camera.on('moveend zoomend', emitViewport)
@@ -915,8 +923,12 @@ export class MapEngine {
   // Reposiciona y redibuja todas las capas de puntos de este motor. Escape hatch manual: el
   // <cristae-map> ya se auto-cura en resize y en show tras display:none vía su ResizeObserver →
   // syncSize(). Útil en el path headless (MapEngine sin elemento, sin observer) o si el contenedor
-  // vuelve a ser visible sin cambiar de tamaño (no dispara resize).
-  invalidateCanvas() { this.#resetCanvases() }
+  // vuelve a ser visible sin cambiar de tamaño (no dispara resize). Es también una señal de cupo: lo que el techo de
+  // contextos dejó sin superficie se intenta de nuevo (la app la da al cerrar un widget que tomaba contextos).
+  invalidateCanvas() {
+    glBudget.retry()
+    this.#resetCanvases()
+  }
 
   // Una fila por superficie GL del motor: las capas que dibujan con WebGL —no las de 2D ni las de DOM— y
   // el editor. Se arma al pedirla, sin guardar nada: es para diagnosticar cuántos contextos toma el mapa y
@@ -970,6 +982,7 @@ export class MapEngine {
     this.#destroying = true
     ;[...this.#highlightOverlays].forEach(e => e.dispose())
     this.#interaction.destroy()
+    glBudget.motion(this, false)        // un gesto cortado por el destroy no deja a la política esperando su fin
     this.camera.destroy()
     this.#layers.forEach((_, id) => this.removeLayer(id))
     this.#signals.clear()
@@ -1172,9 +1185,11 @@ export class MapEngine {
     return layer
   }
 
+  // Mostrarla puede pedir el contexto que soltó bajo presión: lo toma en esta tarea, y pinta con el `setVisible` que sigue.
   #applyVisibility(id, paneName, visible) {
     this.#host.surface.setVisible(paneName, visible)
     this.#registry.setLayerVisibility(id, visible)
+    visible && (r => (r?.layer ?? r?.editor)?.surface?.need())(this.#layers.get(id))
   }
 
   /* ── Enfoque / atenuado de capas (primitivo general) ── */

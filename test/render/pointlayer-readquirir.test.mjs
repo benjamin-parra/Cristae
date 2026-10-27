@@ -447,7 +447,7 @@ for (const [como, perder] of [
   })
 }
 
-/* ── La política: una por cuadro, y sin ciclos cuando no hay cupo ── */
+/* ── La política (src/render/gl-budget.js, que la prueba entera): una por cuadro, y sin ciclos cuando no hay cupo ── */
 
 test('dos desalojadas se re-adquieren de a una por cuadro', () => {
   const navegador = nuevoNavegador()
@@ -466,7 +466,7 @@ test('dos desalojadas se re-adquieren de a una por cuadro', () => {
 })
 
 // Techo 3: dos capas y un ajeno lo llenan, y un segundo ajeno desaloja a la más vieja. Recuperarla desaloja a la
-// otra capa: no hay cupo, y la política para ahí en vez de rotar.
+// otra capa: no hay cupo, y la política para ahí en vez de rotar. Las dos tienen la misma z: no se cambia una por otra.
 test('si recuperar una desaloja a otra propia, la otra se queda sin contexto', () => {
   const navegador = nuevoNavegador({ techo: 3 })
   const a = montar({ navegador })
@@ -479,14 +479,15 @@ test('si recuperar una desaloja a otra propia, la otra se queda sin contexto', (
   cuadro()
   navegador.vaciar()
   for (let i = 0; i < 5; i++) { cuadro(); navegador.vaciar() }
-  assert.deepEqual([a.layer.surface.state, b.layer.surface.state], ['live', 'lost'])
+  assert.deepEqual([a.layer.surface.state, b.layer.surface.state], ['live', 'released'], 'b espera cupo')
   assert.equal(navegador.creados, 5, 'una sola re-adquisición')
   a.layer.destroy()
   b.layer.destroy()
 })
 
 // Un ajeno que se rehace al perder su contexto (un widget que lo pide de nuevo) desaloja a una capa cada vez que
-// una recuperación lo desaloja a él. Sin la ventana, ping-pong para siempre.
+// una recuperación lo desaloja a él. Sin cortar, ping-pong para siempre. La A vuelve, saca a un ajeno, y los ajenos
+// rehechos la desalojan a ella, que ya volvió una vez: queda esperando cupo.
 test('con un ajeno que se rehace al perder, una rotación y para', () => {
   const navegador = nuevoNavegador({ techo: 3 })
   const insistente = () => {
@@ -502,9 +503,9 @@ test('con un ajeno que se rehace al perder, una rotación y para', () => {
   navegador.vaciar()
 
   for (let i = 0; i < 10; i++) { cuadro(); navegador.vaciar() }
-  assert.equal(a.layer.surface.state, 'live', 'la A se recuperó')
-  assert.equal(b.layer.surface.state, 'lost', 'y la B, que cayó en la ventana, no')
-  assert.equal(navegador.creados, 6, 'A, B, dos ajenos, la A otra vez y el ajeno rehecho: nada más')
+  assert.equal(a.layer.surface.state, 'released', 'la A volvió una vez, y espera cupo')
+  assert.equal(b.layer.surface.state, 'live', 'la B, que se usó después del ajeno, sigue')
+  assert.equal(navegador.creados, 7, 'A, B, dos ajenos, la A otra vez y los dos ajenos rehechos: nada más')
   a.layer.destroy()
   b.layer.destroy()
 })

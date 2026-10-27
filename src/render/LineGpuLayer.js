@@ -1,4 +1,5 @@
 import { EditSurface } from './EditSurface.js'
+import { glBudget } from './gl-budget.js'
 import { LineStore } from './LineStore.js'
 import { StrokePass, ownDash } from './StrokePass.js'
 import { projX0, projY0, readView } from './project.js'
@@ -31,7 +32,8 @@ import { growBoxOfRange } from '../geometry/bbox.js'
 // La superficie puede quedarse sin contexto (el navegador lo quita, o se suelta) y volver a tenerlo en otro. Los
 // vértices, los estilos y el índice de picking son de CPU y no dependen de él: sin contexto la capa codifica igual y
 // la subida queda pendiente, entera, para `buildGl`, que rehace el pase y las texturas del store y pinta. Sin
-// contexto `#gl` es null, y es lo que miran los caminos que tocan GL. El picking es de CPU, así que no cambia.
+// contexto `#gl` es null, y es lo que miran los caminos que tocan GL. El picking es de CPU, así que no cambia. Vacía al
+// construirse no toma contexto: lo toma la política en un momento ocioso, o al llegar el primer dato.
 
 const HIT_TOL_PX    = 8
 const OPAQUE        = '#ffffff'
@@ -86,10 +88,14 @@ export class LineGpuLayer {
     this.#surface  = new EditSurface({ host, pane, owner: this })
     // Tomar el contexto ocupa uno de los ~16, y lo que siga puede tirar: nadie lo devuelve solo.
     try {
-      this.#surface.acquire()     // → buildGl(gl): todavía sin datos
-      this.#rebuild(source.getSnapshot())
+      const snap = source.getSnapshot()
+      this.#surface.open(snap.length > 0)     // → buildGl(gl): todavía sin datos
+      this.#rebuild(snap)
       this.#offView = host.camera.on('moveend zoomend resize zoomframe', () => this.redraw())
-      this.#unsub   = source.subscribe(() => { this.#sync(); this.redraw() })
+      this.#unsub   = source.subscribe(() => {
+        this.#sync()
+        this.#surface.need() || this.redraw()   // el dato se avisa: sin contexto lo pide, y buildGl sube y pinta
+      })
       this.redraw()     // pinta ya lo que la Source trae: no espera a un evento de cámara que quizá no llegue
     } catch (e) {
       this.destroy()
@@ -278,7 +284,7 @@ export class LineGpuLayer {
     }
     // Sin contexto el store se arma igual, en CPU, contra el último tope de textura que midió el anterior.
     this.#store?.destroy()
-    this.#store     = new LineStore({ gl: this.#gl, gradient: !!this.#scalarOf, limit: this.#store?.limit })
+    this.#store     = new LineStore({ gl: this.#gl, gradient: !!this.#scalarOf, limit: this.#store?.limit ?? glBudget.maxTexture ?? Infinity })
     this.#recs      = recs
     this.#snapLen   = snap.length
     this.#index     = null

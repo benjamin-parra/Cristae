@@ -1,12 +1,14 @@
 // Contrato de la superficie WebGL2 propia de una capa GPU, sobre un doble de gl: la esclusa del stencil (lo que
 // evita que el relleno falle en silencio), el teardown que DEVUELVE el contexto, que tomarlo otra vez con uno
 // vivo no consuma otro del techo del navegador (~16), y la re-adquisición: soltarlo o perderlo y volver a
-// tomarlo en un canvas nuevo, en el lugar del viejo, con la capa avisada para rehacer su parte GL.
+// tomarlo en un canvas nuevo, en el lugar del viejo, con la capa avisada para rehacer su parte GL. Y el alta perezosa:
+// `open` sin contenido deja un marcador en el pane y no toma contexto.
 
 import { estiloTrasladado, oyentesDeVista } from '../../test-helpers/engine-stub.mjs'
 import { after, beforeEach, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { EditSurface } from '../../src/render/EditSurface.js'
+import { glBudget } from '../../src/render/gl-budget.js'
 import { adoptLeafletHost } from '../../src/host/LeafletHost.js'
 
 /* ── Dobles: canvas + gl + map, con el contador de contextos, de loseContext y de lo que se cuelga ── */
@@ -18,6 +20,7 @@ const makeGl = (espia, attrs) => ({
   getExtension         : nombre => (nombre === 'WEBGL_lose_context' ? { loseContext: () => { espia.lost++ } } : null),
   isContextLost        : () => espia.perdido,
   viewport             : (x, y, w, h) => espia.viewports.push({ x, y, w, h }),
+  flush                : () => {},
 })
 
 // `traslados` son los transforms que la superficie le escribe al canvas, en orden: el ancla y los frames
@@ -298,47 +301,113 @@ test('al asentar, zoomend devuelve el ancla, suelta la escala y RECUERDA la vist
   assert.equal(espia.traslados.at(-1).escala, 2)
 })
 
-test('zooming dice si hay un zoom animado en curso: desde el zoomanim hasta el zoomend', () => {
-  const { surface, map } = montar()
-  assert.equal(surface.zooming, false, 'sin contexto no oye la vista')
+// H4 de la revisión de la etapa 2: un `zoomanim` cuyo `zoomend` no llega dejaba al canvas siguiente sin ancla.
+test('un canvas que se toma con un zoom animado sin su zoomend se ancla a la vista que hay', () => {
+  const { surface, map, espia } = montar()
   surface.acquire()
-  assert.equal(surface.zooming, false, 'tampoco antes de que haya un zoom')
-  map.animarZoom(ZOOM_INICIAL + 1)
-  assert.equal(surface.zooming, true)
-  map.animarZoom(ZOOM_INICIAL + 1)                      // un pellizco emite un zoomanim por cuadro
-  assert.equal(surface.zooming, true)
-  map.fire('zoomend')
-  assert.equal(surface.zooming, false, 'el zoomend lo apaga en el acto')
+  map.animarZoom(ZOOM_INICIAL + 1)                      // el zoomend no llega nunca
+  surface.release()
+  espia.traslados.length = 0
+  surface.acquire()
+  assert.deepEqual(espia.traslados, [ANCLA], 'el canvas nuevo no viene de ningún zoom: queda anclado, sin escala')
+  map.animarZoom(ZOOM_INICIAL + 2)
+  assert.equal(espia.traslados.at(-1).escala, 2, 'y el zoom siguiente lo lleva desde esa ancla')
 })
 
-test('un zoomanim al que nunca le llega el zoomend deja de contar a los 400 ms', () => {
-  const { surface, map } = montar()
-  surface.acquire()
-  map.animarZoom(ZOOM_INICIAL + 1)
-  desfase += 399
-  assert.equal(surface.zooming, true)
-  desfase += 2
-  assert.equal(surface.zooming, false, 'una recuperación no se queda esperando un zoom que ya terminó')
-})
-
-test('zooming sigue la vista aunque la superficie esté perdida o soltada', () => {
+test('soltada, el zoom animado no escribe en el marcador', () => {
   const { surface, map, espia } = montar()
   surface.acquire()
   surface.release()
-  map.animarZoom(ZOOM_INICIAL + 1)                      // el canvas es un marcador: no hay transform que escribir
-  assert.equal(surface.zooming, true, 'es lo que la recuperación necesita saber')
-  assert.equal(espia.traslados.filter(t => t.escala === 2).length, 0)
-  map.fire('zoomend')
-  assert.equal(surface.zooming, false)
+  espia.traslados.length = 0
+  map.animarZoom(ZOOM_INICIAL + 1)
+  assert.deepEqual(espia.traslados, [])
 })
 
-test('una superficie sin cssZoom no oye la vista: zooming vale siempre falso', () => {
-  espiaVigente = { stencilOtorgado: true, perdido: false, contexts: 0, lost: 0, canvases: [], viewports: [], traslados: [] }
-  const map     = makeMap()
-  const surface = new EditSurface({ host: adoptLeafletHost(map), pane: PANE, cssZoom: false })
+/* ── Alta perezosa ── */
+
+test('open sin contenido deja un marcador en el pane y no toma contexto; el primero se toma en el marcador mismo', () => {
+  const previa = montar({ owner: makeOwner() }).surface
+  previa.acquire()                                      // el realm ya logró un contexto: WebGL2 anda
+  previa.destroy()
+  const owner = makeOwner()
+  const { surface, espia, map } = montar({ owner })
+  assert.equal(surface.open(false), null)
+  assert.equal(espia.contexts, 0)
+  assert.equal(surface.state, 'none')
+  const marcador = surface.canvas
+  assert.equal(marcador.className, 'cristae-edit-canvas')
+  assert.deepEqual(map.getPane(PANE).hijos, [marcador], 'guarda el lugar en el pane')
+  surface.resetCanvasReference()
+  assert.deepEqual(espia.viewports, [], 'sin contexto no hay nada que medir')
+
+  marcador.style.display = 'none'                       // la capa lo ocultó mientras tanto
+  const gl = surface.acquire()
+  assert.equal(surface.state, 'live')
+  assert.equal(surface.canvas, marcador, 'ni un nodo más')
+  assert.deepEqual(map.getPane(PANE).hijos, [marcador])
+  assert.equal(surface.canvas.style.display, 'none', 'sigue como la capa lo dejó')
+  assert.deepEqual(owner.avisos, [['buildGl', gl]])
+
+  surface.release()
   surface.acquire()
-  map.animarZoom(ZOOM_INICIAL + 1)
-  assert.equal(surface.zooming, false, 'el motor la reproyecta por cuadro')
+  assert.notEqual(surface.canvas, marcador, 'el que tuvo contexto ya no sirve: el siguiente es un canvas nuevo, en su lugar')
+  assert.deepEqual(map.getPane(PANE).hijos, [surface.canvas])
+  surface.destroy()
+})
+
+test('open con contenido toma el contexto en el acto', () => {
+  const { surface, espia } = montar({ owner: makeOwner() })
+  assert.ok(surface.open(true))
+  assert.equal(espia.contexts, 1)
+  assert.equal(surface.state, 'live')
+  surface.destroy()
+})
+
+test('release saca de la espera a una perdida o a una sin tomar: queda soltada y avisa una vez', () => {
+  const { surface, espia } = montar({ owner: { ...makeOwner(), hasContent: true } })
+  const avisos = []
+  surface.open(false)
+  surface.onState = s => avisos.push(s.state)
+  assert.equal(surface.release(), true)
+  assert.equal(surface.state, 'released')
+  assert.equal(surface.release(), false, 'soltar la soltada no hace nada')
+
+  surface.acquire()
+  surface.canvas.emit('webglcontextlost')
+  assert.equal(surface.release(), true)
+  assert.equal(espia.lost, 0, 'a una perdida no se le suelta un contexto que ya no tiene')
+  assert.deepEqual(avisos, ['released', 'live', 'lost', 'released'])
+  surface.destroy()
+})
+
+test('needed: se ve y tiene contenido; la que no avisa cuando lo recibe cuenta siempre con él; un editor trazando, siempre', () => {
+  const owner = { ...makeOwner(), hasContent: false, engaged: false }
+  const { surface, map } = montar({ owner })
+  assert.equal(surface.needed, false, 'sin canvas todavía')
+  surface.open(false)
+  assert.equal(surface.needed, false, 'vacía')
+  owner.hasContent = true
+  assert.equal(surface.needed, true)
+  surface.canvas.parentNode = map.getPane(PANE)
+  map.getPane(PANE).style.visibility = 'hidden'
+  assert.equal(surface.needed, false, 'su pane no se ve')
+  owner.engaged = true
+  assert.equal(surface.needed, true, 'trazando no se suelta aunque no se vea')
+  surface.destroy()
+
+  const otra = montar({ owner: { ...makeOwner(), hasContent: false } }).surface
+  otra.acquire()
+  assert.equal(otra.needed, true, 'abierta con acquire: no avisa, así que cuenta con contenido')
+  otra.destroy()
+})
+
+test('z es la del pane, para ordenar la recuperación', () => {
+  const { surface, map } = montar({ owner: makeOwner() })
+  surface.open(false)
+  assert.equal(surface.z, 0, 'sin z, la más baja')
+  map.getPane(PANE).style.zIndex = '450'
+  assert.equal(surface.z, 450)
+  surface.destroy()
 })
 
 test('destroy desengancha del zoom animado y suelta su pane', () => {
@@ -483,10 +552,12 @@ test('con dueño, la perdida se re-adquiere en el cuadro siguiente en un canvas 
   surface.destroy()
 })
 
-test('perdida en pleno zoom animado, espera a que asiente y el canvas nuevo se ancla a la vista final', async () => {
+test('perdida en pleno zoom animado, espera a que el motor diga que asentó y el canvas nuevo se ancla a la vista final', async () => {
   const owner = makeOwner()
   const { surface, espia, map } = montar({ owner })
+  const motor = {}
   surface.acquire()
+  glBudget.motion(motor, true)                          // el motor abre el gesto en el zoomstart
   map.animarZoom(ZOOM_INICIAL + 1)
   espia.canvases[0].emit('webglcontextlost')
 
@@ -496,6 +567,7 @@ test('perdida en pleno zoom animado, espera a que asiente y el canvas nuevo se a
   assert.equal(surface.state, 'lost')
 
   map.fire('zoomend')
+  glBudget.motion(motor, false)
   await cuadro()
   assert.equal(espia.contexts, 2, 'asentó: vuelve')
   assert.equal(surface.state, 'live')
@@ -537,6 +609,7 @@ test('perdida sin aviso todavía, acquire toma otro y el dueño olvida lo viejo 
   surface.acquire()
   assert.equal(espia.contexts, 2)
   assert.deepEqual(owner.avisos.map(([que]) => que), ['buildGl', 'dropGl', 'buildGl'])
+  surface.destroy()                                       // perdida otra vez: la política no la recupera en el test siguiente
 })
 
 test('destruida mientras espera su turno, no se re-adquiere', async () => {

@@ -13,7 +13,12 @@ import { loseGlContext } from './gl-teardown.js'
 // vuelve, y uno nuevo no arrastra estado GL de antes. Lo que dibuja lo rehace su dueño, la capa, desde sus
 // espejos de CPU: `buildGl(gl)` cada vez que hay contexto y `dropGl()` cuando deja de haberlo, sin tocarlo. El
 // canvas sin contexto queda de marcador: guarda el lugar en el pane, que da el orden entre las capas que lo
-// comparten. Cuándo se re-adquiere una perdida lo decide `gl-budget.js`; una sin dueño no se re-adquiere.
+// comparten. Cuándo se toma, se suelta o se re-adquiere lo decide `gl-budget.js`; una sin dueño no se re-adquiere.
+//
+// La capa la abre de una de dos formas. `acquire()` toma el contexto ya, y es la de quien no avisa cuando recibe
+// contenido: cuenta siempre como necesaria mientras se vea. `open(content)` lo toma ya si la capa tiene contenido, y si
+// no deja el marcador y la política lo toma en un momento ocioso; quien abre así avisa con `need()` cada vez que recibe
+// contenido, y vacía es prescindible bajo presión.
 
 export const SURFACE_ATTRS = {
   stencil               : true,     // el pase de paridad del abanico escribe acá; sin esto no hay relleno
@@ -31,21 +36,27 @@ export const blendOver = gl => {
 
 const dprOf = () => globalThis.devicePixelRatio || 1
 
-// Cuánto dura en pie un zoom animado sin su `zoomend`: la transición de Leaflet son 250 ms y un pellizco emite `zoomanim` por
-// cuadro, así que pasado esto sin otro aviso el zoom terminó aunque el `zoomend` no haya llegado.
-const ZOOM_MS = 400
+// Un canvas de la superficie, con o sin contexto: el marcador tiene la misma clase y el mismo estilo que el que dibuja.
+const nuevoCanvas = () => {
+  const canvas = document.createElement('canvas')
+  canvas.className           = 'cristae-edit-canvas'
+  canvas.style.position      = 'absolute'
+  canvas.style.pointerEvents = 'none'
+  return canvas
+}
 
 export class EditSurface {
 
   #camera; #surface; #paneName; #attrs; #cssZoom; #owner
   #offZoom   = []
   #canvas    = null
+  #marker    = null       // el marcador de `open` que todavía no pidió contexto: el primero se toma en él mismo
   #gl        = null
   #state     = 'none'     // 'none' | 'live' | 'lost' | 'released'; `state` agrega la pérdida que todavía no se avisó
   #attached  = false
   #destroyed = false
+  #lazy      = false      // la abrió `open`: su dueña avisa cuando recibe contenido
   #animando  = false
-  #zoomAt    = -Infinity  // cuándo llegó el último `zoomanim`; el `zoomend` lo borra
   #ancla     = { x: 0, y: 0, zoom: 0, center: null }   // ancla y vista con las que se rasterizó el contenido
 
   // Quien oye los cambios de estado de la superficie —tomar el contexto, perderlo, soltarlo—, con la superficie
@@ -64,6 +75,7 @@ export class EditSurface {
     this.#attrs    = { ...SURFACE_ATTRS, antialias, depth }
     this.#cssZoom  = cssZoom
     this.#owner    = owner
+    owner && glBudget.register(this)
   }
 
   get gl()          { return this.#gl }
@@ -71,14 +83,38 @@ export class EditSurface {
   get attached()    { return this.#attached }   // tomó un contexto alguna vez y no se destruyó
   get contextLost() { return this.#state === 'lost' }
   get cssZoom()     { return this.#cssZoom }
-  // Hay un zoom animado en curso, visto desde que la superficie oye la vista (con su primer contexto; una `cssZoom: false`
-  // no la oye y da siempre falso). Un canvas que nace en pleno zoom no recibe el `zoomanim` que ya pasó y queda en la vista
-  // destino mientras los tiles aún viajan, así que quien re-adquiere espera a que asiente.
-  get zooming()     { return performance.now() - this.#zoomAt < ZOOM_MS }
-  // `live`: tiene su contexto. `lost`: el navegador se lo quitó. `released`: se soltó. `none`: no tiene ni tuvo
-  // uno, o se destruyó. La pérdida se lee del contexto, que la sabe en el acto; `webglcontextlost` llega en otra
-  // tarea.
+  // La prioridad de la superficie: la z vigente de su pane. La de mayor z se recupera primero y la de menor z cae primero.
+  get z()           { return this.#surface.zOf(this.#paneName) ?? 0 }
+  // Si la política le debe un contexto: se ve (su pane no está oculto) y tiene algo que dibujar, o es un editor con un trazo
+  // o un gesto vivo. Una que no avisa cuando recibe contenido (`acquire` al construirse) cuenta siempre con contenido.
+  get needed() {
+    const pane = this.#canvas?.parentNode
+    return !!this.#owner?.engaged
+      || !!this.#canvas && pane?.style?.visibility !== 'hidden' && (!this.#lazy || !!this.#owner?.hasContent)
+  }
+  // `live`: tiene su contexto. `lost`: el navegador se lo quitó y la política lo recupera. `released`: no lo tiene por
+  // decisión propia o de la política (prescindible bajo presión, o sin cupo). `none`: todavía no lo tomó, o se destruyó.
+  // La pérdida se lee del contexto, que la sabe en el acto; `webglcontextlost` llega en otra tarea.
   get state()       { return this.#state === 'live' && this.#gl.isContextLost() ? 'lost' : this.#state }
+
+  // Alta perezosa: con contenido toma el contexto ya; vacía deja el marcador en su lugar del pane y la política lo toma
+  // en un momento ocioso, o en la tarea en que la dueña avisa con `need()` que recibió contenido. Mientras ningún contexto
+  // del realm se haya logrado lo toma ya, vacía o no: sin WebGL2 el alta lanza, como siempre, y quien la pidió degrada.
+  // Devuelve el contexto, o null si lo difiere.
+  open(content) {
+    this.#lazy = true
+    if (content || !glBudget.capable) return this.acquire()
+
+    const marcador = nuevoCanvas()
+    this.#surface.mount(this.#paneName).appendChild(marcador)
+    this.#canvas = this.#marker = marcador
+    glBudget.reserved(this)
+    return null
+  }
+
+  // La dueña tiene algo que mostrar —recibió contenido, o se volvió a ver—: sin contexto, la política decide si lo toma ya;
+  // con él, si hay que rehacer el orden de desalojo. Devuelve si lo tomó.
+  need() { return glBudget.need(this) }
 
   // Toma un contexto si no tiene uno vivo, en un canvas nuevo que ocupa el lugar del anterior, y su dueño
   // construye sobre él. Con uno vivo sólo lo devuelve.
@@ -87,50 +123,65 @@ export class EditSurface {
     if (this.#state === 'live' && !this.#gl.isContextLost()) return this.#gl
     this.#state === 'live' && this.#owner?.dropGl()   // perdido sin aviso todavía: la capa conserva los handles
 
-    const canvas = document.createElement('canvas')
-    canvas.className           = 'cristae-edit-canvas'
-    canvas.style.position      = 'absolute'
-    canvas.style.pointerEvents = 'none'
+    // El marcador de un alta perezosa nunca tuvo contexto y se usa él mismo; uno que lo tuvo devolvería el perdido.
+    const marcador = this.#canvas
+    const canvas   = this.#marker ?? nuevoCanvas()
+    this.#marker   = null
     // Sin `preventDefault`: un contexto cancelado queda a la espera de un `restoreContext` que nadie hace. El aviso
     // de un canvas ya reemplazado, o el que deja `loseContext` al soltarlo o destruirla, no es una pérdida.
     canvas.addEventListener('webglcontextlost', () => canvas === this.#canvas && this.#state === 'live' && this.#lose())
 
     const gl = canvas.getContext('webgl2', this.#attrs)
-    if (!gl) throw new Error('[cristae] sin WebGL2: la geometría editable en GPU necesita gl_VertexID y texelFetch')
+    if (!gl) {
+      this.#owner && glBudget.failed()
+      throw new Error('[cristae] sin WebGL2: la geometría editable en GPU necesita gl_VertexID y texelFetch')
+    }
     // Esclusa ruidosa: un contexto sin stencil falla EN SILENCIO y se ve como «el relleno a veces cubre
     // la pantalla entera». Se suelta antes de tirar porque el consumidor puede degradar a edición DOM.
     if (!gl.getContextAttributes().stencil) {
       loseGlContext({ gl })
+      this.#owner && glBudget.failed()
       throw new Error('[cristae] contexto WebGL2 sin stencil: el relleno par-impar no es representable')
     }
 
     // El nuevo hereda del marcador lo que la capa le puso, que es si se ve.
-    const marcador = this.#canvas
-    marcador ? marcador.replaceWith(canvas) : this.#surface.mount(this.#paneName).appendChild(canvas)
+    canvas === marcador || (marcador ? marcador.replaceWith(canvas) : this.#surface.mount(this.#paneName).appendChild(canvas))
     canvas.style.display = marcador?.style.display ?? ''
     this.#canvas   = canvas
     this.#gl       = gl
     this.#state    = 'live'
     this.#attached = true
+    this.#animando = false                              // un canvas nuevo no viene de ningún zoom: se ancla a la vista que hay
     this.#cssZoom && this.#seguirZoom(canvas)
     this.resetCanvasReference()
     this.#owner?.buildGl(gl)
+    this.#owner && glBudget.acquired(this, gl)
     this.onState?.(this)
     return gl
   }
 
-  // Suelta el contexto en el acto —el cupo vuelve al techo— y el canvas queda de marcador. El dueño olvida su parte
-  // GL antes: después no hay contexto que tocar. Devuelve si soltó.
+  // Deja de tener contexto por decisión propia, y el canvas queda de marcador. Viva, lo suelta en el acto —el cupo vuelve
+  // al techo— y el dueño olvida su parte GL antes, que después no hay contexto que tocar. Perdida, o sin tomar todavía,
+  // sale de la espera de la política. Devuelve si cambió.
   release() {
-    if (this.#state !== 'live') return false
-    this.#owner?.dropGl()
-    loseGlContext(this)
+    if (this.#destroyed || this.#state === 'released') return false
+
+    const viva  = this.#state === 'live'
+    const freed = viva && !this.#gl.isContextLost()
+    if (viva) {
+      this.#owner?.dropGl()
+      loseGlContext(this)
+    }
     this.#state = 'released'
     this.#gl    = null
-    glBudget.dropped(this)
+    this.#owner && glBudget.dropped(this, freed)
     this.onState?.(this)
     return true
   }
+
+  // Si el navegador ya le quitó el contexto y el aviso todavía no llegó, hace ahora lo que haría el aviso: la política no
+  // espera a otra tarea para saber a quién desalojó.
+  reconcile() { return this.#state === 'live' && this.#gl.isContextLost() && this.#lose() }
 
   // ÚNICO punto de reposicionado y resize; lo invoca el motor en move/moveend/zoomend. Receta
   // Leaflet-canvas: el canvas se ancla al origen del contenedor en coordenadas de CAPA y mide el
@@ -154,8 +205,9 @@ export class EditSurface {
   }
 
   destroy() {
+    const freed = this.#state === 'live' && !this.#gl.isContextLost()
     this.onState = null                                 // el `loseContext` de abajo hace salir `webglcontextlost`, y no es una pérdida
-    glBudget.dropped(this)
+    this.#owner && glBudget.unregister(this, freed)
     this.#offZoom.forEach(off => off())
     if (this.#canvas) {
       this.#canvas.remove()
@@ -165,16 +217,18 @@ export class EditSurface {
     this.#destroyed = true
     this.#attached  = false
     this.#state     = 'none'
-    this.#gl = this.#canvas = null
+    this.#gl = this.#canvas = this.#marker = null
   }
 
-  // El navegador le quitó el contexto: el dueño olvida su parte GL y la política decide si se re-adquiere.
+  // El navegador le quitó el contexto: el dueño olvida su parte GL y la política decide si se recupera, antes de que avise
+  // quien oye: si al oírlo quita la capa, la política ya no la tiene en su espera. Devuelve el estado en que queda.
   #lose() {
     this.#owner?.dropGl()
     this.#state = 'lost'
     this.#gl    = null
+    if (this.#owner) this.#state = glBudget.lost(this)
     this.onState?.(this)
-    this.#owner && glBudget.lost(this)
+    return this.#state
   }
 
   // Zoom animado: el canvas NO se re-rasteriza por frame —eso vibra— ni espera a `zoomend` —eso
@@ -183,12 +237,8 @@ export class EditSurface {
   #seguirZoom(canvas) {
     this.#surface.followZoom(canvas)
     this.#offZoom.length || (this.#offZoom = [
-      this.#camera.on('zoomanim', ({ center, zoom }) => {
-        this.#zoomAt = performance.now()
-        this.#animar(center, zoom)
-      }),
+      this.#camera.on('zoomanim', ({ center, zoom }) => this.#animar(center, zoom)),
       this.#camera.on('zoomend', () => {
-        this.#zoomAt   = -Infinity
         this.#animando = false
         this.resetCanvasReference()
       }),

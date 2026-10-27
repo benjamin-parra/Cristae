@@ -258,6 +258,9 @@ export class EditableGeometry {
     return this.#mode !== 'edit' || (g.rings ?? [g.path]).some(path => path.length > 0)
   }
 
+  // Lo que la política no suelta nunca, aunque no se vea: un editor trazando, o con un vértice tomado.
+  get engaged() { return this.#mode !== 'edit' || this.#gesto.ref >= 0 }
+
   // Los trazos del arena en orden de dibujo: los anillos del polígono, o el path único de la polilínea.
   // Vacío para point, rectangle y las formas, cuyo trazo se DERIVA de su estado y no es parte de su valor.
   get paths() {

@@ -1,170 +1,685 @@
-// La política de recuperación (src/render/gl-budget.js) con superficies de mentira: lo que decide ella y no la superficie.
-// Se re-adquiere una por cuadro y en el orden en que se perdieron; una pérdida dentro del segundo siguiente a una recuperación es
-// falta de cupo y vacía la cola; una que tira al re-adquirir se suelta; y en pleno zoom animado se espera a que asiente. Con
-// superficies reales, y navegadores que desalojan, la prueban pointlayer-readquirir y test/element/contextos-readquirir.
+// La política de contextos (src/render/gl-budget.js) sobre superficies REALES (`EditSurface`) y un navegador falso que
+// desaloja por último flush (test-helpers/navegador-falso.mjs), sin capas: cada superficie tiene una dueña de mentira que
+// dice si tiene contenido, y un pane propio con su z y su visibilidad. Lo que se fija es lo que decide la política:
+//
+//   alta      una vacía abierta con `open` deja su marcador y se toma en un momento ocioso, de a una y por z; con contenido
+//             antes, en esa tarea, aun en pleno gesto
+//   reposo    nada se suelta por tiempo ni sin presión: oculta o vacía, conserva su contexto
+//   presión   perder una necesaria suelta en el acto las prescindibles; una prescindible perdida queda soltada y vuelve
+//             al verse o al recibir contenido
+//   recuperar de a una por cuadro, la de mayor z primero, nunca en pleno gesto (y sin agendar cuadros mientras espera)
+//   saturar   sin prescindibles, si tomar una propia hace perder otra —en el acto (H1) o por un ajeno que se rehace—, la de
+//             menor z queda sin superficie, con su señal y un aviso, y no se insiste; vuelve ante una señal de cupo y en
+//             dos reintentos espaciados
+//   masiva    un reinicio de la GPU devuelve todas las necesarias de a una por cuadro, también en medio de una tanda
+//   orden     tras cada adquisición de la política las necesarias renuevan su flush por z ascendente: cae primero la
+//             prescindible y, entre las necesarias, la de menor z
+//
+// Y los hallazgos de la revisión de la etapa 2 que tocan a la política: H1 (sin relojes), H2 (quien quita la capa al oír la
+// pérdida), H6 (tomada por fuera). Los cuadros, los ratos ociosos y los eventos del navegador los corre el test.
 // Corre con: node --test test/render/gl-budget.test.mjs
-import { after, afterEach, beforeEach, test } from 'node:test'
+import { afterEach, mock, test } from 'node:test'
 import assert from 'node:assert/strict'
+import { crearNavegador } from '../../test-helpers/navegador-falso.mjs'
+import { EditSurface } from '../../src/render/EditSurface.js'
 import { glBudget } from '../../src/render/gl-budget.js'
 
-/* ── Cuadros a mano, y un reloj que avanza entre test y test ── */
+/* ── Harness: canvas con eventos, un gl mínimo, panes con z y visibilidad ── */
 
-const rafPrevio    = globalThis.requestAnimationFrame
-const cancelPrevio = globalThis.cancelAnimationFrame
-const agendados    = new Map()
-let serie          = 0
+const MAX_TEXTURE_SIZE = 0x0D33
+let navegador = null
+let fallar    = 0                   // los próximos `fallar` canvas no consiguen WebGL2
+let medidas   = 0                   // cuántas veces se leyó MAX_TEXTURE_SIZE
+
+class Lienzo extends EventTarget {
+  style      = {}
+  width      = 0
+  height     = 0
+  className  = ''
+  parentNode = null
+  #sinGl     = fallar > 0 && fallar-- > 0
+  getContext(kind, attrs) { return this.#sinGl ? null : navegador.getContext(this, kind, attrs) }
+  replaceWith(nuevo) {
+    const hijos = this.parentNode.hijos
+    hijos[hijos.indexOf(this)] = nuevo
+    nuevo.parentNode = this.parentNode
+    this.parentNode  = null
+  }
+  remove() {
+    this.parentNode?.hijos.splice(this.parentNode.hijos.indexOf(this), 1)
+    this.parentNode = null
+  }
+}
+
+globalThis.document = Object.assign(new EventTarget(), { createElement: () => new Lienzo(), visibilityState: 'visible' })
+
+const glFalso = () => ({
+  MAX_TEXTURE_SIZE,
+  getContextAttributes : () => ({ stencil: true }),
+  getExtension         : () => null,
+  getParameter         : p => (p === MAX_TEXTURE_SIZE && medidas++, p === MAX_TEXTURE_SIZE ? 8192 : null),
+  viewport() {}, flush() {}, finish() {},
+})
+
+const host = (() => {
+  const panes = new Map()
+  const pane  = name => panes.get(name) ?? panes.set(name, {
+    nodeType: 1, className: `leaflet-${name}-pane`, style: {}, hijos: [],
+    appendChild(hijo) { this.hijos.push(hijo); hijo.parentNode = this; return hijo },
+  }).get(name)
+  return {
+    pane,
+    camera  : { size: () => ({ x: 800, y: 600 }), frameOrigin: () => ({ x: 0, y: 0 }), zoom: () => 3, center: () => ({ lat: 0, lng: 0 }), on: () => () => {} },
+    surface : { mount: pane, unmount() {}, zOf: name => (z => z ? +z : null)(panes.get(name)?.style.zIndex), followZoom() {} },
+  }
+})()
+
+/* ── Cuadros y ratos ociosos a mano ── */
+
+const agendados = new Map()
+const ociosos   = []
+let   serie     = 0
 globalThis.requestAnimationFrame = cb => (agendados.set(++serie, cb), serie)
 globalThis.cancelAnimationFrame  = id => agendados.delete(id)
+globalThis.requestIdleCallback   = cb => (ociosos.push(cb), ociosos.length)
 
 const cuadro = () => {
   const ahora = [...agendados.values()]
   agendados.clear()
   ahora.forEach(cb => cb(0))
 }
-
-// La ventana de un segundo es estado del módulo: cada test empieza lejos de la recuperación del anterior.
-const reloj   = performance.now.bind(performance)
-let   desfase = 0
-performance.now = () => reloj() + desfase
-beforeEach(() => { desfase += 10_000 })
-
-after(() => {
-  globalThis.requestAnimationFrame = rafPrevio
-  globalThis.cancelAnimationFrame  = cancelPrevio
-  performance.now                  = reloj
-})
-
-// Superficies de mentira: anotan lo que la política les pide.
-const llamadas = []
-const hechas   = []
-const nueva = (nombre, { tira = false, zooming = false } = {}) => {
-  const surface = {
-    nombre, zooming,
-    acquire() {
-      llamadas.push(['acquire', nombre])
-      if (tira) throw new Error(`${nombre}: sin cupo`)
-    },
-    release() { llamadas.push(['release', nombre]) },
+const ocio = () => ociosos.splice(0).forEach(cb => cb({ didTimeout: false, timeRemaining: () => 50 }))
+// Los avisos del navegador y lo que la política hace con ellos en el cuadro siguiente.
+const asentar = (n = 1) => {
+  for (let i = 0; i < n; i++) {
+    navegador.vaciar()
+    cuadro()
   }
-  hechas.push(surface)
-  return surface
 }
 
-// Lo que quedó esperando se resuelve antes del test siguiente: el módulo recuerda su cuadro agendado, y una espera de zoom que
-// nadie apaga lo dejaría ocupado para siempre.
+/* ── Superficies ── */
+
+const GESTO  = { nombre: 'un motor en pleno gesto' }
+const vivas  = []
+let   panes  = 0
+const nuevoNavegador = (opciones = {}) => navegador = crearNavegador({ crearGl: glFalso, ...opciones })
+
+// `contenido` es lo que dice su dueña; `perezosa` abre con `open` (avisa con `need`), si no con `acquire`.
+const superficie = (nombre, { z = 0, contenido = true, perezosa = true, oculta = false, engaged = false } = {}) => {
+  const pane  = `p${++panes}`
+  const nodo  = host.pane(pane)
+  nodo.style.zIndex     = String(z)
+  nodo.style.visibility = oculta ? 'hidden' : ''
+  const owner  = { hasContent: contenido, engaged, construidas: 0, buildGl() { this.construidas++ }, dropGl() {} }
+  const s      = new EditSurface({ host, pane, owner })
+  const avisos = []
+  Object.assign(s, { nombre, owner, nodo, avisos })
+  vivas.push(s)
+  perezosa ? s.open(contenido) : s.acquire()
+  s.onState = sup => avisos.push(sup.state)           // como el motor: la oye después del alta
+  return s
+}
+
+const contextoDe = s => navegador.contextos.find(c => c.gl === s.gl)
+const desalojar  = (...ss) => ss.forEach(s => navegador.desalojar(contextoDe(s)))
+const estados    = (...ss) => ss.map(s => s.state)
+const mostrar    = s => {
+  s.nodo.style.visibility = ''
+  return s.need()
+}
+
+// Un ajeno que se rehace cada vez que pierde su contexto: un widget que lo pide de nuevo.
+const insistente = () => {
+  const canvas = new Lienzo()
+  canvas.addEventListener('webglcontextlost', insistente)
+  return navegador.ajeno(canvas)
+}
+
 afterEach(() => {
-  hechas.forEach(surface => {
-    surface.zooming = false
-    glBudget.dropped(surface)
+  vivas.splice(0).forEach(s => s.destroy())
+  glBudget.motion(GESTO, false)
+  for (let i = 0; (agendados.size || ociosos.length) && i < 20; i++) {
+    navegador?.vaciar()
+    cuadro()
+    ocio()
+  }
+  assert.equal(agendados.size + ociosos.length, 0, 'la política no quedó con nada agendado')
+  fallar = 0
+})
+
+/* ── Alta ── */
+
+test('mientras el realm no logró ningún contexto, una vacía lo toma al construirse: sin WebGL2, el alta lanza', () => {
+  nuevoNavegador()
+  fallar = 1
+  assert.throws(() => superficie('sin WebGL2', { contenido: false }), /sin WebGL2/)
+  vivas.pop().destroy()
+  assert.equal(glBudget.capable, false)
+  const primera = superficie('primera', { contenido: false })
+  assert.equal(primera.state, 'live', 'todavía no se sabe si hay WebGL2: no se difiere')
+  assert.equal(glBudget.capable, true)
+})
+
+test('una vacía abierta no toma contexto: deja su marcador en el pane y la toma un rato ocioso, de a una y la de mayor z primero', () => {
+  nuevoNavegador()
+  const c = superficie('c', { z: 20 })
+  const a = superficie('a', { z: 10, contenido: false })
+  const b = superficie('b', { z: 30, contenido: false })
+  assert.equal(navegador.creados, 1, 'sólo la que tiene contenido toma el suyo al construirse')
+  assert.deepEqual(estados(a, b, c), ['none', 'none', 'live'])
+  assert.equal(a.canvas.parentNode, a.nodo, 'el marcador guarda su lugar en el pane')
+  assert.equal(a.gl, null)
+  const marcador = b.canvas
+
+  ocio()
+  assert.deepEqual(estados(a, b), ['none', 'live'], 'el primer rato ocioso toma la de mayor z')
+  assert.equal(b.canvas, marcador, 'en el marcador mismo: ni un nodo más')
+  ocio()
+  assert.deepEqual(estados(a, b), ['live', 'live'])
+  ocio()
+  assert.equal(navegador.creados, 3)
+  assert.deepEqual([a.avisos, b.avisos], [['live'], ['live']], 'tomarlo después del alta avisa')
+})
+
+test('con contenido antes del rato ocioso, la toma en esa tarea, aun en pleno gesto', () => {
+  nuevoNavegador()
+  const a = superficie('a', { contenido: false })
+  glBudget.motion(GESTO, true)
+  a.owner.hasContent = true
+  assert.equal(a.need(), true)
+  assert.equal(a.state, 'live')
+  assert.equal(a.owner.construidas, 1, 'la dueña construye y sube lo que ya tiene')
+  ocio()
+  assert.equal(navegador.creados, 1, 'el rato ocioso no la toma otra vez')
+})
+
+test('el lado máximo de textura se mide una vez en el realm, con el primer contexto', () => {
+  nuevoNavegador()
+  superficie('a')
+  superficie('b')
+  assert.equal(glBudget.maxTexture, 8192)
+  assert.equal(medidas, 1, 'ni una lectura por superficie')
+})
+
+/* ── Reposo ── */
+
+test('oculta, o vacía con su contexto, lo conserva: nada se suelta por tiempo ni sin presión', () => {
+  nuevoNavegador()
+  const oculta = superficie('oculta', { oculta: true })
+  const vacia  = superficie('vacía', { contenido: false })
+  ocio()
+  for (let i = 0; i < 10; i++) {
+    asentar()
+    ocio()
+  }
+  assert.deepEqual(estados(oculta, vacia), ['live', 'live'])
+  assert.equal(navegador.liberados, 0)
+})
+
+/* ── Presión ── */
+
+test('perder una necesaria suelta en el acto las prescindibles —vacía, oculta, la vacía que esperaba— y vuelve sin desalojar a nadie', () => {
+  nuevoNavegador()
+  const n       = superficie('necesaria', { z: 10 })
+  const oculta  = superficie('oculta', { z: 20, oculta: true })
+  const vacia   = superficie('vacía', { z: 30, contenido: false })
+  ocio()
+  const espera  = superficie('vacía que espera', { z: 40, contenido: false })
+  const editor  = superficie('editor trazando', { z: 5, oculta: true, perezosa: false, engaged: true })
+  const directa = superficie('vacía sin aviso', { z: 6, contenido: false, perezosa: false })
+
+  desalojar(n)
+  navegador.vaciar()
+  assert.deepEqual(estados(n, oculta, vacia, espera), ['lost', 'released', 'released', 'released'])
+  assert.deepEqual(estados(editor, directa), ['live', 'live'],
+    'un editor trazando no se suelta aunque no se vea, ni una vacía que no avisa cuando recibe contenido')
+  assert.equal(navegador.liberados, 2, 'las dos vivas devolvieron su cupo; la que esperaba no tenía')
+  const creados = navegador.creados
+
+  cuadro()
+  assert.equal(n.state, 'live')
+  assert.equal(navegador.creados, creados + 1)
+  assert.equal(navegador.desalojados, 1, 'volver no desalojó a nadie')
+  ocio()
+  assert.equal(espera.state, 'released', 'la que esperaba un rato ocioso ya no se toma')
+})
+
+test('una prescindible perdida queda soltada, no se recupera, y vuelve al verse o al recibir contenido', () => {
+  nuevoNavegador()
+  const oculta = superficie('oculta', { oculta: true })
+  const vacia  = superficie('vacía', { contenido: false })
+  ocio()
+  desalojar(oculta, vacia)
+  asentar(3)
+  assert.deepEqual(estados(oculta, vacia), ['released', 'released'])
+  assert.deepEqual([oculta.avisos, vacia.avisos], [['released'], ['live', 'released']], 'una sola señal: la que queda')
+  const creados = navegador.creados
+
+  assert.equal(mostrar(oculta), true, 'al verse la toma en esa tarea')
+  vacia.owner.hasContent = true
+  assert.equal(vacia.need(), true, 'y al recibir contenido')
+  assert.deepEqual(estados(oculta, vacia), ['live', 'live'])
+  assert.equal(navegador.creados, creados + 2)
+})
+
+/* ── Recuperar ── */
+
+test('las necesarias perdidas vuelven de a una por cuadro, la de mayor z primero, y nunca en pleno gesto', () => {
+  nuevoNavegador()
+  const a = superficie('a', { z: 10 })
+  const b = superficie('b', { z: 30 })
+  const c = superficie('c', { z: 20 })
+  desalojar(a)
+  glBudget.motion(GESTO, true)
+  desalojar(b, c)
+  navegador.vaciar()
+  const creados = navegador.creados
+  cuadro()
+  assert.equal(navegador.creados, creados, 'en pleno gesto no toma nada')
+  assert.equal(agendados.size, 0, 'ni agenda cuadros mientras espera')
+
+  glBudget.motion(GESTO, false)
+  cuadro()
+  assert.deepEqual(estados(a, b, c), ['lost', 'live', 'lost'])
+  cuadro()
+  assert.deepEqual(estados(a, b, c), ['lost', 'live', 'live'])
+  cuadro()
+  assert.deepEqual(estados(a, b, c), ['live', 'live', 'live'])
+  assert.equal(navegador.creados, creados + 3)
+})
+
+test('volver a tomar una soltada espera a que termine el gesto; el fin del gesto la toma en un cuadro', () => {
+  nuevoNavegador()
+  const oculta = superficie('oculta', { oculta: true })
+  oculta.release()
+  glBudget.motion(GESTO, true)
+  assert.equal(mostrar(oculta), false)
+  cuadro()
+  assert.equal(oculta.state, 'released')
+  glBudget.motion(GESTO, false)
+  cuadro()
+  assert.equal(oculta.state, 'live')
+})
+
+test('un gesto que nunca avisa su fin deja de contar a los diez segundos', () => {
+  mock.timers.enable({ apis: ['setTimeout', 'Date'] })
+  const reloj = performance.now
+  let ahora = reloj.call(performance)
+  performance.now = () => ahora
+  try {
+    nuevoNavegador()
+    const a = superficie('a')
+    glBudget.motion(GESTO, true)
+    desalojar(a)
+    asentar()
+    assert.equal(a.state, 'lost')
+    ahora += 10_001
+    mock.timers.tick(10_000)
+    cuadro()
+    assert.equal(a.state, 'live')
+  } finally {
+    performance.now = reloj
+    mock.timers.reset()
+  }
+})
+
+/* ── Saturar ── */
+
+test('H1: si tomar una propia desaloja a otra y no hay prescindibles, la de menor z queda sin superficie, con su señal y un aviso', () => {
+  const warn = mock.method(console, 'warn', () => {})
+  try {
+    nuevoNavegador({ techo: 2 })
+    const a = superficie('a', { z: 10 })
+    const b = superficie('b', { z: 20 })
+    const c = superficie('c', { z: 30 })                // el tercero desaloja a la de flush más viejo: a
+    asentar()                                           // a vuelve, y al volver desaloja a b en el acto
+    assert.deepEqual(navegador.victimas, [0, 1])
+    asentar()                                           // b tiene más z que a: a cede su lugar, y b vuelve a él
+    asentar(10)
+    assert.deepEqual(estados(a, b, c), ['released', 'live', 'live'])
+    assert.equal(navegador.creados, 5, 'una rotación: a y b otra vez, y nada más')
+    assert.equal(navegador.desalojados, 2, 'b vuelve al cupo que soltó a: no desaloja a nadie')
+    assert.deepEqual(a.avisos, ['lost', 'live', 'released'])
+    assert.equal(warn.mock.callCount(), 1)
+    assert.match(warn.mock.calls[0].arguments[0], /techo de contextos WebGL/)
+
+    // Otra: d desaloja a b, que volvió en esta tanda; d tiene menos z y le devuelve el lugar. La señal sale, el aviso no.
+    const d = superficie('d', { z: 5 })
+    asentar(5)
+    assert.deepEqual(estados(a, b, c, d), ['released', 'live', 'live', 'released'])
+    assert.deepEqual(d.avisos, ['released'])
+    assert.equal(warn.mock.callCount(), 1)
+  } finally {
+    warn.mock.restore()
+  }
+})
+
+test('H1 sin relojes: con un getContext lento y tareas largas antes del aviso, no rota', () => {
+  const reloj = performance.now
+  let desfase = 0
+  performance.now = () => reloj.call(performance) + desfase
+  try {
+    nuevoNavegador({ techo: 2, crearGl: () => (desfase += 1100, glFalso()) })
+    superficie('a')
+    superficie('b')
+    superficie('c')
+    const creados = navegador.creados
+    for (let i = 0; i < 30; i++) {
+      cuadro()
+      desfase += 1100
+      navegador.vaciar()
+    }
+    assert.ok(navegador.creados - creados <= 2, `re-adquirió ${navegador.creados - creados} veces en 30 cuadros`)
+  } finally {
+    performance.now = reloj
+  }
+})
+
+test('un ajeno que se rehace al perder, con un rato ocioso entre la vuelta y la nueva pérdida: la misma rotación', () => {
+  nuevoNavegador({ techo: 3 })
+  const a = superficie('a', { z: 10 })
+  const b = superficie('b', { z: 20 })
+  insistente()
+  contextoDe(b).gl.flush()
+  insistente()                                          // el cuarto desaloja a a
+  asentar()                                             // a vuelve y desaloja al primer ajeno
+  ocio()                                                // la tanda no termina en un rato ocioso: sólo con una señal de cupo
+  asentar(10)
+  assert.deepEqual(estados(a, b), ['released', 'live'])
+  assert.equal(navegador.creados, 7, 'ni a ni b se toman otra vez')
+})
+
+test('la primera vez que una capa toma su contexto no es una vuelta: perderlo sin falta de cupo se recupera', () => {
+  nuevoNavegador()
+  const n = superficie('n', { z: 20 })
+  const e = superficie('vacía', { z: 10, contenido: false })
+  ocio()
+  e.owner.hasContent = true
+  e.need()
+  ocio()
+  desalojar(e)
+  asentar()
+  assert.deepEqual(estados(n, e), ['live', 'live'])
+})
+
+test('a igual z no se cambia una por otra: la desalojada por la recuperación espera cupo', () => {
+  nuevoNavegador({ techo: 2 })
+  const [a, b, c] = ['a', 'b', 'c'].map(n => superficie(n))
+  asentar(10)
+  assert.deepEqual(estados(a, b, c), ['live', 'released', 'live'])
+  assert.equal(navegador.creados, 4, 'un solo getContext de más')
+})
+
+test('H1c: con dos en cola y un cuadro antes del aviso, una sola recuperación', () => {
+  nuevoNavegador({ techo: 3 })
+  const capas = ['a', 'b', 'c', 'd', 'e'].map(n => superficie(n))
+  navegador.vaciar()
+  assert.deepEqual(estados(...capas), ['lost', 'lost', 'live', 'live', 'live'])
+  const creados = navegador.creados
+  cuadro()
+  cuadro()
+  asentar(5)
+  assert.equal(navegador.creados - creados, 1)
+  assert.equal(capas.filter(s => s.state === 'live').length, 3)
+})
+
+test('un ajeno que se rehace al perder: una rotación, y queda sin superficie la de menor z, sin bucle', () => {
+  nuevoNavegador({ techo: 3 })
+  const a = superficie('a', { z: 10 })
+  const b = superficie('b', { z: 20 })
+  insistente()
+  contextoDe(b).gl.flush()                              // b se usó después del ajeno: él es más viejo
+  insistente()                                          // el cuarto desaloja a a
+  asentar()                                             // a vuelve y desaloja al primer ajeno, que se rehace y desaloja al otro…
+  asentar(10)                                           // …que se rehace y desaloja a a, que ya volvió una vez
+  assert.deepEqual(estados(a, b), ['released', 'live'])
+  assert.equal(navegador.creados, 7, 'a, b, dos ajenos, a otra vez y los dos ajenos rehechos')
+  assert.deepEqual(a.avisos, ['lost', 'live', 'released'])
+})
+
+test('en saturación, una que se vuelve a ver entra sólo en el lugar de una de menor z, sin desalojar a nadie', () => {
+  nuevoNavegador({ techo: 2 })
+  const baja = superficie('baja', { z: 5, oculta: true })
+  const alta = superficie('alta', { z: 50, oculta: true })
+  ;[baja, alta].forEach(s => s.release())
+  const a = superficie('a', { z: 10 })
+  const b = superficie('b', { z: 20 })
+  const c = superficie('c', { z: 30 })
+  asentar(10)
+  assert.deepEqual(estados(a, b, c), ['released', 'live', 'live'], 'saturada')
+  const { creados, desalojados } = navegador
+
+  assert.equal(mostrar(baja), false, 'menos z que todas las vivas: espera cupo')
+  assert.equal(baja.state, 'released')
+  assert.equal(mostrar(alta), true, 'más z que b: b le cede su lugar')
+  assert.deepEqual(estados(a, b, c, alta), ['released', 'released', 'live', 'live'])
+  assert.deepEqual([navegador.creados, navegador.desalojados], [creados + 1, desalojados])
+  asentar(5)
+  assert.equal(navegador.creados, creados + 1)
+})
+
+test('una señal de cupo —una propia que se destruye, la pestaña que vuelve a verse— vuelve a intentar las que esperan cupo', () => {
+  nuevoNavegador({ techo: 3 })
+  const a     = superficie('a', { z: 10 })
+  const b     = superficie('b', { z: 20 })
+  const ajeno = navegador.ajeno()
+  const c     = superficie('c', { z: 30 })              // desaloja a a, que vuelve y desaloja a b: a le cede el lugar
+  asentar(10)
+  assert.deepEqual(estados(a, b, c), ['released', 'live', 'live'])
+
+  vivas.splice(vivas.indexOf(c), 1)
+  c.destroy()                                           // devuelve un cupo
+  cuadro()
+  assert.deepEqual(estados(a, b), ['live', 'live'])
+
+  ajeno.gl.flush()                                      // el ajeno dibuja: la de flush más viejo es a
+  const d = superficie('d', { z: 40 })                  // y d la desaloja; volvió en esta tanda: no se insiste
+  asentar(10)
+  assert.deepEqual(estados(a, b, d), ['released', 'live', 'live'])
+  navegador.desalojar(ajeno)                            // el widget ajeno se cierra, y nadie lo avisa
+  asentar(5)
+  assert.equal(a.state, 'released')
+  document.dispatchEvent(new Event('visibilitychange'))
+  asentar()
+  assert.equal(a.state, 'live', 'la pestaña volvió a verse: lo intenta, y hay cupo')
+})
+
+test('en saturación, dos reintentos espaciados —5 s y 30 s—, de a lo sumo dos getContext cada uno, y nada más', () => {
+  mock.timers.enable({ apis: ['setTimeout'] })
+  try {
+    nuevoNavegador({ techo: 3 })
+    const a = superficie('a', { z: 10 })
+    const b = superficie('b', { z: 20 })
+    insistente()
+    contextoDe(b).gl.flush()
+    insistente()
+    asentar(10)
+    assert.equal(a.state, 'released')
+    const creados = navegador.creados
+    const propias = () => navegador.contextos.slice(creados).filter(c => !c.ajeno).length
+
+    // Sin cupo, un reintento toma a la de menor z. Si desaloja a una propia —los ajenos dibujaron después—, ésta tiene más z
+    // y vuelve a su lugar: dos. Si desaloja a un ajeno, el ajeno se rehace y la desaloja a ella: uno.
+    mock.timers.tick(5000)
+    asentar(10)
+    assert.equal(propias(), 2, 'el primer reintento desaloja a b, que vuelve')
+    assert.deepEqual(estados(a, b), ['released', 'live'])
+    mock.timers.tick(30_000)
+    asentar(10)
+    assert.equal(propias(), 3, 'el segundo, a los 30 s, desaloja a un ajeno que se rehace')
+    mock.timers.tick(600_000)
+    asentar(10)
+    assert.equal(propias(), 3, 'y no hay más')
+    assert.deepEqual(estados(a, b), ['released', 'live'])
+  } finally {
+    mock.timers.reset()
+  }
+})
+
+/* ── Pérdida masiva ── */
+
+test('un reinicio de la GPU devuelve todas las necesarias de a una por cuadro, por z, y la prescindible no', () => {
+  nuevoNavegador()
+  const a = superficie('a', { z: 10 })
+  const b = superficie('b', { z: 30 })
+  const c = superficie('c', { z: 20 })
+  const v = superficie('vacía', { z: 40, contenido: false })
+  ocio()
+  desalojar(a, b, c, v)
+  navegador.vaciar()
+  assert.equal(v.state, 'released')
+  cuadro()
+  assert.deepEqual(estados(a, b, c), ['lost', 'live', 'lost'])
+  cuadro()
+  assert.deepEqual(estados(a, b, c), ['lost', 'live', 'live'])
+  cuadro()
+  asentar(5)
+  assert.deepEqual(estados(a, b, c, v), ['live', 'live', 'live', 'released'])
+  assert.equal(navegador.desalojados, 4, 'volver con los cupos libres no desaloja a nadie')
+})
+
+test('un reinicio de la GPU en medio de una tanda no se toma por un ciclo', () => {
+  nuevoNavegador()
+  const a = superficie('a', { z: 10 })
+  const b = superficie('b', { z: 30 })
+  desalojar(a)
+  asentar()                                             // a vuelve: está en la tanda de la política
+  desalojar(a, b)
+  asentar(3)
+  assert.deepEqual(estados(a, b), ['live', 'live'])
+})
+
+/* ── Orden de desalojo ── */
+
+test('tras cada adquisición las necesarias renuevan su flush por z ascendente: cae la prescindible y después la de menor z', () => {
+  nuevoNavegador({ techo: 5 })
+  const n1 = superficie('n1', { z: 10 })
+  const n2 = superficie('n2', { z: 30 })
+  const n3 = superficie('n3', { z: 20 })
+  const e  = superficie('vacía', { z: 50, contenido: false })
+  ocio()
+  ocio()
+  const idE = contextoDe(e).id
+  navegador.ajeno()                                     // el quinto: cabe
+  navegador.ajeno()
+  assert.deepEqual(navegador.victimas, [idE], 'cae la vacía, la de flush más viejo')
+  asentar()
+  assert.equal(e.state, 'released')
+  navegador.ajeno()
+  asentar(10)
+  assert.deepEqual(estados(n1, n2, n3), ['released', 'live', 'live'], 'la de menor z es la que queda sin superficie')
+})
+
+test('una viva que pasa a necesaria —recibe contenido o se vuelve a ver— renueva el orden en el próximo rato ocioso', () => {
+  nuevoNavegador({ techo: 5 })
+  const n      = superficie('n', { z: 10 })
+  const vacia  = superficie('vacía', { z: 20, contenido: false })
+  const otra   = superficie('otra vacía', { z: 30, contenido: false })
+  const oculta = superficie('oculta', { z: 40, oculta: true })
+  ocio()
+  ocio()
+  assert.deepEqual(estados(vacia, otra), ['live', 'live'])
+  vacia.owner.hasContent = true
+  assert.equal(vacia.need(), false, 'ya tiene su contexto: no toma otro')
+  assert.equal(mostrar(oculta), false)
+  ocio()
+  const uso = contextoDe(n).ultimoUso
+  vacia.need()
+  ocio()
+  assert.equal(contextoDe(n).ultimoUso, uso, 'una que ya renovó no vuelve a pedirlo')
+
+  const idOtra = contextoDe(otra).id
+  navegador.ajeno()                                     // el quinto: cabe
+  navegador.ajeno()
+  assert.deepEqual(navegador.victimas, [idOtra], 'cae la que sigue vacía, no la oculta que se mostró')
+  asentar()
+  assert.deepEqual(estados(n, vacia, otra, oculta), ['live', 'live', 'released', 'live'])
+})
+
+/* ── Hallazgos de la etapa 2 ── */
+
+test('H2: quien quita la capa al oír su pérdida no deja una superficie destruida en la espera', () => {
+  nuevoNavegador()
+  const a = superficie('a')
+  const b = superficie('b')
+  a.onState = s => s.state === 'lost' && s.destroy()
+  desalojar(a)
+  navegador.vaciar()
+  assert.doesNotThrow(cuadro)
+  desalojar(b)
+  asentar()
+  assert.equal(b.state, 'live', 'y la pérdida siguiente se recupera')
+})
+
+test('H6: tomada por fuera de la política mientras esperaba, su turno no toma nada ni cuenta como recuperación', () => {
+  nuevoNavegador()
+  const a = superficie('a')
+  const b = superficie('b')
+  desalojar(a)
+  navegador.vaciar()
+  a.acquire()
+  const creados = navegador.creados
+  cuadro()
+  assert.equal(navegador.creados, creados)
+  desalojar(b)
+  asentar()
+  assert.equal(b.state, 'live')
+})
+
+test('la que tira al tomarse queda soltada sin cupo, el error sale, y la que sigue conserva su turno', () => {
+  nuevoNavegador()
+  const a = superficie('a', { z: 20 })
+  const b = superficie('b', { z: 10 })
+  desalojar(a, b)
+  navegador.vaciar()
+  fallar = 1
+  assert.throws(cuadro, /sin WebGL2/)
+  assert.equal(a.state, 'released')
+  cuadro()
+  assert.equal(b.state, 'live')
+})
+
+/* ── Destruir en cada estado ── */
+
+const ESTADOS = [
+  ['vacía esperando un rato ocioso', () => superficie('x', { contenido: false })],
+  ['viva',                           () => superficie('x')],
+  ['perdida sin aviso',              () => (s => (desalojar(s), s))(superficie('x'))],
+  ['perdida esperando su cuadro',    () => (s => (desalojar(s), navegador.vaciar(), s))(superficie('x'))],
+  ['perdida esperando un gesto',     () => (s => (glBudget.motion(GESTO, true), desalojar(s), navegador.vaciar(), s))(superficie('x'))],
+  ['prescindible soltada',           () => (s => (desalojar(s), navegador.vaciar(), s))(superficie('x', { oculta: true }))],
+]
+
+for (const [estado, llevar] of ESTADOS) {
+  test(`destruir una ${estado} deja su contexto en 0 y nada la vuelve a tomar`, () => {
+    nuevoNavegador()
+    const testigo = superficie('testigo')
+    const s       = llevar()
+    const creados = navegador.creados
+    vivas.splice(vivas.indexOf(s), 1)
+    s.destroy()
+    glBudget.motion(GESTO, false)
+    for (let i = 0; i < 5; i++) {
+      asentar()
+      ocio()
+    }
+    assert.equal(navegador.creados, creados, 'ningún getContext después de destruir')
+    assert.equal(navegador.vivos, 1, 'sólo el testigo')
+    assert.equal(testigo.state, 'live')
   })
-  for (let i = 0; agendados.size && i < 20; i++) cuadro()
-  agendados.clear()
-  llamadas.length = 0
-  hechas.length   = 0
-})
+}
 
-const nombres = accion => llamadas.filter(([a]) => a === accion).map(([, n]) => n)
-
-/* ── Una por cuadro ── */
-
-test('re-adquiere de a una por cuadro, en el orden en que se perdieron', () => {
-  const [a, b, c] = ['a', 'b', 'c'].map(n => nueva(n))
-  ;[a, b, c].forEach(s => glBudget.lost(s))
-  assert.deepEqual(nombres('acquire'), [], 'el aviso no toma nada: espera al cuadro')
-
-  cuadro()
-  assert.deepEqual(nombres('acquire'), ['a'])
-  cuadro()
-  assert.deepEqual(nombres('acquire'), ['a', 'b'])
-  cuadro()
-  assert.deepEqual(nombres('acquire'), ['a', 'b', 'c'])
-  cuadro()
-  assert.deepEqual(nombres('acquire'), ['a', 'b', 'c'], 'con la cola vacía no agenda ni toma nada')
-  assert.equal(agendados.size, 0)
-})
-
-test('una superficie soltada o destruida mientras esperaba su turno no se re-adquiere', () => {
-  const [a, b] = ['a', 'b'].map(n => nueva(n))
-  glBudget.lost(a)
-  glBudget.lost(b)
-  glBudget.dropped(a)
-  cuadro()
-  assert.deepEqual(nombres('acquire'), ['b'])
-})
-
-/* ── Falta de cupo ── */
-
-test('una pérdida dentro del segundo de una recuperación es falta de cupo: no se recupera nada más', () => {
-  const [a, b, c] = ['a', 'b', 'c'].map(n => nueva(n))
-  glBudget.lost(a)
-  glBudget.lost(b)
-  cuadro()                                              // a vuelve y desaloja a c, que se pierde de inmediato
-  glBudget.lost(c)
-  cuadro()
-  cuadro()
-  assert.deepEqual(nombres('acquire'), ['a'], 'b esperaba y se queda perdida, como c: ni turnos ni rotación')
-  assert.equal(agendados.size, 0)
-})
-
-test('pasado el segundo, otra pérdida es un accidente nuevo y se recupera', () => {
-  const [a, b] = ['a', 'b'].map(n => nueva(n))
-  glBudget.lost(a)
-  cuadro()
-  desfase += 1001
-  glBudget.lost(b)
-  cuadro()
-  assert.deepEqual(nombres('acquire'), ['a', 'b'])
-})
-
-test('una que tira al re-adquirir se suelta, no se queda con un cupo, y el error sale', () => {
-  const mala = nueva('mala', { tira: true })
-  const buena = nueva('buena')
-  glBudget.lost(mala)
-  glBudget.lost(buena)
-  assert.throws(cuadro, /mala: sin cupo/)
-  assert.deepEqual(nombres('release'), ['mala'])
-  cuadro()
-  assert.deepEqual(nombres('acquire'), ['mala', 'buena'], 'y la que seguía no se queda sin su turno')
-})
-
-/* ── Zoom animado ── */
-
-test('en pleno zoom animado no se re-adquiere: espera a que asiente, y recién ahí toma un contexto', () => {
-  const [a, b] = [nueva('a', { zooming: true }), nueva('b', { zooming: true })]
-  glBudget.lost(a)
-  glBudget.lost(b)
-  for (let i = 0; i < 5; i++) cuadro()
-  assert.deepEqual(nombres('acquire'), [], 'cinco cuadros de zoom, ningún getContext')
-  assert.equal(agendados.size, 1, 'queda un solo cuadro agendado: el de la espera')
-
-  a.zooming = false
-  cuadro()
-  assert.deepEqual(nombres('acquire'), ['a'], 'asentó: vuelve la primera')
-  b.zooming = false
-  cuadro()
-  assert.deepEqual(nombres('acquire'), ['a', 'b'], 'y la segunda en el cuadro siguiente')
-})
-
-test('la que espera por el zoom conserva su lugar en la cola, y la espera se apaga si ya no hay a quién esperar', () => {
-  const [a, b] = [nueva('a', { zooming: true }), nueva('b')]
-  glBudget.lost(a)
-  glBudget.lost(b)
-  cuadro()
-  assert.deepEqual(nombres('acquire'), [], 'b está detrás de a y espera con ella')
-
-  glBudget.dropped(a)
-  glBudget.dropped(b)
-  cuadro()
-  assert.equal(agendados.size, 0, 'sin nadie en la cola, la espera termina sola')
-})
-
-test('esperar el zoom no cuenta como una recuperación: otra pérdida durante la espera se recupera', () => {
-  const [a, b] = [nueva('a', { zooming: true }), nueva('b', { zooming: true })]
-  glBudget.lost(a)
-  cuadro()
-  glBudget.lost(b)                                      // no hubo recuperación: no hay ventana que la declare falta de cupo
-  a.zooming = b.zooming = false
-  cuadro()
-  cuadro()
-  assert.deepEqual(nombres('acquire'), ['a', 'b'])
+test('destruir una que la saturación dejó sin superficie la saca de la espera de cupo', () => {
+  nuevoNavegador({ techo: 2 })
+  const a = superficie('a', { z: 10 })
+  superficie('b', { z: 20 })
+  superficie('c', { z: 30 })
+  asentar(10)
+  assert.equal(a.state, 'released')
+  vivas.splice(vivas.indexOf(a), 1)
+  a.destroy()
+  const creados = navegador.creados
+  glBudget.retry()
+  asentar(3)
+  assert.equal(navegador.creados, creados)
 })

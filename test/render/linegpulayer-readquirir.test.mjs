@@ -10,6 +10,7 @@ import { conNavegador, crearNavegador } from '../../test-helpers/navegador-falso
 import { after, afterEach, beforeEach, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { LineGpuLayer } from '../../src/render/LineGpuLayer.js'
+import { glBudget } from '../../src/render/gl-budget.js'
 import { adoptLeafletHost } from '../../src/host/LeafletHost.js'
 import { createSource } from '../../src/data/Source.js'
 
@@ -167,6 +168,8 @@ test('T2.1: el foco aplicado llega al trazo del contexto nuevo', async () => {
 // Sin contexto, cada camino que toca GL sale sin tocarlo: la vista, el foco, ocultarla y mostrarla, un repintado.
 // Lo de CPU sigue: los datos que llegan quedan en el espejo, y al volver a tener contexto suben enteros. La gemela
 // recibe lo mismo con su contexto vivo, y sus texturas, ya con todo adentro, son las que tiene que dejar la re-adquirida.
+// Los datos llegan en pleno gesto: fuera de él, el primero le pediría el contexto a la política en esa tarea.
+const GESTO = {}
 const incremental = async ({ layer, source, lista }) => {
   source.append(1, [0.2, 0.2], [0.21, 0.21])             // el tramo abierto crece más allá de su hueco
   await tick()
@@ -189,6 +192,7 @@ for (const [cambio, hacer] of Object.entries({ 'un append y un patch': increment
       const b = montar({ navegador, accessors })    // la gemela, con contexto vivo
       await tick()
       a.layer.surface.release()
+      glBudget.motion(GESTO, true)
 
       await hacer(a)
       await hacer(b)
@@ -205,6 +209,7 @@ for (const [cambio, hacer] of Object.entries({ 'un append y un patch': increment
       assert.equal(a.layer.surface.state, 'released')
 
       a.layer.surface.acquire()
+      glBudget.motion(GESTO, false)
       const re = a.contexto(2), viva = b.contexto(1)
       for (const t of texturas) assert.deepEqual(textura(re, TEXTURAS[t]), textura(viva, TEXTURAS[t]), `la textura de ${t}`)
       const tramos = dibujos(re)
@@ -268,14 +273,26 @@ test('T2.3: oculta, se re-adquiere y sube sin dibujar; mostrarla pinta en el act
   layer.destroy()
 })
 
-test('T2.3: una capa vacía se re-adquiere y no sube ni dibuja nada', async () => {
-  const { layer, navegador, contexto } = montar({ lista: [] })
-  navegador.desalojar(contexto(0))
-  navegador.vaciar()
-  cuadro()
-  assert.equal(layer.surface.state, 'live')
-  assert.deepEqual([llamados(contexto(1), 'texImage2D').length, llamados(contexto(1), 'drawArrays').length], [0, 0])
-  layer.destroy()
+test('T2.3: vacía, no toma contexto al construirse; lo toma un rato ocioso sin subir ni dibujar, y desalojada queda soltada', async () => {
+  await tick()                                            // los ratos ociosos que pidieron los tests de antes ya pasaron
+  const ociosos = []
+  globalThis.requestIdleCallback = cb => ociosos.push(cb)
+  try {
+    const { layer, navegador, contexto } = montar({ lista: [] })
+    assert.deepEqual([navegador.creados, layer.surface.state], [0, 'none'])
+    ociosos.splice(0).forEach(cb => cb())
+    assert.equal(layer.surface.state, 'live')
+    assert.deepEqual([llamados(contexto(0), 'texImage2D').length, llamados(contexto(0), 'drawArrays').length], [0, 0])
+
+    navegador.desalojar(contexto(0))
+    navegador.vaciar()
+    cuadro()
+    assert.equal(layer.surface.state, 'released', 'vacía es prescindible: no se recupera')
+    assert.equal(navegador.creados, 1)
+    layer.destroy()
+  } finally {
+    delete globalThis.requestIdleCallback
+  }
 })
 
 /* ── T2.5 · nadie cancela la pérdida ── */
