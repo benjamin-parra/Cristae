@@ -1185,7 +1185,8 @@ export class MapEngine {
     return layer
   }
 
-  // Mostrarla puede pedir el contexto que soltó bajo presión: lo toma en esta tarea, y pinta con el `setVisible` que sigue.
+  // Mostrarla puede pedir el contexto que soltó bajo presión: lo toma en esta tarea si es la primera toma desde el último
+  // cuadro, y pinta con el `setVisible` que sigue; si no, en un cuadro siguiente. Si WebGL ya no da contexto, no lanza.
   #applyVisibility(id, paneName, visible) {
     this.#host.surface.setVisible(paneName, visible)
     this.#registry.setLayerVisibility(id, visible)

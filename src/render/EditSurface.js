@@ -86,11 +86,12 @@ export class EditSurface {
   // La prioridad de la superficie: la z vigente de su pane. La de mayor z se recupera primero y la de menor z cae primero.
   get z()           { return this.#surface.zOf(this.#paneName) ?? 0 }
   // Si la política le debe un contexto: se ve (su pane no está oculto) y tiene algo que dibujar, o es un editor con un trazo
-  // o un gesto vivo. Una que no avisa cuando recibe contenido (`acquire` al construirse) cuenta siempre con contenido.
+  // o un gesto vivo. Una que no avisa cuando recibe contenido (`acquire` al construirse) cuenta siempre con contenido. La
+  // de un documento sin ventana —un popup que se cerró sin desmontar su mapa— no: nadie la ve.
   get needed() {
-    const pane = this.#canvas?.parentNode
-    return !!this.#owner?.engaged
-      || !!this.#canvas && pane?.style?.visibility !== 'hidden' && (!this.#lazy || !!this.#owner?.hasContent)
+    const canvas = this.#canvas
+    return canvas?.ownerDocument?.defaultView !== null && (!!this.#owner?.engaged
+      || !!canvas && canvas.parentNode?.style?.visibility !== 'hidden' && (!this.#lazy || !!this.#owner?.hasContent))
   }
   // `live`: tiene su contexto. `lost`: el navegador se lo quitó y la política lo recupera. `released`: no lo tiene por
   // decisión propia o de la política (prescindible bajo presión, o sin cupo). `none`: todavía no lo tomó, o se destruyó.

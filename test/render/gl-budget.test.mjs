@@ -257,7 +257,9 @@ test('una prescindible perdida queda soltada, no se recupera, y vuelve al verse 
 
   assert.equal(mostrar(oculta), true, 'al verse la toma en esa tarea')
   vacia.owner.hasContent = true
-  assert.equal(vacia.need(), true, 'y al recibir contenido')
+  assert.equal(vacia.need(), false, 'al recibir contenido en la misma tarea, espera el cuadro: una toma por tarea')
+  assert.equal(navegador.creados, creados + 1)
+  cuadro()
   assert.deepEqual(estados(oculta, vacia), ['live', 'live'])
   assert.equal(navegador.creados, creados + 2)
 })
@@ -570,15 +572,41 @@ test('tras cada adquisición las necesarias renuevan su flush por z ascendente: 
   assert.deepEqual(estados(n1, n2, n3), ['released', 'live', 'live'], 'la de menor z es la que queda sin superficie')
 })
 
-test('una viva que pasa a necesaria —recibe contenido o se vuelve a ver— renueva el orden en el próximo rato ocioso', () => {
+test('sin presión en el realm, ni poblar una vacía, ni mostrar, ni una alta que se ve vacían una cola: el orden no se paga hasta que hace falta', () => {
+  nuevoNavegador({ techo: 5 })
+  const n      = superficie('n', { z: 10 })
+  const vacia  = superficie('vacía', { z: 20, contenido: false })
+  const oculta = superficie('oculta', { z: 40, oculta: true })
+  ocio()
+  assert.equal(vacia.state, 'live')
+  const previos = navegador.contextos.length
+  const usos    = () => navegador.contextos.slice(0, previos).map(c => c.ultimoUso).join()
+  const antes   = usos()
+  superficie('con contenido después', { z: 30 })      // se ve y toma el suyo al alta: nace como la más joven
+  vacia.owner.hasContent = true
+  assert.equal(vacia.need(), false)
+  assert.equal(mostrar(oculta), false)
+  for (let i = 0; i < 3; i++) {
+    ocio()
+    cuadro()
+  }
+  assert.equal(usos(), antes, 'ni un flush: M6, la primera espiral y su capa de patas no pagan nada')
+  assert.equal(n.state, 'live')
+})
+
+test('desde la primera pérdida del realm, una viva que pasa a necesaria —recibe contenido o se vuelve a ver— renueva el orden en el próximo rato ocioso', () => {
   nuevoNavegador({ techo: 5 })
   const n      = superficie('n', { z: 10 })
   const vacia  = superficie('vacía', { z: 20, contenido: false })
   const otra   = superficie('otra vacía', { z: 30, contenido: false })
   const oculta = superficie('oculta', { z: 40, oculta: true })
+  const previa = superficie('oculta que cae', { z: 50, oculta: true })
   ocio()
   ocio()
   assert.deepEqual(estados(vacia, otra), ['live', 'live'])
+  desalojar(previa)                                     // la primera pérdida del realm: una prescindible, que queda soltada
+  asentar()
+  assert.equal(previa.state, 'released')
   vacia.owner.hasContent = true
   assert.equal(vacia.need(), false, 'ya tiene su contexto: no toma otro')
   assert.equal(mostrar(oculta), false)
@@ -591,7 +619,7 @@ test('una viva que pasa a necesaria —recibe contenido o se vuelve a ver— ren
   const idOtra = contextoDe(otra).id
   navegador.ajeno()                                     // el quinto: cabe
   navegador.ajeno()
-  assert.deepEqual(navegador.victimas, [idOtra], 'cae la que sigue vacía, no la oculta que se mostró')
+  assert.deepEqual(navegador.victimas.slice(1), [idOtra], 'cae la que sigue vacía, no la oculta que se mostró')
   asentar()
   assert.deepEqual(estados(n, vacia, otra, oculta), ['live', 'live', 'released', 'live'])
 })
@@ -682,4 +710,127 @@ test('destruir una que la saturación dejó sin superficie la saca de la espera 
   glBudget.retry()
   asentar(3)
   assert.equal(navegador.creados, creados)
+})
+
+/* ── Revisión de la tanda 2b (etapa3/REVISION.md) ── */
+
+test('R1: tras un reinicio de la GPU, el dato de cada capa en una misma tarea no adelanta a las que esperan su cuadro: vuelven de a una, la de mayor z primero', () => {
+  nuevoNavegador()
+  const a = superficie('a', { z: 10 })
+  const b = superficie('b', { z: 30 })
+  const c = superficie('c', { z: 20 })
+  desalojar(a, b, c)
+  navegador.vaciar()
+  const creados = navegador.creados
+  assert.deepEqual([a, b, c].map(s => s.need()), [false, false, false])
+  assert.equal(navegador.creados, creados, 'el dato no toma: la cola es de la recuperación')
+  cuadro()
+  assert.deepEqual(estados(a, b, c), ['lost', 'live', 'lost'])
+  cuadro()
+  assert.deepEqual(estados(a, b, c), ['lost', 'live', 'live'])
+  cuadro()
+  assert.deepEqual(estados(a, b, c), ['live', 'live', 'live'])
+})
+
+test('R1: igual con la pérdida todavía sin aviso: el dato concilia la pérdida y espera su cuadro', () => {
+  nuevoNavegador()
+  const a = superficie('a', { z: 10 })
+  const b = superficie('b', { z: 30 })
+  const c = superficie('c', { z: 20 })
+  desalojar(a, b, c)
+  const creados = navegador.creados
+  assert.deepEqual([a, b, c].map(s => s.need()), [false, false, false])
+  assert.equal(navegador.creados, creados)
+  navegador.vaciar()                                    // los avisos viejos llegan después: ya se procesaron
+  cuadro()
+  assert.deepEqual(estados(a, b, c), ['lost', 'live', 'lost'], 'un reinicio de la GPU: la de mayor z primero')
+  asentar(3)
+  assert.deepEqual(estados(a, b, c), ['live', 'live', 'live'])
+  assert.equal(navegador.creados, creados + 3)
+})
+
+test('R1/R4: mostrar en una misma tarea tres capas que la presión soltó toma una en esa tarea y las demás de a una por cuadro, por z', () => {
+  nuevoNavegador()
+  const n  = superficie('necesaria', { z: 50 })
+  const h1 = superficie('host', { z: 10, oculta: true })
+  const h2 = superficie('badge', { z: 11, oculta: true })
+  const h3 = superficie('burbujas', { z: 12, oculta: true })
+  desalojar(n)
+  asentar(3)
+  assert.deepEqual(estados(n, h1, h2, h3), ['live', 'released', 'released', 'released'])
+  const creados = navegador.creados
+  assert.deepEqual([h1, h2, h3].map(mostrar), [true, false, false], 'la primera pinta en esa tarea; las demás esperan su cuadro')
+  assert.equal(navegador.creados, creados + 1)
+  cuadro()
+  assert.deepEqual(estados(h1, h2, h3), ['live', 'released', 'live'])
+  cuadro()
+  assert.deepEqual(estados(h1, h2, h3), ['live', 'live', 'live'])
+  cuadro()
+  assert.equal(mostrar(h1), false, 'una viva no toma otro')
+  assert.equal(navegador.creados, creados + 3)
+})
+
+test('R1: una desalojada por una adquisición de la política que se vuelve a tomar a mano antes de su aviso no deja la anotación: perderla después es un accidente nuevo', () => {
+  nuevoNavegador({ techo: 3 })
+  const warn = mock.method(console, 'warn', () => {})
+  try {
+    const a = superficie('a', { z: 10 })
+    const b = superficie('b', { z: 20 })
+    const c = superficie('c', { z: 30 })
+    ocio()
+    navegador.ajeno()                                   // cae a, la de flush más viejo
+    navegador.vaciar()
+    cuadro()                                            // la política toma a y desaloja a b en el acto
+    assert.deepEqual(estados(a, b, c), ['live', 'lost', 'live'])
+    b.acquire()                                         // la toma su dueña por su cuenta, antes del aviso
+    asentar(3)
+    assert.deepEqual(estados(a, b, c), ['live', 'live', 'live'])
+    glBudget.retry()                                    // una señal de cupo
+    desalojar(b)                                        // otra pestaña le quita el suyo, sin pasarse del techo
+    asentar(3)
+    assert.deepEqual(estados(a, b, c), ['live', 'live', 'live'], 'hay cupo: b vuelve y nadie queda sin superficie')
+    assert.equal(warn.mock.callCount(), 0, 'ningún aviso de techo lleno')
+  } finally {
+    warn.mock.restore()
+  }
+})
+
+test('R4: mostrar una soltada cuando el navegador ya no da WebGL no lanza; queda soltada, el error sale por consola y no se insiste hasta que otro contexto se logre', () => {
+  nuevoNavegador()
+  const n      = superficie('n', { z: 50 })
+  const oculta = superficie('oculta', { z: 10, oculta: true })
+  desalojar(n)
+  asentar(3)
+  assert.equal(oculta.state, 'released')
+  const error = mock.method(console, 'error', () => {})
+  try {
+    fallar = 5
+    assert.equal(mostrar(oculta), false)
+    assert.equal(oculta.state, 'released')
+    assert.equal(error.mock.callCount(), 1)
+    assert.equal(fallar, 4, 'un intento')
+    cuadro()
+    assert.equal(oculta.need(), false)
+    asentar(3)
+    assert.equal(fallar, 4, 'sin otro contexto logrado no vuelve a intentarlo, ni con datos ni en un cuadro')
+    fallar = 0
+    superficie('otra', { z: 60 })
+    assert.equal(oculta.need(), true, 'con WebGL de vuelta, la toma')
+  } finally {
+    error.mock.restore()
+  }
+})
+
+test('R5: una superficie cuyo documento se quedó sin ventana no es necesaria: perdida, no se recupera', () => {
+  nuevoNavegador()
+  const viva    = superficie('viva', { z: 10 })
+  const cerrada = superficie('de la ventana cerrada', { z: 30 })
+  cerrada.canvas.ownerDocument = { defaultView: null }  // la ventana se cerró y nadie quitó el mapa
+  assert.equal(cerrada.needed, false)
+  const creados = navegador.creados
+  desalojar(cerrada)
+  asentar(3)
+  ocio()
+  assert.deepEqual(estados(viva, cerrada), ['live', 'released'])
+  assert.equal(navegador.creados, creados, 'ningún contexto para un documento sin ventana')
 })

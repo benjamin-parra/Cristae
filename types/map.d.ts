@@ -275,9 +275,11 @@ export interface MapClickDetail {
 
 /** Cómo está la superficie WebGL de una capa. `live`: tiene su contexto. `lost`: el navegador se lo quitó, y
  *  la capa lo vuelve a tomar en un cuadro siguiente, de a una por cuadro, la de mayor z primero y nunca en pleno
- *  gesto. `released`: no lo tiene por decisión propia: lo soltó a mano, o la política la soltó por prescindible
- *  (vacía u oculta) bajo presión de cupo, o la dejó sin superficie por saturación (SPECS §10). `none`: todavía no lo
- *  tomó, como una capa que nació vacía y lo toma en un rato ocioso o con su primer dato. */
+ *  gesto; un dato nuevo no la adelanta. `released`: no lo tiene por decisión propia: lo soltó a mano, o la política la
+ *  soltó por prescindible (vacía u oculta) bajo presión de cupo, o la dejó sin superficie por saturación, o volver a
+ *  tomarlo falló; mostrarla o darle contenido lo vuelve a tomar en esa tarea si es la primera toma por un aviso desde el
+ *  último cuadro, y si no en los siguientes (SPECS §10). `none`: todavía no lo tomó, como una capa que nació vacía y lo
+ *  toma en un rato ocioso o con su primer dato. */
 export type SurfaceState = "live" | "lost" | "released" | "none";
 
 /** Una fila de `engine.surfaces()` y el `detail` de la señal `surfacechange`: la superficie WebGL de una

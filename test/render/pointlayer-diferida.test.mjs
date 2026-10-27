@@ -212,22 +212,18 @@ test('el primer dato de una vacía que ningún rato ocioso tomó pide el context
   layer.destroy()
 })
 
-test('una viva que estaba vacía y recibe su primer dato rehace el orden de desalojo en el rato ocioso siguiente', () => {
+test('sin presión en el realm, una viva que estaba vacía y recibe su primer dato no vacía ninguna cola (M6 del banco)', () => {
   const { layer, source, contexto } = montar()
   ocio()                                               // vacía y viva: prescindible, no se renueva
   const flushes = () => llamados(contexto(0), 'flush').length
   assert.equal(flushes(), 0)
   source.poner(items(2))
-  assert.equal(flushes(), 0, 'el orden se rehace en un rato ocioso, no en la tarea del dato')
-  ocio()
-  assert.ok(flushes() >= 1, 'pasó a necesaria: su cola se vacía para no quedar más vieja que las prescindibles')
-  cuadro()
-  ocio()
-  const rehechos = flushes()
-  source.poner(items(3))
-  cuadro()
-  ocio()
-  assert.equal(flushes(), rehechos, 'ya renovada, otro rebuild no vuelve a ordenar')
+  for (let i = 0; i < 3; i++) {
+    cuadro()
+    ocio()
+  }
+  assert.equal(flushes(), 0, 'lejos del techo el orden de desalojo no se usa: ni en la tarea del dato ni en un rato ocioso')
+  assert.equal(layer.surface.state, 'live')
   layer.destroy()
 })
 

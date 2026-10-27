@@ -354,3 +354,115 @@ test('quitar una capa sin superficie por saturación, o una vacía que esperaba 
     delete globalThis.requestIdleCallback
   }
 })
+
+/* ── Revisión de la tanda 2b (etapa3/REVISION.md) ── */
+
+const linea = (id, k = 0) => ({ id, pts: [[0, 0], [1 + k, 1]], color: '#00f', weight: 2, opacity: 1 })
+
+test('R1: tras un reinicio de la GPU, los datos de tres capas de líneas en un mismo cuadro no toman contexto en ese cuadro: vuelven de a una', async () => {
+  const { map, navegador } = await armarVacio({ crearGl })
+  limpiar.push(() => map.remove())
+  const { engine } = map
+  const handles = ['l1', 'l2', 'l3'].map((id, i) => engine.addLineLayer({ id, accessors: LINEA, data: [linea(1, i)] }))
+  await esperar(40)
+  await asentar(engine)
+  cuadros()
+  const vivas = navegador.contextos.filter(c => c.estado === 'vivo')
+  assert.equal(vivas.length, 3)
+  vivas.forEach(c => navegador.desalojar(c))           // reinicio de la GPU
+  navegador.vaciar()
+  assert.deepEqual(Object.values(estados(engine)), ['lost', 'lost', 'lost'])
+
+  // El cuadro de jsdom corre en una tarea los avisos de las tres Sources: una marca antes y otra después lo acotan.
+  let antes = -1, despues = -1
+  window.requestAnimationFrame(() => antes = navegador.creados)
+  handles.forEach((h, i) => h.set([linea(1, i), linea(2, i)]))   // tiempo real: un dato nuevo a cada capa
+  await esperar(1)
+  window.requestAnimationFrame(() => despues = navegador.creados)
+  await esperar(60)
+  assert.ok(antes >= 0 && despues >= 0)
+  assert.equal(despues - antes, 0, 'el dato no adelanta a la recuperación, que va de a una por cuadro')
+  for (let i = 0; i < 3; i++) {
+    const creados = navegador.creados
+    cuadro()
+    assert.equal(navegador.creados, creados + 1, `el cuadro ${i + 1} de la política toma una`)
+  }
+  assert.deepEqual(Object.values(estados(engine)), ['live', 'live', 'live'])
+})
+
+test('R4: habilitar el host de vehículos tras una presión que soltó sus capas toma un contexto en el clic y las demás en los cuadros siguientes', async () => {
+  const { engine, navegador } = await montar()
+  engine.setLayerEnabled('veh', false)
+  asentarCuadros(navegador)
+  navegador.ajeno()
+  navegador.desalojar(contextoDe(navegador, engine, 'enlaces'))   // presión: una necesaria pierde el suyo
+  asentarCuadros(navegador)
+  assert.equal(estados(engine).veh, 'released')
+  const desde = navegador.creados
+  engine.setLayerEnabled('veh', true)                  // un clic: una tarea
+  assert.equal(navegador.creados - desde, 1, 'una adquisición por tarea, nunca varias (ORACULO §5.5)')
+  asentarCuadros(navegador)
+  const vacias = vaciasDe(engine)
+  const e      = estados(engine)
+  assert.deepEqual(Object.keys(e).filter(id => e[id] !== 'live'), vacias, 'las demás vuelven en los cuadros siguientes; las vacías siguen soltadas')
+  intactos(navegador)
+})
+
+test('R4: mostrar una capa que la presión soltó no lanza aunque el navegador ya no dé WebGL', async () => {
+  const { engine, navegador } = await montar()
+  engine.setLayerVisibility('lugares', false)
+  asentarCuadros(navegador)
+  navegador.ajeno()
+  navegador.desalojar(contextoDe(navegador, engine, 'enlaces'))
+  asentarCuadros(navegador)
+  assert.equal(estados(engine).lugares, 'released')
+  const original = navegador.getContext
+  navegador.getContext = () => null                    // Chromium bloquea WebGL a la página tras varios reinicios de la GPU
+  const error = mock.method(console, 'error', () => {})
+  try {
+    assert.doesNotThrow(() => engine.setLayerVisibility('lugares', true))
+    assert.equal(error.mock.callCount(), 1, 'el error sale por consola')
+  } finally {
+    navegador.getContext = original
+    error.mock.restore()
+  }
+  const fila = engine.surfaces().find(s => s.layerId === 'lugares')
+  assert.deepEqual([fila.visible, fila.state], [true, 'released'])
+})
+
+test('R5: el registro del realm no vuelve a tomar contextos para un mapa cuya ventana se cerró sin quitarlo', async () => {
+  const { map, navegador } = await armarVacio({ crearGl })
+  limpiar.push(() => map.remove())
+  const segunda = new JSDOM('<!doctype html><html><body></body></html>', { pretendToBeVisual: true })
+  instalarNavegador(segunda.window, { navegador })
+  const docB = segunda.window.document
+  limpiar.push(() => navegador.desinstalar(docB))
+  const otro = document.createElement('cristae-map')
+  otro.style.cssText = 'display:block;width:800px;height:600px'
+  docB.body.appendChild(otro)
+  await esperar(40)
+  map.engine.addLineLayer({ id: 'aqui', accessors: LINEA, data: [linea(1)] })
+  ;['b1', 'b2', 'b3'].forEach((id, i) => otro.engine.addLineLayer({ id, accessors: LINEA, data: [linea(1, i)] }))
+  await esperar(40)
+  await asentar(otro.engine)
+  cuadros()
+  const enB = () => navegador.contextos.filter(c => c.estado === 'vivo' && c.paneEl?.ownerDocument === docB)
+  assert.equal(enB().length, 3)
+
+  // En Chromium el documento de una ventana cerrada queda sin ventana con sus nodos colgados (sin disconnectedCallback); jsdom
+  // los desconectaría en close(), así que se simula: sin `defaultView`, y el proceso suelta sus contextos.
+  Object.defineProperty(docB, 'defaultView', { configurable: true, get: () => null })
+  limpiar.push(() => {
+    delete docB.defaultView
+    otro.remove()
+  })
+  enB().forEach(c => navegador.desalojar(c))
+  const desde = navegador.creados
+  asentarCuadros(navegador, [], 6)
+  navegador.desalojar(contextoDe(navegador, map.engine, 'aqui'))   // y en la ventana viva un ajeno le quita el suyo a la de A
+  asentarCuadros(navegador, [], 6)
+  const zombis = navegador.contextos.slice(desde).filter(c => (c.paneEl ?? c.canvas.parentNode)?.ownerDocument === docB)
+  assert.equal(zombis.length, 0, 'ningún contexto para un documento sin ventana')
+  assert.equal(estados(map.engine).aqui, 'live', 'la de la ventana viva vuelve')
+  assert.deepEqual(Object.values(estados(otro.engine)), ['released', 'released', 'released'])
+})

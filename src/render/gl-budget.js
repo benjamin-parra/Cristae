@@ -12,7 +12,10 @@
 //   · Necesaria es la que se ve y tiene algo que dibujar (o un editor con un trazo o un gesto vivo); prescindible, la
 //     que no. Perder una necesaria es presión: se sueltan en el acto las prescindibles, y la perdida vuelve en un cuadro
 //     siguiente. Una prescindible perdida queda soltada, y vuelve cuando se la necesita.
-//   · Recuperar: una por cuadro, la de mayor z primero, nunca con un mapa del realm en pleno gesto.
+//   · Recuperar: una por cuadro, la de mayor z primero, nunca con un mapa del realm en pleno gesto. El dato que llega a
+//     una perdida no la adelanta: espera su cuadro. Volver a tomar por un aviso de la dueña —mostrar una soltada, darle
+//     contenido— es en esa tarea si es la primera toma desde el último cuadro; si no, va a la cola. Si falla (WebGL
+//     bloqueado), queda soltada, el error sale por consola y no se insiste hasta que otro contexto del realm se logre.
 //   · Saturación, sin relojes ni ratos ociosos. Sin prescindibles, si tomar una propia hace perder otra propia —en el
 //     acto—, o si una que la política tomó vuelve a perderse antes de una señal de cupo —un ajeno que se rehace—, la de
 //     menor z queda sin superficie y no se insiste. Vuelve ante una señal de cupo (una propia que se suelta o se
@@ -20,24 +23,30 @@
 //   · Pérdida masiva (un reinicio de la GPU: varias propias a la vez sin una adquisición propia que lo explique): vuelven
 //     todas las necesarias, de a una por cuadro y por prioridad.
 //   · Orden de desalojo. Chromium desaloja al contexto de `flush` más viejo, y un `flush` sin comandos pendientes también
-//     lo renueva (etapa3/FLUSH.md). Tras cada adquisición de la política, al asentar un montaje y cuando una viva pasa a
-//     necesaria (recibe contenido, o se vuelve a ver), cada necesaria viva vacía su cola por z ascendente: las
-//     prescindibles quedan como las más viejas y, entre las necesarias, cae primero la de menor z. Por evento, nunca por
-//     cuadro.
+//     lo renueva (etapa3/FLUSH.md). Tras cada adquisición de la política cada necesaria viva vacía su cola por z
+//     ascendente: las prescindibles quedan como las más viejas y, entre las necesarias, cae primero la de menor z. Desde
+//     la primera pérdida de un contexto propio, también al asentar un montaje y cuando una viva pasa a necesaria (recibe
+//     contenido, o se vuelve a ver). Antes no: lejos del techo el orden no se usa, y cada `flush` es un viaje al proceso
+//     de la GPU (16 µs en Chromium, 77 µs en Firefox) que poblar una capa o abrir una espiral pagarían por nada. Por
+//     evento, nunca por cuadro.
+//   · El registro no retiene a nadie: una superficie que nadie destruye se recolecta, y la de un documento sin ventana
+//     (un popup que se cerró sin desmontar su mapa) no es necesaria.
 
 const IDLE_MS   = 1000              // tope de espera de una ranura ociosa
 const MOTION_MS = 10_000            // un gesto sin su fin deja de contar: un `moveend` perdido no frena la recuperación
 const RETRIES   = [5000, 30_000]    // los reintentos de una saturación, además de las señales de cupo
 
-const members = new Map()           // superficie → orden de alta, que desempata la prioridad
+const members = new WeakMap()       // superficie → { order, ref }: el orden de alta desempata la prioridad
+const roster  = new Set()           // la WeakRef de cada dada de alta: lo que se recorre
 const wanted  = new Set()           // necesarias sin contexto que la política toma, de a una por cuadro
 const idle    = new Set()           // vacías al construirse, que se toman en un momento ocioso
 const starved = new Set()           // necesarias que la saturación dejó sin superficie: esperan cupo
-const episode = new Set()           // las que la política volvió a tomar desde la última señal de cupo: la tanda
-const fresh   = new Set()           // las necesarias que vaciaron su cola en la última renovación
-const blamed  = new Map()           // propia desalojada en el acto por una adquisición de la política → esa adquisición
 const movers  = new Map()           // motor en pleno gesto → desde cuándo
 
+let episode    = new WeakSet()      // las que la política volvió a tomar desde la última señal de cupo: la tanda
+let fresh      = new WeakSet()      // las necesarias que vaciaron su cola en la última renovación
+let blamed     = new WeakMap()      // propia desalojada en el acto por una adquisición de la política → esa adquisición
+let joined     = new WeakSet()      // las que tomaron el suyo por su cuenta desde el último rato ocioso, sin presión
 let order      = 0
 let frame      = 0
 let idleId     = 0
@@ -46,23 +55,36 @@ let retryStep  = 0
 let motionId   = 0
 let pumping    = null               // la que la política está tomando: su aviso de contexto tomado no es un alta
 let deciding   = false              // la política suelta: no es una señal de cupo
-let settle     = false              // hubo altas: al reposo se ordena el desalojo
+let settle     = false              // al reposo se ordena el desalojo
+let joining    = false              // hubo altas sin presión: al reposo se ordena si alguna no se ve
 let capable    = false              // algún contexto del realm se logró, y el último intento no falló
 let measured   = false
 let maxTexture = null
 let warned     = false
 let listening  = false
+let took       = false              // un aviso ya volvió a tomar una desde el último cuadro: otro aviso espera al siguiente
+let pressed    = false              // el realm ya perdió un contexto propio: desde ahí se cuida el orden de desalojo
 
 const now = () => performance.now()
 
 // La prioridad es la z del pane y, a igual z, la dada de alta después, que en un pane compartido queda encima.
-const below   = (a, b) => a.z < b.z || (a.z === b.z && members.get(a) < members.get(b))
+const below   = (a, b) => a.z < b.z || (a.z === b.z && members.get(a).order < members.get(b).order)
 const lowest  = list => list.reduce((m, s) => !m || below(s, m) ? s : m, null)
 const highest = list => list.reduce((m, s) => !m || below(m, s) ? s : m, null)
 
-const live        = () => [...members.keys()].filter(s => s.state === 'live')
+// Las dadas de alta que siguen en memoria; la que el GC ya se llevó sale del registro.
+const registered = () => {
+  const list = []
+  roster.forEach(ref => {
+    const s = ref.deref()
+    s ? list.push(s) : roster.delete(ref)
+  })
+  return list
+}
+
+const live        = () => registered().filter(s => s.state === 'live')
 // Perdidas que todavía no avisaron: el navegador lo sabe en el acto, y el evento llega en otra tarea.
-const unprocessed = () => [...members.keys()].filter(s => s.gl?.isContextLost())
+const unprocessed = () => registered().filter(s => s.gl?.isContextLost())
 
 // Ningún mapa del realm en pleno gesto: un getContext ahí cae en el cuadro más sensible de cualquiera de ellos. Lo que
 // espera no agenda cuadros: lo retoma el fin del gesto, o el plazo de un gesto que nunca avisó su fin.
@@ -85,7 +107,7 @@ const askIdle  = () => idleId ||= globalThis.requestIdleCallback
 
 // Cada necesaria viva vacía su cola, por z ascendente: la última en hacerlo es la última en caer.
 const renew = () => {
-  fresh.clear()
+  fresh = new WeakSet()
   live().filter(s => s.needed).sort((a, b) => below(a, b) ? -1 : 1).forEach(s => {
     s.gl.flush()
     fresh.add(s)
@@ -177,10 +199,11 @@ const shed = () => {
   return sueltas.length
 }
 
-// Un cuadro de recuperación: procesa las pérdidas que el navegador ya hizo y toma la necesaria de mayor z. La siguiente
-// se agenda antes de tomar: si ésta tira, las demás no pierden su turno.
+// Un cuadro de recuperación: libera la toma por aviso del cuadro anterior, procesa las pérdidas que el navegador ya
+// hizo y toma la necesaria de mayor z. La siguiente se agenda antes de tomar: si ésta tira, las demás no pierden su turno.
 const pump = () => {
   frame = 0
+  took  = false
   unprocessed().forEach(s => s.reconcile())
   wanted.forEach(s => s.needed || drop(s))
   if (!wanted.size) return askIdle()
@@ -193,7 +216,8 @@ const pump = () => {
 }
 
 // Un momento ocioso: los avisos pendientes ya llegaron. Sin nada esperando cupo, los reintentos vuelven a empezar;
-// ordena el desalojo tras un montaje y toma una vacía diferida.
+// ordena el desalojo tras un montaje y toma una vacía diferida. Sin presión, un montaje sólo lo ordena si una de sus
+// altas no se ve: las que se ven nacieron más jóvenes que todo lo anterior.
 const rest = () => {
   idleId = 0
   if (wanted.size || frame) return
@@ -201,8 +225,10 @@ const rest = () => {
     clearTimeout(retryId)
     retryId = retryStep = 0
   }
-  settle && renew()
-  settle = false
+  ;(settle || joining && registered().some(s => joined.has(s) && !s.needed)) && renew()
+  settle  = false
+  joining = false
+  joined  = new WeakSet()
   if (starved.size || !idle.size || !quiet()) return
   const s = highest([...idle])
   askIdle()
@@ -217,14 +243,20 @@ export const glBudget = {
   // lanza si no hay WebGL2, que es lo que el consumidor espera para degradar.
   get capable() { return capable },
 
-  register(s) { members.set(s, order++) },
+  register(s) {
+    const ref = new WeakRef(s)
+    members.set(s, { order: order++, ref })
+    roster.add(ref)
+  },
 
   // Tomar un contexto falló: sin WebGL2, o sin stencil. Hasta que otro se logre, las vacías lo toman al construirse.
   failed() { capable = false },
 
-  // Destruida. Si tenía su contexto vivo, devolvió un cupo.
+  // Destruida. Si tenía su contexto vivo, devolvió un cupo. Sin ninguna en el registro, el realm vuelve a empezar.
   unregister(s, freed) {
+    roster.delete(members.get(s)?.ref)
     members.delete(s)
+    roster.size || (pressed = false)
     glBudget.dropped(s, freed)
   },
 
@@ -235,7 +267,9 @@ export const glBudget = {
   },
 
   // `s` tomó un contexto: por la política, o por su cuenta (la capa al construirse, o a mano). El primero del realm da el
-  // lado máximo de textura.
+  // lado máximo de textura. Por su cuenta, el orden se rehace en el próximo rato ocioso; sin presión, sólo si no se ve:
+  // la que se ve nace como la más joven, y la que no quedaría más joven que las necesarias. Se mira en el rato ocioso,
+  // cuando la capa que la construye ya sabe si tiene contenido.
   acquired(s, gl) {
     capable = true
     if (!measured) {
@@ -246,7 +280,12 @@ export const glBudget = {
     wanted.delete(s)
     idle.delete(s)
     starved.delete(s)
-    pumping === s || resettle()
+    blamed.delete(s)                // la anotación de una desalojada que volvió no explica una pérdida de después
+    if (pumping === s) return
+    if (pressed) return resettle()
+    joined.add(s)
+    joining = true
+    askIdle()
   },
 
   // El navegador le quitó el contexto a `s`. Devuelve en qué estado queda: `lost` si la política la recupera, `released`
@@ -256,9 +295,11 @@ export const glBudget = {
     const causa = blamed.get(s)
     blamed.delete(s)
     if (!causa && unprocessed().length) {       // varias a la vez sin una adquisición que lo explique
-      blamed.clear()
+      blamed = new WeakMap()
       glBudget.retry()
     }
+    pressed || resettle()           // la primera presión: el orden que no se cuidó se rehace en el próximo rato ocioso
+    pressed = true
     if (!s.needed) return 'released'
     if (shed()) {
       wanted.add(s)
@@ -279,20 +320,25 @@ export const glBudget = {
     episode.delete(s)
     blamed.delete(s)
     fresh.delete(s)
+    joined.delete(s)
     freed && !deciding && glBudget.retry()
   },
 
-  // La dueña de `s` tiene algo que mostrar: recibió contenido, o se volvió a ver. Sin contexto lo toma en esta tarea. La
-  // primera vez, como al construirse; volver a tomarlo espera a que termine un gesto en curso. En saturación sólo entra
-  // en el lugar de una de menor z, y una que la saturación dejó sin superficie espera cupo. Con contexto, si pasó a
-  // necesaria después de la última renovación, el orden de desalojo se rehace en un rato ocioso: si no, quedaría más
-  // vieja que las prescindibles. Devuelve si lo tomó.
+  // La dueña de `s` tiene algo que mostrar: recibió contenido, o se volvió a ver. Con contexto, desde la primera presión,
+  // si pasó a necesaria después de la última renovación el orden de desalojo se rehace en un rato ocioso: si no, quedaría
+  // más vieja que las prescindibles. Sin contexto: una perdida —también la que todavía no avisó— espera su cuadro, y la
+  // que la saturación dejó sin superficie, cupo. La primera vez lo toma en esta tarea, como al construirse; volver a
+  // tomarlo también, si es la primera toma desde el último cuadro y ningún mapa está en pleno gesto, y si no va a la
+  // cola. En saturación sólo entra en el lugar de una de menor z. Devuelve si lo tomó.
   need(s) {
     if (!members.has(s) || starved.has(s) || !s.needed) return false
-    if (s.state === 'live') {
-      fresh.has(s) || resettle()
+    const state = s.state
+    if (state === 'live') {
+      pressed && !fresh.has(s) && resettle()
       return false
     }
+    state === 'lost' && unprocessed().forEach(v => v.reconcile())
+    if (!members.has(s) || wanted.has(s) || starved.has(s)) return false
     idle.delete(s)
     if (starved.size) {
       const menor = lowest(live().filter(m => m.needed))
@@ -302,9 +348,21 @@ export const glBudget = {
       }
       starve(menor)
     }
-    if (s.state === 'none' || quiet()) return take(s)
-    wanted.add(s)
-    return false
+    if (s.state !== 'none') {
+      if (!capable) return false
+      if (took || !quiet()) {
+        wanted.add(s)
+        return false
+      }
+      took = true
+      schedule()                    // el cuadro libera la toma
+    }
+    try {
+      return take(s)
+    } catch (error) {
+      console.error('[cristae] la capa queda sin contexto WebGL', error)
+      return false
+    }
   },
 
   // Un motor empieza (`true`) o termina un gesto: arrastre, zoom animado, pellizco o vuelo.
@@ -322,7 +380,7 @@ export const glBudget = {
   retry() {
     clearTimeout(retryId)
     retryId = 0
-    episode.clear()
+    episode = new WeakSet()
     if (!starved.size) return
     starved.forEach(s => wanted.add(s))
     starved.clear()
