@@ -152,16 +152,22 @@ Cada etapa tiene su entrada y su salida, y se puede medir sola:
   1 s; sin él, un temporizador de 50 ms) que dibuja las declaradas que faltan, en orden, hasta
   `SLICE_MS` (3 ms) o lo que el navegador deje libre: al menos un tile por ranura, nunca todos de una
   vez. Los tiles adelantados esperan en un depósito **sin celda**: no cuentan en `atlas.count` ni
-  suben a la GPU hasta que alguien pide su variante, y entonces `resolve` sólo les da celda. No corre
-  mientras `document.fonts` carga (saldrían en tofu), y un `IconSet` que nadie usa no agenda nada.
+  suben a la GPU hasta que alguien pide su variante, y entonces `resolve` sólo les da celda. No empieza
+  antes de que termine `prerender`, ni corre mientras `document.fonts` carga (saldrían en tofu), y un
+  `IconSet` que nadie usa no agenda nada. Lo declarado se termina rasterizando igual, en ratos ociosos: la
+  CPU total y la memoria de los tiles (`tileSize²·4` bytes por variante) son las de rasterizarlo todo; lo
+  que cambia es cuándo, y que la GPU recibe sólo lo pedido.
 - **Qué sube a la GPU.** Sólo las celdas pedidas ([`GpuAtlasBinding`](./atlas.md#qué-sube-el-binding)),
   nunca las declaradas ni las adelantadas.
 
 ### `prerender` — precarga async
 
-Si la config trae `prerender`, `ready` lo **espera**. Sirve para cargar recursos que el raster
-necesita (web fonts, imágenes base) de modo que el primer dibujo ya los tenga. El consumidor espera
-`iconSet.ready` para saber que esos recursos están listos; las variantes se rasterizan al usarlas.
+Si la config trae `prerender`, `ready` lo **espera**, y el adelanto ocioso también. Sirve para cargar
+recursos que el raster necesita (web fonts, imágenes base) de modo que el primer dibujo ya los tenga. El
+consumidor espera `iconSet.ready` para saber que esos recursos están listos; las variantes se rasterizan
+al usarlas. Una variante que se pide antes de `ready` se rasteriza en el acto, sin esos recursos, y queda
+así: lo resuelto sólo se vuelve a rasterizar al cargar las fuentes si al construir el `IconSet` ya había
+alguna cargando (`document.fonts.status`), y `prerenderFonts` empieza la carga después.
 
 **Patrón fuente web → glifo.** Para rasterizar glifos de una fuente de iconos (Unicons, Material) hay
 que **esperar la fuente** antes de dibujar al canvas; si no, el primer raster sale en blanco/tofu. Eso es

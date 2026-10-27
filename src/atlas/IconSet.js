@@ -13,7 +13,8 @@ import Atlas from './Atlas.js'
 // 1–2 corren al PRIMER USO de cada variante (`resolve`) y, para las declaradas en `variants`, ADELANTADAS en
 // ranuras ociosas de unos ms: lo declarado no se rasteriza ni se sube entero, sólo lo que se usa; lo que ya
 // se adelantó espera en un depósito (`#prepared`) hasta que alguien lo pide y entonces sólo toma celda.
-// Declarar un espacio grande (199 buckets de cluster) no cuesta ni al definir ni al re-adquirir un contexto.
+// Declarar un espacio grande (199 buckets de cluster) no cuesta al definir, y re-adquirir sube sólo lo pedido. Con más
+// de la mitad de lo declarado en uso a la vez, re-adquirir cuesta más que con los tiles en canvas.
 //
 // CONTRATO DEL ESPACIO DE DESCRIPTOR (responsabilidad del consumidor):
 //   `describe(variant)` DEBE ser TOTAL sobre el espacio de variantes: para CUALQUIER string que
@@ -55,6 +56,7 @@ export class IconSet {
   #variants = []   // índice de tile → variante ya resuelta. Alineado con el atlas (índices estables
                    // ante grow) → permite re-rasterizar en bloque cuando cargan las fuentes (font-gate).
   #fontsPending = false      // hay una re-rasterización encolada a document.fonts.ready
+  #waiting                   // `prerender` no terminó: el adelanto espera, que dibujaría sin lo que el raster necesita
   #ctx                       // contexto 2D de trabajo (tileSize², `willReadFrequently`): el mismo para toda variante
   #prepared = new Map()      // variante → { tile, scale }: ya rasterizadas en una ranura ociosa, todavía sin celda
   #sprites  = new Map()      // variante → canvas entregado por `sprite()` (sólo las que alguien pidió)
@@ -80,6 +82,7 @@ export class IconSet {
     this.#renderers  = renderers ?? {}
     this.#prerender  = prerender
     this.#declared   = [...variants]
+    this.#waiting    = !!prerender
     this.#atlas      = new Atlas(capacityFor(variants.length), this.#tileSize)
     this.#armFontGate()                          // ANTES del primer raster: capta el estado de las fuentes al nacer
     this.ready       = this.#init()
@@ -147,9 +150,13 @@ export class IconSet {
   }
 
   // `ready` espera lo que el raster necesita (fuentes, imágenes). Lo declarado NO se siembra acá: se
-  // rasteriza al usarlo y, adelantado, en ranuras ociosas (ver `#arm`).
+  // rasteriza al usarlo y, adelantado, en ranuras ociosas (ver `#arm`), que no empiezan antes de esto.
   async #init() {
-    if (this.#prerender) await this.#prerender()
+    if (this.#prerender) {
+      await this.#prerender()
+      this.#waiting = false
+      this.#atlas.count && this.#arm()
+    }
     return this
   }
 
@@ -169,10 +176,11 @@ export class IconSet {
     return { tile: ctx.getImageData(0, 0, size, size).data, scale: footprintScale(d.scale) }
   }
 
-  // Adelanto ocioso de lo declarado: agenda UNA ranura (no corre mientras las fuentes cargan: sus tiles
-  // saldrían en tofu) y `#advance` la gasta en rasterizar lo que todavía no tiene tile. Nada por cuadro.
+  // Adelanto ocioso de lo declarado: agenda UNA ranura (no corre mientras `prerender` no termina ni mientras las
+  // fuentes cargan: sus tiles saldrían en tofu) y `#advance` la gasta en rasterizar lo que todavía no tiene tile.
+  // Nada por cuadro.
   #arm(due = performance.now() + IDLE_TIMEOUT_MS) {
-    if (this.#idle || this.#fontsPending || this.#next >= this.#declared.length) return
+    if (this.#idle || this.#waiting || this.#fontsPending || this.#next >= this.#declared.length) return
     this.#due  = due
     this.#idle = typeof requestIdleCallback === 'function'
       ? requestIdleCallback(this.#advance, { timeout: Math.max(1, due - performance.now()) })

@@ -71,9 +71,11 @@ sin re-propagar. Datos nuevos (`index`) o reconfig invalidan la firma.
    rasteriza on-demand y, si desborda, el regrow lo acomoda sin corromper índices. Aun así, el
    **default** de `defineClusterIconSet` (sin `buckets`) **declara el ladder fino completo
    (199 variantes)**: no por necesidad del atlas, sino para que el conteo mostrado sea **fiel**
-   (exacto < 100, redondeo a decena/centena arriba) y no haya regrow en runtime. Declararlo **no
-   cuesta**: cada bucket se rasteriza y sube al usarlo, y el resto se adelanta en la CPU en ratos
-   ociosos. Ver [icons.md](./icons.md).
+   (exacto < 100, redondeo a decena/centena arriba) y no haya regrow en runtime. Declararlo no
+   cuesta al **definir**: cada bucket se rasteriza y sube al usarlo, y el resto se adelanta en la CPU en
+   ratos ociosos. Con muchos buckets distintos en uso a la vez (más de la mitad de lo declarado: una
+   flota grande vista de lejos) re-adquirir el contexto sube más bytes que con los tiles en canvas, y
+   cuesta más que antes de rasterizar al usar. Ver [icons.md](./icons.md).
 4. **La supresión es un set compartido, no una copia.** `clusteredIds` (ref estable) lo observan
    **dos** renderers del host: la capa de puntos (lo omite del buffer GL) y **toda label ligada al
    host** (no pinta etiquetas flotantes de lo clusterizado). El motor re-filtra las labels en cada

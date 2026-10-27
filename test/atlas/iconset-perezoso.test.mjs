@@ -270,3 +270,19 @@ test('un renderer que falla en el adelanto no deja a la variante sin tile: al pe
   falla = false
   assert.ok(set.resolve('b') >= 0, 'y la variante se rasteriza bien al usarla')
 })
+
+test('R3: con `prerender` pendiente el adelanto espera a que termine: lo declarado no se dibuja sin lo que el raster necesita', async () => {
+  let fuente = false
+  let soltar
+  const { set } = crear(NUEVE, {
+    prerender: () => new Promise(r => { soltar = () => { fuente = true; r() } }),   // una fuente web que todavía carga
+    renderers: { num: (ctx, _size, d) => { ctx.marca = fuente ? d.n : 0 } },        // sin ella, tofu (0)
+  })
+  set.resolve('1')                                      // el primer dato llega antes que la fuente
+  assert.equal(ranuras.length, 0, 'sin ranura mientras `prerender` no termina')
+  soltar()
+  await set.ready
+  assert.equal(ranuras.length, 1, 'terminado, arranca el adelanto')
+  vaciarRanuras()
+  assert.deepEqual(['2', '5', '9'].map(v => set.atlas.tileAt(set.resolve(v))[0]), [2, 5, 9], 'las declaradas, con la fuente')
+})
