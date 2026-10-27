@@ -586,15 +586,37 @@ test('sin presión en el realm, ni poblar una vacía, ni mostrar, ni una alta qu
   const diferida = superficie('diferida', { z: 35, contenido: false })
   diferida.owner.hasContent = true
   assert.equal(diferida.need(), true, 'toma su primer contexto con su dato: se ve, y nace como la más joven')
+  assert.equal(usos(), antes, 'ni un flush: la primera espiral y su capa de patas no pagan nada')
+  const flushes = [n, vacia, oculta].map(s => mock.method(s.gl, 'flush'))
   vacia.owner.hasContent = true
   assert.equal(vacia.need(), false)
   assert.equal(mostrar(oculta), false)
   for (let i = 0; i < 3; i++) {
+    vacia.need()
+    mostrar(oculta)
     ocio()
     cuadro()
   }
-  assert.equal(usos(), antes, 'ni un flush: M6, la primera espiral y su capa de patas no pagan nada')
+  assert.deepEqual(flushes.map(f => f.mock.callCount()), [0, 1, 1],
+    'M6 paga un flush por capa que la renovación dejó entre las prescindibles, y ninguno más; las demás no se tocan')
   assert.equal(n.state, 'live')
+})
+
+test('N-A: antes de la primera pérdida, una vacía de z alto que tomó su contexto en un rato ocioso y recibe contenido no queda como la más vieja: un ajeno desaloja a la necesaria de menor z', () => {
+  nuevoNavegador({ techo: 3 })
+  const a = superficie('a', { z: 10 })
+  const b = superficie('b', { z: 30, contenido: false })
+  ocio()                                                // la política toma b, prescindible: renueva, y b queda la más vieja
+  assert.deepEqual(estados(a, b), ['live', 'live'])
+  const idA = contextoDe(a).id
+  b.owner.hasContent = true
+  b.need()                                              // pasa a necesaria
+  ocio()
+  navegador.ajeno()
+  navegador.ajeno()                                     // techo 3: el segundo desaloja a la de flush más viejo
+  assert.deepEqual(navegador.victimas, [idA], 'cae a, z10, y no b, z30')
+  navegador.vaciar()
+  assert.deepEqual(estados(a, b), ['lost', 'live'])
 })
 
 test('desde la primera pérdida del realm, una viva que pasa a necesaria —recibe contenido o se vuelve a ver— renueva el orden en el próximo rato ocioso', () => {
@@ -625,6 +647,60 @@ test('desde la primera pérdida del realm, una viva que pasa a necesaria —reci
   assert.deepEqual(navegador.victimas.slice(1), [idOtra], 'cae la que sigue vacía, no la oculta que se mostró')
   asentar()
   assert.deepEqual(estados(n, vacia, otra, oculta), ['live', 'live', 'released', 'live'])
+})
+
+test('N11: la primera pérdida del realm rehace en el próximo rato ocioso el orden que no se cuidó: un ajeno desaloja después a la necesaria de menor z', () => {
+  nuevoNavegador({ techo: 4 })
+  const p    = superficie('oculta', { z: 50, oculta: true })
+  ocio()
+  const alta = superficie('alta', { z: 30 })
+  const baja = superficie('baja', { z: 10 })            // nace después: la más joven, aunque tiene menos z
+  ocio()
+  desalojar(p)                                          // la primera pérdida: una prescindible, que queda soltada
+  asentar()
+  assert.equal(p.state, 'released')
+  ocio()
+  const idBaja = contextoDe(baja).id
+  navegador.ajeno()
+  navegador.ajeno()
+  navegador.ajeno()                                     // techo 4: el tercero desaloja a la de flush más viejo
+  assert.deepEqual(navegador.victimas.slice(1), [idBaja], 'cae baja, z10, y no alta, z30')
+  navegador.vaciar()
+  assert.deepEqual(estados(alta, baja), ['live', 'lost'])
+})
+
+test('N14/N19: sin presión, una alta por su cuenta que no se ve hace que el rato ocioso ordene el desalojo una vez; la siguiente alta que se ve no lo repite', () => {
+  nuevoNavegador({ techo: 4 })
+  const n = superficie('n', { z: 10 })
+  const h = superficie('oculta', { z: 20, oculta: true })   // la toma al construirse: nace más joven que n
+  const f = mock.method(n.gl, 'flush')
+  ocio()
+  assert.equal(f.mock.callCount(), 1, 'n vacía su cola: la oculta queda como la más vieja')
+  superficie('se ve', { z: 30 })
+  ocio()
+  assert.equal(f.mock.callCount(), 1, 'el rato ocioso ya olvidó a la oculta: una alta que se ve no rehace el orden')
+  const idH = contextoDe(h).id
+  navegador.ajeno()
+  navegador.ajeno()                                     // techo 4: el segundo desaloja a la de flush más viejo
+  assert.deepEqual(navegador.victimas, [idH], 'cae la oculta, no n')
+})
+
+test('N28: un reinicio de la GPU cuya primera pérdida avisada es una necesaria, con una prescindible también perdida, se lee como pérdida masiva: vuelve la que esperaba cupo', () => {
+  const warn = mock.method(console, 'warn', () => {})
+  try {
+    nuevoNavegador({ techo: 2 })
+    const a = superficie('a', { z: 10 })
+    const b = superficie('b', { z: 20 })
+    const c = superficie('c', { z: 30 })
+    asentar(10)
+    assert.deepEqual(estados(a, b, c), ['released', 'live', 'live'], 'a espera cupo')
+    c.nodo.style.visibility = 'hidden'                  // c pasa a prescindible
+    desalojar(b, c)                                     // el reinicio: b avisa primero, c todavía no
+    asentar(10)
+    assert.deepEqual(estados(a, b, c), ['live', 'live', 'released'], 'la pérdida de c sin aviso cuenta: a vuelve sin esperar un reintento')
+  } finally {
+    warn.mock.restore()
+  }
 })
 
 /* ── Hallazgos de la etapa 2 ── */
@@ -936,4 +1012,30 @@ test('R8: una vacía que toma su primer contexto en pleno zoom animado sigue la 
   oyentes.get('zoomend').forEach(cb => cb())
   assert.equal(nueva.canvas.style.transform, vieja.canvas.style.transform, 'y al terminar')
   assert.doesNotMatch(nueva.canvas.style.transform, /scale/)
+})
+
+test('E15: terminado un zoom animado, un canvas que nace después de un zoom sin animar no toma el transform de la transición vieja', () => {
+  nuevoNavegador()
+  const oyentes = new Map()
+  let   zoom    = 3
+  const camara  = {
+    ...host.camera,
+    zoom    : () => zoom,
+    on      : (ev, cb) => (oyentes.set(ev, [...(oyentes.get(ev) ?? []), cb]), () => {}),
+    project : () => ({ x: 0, y: 0 }),
+  }
+  const h     = { ...host, camera: camara }
+  h.pane('e15').style.zIndex = '5'
+  const owner = { hasContent: true, buildGl() {}, dropGl() {} }
+  const s     = new EditSurface({ host: h, pane: 'e15', owner })
+  vivas.push(s)
+  s.open(true)
+  oyentes.get('zoomanim').forEach(cb => cb({ center: { lat: 0, lng: 0 }, zoom: 4 }))
+  zoom = 4
+  oyentes.get('zoomend').forEach(cb => cb())
+  zoom = 5                                              // un setZoom sin animación: no hay zoomanim
+  navegador.desalojar(navegador.contextos.find(c => c.gl === s.gl))
+  asentar(3)
+  assert.equal(s.state, 'live')
+  assert.doesNotMatch(s.canvas.style.transform, /scale/, 'anclado a la vista que hay, sin escala')
 })
