@@ -26,6 +26,7 @@
     "lint": "eslint src react/src build.mjs",
     "build": "node build.mjs",
     "test": "node --test \"test/**/*.test.mjs\" \"react/test/**/*.test.mjs\"",
+    "test:navegador": "node test/navegador/ejecutar.mjs",
     "bench": "vite --config bench/vite.config.js",
     "example": "vite examples"
   },
@@ -79,6 +80,7 @@
     "eslint": "^9.13.0",
     "globals": "^15.11.0",
     "jsdom": "^29.1.1",
+    "playwright-core": "1.62.1",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "vite": "^7.3.3"
