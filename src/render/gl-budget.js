@@ -44,6 +44,7 @@ const starved = new Set()           // necesarias que la saturación dejó sin s
 const movers  = new Map()           // motor en pleno gesto → desde cuándo
 
 let episode    = new WeakSet()      // las que la política volvió a tomar desde la última señal de cupo: la tanda
+let episodic   = false              // la tanda tiene alguna: sólo entonces una señal de cupo la rehace (`invalidateCanvas` es frecuente)
 let fresh      = new WeakSet()      // las necesarias que vaciaron su cola en la última renovación
 let blamed     = new WeakMap()      // propia desalojada en el acto por una adquisición de la política → esa adquisición
 let joined     = new WeakSet()      // las que tomaron el suyo por su cuenta desde el último rato ocioso, sin presión
@@ -149,7 +150,10 @@ const take = s => {
   } finally {
     pumping = previa
   }
-  vuelta && episode.add(s)
+  if (vuelta) {
+    episode.add(s)
+    episodic = true
+  }
   unprocessed().forEach(v => antes.includes(v) || blamed.set(v, s))
   ;(pressed || !s.needed) && renew()
   return true
@@ -382,7 +386,10 @@ export const glBudget = {
   retry() {
     clearTimeout(retryId)
     retryId = 0
-    episode = new WeakSet()
+    if (episodic) {
+      episode  = new WeakSet()
+      episodic = false
+    }
     if (!starved.size) return
     starved.forEach(s => wanted.add(s))
     starved.clear()
