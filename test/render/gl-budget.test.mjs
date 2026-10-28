@@ -739,43 +739,137 @@ test('M6 del banco sin presión: poblar en orden de z cuatro vacías que rodean 
   assert.equal(primeraVictima(12, ...todas), 'vacía 394')
 })
 
-// Sin presión sólo el paso de prescindible a necesaria acomoda el orden, una vez. Una alta que se ve nace como la más
-// joven aunque tenga menos z (lejos del techo el orden entre necesarias no se paga), así que deja una cabeza que la regla
-// no daría: el aviso que sigue, de una necesaria que no viene de ese paso, no la corrige.
+// Sin presión sólo el paso de prescindible a necesaria, avisado, acomoda el orden, una vez. Una oculta que se ve sin
+// aviso queda en la cabeza del desalojo, delante de una necesaria de menor z: el aviso de OTRA necesaria —que no viene
+// de entre las prescindibles, o que ya se acomodó— no la corrige. `antes` arma lo suyo antes de la renovación, y
+// `despues` lo que pasa entre ésta y el aviso.
 const sinAcomodar = {
-  'una necesaria desde el alta': (a, h) => [a],
-  'una oculta que se vio sin aviso y otra renovación dejó necesaria': (a, h) => {
-    h.nodo.style.visibility = ''
-    superficie('otra vacía', { z: 5, contenido: false })
-    ocio()
-    vivas.splice(-1)[0].destroy()
-    return [a, h]
+  'una necesaria desde el alta': { despues: ({ a }) => [a] },
+  'una oculta que se vio sin aviso y otra renovación dejó necesaria': {
+    antes  : () => superficie('x', { z: 60, oculta: true }),
+    despues: ({ x }) => {
+      x.nodo.style.visibility = ''
+      superficie('vacía', { z: 5, contenido: false })
+      ocio()                                            // la toma: renueva, y x queda necesaria
+      return [x]
+    },
   },
-  'una oculta que ya se acomodó al verse': (a, h) => (mostrar(h), [a, h]),
-  'una oculta que se soltó a mano y volvió a tomar el suyo al verse': (a, h) => {
-    h.release()
-    mostrar(h)
-    cuadro()
-    return [a, h]
+  'una oculta que ya se acomodó al verse': {
+    antes  : () => superficie('x', { z: 60, oculta: true }),
+    despues: ({ x }) => (mostrar(x), [x]),
+  },
+  'una oculta que se soltó a mano y volvió a tomar el suyo al verse': {
+    antes  : () => superficie('x', { z: 60, oculta: true }),
+    despues: ({ x }) => {
+      x.release()
+      mostrar(x)
+      cuadro()
+      return [x]
+    },
   },
 }
 
-test('sin presión, el aviso de una necesaria que no viene de entre las prescindibles no toca el orden, aunque una alta de menor z haya nacido después', () => {
-  for (const [caso, preparar] of Object.entries(sinAcomodar)) {
-    nuevoNavegador({ techo: 8 })
+test('sin presión, el aviso de una necesaria que no viene de entre las prescindibles no toca el orden, aunque la cabeza del desalojo no sea la de menor z', () => {
+  for (const [caso, { antes, despues }] of Object.entries(sinAcomodar)) {
+    nuevoNavegador({ techo: 10 })
     const a = superficie('a', { z: 30 })
     const h = superficie('oculta', { z: 50, oculta: true })
-    ocio()                                              // una alta que no se ve: a renueva, y la oculta queda prescindible
-    const avisan = preparar(a, h)
-    ocio()
-    const b = superficie('b', { z: 10 })                // se ve: nace como la más joven, detrás de las demás
-    const flushes = [...avisan, b].map(s => mock.method(s.gl, 'flush'))
+    const x = antes?.()
+    ocio()                                              // altas que no se ven: renueva, y h queda la más vieja
+    const avisan = despues({ a, x })
+    h.nodo.style.visibility = ''                        // se ve sin aviso: la cabeza es una necesaria de más z que a
+    const flushes = [a, h, ...avisan].map(s => mock.method(s.gl, 'flush'))
     avisan.forEach(s => s.need())
-    b.need()
     ocio()
     assert.deepEqual(flushes.map(f => f.mock.callCount()), flushes.map(() => 0), caso)
+    assert.equal(primeraVictima(10, ...vivas), 'oculta', caso)
     vivas.splice(0).forEach(s => s.destroy())
   }
+})
+
+test('sin presión, acomodar la cabeza vacía la cola de las necesarias que tiene delante y para en la primera prescindible, sin vaciar la suya', () => {
+  nuevoNavegador({ techo: 10 })
+  const a = superficie('a', { z: 10 })
+  const h = superficie('oculta', { z: 50, oculta: true })
+  const d = superficie('d', { z: 30, contenido: false })
+  const e = superficie('e', { z: 20, contenido: false })
+  for (let i = 0; i < 3; i++) ocio()                    // h al alta; d y e en ratos ociosos: la escalera es h, d, e
+  h.nodo.style.visibility = ''                          // h se ve sin aviso
+  const flushes = [a, h, d, e].map(s => mock.method(s.gl, 'flush'))
+  d.owner.hasContent = true
+  d.need()                                              // e, prescindible, es más joven: d vacía la suya; la cabeza es h
+  assert.deepEqual(flushes.map(f => f.mock.callCount()), [0, 1, 1, 0], 'h la vacía, y e se queda como estaba')
+  assert.equal(primeraVictima(10, a, h, d, e), 'e')
+})
+
+test('sin presión, acomodar la cabeza no salta a las de la escalera que ya vaciaron su cola', () => {
+  nuevoNavegador({ techo: 10 })
+  const a = superficie('a', { z: 10 })
+  const x = superficie('x', { z: 30, contenido: false })
+  const y = superficie('y', { z: 20, contenido: false })
+  for (let i = 0; i < 3; i++) ocio()                    // la escalera: x, y
+  const flushes = [a, x, y].map(s => mock.method(s.gl, 'flush'))
+  x.owner.hasContent = y.owner.hasContent = true
+  x.need()                                              // y es más joven: x vacía la suya
+  y.need()                                              // la cabeza es y, y la de menor z es a: y vacía la suya
+  assert.deepEqual(flushes.map(f => f.mock.callCount()), [0, 1, 1])
+  assert.equal(primeraVictima(10, a, x, y), 'a')
+})
+
+test('sin presión, si la de menor z es una de la escalera que ya vació su cola, se acomoda con el registro entero', () => {
+  nuevoNavegador({ techo: 10 })
+  const a = superficie('a', { z: 20 })
+  const q = superficie('q', { z: 30, oculta: true })
+  const p = superficie('p', { z: 5, oculta: true })
+  const r = superficie('r', { z: 40, contenido: false })
+  for (let i = 0; i < 3; i++) ocio()                    // la escalera: q, p, r
+  mostrar(p)                                            // r es más joven: p vacía la suya, y queda detrás de a
+  r.owner.hasContent = true
+  r.need()
+  q.nodo.style.visibility = ''
+  mostrar(r)                                            // nada: r ya se acomodó
+  const flushes = [a, q, p, r].map(s => mock.method(s.gl, 'flush'))
+  q.nodo.style.visibility = 'hidden'
+  mostrar(q)                                            // la cabeza es q y la de menor z es p, que ya vació: hasta a
+  assert.deepEqual(flushes.map(f => f.mock.callCount()), [1, 1, 0, 1])
+  assert.equal(primeraVictima(10, a, q, p, r), 'p')
+})
+
+test('sin presión, acomodar la cabeza deja fuera a una alta de menor z: llega hasta la necesaria de menor z de la renovación', () => {
+  nuevoNavegador({ techo: 10 })
+  const a = superficie('a', { z: 30 })
+  const h = superficie('oculta', { z: 50, oculta: true })
+  const e = superficie('e', { z: 40, contenido: false })
+  for (let i = 0; i < 2; i++) ocio()                    // la escalera: h, e
+  h.nodo.style.visibility = ''
+  const b = superficie('b', { z: 10 })                  // se ve: nace como la más joven
+  const flushes = [a, h, e, b].map(s => mock.method(s.gl, 'flush'))
+  e.owner.hasContent = true
+  e.need()
+  assert.deepEqual(flushes.map(f => f.mock.callCount()), [0, 1, 1, 0])
+  assert.equal(primeraVictima(10, a, h, e, b), 'a')
+})
+
+test('S6 con dos necesarias: la de menor z de la renovación es la que queda primera, no la otra', () => {
+  nuevoNavegador({ techo: 4 })
+  const a = superficie('a', { z: 10 })
+  const c = superficie('c', { z: 40 })
+  const b = superficie('b', { z: 30, contenido: false })
+  ocio()
+  b.owner.hasContent = true
+  b.need()
+  assert.equal(primeraVictima(4, a, b, c), 'a')
+})
+
+test('a igual z se recupera primero la dada de alta después, aunque avise antes', () => {
+  nuevoNavegador({ techo: 10 })
+  const [a, b, c] = ['a', 'b', 'c'].map(n => superficie(n, { z: 10 }))
+  ;[a, b, c].forEach(s => s.release())
+  assert.equal(c.need(), true, 'la primera toma por aviso es en la tarea')
+  assert.equal(b.need(), false)
+  assert.equal(a.need(), false)
+  cuadro()
+  assert.deepEqual(estados(a, b), ['released', 'live'])
 })
 
 test('sin presión, la que pasa a necesaria no queda detrás de una prescindible que la renovación dejó vieja: una ráfaga de ajenos se lleva antes a las dos prescindibles', () => {

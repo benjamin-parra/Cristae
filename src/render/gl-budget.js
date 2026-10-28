@@ -31,8 +31,10 @@
 //     costaría uno por cada necesaria de más z. Antes de la presión sólo se cuida la primera en caer: cuando una que una
 //     renovación dejó entre las prescindibles pasa a necesaria, vacía su cola si alguna de esas prescindibles es más
 //     joven que ella, y, si ya no queda ninguna delante, vacían la suya las necesarias que están delante de la de menor
-//     z. Una alta que se ve nace como la más joven, aunque tenga menos z. Por evento, nunca por cuadro. El `flush` del
-//     pick asíncrono (`Picking`) también renueva, y la política no lo ve.
+//     z, con la z que leyó esa renovación. Una alta que se ve nace como la más joven, aunque tenga menos z. Por evento,
+//     nunca por cuadro, y sin leer el DOM de las que no estaban entre las prescindibles: leer la z de un pane cuesta
+//     ≈ 1,5 µs en Chromium, y la visibilidad ≈ 0,4 µs. El `flush` del pick asíncrono (`Picking`) también renueva, y la
+//     política no lo ve.
 //   · El registro no retiene a nadie: una superficie que nadie destruye se recolecta, y la de un documento sin ventana
 //     (un popup que se cerró sin desmontar su mapa) no es necesaria.
 
@@ -40,7 +42,7 @@ const IDLE_MS   = 1000              // tope de espera de una ranura ociosa
 const MOTION_MS = 10_000            // un gesto sin su fin deja de contar: un `moveend` perdido no frena la recuperación
 const RETRIES   = [5000, 30_000]    // los reintentos de una saturación, además de las señales de cupo
 
-const members = new WeakMap()       // superficie → { order, ref, used, aged }: el orden de alta desempata la prioridad
+const members = new WeakMap()       // superficie → { order, ref, used, aged, z }: el orden de alta desempata la prioridad
 const roster  = new Set()           // la WeakRef de cada dada de alta: lo que se recorre
 const wanted  = new Set()           // necesarias sin contexto que la política toma, de a una por cuadro
 const idle    = new Set()           // vacías al construirse, que se toman en un momento ocioso
@@ -54,6 +56,9 @@ let blamed     = new WeakMap()      // propia desalojada en el acto por una adqu
 let joined     = new WeakSet()      // las que tomaron el suyo por su cuenta desde el último rato ocioso, sin presión
 let order      = 0
 let clock      = 0                  // el último flush que la política conoce: la creación de un contexto o un flush suyo
+let renewed    = 0                  // el reloj al empezar la última renovación
+let ladder     = []                 // la WeakRef de las que esa renovación dejó entre las prescindibles, de la más vieja a la más joven
+let floor      = null               // la WeakRef de la necesaria de menor z en esa renovación: la primera que vació su cola
 let frame      = 0
 let idleId     = 0
 let retryId    = 0
@@ -73,10 +78,28 @@ let pressed    = false              // el realm ya perdió un contexto propio: d
 
 const now = () => performance.now()
 
-// La prioridad es la z del pane y, a igual z, la dada de alta después, que en un pane compartido queda encima.
-const below   = (a, b) => a.z < b.z || (a.z === b.z && members.get(a).order < members.get(b).order)
-const lowest  = list => list.reduce((m, s) => !m || below(s, m) ? s : m, null)
-const highest = list => list.reduce((m, s) => !m || below(m, s) ? s : m, null)
+// La prioridad es la z del pane y, a igual z, la dada de alta después, que en un pane compartido queda encima. La z se lee
+// del estilo del pane (≈ 1,5 µs en Chromium): una vez por superficie, no por comparación.
+const extreme = (list, sign) => {
+  let m  = null
+  let mz = 0
+  for (const s of list) {
+    const z = s.z
+    if (!m || sign * (z - mz) > 0 || (z === mz && sign * (members.get(s).order - members.get(m).order) > 0)) {
+      m  = s
+      mz = z
+    }
+  }
+  return m
+}
+const lowest  = list => extreme(list, -1)
+const highest = list => extreme(list, 1)
+// Si `a` cae antes que `b`, con la z que leyó la última renovación: sin cruzar al DOM.
+const beneath = (a, b) => {
+  const x = members.get(a)
+  const y = members.get(b)
+  return x.z < y.z || (x.z === y.z && x.order < y.order)
+}
 const oldest  = list => list.reduce((m, s) => !m || members.get(s).used < members.get(m).used ? s : m, null)
 
 // Las dadas de alta que siguen en memoria; la que el GC ya se llevó sale del registro.
@@ -112,6 +135,9 @@ const askIdle  = () => idleId ||= globalThis.requestIdleCallback
   ? requestIdleCallback(rest, { timeout: IDLE_MS })
   : setTimeout(rest, 0)
 
+// Viva y sin vaciar su cola desde la última renovación: más vieja que todo lo que no está en la escalera.
+const old = s => s?.state === 'live' && members.get(s).used <= renewed
+
 // `s` vacía su cola: pasa a ser la de flush más reciente, la última en caer.
 const use = s => {
   s.gl.flush()
@@ -121,10 +147,18 @@ const use = s => {
 // Cada necesaria viva vacía su cola, por z ascendente: la última en hacerlo es la última en caer. Las prescindibles quedan
 // más viejas, y se anotan: la que pase a necesaria sin presión se acomoda (`place`).
 const renew = () => {
-  fresh = new WeakSet()
+  fresh   = new WeakSet()
+  renewed = clock
   const vivas = live()
-  vivas.forEach(s => members.get(s).aged = !s.needed)
-  vivas.filter(s => s.needed).sort((a, b) => below(a, b) ? -1 : 1).forEach(s => {
+  vivas.forEach(s => {
+    const m = members.get(s)
+    m.aged = !s.needed
+    m.z    = s.z
+  })
+  ladder = vivas.filter(s => !s.needed).sort((a, b) => members.get(a).used - members.get(b).used).map(s => members.get(s).ref)
+  const necesarias = vivas.filter(s => s.needed).sort((a, b) => beneath(a, b) ? -1 : 1)
+  floor = necesarias.length ? members.get(necesarias[0]).ref : null
+  necesarias.forEach(s => {
     use(s)
     fresh.add(s)
   })
@@ -133,14 +167,34 @@ const renew = () => {
 // Sin presión, `s` —una que la última renovación dejó entre las prescindibles— pasa a necesaria. Se cuida lo que decide la
 // primera pérdida: que ninguna necesaria caiga antes que esas prescindibles —si una es más joven que `s`, `s` vacía su
 // cola— y que, sin ellas delante, la primera en caer sea la necesaria de menor z: vacían la suya, de la más vieja en
-// adelante, las que tiene delante. El resto del orden entre necesarias lo rehace la primera presión.
+// adelante, las que tiene delante. El resto del orden entre necesarias lo rehace la primera presión. Sólo se mira la
+// escalera de la renovación —todo lo demás es más joven—, y el registro entero sólo si la cabeza es una necesaria.
 const place = s => {
-  const m     = members.get(s)
-  const vivas = live()
+  const m = members.get(s)
   m.aged = false
-  vivas.some(v => !v.needed && members.get(v).aged && members.get(v).used > m.used) && use(s)
-  const menor = lowest(vivas.filter(v => v.needed))
-  for (let cabeza = oldest(vivas); cabeza.needed && cabeza !== menor; cabeza = oldest(vivas)) use(cabeza)
+  ladder.some(ref => {                  // de lo barato a lo que cruza al DOM: la fecha, el contexto, si se ve
+    const v = ref.deref()
+    return members.get(v)?.used > m.used && old(v) && !v.needed
+  }) && use(s)
+  if (!ladder.find(ref => old(ref.deref()))?.deref().needed) return   // la cabeza es una prescindible, o no queda escalera
+  // Las necesarias son las de la renovación —la de menor z va primero— más las de la escalera que pasaron a necesarias,
+  // con la z que leyó la renovación. Si aquélla ya no es necesaria, o la de menor z es una de la escalera que ya vació
+  // su cola, se mira el registro entero.
+  const base  = floor?.deref()
+  const menor = base?.state === 'live' && base.needed && ladder.reduce((baja, ref) => {
+    const v = ref.deref()
+    return v?.state === 'live' && v.needed && beneath(v, baja) ? v : baja
+  }, base)
+  for (const ref of menor ? ladder : []) {
+    const v = ref.deref()
+    if (!old(v)) continue
+    if (!v.needed || v === menor) return
+    use(v)
+  }
+  if (menor === base) return
+  const vivas = live()
+  const abajo = lowest(vivas.filter(v => v.needed))
+  for (let cabeza = oldest(vivas); cabeza.needed && cabeza !== abajo; cabeza = oldest(vivas)) use(cabeza)
 }
 
 // El orden se rehace en el próximo rato ocioso, una vez por tanda de avisos.
@@ -279,7 +333,7 @@ export const glBudget = {
 
   register(s) {
     const ref = new WeakRef(s)
-    members.set(s, { order: order++, ref, used: 0, aged: false })
+    members.set(s, { order: order++, ref, used: 0, aged: false, z: 0 })
     roster.add(ref)
   },
 
