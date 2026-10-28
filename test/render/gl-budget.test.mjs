@@ -861,6 +861,170 @@ test('S6 con dos necesarias: la de menor z de la renovación es la que queda pri
   assert.equal(primeraVictima(4, a, b, c), 'a')
 })
 
+// F1 de la revisión 2D-1: la vacía que todavía no tomó su contexto lo toma con su primer dato y nace como la más joven.
+test('F1: sin presión, una vacía de z bajo que toma su primer contexto con su dato cae antes que las necesarias de más z', () => {
+  nuevoNavegador({ techo: 5 })
+  const s0 = superficie('s0', { z: 40 })
+  const s1 = superficie('s1', { z: 30, contenido: false })
+  const s2 = superficie('s2', { z: 20, contenido: false })
+  ocio()                                                // toma s1, la de mayor z; s2 sigue sin contexto
+  assert.deepEqual(estados(s1, s2), ['live', 'none'])
+  s1.owner.hasContent = s2.owner.hasContent = true
+  s1.need()
+  assert.equal(s2.need(), true)
+  assert.equal(primeraVictima(5, s0, s1, s2), 's2')
+})
+
+test('F1 sin renovación: la primera toma por aviso de una de z bajo, antes de cualquier rato ocioso, la deja primera en caer', () => {
+  nuevoNavegador({ techo: 3 })
+  const a = superficie('a', { z: 40 })
+  const b = superficie('b', { z: 20, contenido: false })
+  b.owner.hasContent = true
+  assert.equal(b.need(), true)
+  assert.equal(primeraVictima(3, a, b), 'b')
+})
+
+test('F1: la primera toma por aviso de una de z alto, o con una prescindible delante, no vacía ninguna cola', () => {
+  nuevoNavegador({ techo: 6 })
+  const a = superficie('a', { z: 20 })
+  const h = superficie('oculta', { z: 50, oculta: true })
+  ocio()                                                // h no se ve: renueva, y queda la más vieja
+  const flushes = [a, h].map(s => mock.method(s.gl, 'flush'))
+  const baja = superficie('baja', { z: 10, contenido: false })
+  baja.owner.hasContent = true
+  baja.need()                                           // la cabeza es h, prescindible: es la que cae
+  const alta = superficie('alta', { z: 30, contenido: false })
+  alta.owner.hasContent = true
+  alta.need()
+  assert.deepEqual(flushes.map(f => f.mock.callCount()), [0, 0])
+  assert.equal(primeraVictima(6, a, h, baja, alta), 'oculta')
+})
+
+// Sondas de la revisión 2D-1, acotadas: desempate a igual z tras una renovación (R03), cabeza de la escalera soltada a
+// mano (R07) y base oculta tras la renovación con la cabeza necesaria (R17).
+
+test('a igual z, tras una renovación, cae primero la dada de alta antes', () => {
+  for (const poblar of [false, true]) {
+    nuevoNavegador({ techo: 6 })
+    const a = superficie('a', { z: 10 })
+    const b = superficie('b', { z: 10 })
+    const c = superficie('c', { z: 20, contenido: false })
+    ocio()
+    ocio()
+    c.owner.hasContent = poblar
+    poblar && c.need()
+    assert.equal(primeraVictima(6, a, b, c), poblar ? 'a' : 'c')
+    vivas.splice(0).forEach(s => s.destroy())
+  }
+})
+
+test('sin presión, si la cabeza de la escalera se soltó a mano, la cabeza es la siguiente: una necesaria que vacía su cola hasta la de menor z', () => {
+  nuevoNavegador({ techo: 10 })
+  const a = superficie('a', { z: 10 })
+  const r = superficie('r', { z: 60, oculta: true })
+  const h = superficie('h', { z: 50, oculta: true })
+  const e = superficie('e', { z: 40, contenido: false })
+  for (let i = 0; i < 3; i++) ocio()
+  r.release()
+  h.nodo.style.visibility = ''                          // se ve sin aviso
+  e.owner.hasContent = true
+  e.need()
+  assert.equal(primeraVictima(10, a, h, e), 'a')
+})
+
+test('sin presión, si la base se ocultó tras la renovación, el registro entero no vacía la cola de la prescindible: sigue primera en caer', () => {
+  nuevoNavegador({ techo: 10 })
+  const a = superficie('a', { z: 10 })
+  const b = superficie('b', { z: 30 })
+  const h = superficie('h', { z: 50, oculta: true })
+  const e = superficie('e', { z: 40, contenido: false })
+  for (let i = 0; i < 3; i++) ocio()
+  a.nodo.style.visibility = 'hidden'
+  h.nodo.style.visibility = ''
+  e.owner.hasContent = true
+  e.need()
+  assert.equal(primeraVictima(10, a, b, h, e), 'a')
+})
+
+// La regla, paso a paso, en mapas al azar: entre las propias vivas, si hay una prescindible cae una; si no, la necesaria
+// de menor z y, a igual z, la dada de alta antes. La víctima se lee del navegador falso (el contexto vivo de flush más
+// viejo) después de cada aviso, no sólo al final.
+const azar        = semilla => n => Math.floor((semilla = (semilla * 1664525 + 1013904223) >>> 0) / 2 ** 32 * n)
+const cabezaFalsa = ss => ss.filter(s => s.state === 'live').map(s => [contextoDe(s), s])
+  .reduce((v, [c, s]) => !v || c.ultimoUso < v[0].ultimoUso ? [c, s] : v, null)?.[1]
+const cumple      = ss => {
+  const vivasYa = ss.filter(s => s.state === 'live')
+  const cabeza  = cabezaFalsa(ss)
+  if (vivasYa.some(s => !s.needed)) return !cabeza.needed
+  return vivasYa.every(s => s === cabeza || s.z > cabeza.z || (s.z === cabeza.z && s.alta > cabeza.alta))
+}
+
+test('la regla por z, paso a paso, en 300 mapas al azar: con las vacías tomadas antes de poblarse o tomando su primer contexto con su dato', () => {
+  const fallos = []
+  for (const tomadas of [true, false]) {
+    for (let semilla = 1; semilla <= 150; semilla++) {
+      const pick = azar(semilla)
+      const n    = 3 + pick(4)
+      nuevoNavegador({ techo: n + 2 })
+      const ss = []
+      for (let i = 0; i < n; i++) {
+        const tipo = pick(10) < 5 ? 'vacía' : pick(10) < 7 ? 'oculta' : 'llena'
+        const z    = 10 * (1 + pick(5))
+        const s    = superficie(`s${i} z${z} ${tipo}`, { z, contenido: tipo !== 'vacía', oculta: tipo === 'oculta' })
+        ss.push(Object.assign(s, { tipo, alta: i }))
+      }
+      for (let i = 0; i < (tomadas ? n : 1); i++) ocio()
+      const pendientes = ss.filter(s => s.tipo !== 'llena')
+      const pasos      = []
+      while (pendientes.length && !fallos.length) {
+        pick(3) || (ocio(), pasos.push('ocio'))
+        const s = pendientes.splice(pick(pendientes.length), 1)[0]
+        s.tipo === 'vacía' ? s.owner.hasContent = true : s.nodo.style.visibility = ''
+        pasos.push(`${s.nombre} (${s.state})`)
+        s.need()
+        cumple(ss) || fallos.push({ tomadas, semilla, pasos, cae: cabezaFalsa(ss).nombre })
+        pick(4) || (ocio(), pasos.push('ocio'))
+      }
+      vivas.splice(0).forEach(s => s.destroy())
+    }
+  }
+  assert.deepEqual(fallos, [], JSON.stringify(fallos))
+})
+
+test('la regla por z con altas a mitad de camino y varias renovaciones, en 80 mapas al azar', () => {
+  const fallos = []
+  for (let semilla = 1; semilla <= 80 && !fallos.length; semilla++) {
+    const pick       = azar(semilla * 31 + 5)
+    nuevoNavegador({ techo: 14 })
+    const ss         = []
+    const pendientes = []
+    const alta       = (tipo = pick(2) ? 'vacía' : 'oculta') => {
+      const z = 10 * (1 + pick(6))
+      const s = superficie(`s${ss.length} z${z} ${tipo}`, { z, contenido: tipo !== 'vacía', oculta: tipo === 'oculta' })
+      ss.push(Object.assign(s, { tipo, alta: ss.length }))
+      tipo === 'llena' || pendientes.push(s)
+    }
+    for (let i = 2 + pick(3); i > 0; i--) alta('llena')
+    alta()
+    for (let paso = 0; paso < 12 && (pendientes.length || paso < 3); paso++) {
+      if (!pick(3) && ss.length < 9) {
+        alta()
+        continue
+      }
+      for (let i = 0; i <= ss.length; i++) ocio()
+      const listas = pendientes.filter(s => s.state === 'live')
+      if (!listas.length) continue
+      const s = listas[pick(listas.length)]
+      pendientes.splice(pendientes.indexOf(s), 1)
+      s.tipo === 'vacía' ? s.owner.hasContent = true : s.nodo.style.visibility = ''
+      s.need()
+      ss.some(x => x.state === 'none') || cumple(ss) || fallos.push({ semilla, paso, cae: cabezaFalsa(ss).nombre })
+    }
+    vivas.splice(0).forEach(s => s.destroy())
+  }
+  assert.deepEqual(fallos, [], JSON.stringify(fallos))
+})
+
 test('a igual z se recupera primero la dada de alta después, aunque avise antes', () => {
   nuevoNavegador({ techo: 10 })
   const [a, b, c] = ['a', 'b', 'c'].map(n => superficie(n, { z: 10 }))

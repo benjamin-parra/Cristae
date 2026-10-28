@@ -31,8 +31,10 @@
 //     costaría uno por cada necesaria de más z. Antes de la presión sólo se cuida la primera en caer: cuando una que una
 //     renovación dejó entre las prescindibles pasa a necesaria, vacía su cola si alguna de esas prescindibles es más
 //     joven que ella, y, si ya no queda ninguna delante, vacían la suya las necesarias que están delante de la de menor
-//     z, con la z que leyó esa renovación. Una alta que se ve nace como la más joven, aunque tenga menos z. Por evento,
-//     nunca por cuadro, y sin leer el DOM de las que no estaban entre las prescindibles: leer la z de un pane cuesta
+//     z, con la z que leyó esa renovación. Una necesaria que la política toma —con su primer dato, o al verse— nace como
+//     la más joven y entra en esa cuenta con la z de su pane: si la cabeza es una necesaria, vacían la suya las que están
+//     delante de la de menor z. Una alta que se ve, en cambio, nace como la más joven aunque tenga menos z. Por evento,
+//     nunca por cuadro, y el DOM de todo el registro sólo cuando la cabeza es una necesaria: leer la z de un pane cuesta
 //     ≈ 1,5 µs en Chromium, y la visibilidad ≈ 0,4 µs. El `flush` del pick asíncrono (`Picking`) también renueva, y la
 //     política no lo ve.
 //   · El registro no retiene a nadie: una superficie que nadie destruye se recolecta, y la de un documento sin ventana
@@ -59,6 +61,7 @@ let clock      = 0                  // el último flush que la política conoce:
 let renewed    = 0                  // el reloj al empezar la última renovación
 let ladder     = []                 // la WeakRef de las que esa renovación dejó entre las prescindibles, de la más vieja a la más joven
 let floor      = null               // la WeakRef de la necesaria de menor z en esa renovación: la primera que vació su cola
+let late       = []                 // la WeakRef de las que la política tomó necesarias después de esa renovación, sin presión
 let frame      = 0
 let idleId     = 0
 let retryId    = 0
@@ -149,6 +152,7 @@ const use = s => {
 const renew = () => {
   fresh   = new WeakSet()
   renewed = clock
+  late    = []
   const vivas = live()
   vivas.forEach(s => {
     const m = members.get(s)
@@ -164,6 +168,14 @@ const renew = () => {
   })
 }
 
+// La de menor z entre `baja` y las necesarias vivas de `refs`, con la z que leyó la renovación; `leer` la toma del pane.
+const lower = (refs, baja, leer) => refs.reduce((b, ref) => {
+  const v = ref.deref()
+  if (v?.state !== 'live' || !v.needed) return b
+  leer && (members.get(v).z = v.z)
+  return beneath(v, b) ? v : b
+}, baja)
+
 // Sin presión, `s` —una que la última renovación dejó entre las prescindibles— pasa a necesaria. Se cuida lo que decide la
 // primera pérdida: que ninguna necesaria caiga antes que esas prescindibles —si una es más joven que `s`, `s` vacía su
 // cola— y que, sin ellas delante, la primera en caer sea la necesaria de menor z: vacían la suya, de la más vieja en
@@ -177,24 +189,28 @@ const place = s => {
     return members.get(v)?.used > m.used && old(v) && !v.needed
   }) && use(s)
   if (!ladder.find(ref => old(ref.deref()))?.deref().needed) return   // la cabeza es una prescindible, o no queda escalera
-  // Las necesarias son las de la renovación —la de menor z va primero— más las de la escalera que pasaron a necesarias,
-  // con la z que leyó la renovación. Si aquélla ya no es necesaria, o la de menor z es una de la escalera que ya vació
-  // su cola, se mira el registro entero.
+  // Las necesarias son las de la renovación —la de menor z va primero—, las de la escalera que pasaron a necesarias,
+  // con la z que leyó la renovación, y las que la política tomó necesarias después, con la de su pane. Si aquélla ya no
+  // es necesaria, o la de menor z ya vació su cola o es una de las tomadas después, se mira el registro entero.
   const base  = floor?.deref()
-  const menor = base?.state === 'live' && base.needed && ladder.reduce((baja, ref) => {
-    const v = ref.deref()
-    return v?.state === 'live' && v.needed && beneath(v, baja) ? v : baja
-  }, base)
+  const menor = base?.state === 'live' && base.needed && lower(late, lower(ladder, base), true)
   for (const ref of menor ? ladder : []) {
     const v = ref.deref()
     if (!old(v)) continue
     if (!v.needed || v === menor) return
     use(v)
   }
-  if (menor === base) return
+  menor === base || lead()
+}
+
+// Con el registro entero: si la cabeza del desalojo es una necesaria, vacían su cola, de la más vieja en adelante, las
+// necesarias que están delante de la de menor z. Para en la primera prescindible.
+const lead = () => {
   const vivas = live()
+  let cabeza  = oldest(vivas)
+  if (!cabeza?.needed) return
   const abajo = lowest(vivas.filter(v => v.needed))
-  for (let cabeza = oldest(vivas); cabeza.needed && cabeza !== abajo; cabeza = oldest(vivas)) use(cabeza)
+  for (; cabeza.needed && cabeza !== abajo; cabeza = oldest(vivas)) use(cabeza)
 }
 
 // El orden se rehace en el próximo rato ocioso, una vez por tanda de avisos.
@@ -214,9 +230,9 @@ const drop = s => {
 }
 
 // El efecto: toma el contexto de `s`, anota a qué propia desalojó en el acto —la de `flush` más viejo, cuyo aviso llega
-// en otra tarea— y renueva el orden de desalojo si hace falta: desde la primera presión, siempre; antes, sólo si la
-// tomada no se ve con contenido, que si no nace como la más joven y es necesaria. Si ya lo había tenido, es una vuelta:
-// entra en la tanda.
+// en otra tarea— y renueva el orden de desalojo si hace falta: desde la primera presión, siempre; antes, si la tomada
+// no se ve con contenido. Si se ve, nace como la más joven y es necesaria: se acomoda la primera en caer (`lead`). Si
+// ya lo había tenido, es una vuelta: entra en la tanda.
 const take = s => {
   const antes  = unprocessed()
   const previa = pumping
@@ -237,7 +253,11 @@ const take = s => {
     episodic = true
   }
   unprocessed().forEach(v => antes.includes(v) || blamed.set(v, s))
-  ;(pressed || !s.needed) && renew()
+  if (pressed || !s.needed) renew()
+  else {
+    late.push(members.get(s).ref)
+    lead()
+  }
   return true
 }
 
