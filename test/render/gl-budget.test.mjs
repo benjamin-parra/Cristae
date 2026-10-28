@@ -900,6 +900,57 @@ test('F1: la primera toma por aviso de una de z alto, o con una prescindible del
   assert.equal(primeraVictima(6, a, h, baja, alta), 'oculta')
 })
 
+// Leer la z de un pane cuesta ≈ 1,5 µs en Chromium: cuenta las lecturas del pane de cada una de `ss`.
+const lecturasDeZ = (...ss) => ss.map(s => {
+  const cuenta = { n: 0 }
+  let z        = s.nodo.style.zIndex
+  Object.defineProperty(s.nodo.style, 'zIndex', { get: () => (cuenta.n++, z), set: v => z = v, configurable: true })
+  return cuenta
+})
+
+test('sin presión, acomodar la primera en caer no lee la z de las que no hace falta comparar', () => {
+  nuevoNavegador({ techo: 8 })
+  const a = superficie('a', { z: 20 })
+  const h = superficie('oculta', { z: 50, oculta: true })
+  ocio()
+  let lecturas = lecturasDeZ(a, h)
+  const baja   = superficie('baja', { z: 10, contenido: false })
+  baja.owner.hasContent = true
+  baja.need()                                           // la cabeza es h, prescindible: no compara nada
+  assert.deepEqual(lecturas.map(c => c.n), [0, 0], 'la primera toma con una prescindible delante')
+  vivas.splice(0).forEach(s => s.destroy())
+
+  const n = superficie('n', { z: 10 })
+  const c = superficie('c', { z: 40 })
+  const b = superficie('b', { z: 30, contenido: false })
+  ocio()                                                // la escalera es b; la de menor z, n
+  const tarde = superficie('tarde', { z: 60, contenido: false })
+  tarde.owner.hasContent = true
+  tarde.need()                                          // se toma necesaria después de la renovación, con b delante
+  lecturas = lecturasDeZ(n, c, b)
+  b.owner.hasContent = true
+  b.need()                                              // la de menor z sigue siendo n: no se mira el registro entero
+  assert.deepEqual(lecturas.map(l => l.n), [0, 0, 0], 'acomodar con la z de la renovación y la de la tomada después')
+  assert.equal(primeraVictima(8, n, c, b, tarde), 'n')
+  vivas.splice(0).forEach(s => s.destroy())
+
+  const m = superficie('m', { z: 10 })
+  const x = superficie('x', { z: 40, contenido: false })
+  ocio()                                                // la escalera es x
+  const oculta = superficie('después', { z: 60, contenido: false })
+  oculta.owner.hasContent = true
+  oculta.need()
+  oculta.nodo.style.visibility = 'hidden'               // tomada necesaria y oculta después, sin aviso
+  const p = superficie('p', { z: 50, oculta: true })    // alta que no se ve, más joven que m
+  lecturas = lecturasDeZ(oculta, p)
+  x.owner.hasContent = true
+  x.need()                                              // la cabeza es x, necesaria: no compara a las prescindibles
+  const debajo = superficie('debajo', { z: 5, contenido: false })
+  debajo.owner.hasContent = true
+  debajo.need()                                         // la cabeza es m, necesaria: el registro entero, sin ellas
+  assert.deepEqual(lecturas.map(l => l.n), [0, 0], 'las prescindibles no entran en la cuenta de la menor z')
+})
+
 // Sondas de la revisión 2D-1, acotadas: desempate a igual z tras una renovación (R03), cabeza de la escalera soltada a
 // mano (R07) y base oculta tras la renovación con la cabeza necesaria (R17).
 
