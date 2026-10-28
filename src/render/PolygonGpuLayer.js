@@ -370,8 +370,8 @@ export class PolygonGpuLayer {
 
   // Oculta o sin contexto no dibuja. Al volver a tenerlo, `buildGl` pinta en el acto.
   redraw() {
-    if (!this.#visible || !this.#gl) return false
     const gl = this.#gl
+    if (!gl || !this.#visible) return false
     this.#surface.resetCanvasReference()
     gl.clearColor(0, 0, 0, 0)
     gl.clear(gl.COLOR_BUFFER_BIT | gl.STENCIL_BUFFER_BIT)

@@ -282,12 +282,15 @@ export class PointLayer {
 
   // Reasienta el canvas a la vista viva y la dibuja en el acto; el motor la invoca en move/moveend/zoomend.
   // Un cambio de escala (la ventana pasó a otro monitor) re-codifica los tamaños, que van en px del buffer.
+  // Corre por capa en cada `invalidateCanvas` y cada reencuadre: el contexto se lee una vez y se pasa, que cada
+  // campo privado leído es un acceso a un WeakMap en el bundle (target es2020).
   resetCanvasReference() {
     this.#injected = false
-    if (!this.#gl) return
+    const gl = this.#gl
+    if (!gl) return
     this.#surface.resetCanvasReference()
-    this.#rescale() && this.refresh()
-    this.#draw(readView(this.#camera, this.#view))
+    const view = readView(this.#camera, this.#view)
+    this.#rescale(gl) ? (this.refresh(), this.#draw(view)) : this.#draw(view, gl)
   }
 
   // Reproyección por-frame a una vista (zoom, center) ARBITRARIA — el corazón del zoom ANIMADO. Los
@@ -296,7 +299,8 @@ export class PointLayer {
   // frame). La vista va INYECTADA en vez de la de la cámara, que durante la animación sigue en el zoom de
   // partida. El motor la llama por frame, interpolando (zoom, center) con el easing del tile.
   renderAtView(zoom, center) {
-    if (!this.#gl) return
+    const gl = this.#gl
+    if (!gl) return
     const view = this.#view
     const size = this.#camera.size()
     view.zoom     = zoom
@@ -306,7 +310,7 @@ export class PointLayer {
     view.size.y   = size.y
 
     this.#injected = true
-    this.#draw(view)
+    this.#draw(view, gl)
   }
 
   // Un repintado agendado durante el zoom animado (un flush de la Source, un foco) dibuja el cuadro que
@@ -318,13 +322,12 @@ export class PointLayer {
 
   // El orden por banda limpia y prueba profundidad en cada draw: el pase de picking la apaga al salir.
   // Devuelve si dibujó: oculta, o sin contexto, no, y el canvas queda anotado como atrasado. Un contexto que el
-  // navegador ya quitó y todavía no avisó ignora el dibujo.
-  #draw(view) {
-    if (!this.#visible || !this.#gl) {
+  // navegador ya quitó y todavía no avisó ignora el dibujo. `gl` es el de la capa, ya leído por quien lo tiene.
+  #draw(view, gl = this.#gl) {
+    if (!gl || !this.#visible) {
       this.#stale = true
       return false
     }
-    const gl = this.#gl
     this.#binding.sync(this.#iconSet.atlas)
     gl.useProgram(this.#program)
     gl.uniformMatrix4fv(this.#uMatrix, false, anchorMatrix(this.#matrix, this.#ax, this.#ay, view.zoom, view.center, view.size))
@@ -343,9 +346,8 @@ export class PointLayer {
   // layout, y esto corre por cuadro de paneo. Un buffer sin ancho —el de un contexto perdido, o el de un
   // contenedor oculto— no tiene escala observable: rige la última medida, y los tamaños que ya están en el
   // espejo no se recodifican. Devuelve si la escala cambió.
-  #rescale() {
-    const gl = this.#gl
-    const w  = gl.drawingBufferWidth
+  #rescale(gl = this.#gl) {
+    const w = gl.drawingBufferWidth
     if (!w || w === this.#scaledAt) return false
     this.#scaledAt = w
     const scale = pixelScaleOf(gl)
