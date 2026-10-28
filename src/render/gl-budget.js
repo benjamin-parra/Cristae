@@ -148,7 +148,7 @@ const use = s => {
 }
 
 // Cada necesaria viva vacía su cola, por z ascendente: la última en hacerlo es la última en caer. Las prescindibles quedan
-// más viejas, y se anotan: la que pase a necesaria sin presión se acomoda (`place`).
+// más viejas, y se anotan: la que pase a necesaria sin presión se acomoda (en `need`).
 const renew = () => {
   fresh   = new WeakSet()
   renewed = clock
@@ -176,22 +176,11 @@ const lower = (refs, baja, leer) => refs.reduce((b, ref) => {
   return beneath(v, b) ? v : b
 }, baja)
 
-// Sin presión, `s` —una que la última renovación dejó entre las prescindibles— pasa a necesaria. Se cuida lo que decide la
-// primera pérdida: que ninguna necesaria caiga antes que esas prescindibles —si una es más joven que `s`, `s` vacía su
-// cola— y que, sin ellas delante, la primera en caer sea la necesaria de menor z: vacían la suya, de la más vieja en
-// adelante, las que tiene delante. El resto del orden entre necesarias lo rehace la primera presión. Sólo se mira la
-// escalera de la renovación —todo lo demás es más joven—, y el registro entero sólo si la cabeza es una necesaria.
-const place = s => {
-  const m = members.get(s)
-  m.aged = false
-  ladder.some(ref => {                  // de lo barato a lo que cruza al DOM: la fecha, el contexto, si se ve
-    const v = ref.deref()
-    return members.get(v)?.used > m.used && old(v) && !v.needed
-  }) && use(s)
-  if (!ladder.find(ref => old(ref.deref()))?.deref().needed) return   // la cabeza es una prescindible, o no queda escalera
-  // Las necesarias son las de la renovación —la de menor z va primero—, las de la escalera que pasaron a necesarias,
-  // con la z que leyó la renovación, y las que la política tomó necesarias después, con la de su pane. Si aquélla ya no
-  // es necesaria, o la de menor z ya vació su cola o es una de las tomadas después, se mira el registro entero.
+// La cabeza del desalojo es una necesaria. Las necesarias son las de la renovación —la de menor z va primero—, las de la
+// escalera que pasaron a necesarias, con la z que leyó la renovación, y las que la política tomó necesarias después, con
+// la de su pane. Si aquélla ya no es necesaria, o la de menor z ya vació su cola o es una de las tomadas después, se mira
+// el registro entero.
+const lineUp = () => {
   const base  = floor?.deref()
   const menor = base?.state === 'live' && base.needed && lower(late, lower(ladder, base), true)
   for (const ref of menor ? ladder : []) {
@@ -438,7 +427,7 @@ export const glBudget = {
   // La dueña de `s` tiene algo que mostrar: recibió contenido, o se volvió a ver. Con contexto, desde la primera presión,
   // si pasó a necesaria después de la última renovación el orden de desalojo se rehace en un rato ocioso: si no, quedaría
   // más vieja que las prescindibles. Antes, sólo si una renovación la dejó entre las prescindibles, y en esta tarea: se
-  // acomoda la primera en caer (`place`). Sin contexto: una perdida —también la que todavía no avisó— espera su cuadro, y la
+  // acomoda la primera en caer (abajo). Sin contexto: una perdida —también la que todavía no avisó— espera su cuadro, y la
   // que la saturación dejó sin superficie, cupo. La primera vez lo toma en esta tarea, como al construirse; volver a
   // tomarlo también, si es la primera toma desde el último cuadro y ningún mapa está en pleno gesto, y si no va a la
   // cola. En saturación sólo entra en el lugar de una de menor z. Devuelve si lo tomó.
@@ -446,7 +435,34 @@ export const glBudget = {
     if (!members.has(s) || starved.has(s) || !s.needed) return false
     const state = s.state
     if (state === 'live') {
-      pressed ? fresh.has(s) || resettle() : members.get(s).aged && place(s)
+      const m = members.get(s)
+      if (pressed) fresh.has(s) || resettle()
+      else if (m.aged) {
+        // Sin presión, `s` —una que la última renovación dejó entre las prescindibles— pasa a necesaria. Se cuida lo que
+        // decide la primera pérdida: que ninguna necesaria caiga antes que esas prescindibles —si una es más joven que
+        // `s`, `s` vacía su cola— y que, sin ellas delante, la primera en caer sea la necesaria de menor z: vacían la suya,
+        // de la más vieja en adelante, las que tiene delante (`lineUp`). El resto del orden entre necesarias lo rehace la
+        // primera presión. Sólo se mira la escalera de la renovación —todo lo demás es más joven—, y el registro entero
+        // sólo si la cabeza es una necesaria. Va acá, sin clausuras y con `old` en línea, y no en una función aparte: corre
+        // en la tarea del primer dato de cada vacía, y una función que corre por primera vez se compila ahí (≈ 0,2 M
+        // instrucciones en Chromium). `need` ya corrió en el montaje.
+        m.aged = false
+        for (const ref of ladder) {     // de lo barato a lo que cruza al DOM: la fecha, el contexto, si se ve
+          const v    = ref.deref()
+          const used = members.get(v)?.used
+          if (used > m.used && used <= renewed && v.state === 'live' && !v.needed) {
+            use(s)
+            break
+          }
+        }
+        for (const ref of ladder) {     // la cabeza: la primera de la escalera que sigue sin vaciar su cola
+          const v = ref.deref()
+          if (members.get(v)?.used <= renewed && v.state === 'live') {
+            v.needed && lineUp()
+            break
+          }
+        }
+      }
       return false
     }
     state === 'lost' && unprocessed().forEach(v => v.reconcile())

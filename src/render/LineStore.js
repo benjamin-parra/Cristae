@@ -153,7 +153,7 @@ export class LineStore {
   // Las texturas del contexto que sigue vivo se devuelven; las de uno perdido no, porque ya no hay a quién.
   destroy() {
     const gl = this.#gl
-    gl && [this.#texture, this.#arcTexture, this.#colorTexture].forEach(t => t && gl.deleteTexture(t))
+    if (gl) for (const t of [this.#texture, this.#arcTexture, this.#colorTexture]) t && gl.deleteTexture(t)
     this.dropGl()
     this.#first.length = 0
     this.#views.length = 0
@@ -288,15 +288,23 @@ export class LineStore {
   #upload(lo, n) {
     const gl = this.#gl
     if (!gl) return
-    const row  = lo >> Math.log2(this.#width)
-    const rows = ((lo + n - 1) >> Math.log2(this.#width)) - row + 1
-    const at   = row * this.#width
-    const sub  = (texture, format, data, type, size) => {
-      gl.bindTexture(gl.TEXTURE_2D, texture)
-      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, row, this.#width, rows, format, type, data, at * size)
+    const width = this.#width
+    const row   = lo >> Math.log2(width)
+    const rows  = ((lo + n - 1) >> Math.log2(width)) - row + 1
+    const at    = row * width
+    // Sin clausura: el primer dato de una capa que tomó su contexto vacía es la primera subida parcial, y una
+    // función interna se compilaría ahí.
+    gl.bindTexture(gl.TEXTURE_2D, this.#texture)
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, row, width, rows, gl.RG, gl.FLOAT, this.#rel, at * 2)
+    const arcs = this.#arcTexture
+    if (arcs) {
+      gl.bindTexture(gl.TEXTURE_2D, arcs)
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, row, width, rows, gl.RED, gl.FLOAT, this.#arcs, at)
     }
-    sub(this.#texture, gl.RG, this.#rel, gl.FLOAT, 2)
-    this.#arcTexture && sub(this.#arcTexture, gl.RED, this.#arcs, gl.FLOAT, 1)
-    this.#colorTexture && sub(this.#colorTexture, gl.RGBA, this.#rgba, gl.UNSIGNED_BYTE, 4)
+    const colors = this.#colorTexture
+    if (colors) {
+      gl.bindTexture(gl.TEXTURE_2D, colors)
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, row, width, rows, gl.RGBA, gl.UNSIGNED_BYTE, this.#rgba, at * 4)
+    }
   }
 }
