@@ -128,6 +128,13 @@ const mostrar    = s => {
   return s.need()
 }
 
+// Ajenos de a uno hasta que cae una propia: el nombre de la primera en caer, entre `ss`.
+const primeraVictima = (techo, ...ss) => {
+  const ids = new Map(ss.map(s => [contextoDe(s).id, s.nombre]))
+  for (let i = 0; navegador.victimas.length === 0 && i < techo; i++) navegador.ajeno()
+  return ids.get(navegador.victimas[0])
+}
+
 // Un ajeno que se rehace cada vez que pierde su contexto: un widget que lo pide de nuevo.
 const insistente = () => {
   const canvas = new Lienzo()
@@ -518,6 +525,33 @@ test('en saturación, dos reintentos espaciados —5 s y 30 s—, de a lo sumo d
   }
 })
 
+test('una señal de cupo cancela el reintento agendado: si la saturación vuelve, el siguiente es el de los 30 s, no el de los 5 s que quedaba', () => {
+  mock.timers.enable({ apis: ['setTimeout'] })
+  try {
+    nuevoNavegador({ techo: 3 })
+    const a = superficie('a', { z: 10 })
+    const b = superficie('b', { z: 20 })
+    insistente()
+    contextoDe(b).gl.flush()
+    insistente()
+    asentar(10)
+    assert.equal(a.state, 'released')
+    mock.timers.tick(1000)
+    glBudget.retry()                                    // la señal: a lo intenta, un ajeno se rehace y la satura de nuevo
+    asentar(10)
+    assert.equal(a.state, 'released')
+    const creados = navegador.creados
+    mock.timers.tick(4000)                              // donde vencía el reintento de los 5 s
+    asentar(10)
+    assert.equal(navegador.creados, creados, 'ningún getContext: el reintento viejo no quedó vivo')
+    mock.timers.tick(30_000)
+    asentar(10)
+    assert.ok(navegador.creados > creados, 'el de los 30 s sí')
+  } finally {
+    mock.timers.reset()
+  }
+})
+
 /* ── Pérdida masiva ── */
 
 test('un reinicio de la GPU devuelve todas las necesarias de a una por cuadro, por z, y la prescindible no', () => {
@@ -572,7 +606,7 @@ test('tras cada adquisición las necesarias renuevan su flush por z ascendente: 
   assert.deepEqual(estados(n1, n2, n3), ['released', 'live', 'live'], 'la de menor z es la que queda sin superficie')
 })
 
-test('sin presión en el realm, ni poblar una vacía, ni mostrar, ni una alta que se ve vacían una cola: el orden no se paga hasta que hace falta', () => {
+test('sin presión en el realm, una alta que se ve no vacía ninguna cola, y poblar una vacía o mostrar una oculta sólo vacía las que quedan delante de la necesaria de menor z', () => {
   nuevoNavegador({ techo: 5 })
   const n      = superficie('n', { z: 10 })
   const vacia  = superficie('vacía', { z: 20, contenido: false })
@@ -598,8 +632,9 @@ test('sin presión en el realm, ni poblar una vacía, ni mostrar, ni una alta qu
     cuadro()
   }
   assert.deepEqual(flushes.map(f => f.mock.callCount()), [0, 1, 1],
-    'M6 paga un flush por capa que la renovación dejó entre las prescindibles, y ninguno más; las demás no se tocan')
+    'la oculta, que era la más vieja, y la vacía, que quedó delante de n: una vez cada una, y no en los avisos que siguen')
   assert.equal(n.state, 'live')
+  assert.equal(primeraVictima(5, n, vacia, oculta), 'n')
 })
 
 test('N-A: antes de la primera pérdida, una vacía de z alto que tomó su contexto en un rato ocioso y recibe contenido no queda como la más vieja: un ajeno desaloja a la necesaria de menor z', () => {
@@ -617,6 +652,146 @@ test('N-A: antes de la primera pérdida, una vacía de z alto que tomó su conte
   assert.deepEqual(navegador.victimas, [idA], 'cae a, z10, y no b, z30')
   navegador.vaciar()
   assert.deepEqual(estados(a, b), ['lost', 'live'])
+})
+
+// Las sondas P1, P2, P3 y P5 de la revisión de la tanda 2c: la que pasa a necesaria tiene MENOS z que las necesarias, o
+// llegan dos. Sin rato ocioso entre el aviso y los ajenos: el orden queda en la tarea del aviso.
+
+test('P1: sin presión, una vacía de z bajo que recibe contenido es la primera en caer, no la necesaria de z más alto', () => {
+  nuevoNavegador({ techo: 3 })
+  const a = superficie('a', { z: 10 })
+  const b = superficie('b', { z: 5, contenido: false })
+  ocio()
+  b.owner.hasContent = true
+  b.need()
+  assert.equal(primeraVictima(3, a, b), 'b')
+})
+
+test('P3: sin presión, una vacía de z bajo que recibe contenido cae antes que dos necesarias de z más alto', () => {
+  nuevoNavegador({ techo: 4 })
+  const a = superficie('a', { z: 20 })
+  const x = superficie('x', { z: 30 })
+  const b = superficie('b', { z: 10, contenido: false })
+  ocio()
+  b.owner.hasContent = true
+  b.need()
+  assert.equal(primeraVictima(4, a, x, b), 'b')
+})
+
+test('P2: sin presión, dos vacías que reciben contenido —una sobre la necesaria y otra debajo, en cualquier orden— dejan primera en caer a la de menor z', () => {
+  for (const orden of ['la de z alto primero', 'la de z bajo primero']) {
+    nuevoNavegador({ techo: 4 })
+    const a = superficie('a', { z: 20 })
+    const b = superficie('b', { z: 30, contenido: false })
+    const c = superficie('c', { z: 10, contenido: false })
+    ocio()
+    ocio()
+    assert.deepEqual(estados(b, c), ['live', 'live'])
+    b.owner.hasContent = c.owner.hasContent = true
+    ;(orden === 'la de z alto primero' ? [b, c] : [c, b]).forEach(s => s.need())
+    assert.equal(primeraVictima(4, a, b, c), 'c', orden)
+    vivas.splice(0).forEach(s => s.destroy())
+  }
+})
+
+test('P5: sin presión, una oculta de z alto que se vuelve a ver no queda primera en caer', () => {
+  nuevoNavegador({ techo: 3 })
+  const a = superficie('a', { z: 10 })
+  const b = superficie('b', { z: 30, oculta: true })
+  ocio()
+  mostrar(b)
+  assert.equal(primeraVictima(3, a, b), 'a')
+})
+
+test('sin presión, una vacía que recibe contenido y no queda primera en caer no vacía ninguna cola: lo que tiene detrás sigue siendo una prescindible', () => {
+  nuevoNavegador({ techo: 5 })
+  const a = superficie('a', { z: 20 })
+  const b = superficie('b', { z: 30, contenido: false })
+  const c = superficie('c', { z: 10, contenido: false })
+  ocio()
+  ocio()
+  const flushes = [a, b, c].map(s => mock.method(s.gl, 'flush'))
+  c.owner.hasContent = true
+  c.need()                                              // b, prescindible, sigue más vieja que todas: es la que cae
+  assert.deepEqual(flushes.map(f => f.mock.callCount()), [0, 0, 0])
+  assert.equal(primeraVictima(5, a, b, c), 'b')
+})
+
+test('M6 del banco sin presión: poblar en orden de z cuatro vacías que rodean a necesarias sólo paga, en la última, las que quedaron delante de la de menor z', () => {
+  nuevoNavegador({ techo: 12 })
+  const geo     = superficie('geo', { z: 400 })
+  const veh     = superficie('veh', { z: 410 })
+  const enlaces = superficie('enlaces', { z: 614 })
+  const vacias  = [394, 395, 405, 406].map(z => superficie(`vacía ${z}`, { z, contenido: false }))
+  for (let i = 0; i < 4; i++) ocio()
+  assert.deepEqual(estados(...vacias), ['live', 'live', 'live', 'live'])
+  const todas   = [geo, veh, enlaces, ...vacias]
+  const flushes = todas.map(s => mock.method(s.gl, 'flush'))
+  vacias.slice(0, 3).forEach(s => {
+    s.owner.hasContent = true
+    s.need()
+  })
+  assert.equal(flushes.reduce((n, f) => n + f.mock.callCount(), 0), 0, 'queda una prescindible más vieja que todas: cae ella')
+  vacias[3].owner.hasContent = true
+  vacias[3].need()
+  assert.deepEqual(flushes.map(f => f.mock.callCount()), [0, 0, 0, 0, 1, 1, 1],
+    'las tres vacías que se tomaron antes que la de z 394 vacían la suya: queda primera')
+  assert.equal(primeraVictima(12, ...todas), 'vacía 394')
+})
+
+// Sin presión sólo el paso de prescindible a necesaria acomoda el orden, una vez. Una alta que se ve nace como la más
+// joven aunque tenga menos z (lejos del techo el orden entre necesarias no se paga), así que deja una cabeza que la regla
+// no daría: el aviso que sigue, de una necesaria que no viene de ese paso, no la corrige.
+const sinAcomodar = {
+  'una necesaria desde el alta': (a, h) => [a],
+  'una oculta que se vio sin aviso y otra renovación dejó necesaria': (a, h) => {
+    h.nodo.style.visibility = ''
+    superficie('otra vacía', { z: 5, contenido: false })
+    ocio()
+    vivas.splice(-1)[0].destroy()
+    return [a, h]
+  },
+  'una oculta que ya se acomodó al verse': (a, h) => (mostrar(h), [a, h]),
+  'una oculta que se soltó a mano y volvió a tomar el suyo al verse': (a, h) => {
+    h.release()
+    mostrar(h)
+    cuadro()
+    return [a, h]
+  },
+}
+
+test('sin presión, el aviso de una necesaria que no viene de entre las prescindibles no toca el orden, aunque una alta de menor z haya nacido después', () => {
+  for (const [caso, preparar] of Object.entries(sinAcomodar)) {
+    nuevoNavegador({ techo: 8 })
+    const a = superficie('a', { z: 30 })
+    const h = superficie('oculta', { z: 50, oculta: true })
+    ocio()                                              // una alta que no se ve: a renueva, y la oculta queda prescindible
+    const avisan = preparar(a, h)
+    ocio()
+    const b = superficie('b', { z: 10 })                // se ve: nace como la más joven, detrás de las demás
+    const flushes = [...avisan, b].map(s => mock.method(s.gl, 'flush'))
+    avisan.forEach(s => s.need())
+    b.need()
+    ocio()
+    assert.deepEqual(flushes.map(f => f.mock.callCount()), flushes.map(() => 0), caso)
+    vivas.splice(0).forEach(s => s.destroy())
+  }
+})
+
+test('sin presión, la que pasa a necesaria no queda detrás de una prescindible que la renovación dejó vieja: una ráfaga de ajenos se lleva antes a las dos prescindibles', () => {
+  nuevoNavegador({ techo: 4 })
+  const a = superficie('a', { z: 40 })
+  const x = superficie('x', { z: 30, contenido: false })
+  const y = superficie('y', { z: 20, contenido: false })
+  const w = superficie('w', { z: 10, contenido: false })
+  for (let i = 0; i < 3; i++) ocio()                    // de a una y por z: x, y, w; w es la más joven de las tres
+  assert.deepEqual(estados(x, y, w), ['live', 'live', 'live'])
+  const ids = new Map([a, x, y, w].map(s => [contextoDe(s).id, s.nombre]))
+  y.owner.hasContent = true
+  y.need()
+  navegador.ajeno()
+  navegador.ajeno()                                     // en la misma tarea: nadie llega a avisar entre los dos
+  assert.deepEqual(navegador.victimas.map(id => ids.get(id)), ['x', 'w'])
 })
 
 test('desde la primera pérdida del realm, una viva que pasa a necesaria —recibe contenido o se vuelve a ver— renueva el orden en el próximo rato ocioso', () => {

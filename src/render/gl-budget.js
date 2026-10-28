@@ -26,10 +26,13 @@
 //     lo renueva (etapa3/FLUSH.md). Cuando la política toma una prescindible, cada necesaria viva vacía su cola por z
 //     ascendente: las prescindibles quedan como las más viejas y, entre las necesarias, cae primero la de menor z. Desde
 //     la primera pérdida de un contexto propio, también tras toda adquisición de la política, al asentar un montaje y
-//     cuando una viva pasa a necesaria (recibe contenido, o se vuelve a ver). Antes no: lejos del techo el orden entre
-//     necesarias no se usa, y cada `flush` es un viaje al proceso de la GPU (16 µs en Chromium, 77 µs en Firefox) que
-//     poblar una capa o abrir una espiral pagarían por nada; sólo la que una renovación dejó entre las prescindibles y
-//     pasa a necesaria vacía su cola, una vez, para no quedar como la más vieja. Por evento, nunca por cuadro.
+//     cuando una viva pasa a necesaria (recibe contenido, o se vuelve a ver). Antes no se rehace entero: cada `flush` es
+//     un viaje al proceso de la GPU (16 µs en Chromium, 77 µs en Firefox), y poner a una que se puebla en su lugar por z
+//     costaría uno por cada necesaria de más z. Antes de la presión sólo se cuida la primera en caer: cuando una que una
+//     renovación dejó entre las prescindibles pasa a necesaria, vacía su cola si alguna de esas prescindibles es más
+//     joven que ella, y, si ya no queda ninguna delante, vacían la suya las necesarias que están delante de la de menor
+//     z. Una alta que se ve nace como la más joven, aunque tenga menos z. Por evento, nunca por cuadro. El `flush` del
+//     pick asíncrono (`Picking`) también renueva, y la política no lo ve.
 //   · El registro no retiene a nadie: una superficie que nadie destruye se recolecta, y la de un documento sin ventana
 //     (un popup que se cerró sin desmontar su mapa) no es necesaria.
 
@@ -37,13 +40,12 @@ const IDLE_MS   = 1000              // tope de espera de una ranura ociosa
 const MOTION_MS = 10_000            // un gesto sin su fin deja de contar: un `moveend` perdido no frena la recuperación
 const RETRIES   = [5000, 30_000]    // los reintentos de una saturación, además de las señales de cupo
 
-const members = new WeakMap()       // superficie → { order, ref }: el orden de alta desempata la prioridad
+const members = new WeakMap()       // superficie → { order, ref, used, aged }: el orden de alta desempata la prioridad
 const roster  = new Set()           // la WeakRef de cada dada de alta: lo que se recorre
 const wanted  = new Set()           // necesarias sin contexto que la política toma, de a una por cuadro
 const idle    = new Set()           // vacías al construirse, que se toman en un momento ocioso
 const starved = new Set()           // necesarias que la saturación dejó sin superficie: esperan cupo
 const movers  = new Map()           // motor en pleno gesto → desde cuándo
-const aged    = new WeakSet()       // vivas que una renovación dejó entre las prescindibles: más viejas que las necesarias
 
 let episode    = new WeakSet()      // las que la política volvió a tomar desde la última señal de cupo: la tanda
 let episodic   = false              // la tanda tiene alguna: sólo entonces una señal de cupo la rehace (`invalidateCanvas` es frecuente)
@@ -51,6 +53,7 @@ let fresh      = new WeakSet()      // las necesarias que vaciaron su cola en la
 let blamed     = new WeakMap()      // propia desalojada en el acto por una adquisición de la política → esa adquisición
 let joined     = new WeakSet()      // las que tomaron el suyo por su cuenta desde el último rato ocioso, sin presión
 let order      = 0
+let clock      = 0                  // el último flush que la política conoce: la creación de un contexto o un flush suyo
 let frame      = 0
 let idleId     = 0
 let retryId    = 0
@@ -74,6 +77,7 @@ const now = () => performance.now()
 const below   = (a, b) => a.z < b.z || (a.z === b.z && members.get(a).order < members.get(b).order)
 const lowest  = list => list.reduce((m, s) => !m || below(s, m) ? s : m, null)
 const highest = list => list.reduce((m, s) => !m || below(m, s) ? s : m, null)
+const oldest  = list => list.reduce((m, s) => !m || members.get(s).used < members.get(m).used ? s : m, null)
 
 // Las dadas de alta que siguen en memoria; la que el GC ya se llevó sale del registro.
 const registered = () => {
@@ -108,15 +112,35 @@ const askIdle  = () => idleId ||= globalThis.requestIdleCallback
   ? requestIdleCallback(rest, { timeout: IDLE_MS })
   : setTimeout(rest, 0)
 
+// `s` vacía su cola: pasa a ser la de flush más reciente, la última en caer.
+const use = s => {
+  s.gl.flush()
+  members.get(s).used = ++clock
+}
+
 // Cada necesaria viva vacía su cola, por z ascendente: la última en hacerlo es la última en caer. Las prescindibles quedan
-// más viejas, y se anotan: la que pase a necesaria tiene que volver a vaciar la suya.
+// más viejas, y se anotan: la que pase a necesaria sin presión se acomoda (`place`).
 const renew = () => {
   fresh = new WeakSet()
-  live().filter(s => s.needed || !aged.add(s)).sort((a, b) => below(a, b) ? -1 : 1).forEach(s => {
-    s.gl.flush()
+  const vivas = live()
+  vivas.forEach(s => members.get(s).aged = !s.needed)
+  vivas.filter(s => s.needed).sort((a, b) => below(a, b) ? -1 : 1).forEach(s => {
+    use(s)
     fresh.add(s)
-    aged.delete(s)
   })
+}
+
+// Sin presión, `s` —una que la última renovación dejó entre las prescindibles— pasa a necesaria. Se cuida lo que decide la
+// primera pérdida: que ninguna necesaria caiga antes que esas prescindibles —si una es más joven que `s`, `s` vacía su
+// cola— y que, sin ellas delante, la primera en caer sea la necesaria de menor z: vacían la suya, de la más vieja en
+// adelante, las que tiene delante. El resto del orden entre necesarias lo rehace la primera presión.
+const place = s => {
+  const m     = members.get(s)
+  const vivas = live()
+  m.aged = false
+  vivas.some(v => !v.needed && members.get(v).aged && members.get(v).used > m.used) && use(s)
+  const menor = lowest(vivas.filter(v => v.needed))
+  for (let cabeza = oldest(vivas); cabeza.needed && cabeza !== menor; cabeza = oldest(vivas)) use(cabeza)
 }
 
 // El orden se rehace en el próximo rato ocioso, una vez por tanda de avisos.
@@ -255,7 +279,7 @@ export const glBudget = {
 
   register(s) {
     const ref = new WeakRef(s)
-    members.set(s, { order: order++, ref })
+    members.set(s, { order: order++, ref, used: 0, aged: false })
     roster.add(ref)
   },
 
@@ -281,6 +305,9 @@ export const glBudget = {
   // la que se ve nace como la más joven, y la que no quedaría más joven que las necesarias. Se mira en el rato ocioso,
   // cuando la capa que la construye ya sabe si tiene contenido.
   acquired(s, gl) {
+    const m = members.get(s)
+    m.used  = ++clock               // un contexto nuevo nace como el de flush más reciente
+    m.aged  = false
     capable = true
     if (!measured) {
       const declarado = gl.getParameter?.(gl.MAX_TEXTURE_SIZE)
@@ -330,15 +357,14 @@ export const glBudget = {
     episode.delete(s)
     blamed.delete(s)
     fresh.delete(s)
-    aged.delete(s)
     joined.delete(s)
     freed && !deciding && glBudget.retry()
   },
 
   // La dueña de `s` tiene algo que mostrar: recibió contenido, o se volvió a ver. Con contexto, desde la primera presión,
   // si pasó a necesaria después de la última renovación el orden de desalojo se rehace en un rato ocioso: si no, quedaría
-  // más vieja que las prescindibles. Antes, sólo si una renovación la dejó entre las prescindibles: vacía su cola, una vez,
-  // y queda como la más joven. Sin contexto: una perdida —también la que todavía no avisó— espera su cuadro, y la
+  // más vieja que las prescindibles. Antes, sólo si una renovación la dejó entre las prescindibles, y en esta tarea: se
+  // acomoda la primera en caer (`place`). Sin contexto: una perdida —también la que todavía no avisó— espera su cuadro, y la
   // que la saturación dejó sin superficie, cupo. La primera vez lo toma en esta tarea, como al construirse; volver a
   // tomarlo también, si es la primera toma desde el último cuadro y ningún mapa está en pleno gesto, y si no va a la
   // cola. En saturación sólo entra en el lugar de una de menor z. Devuelve si lo tomó.
@@ -346,7 +372,7 @@ export const glBudget = {
     if (!members.has(s) || starved.has(s) || !s.needed) return false
     const state = s.state
     if (state === 'live') {
-      pressed ? fresh.has(s) || resettle() : aged.delete(s) && s.gl.flush()
+      pressed ? fresh.has(s) || resettle() : members.get(s).aged && place(s)
       return false
     }
     state === 'lost' && unprocessed().forEach(v => v.reconcile())

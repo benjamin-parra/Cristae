@@ -316,7 +316,7 @@ export const crearNavegador = ({
   // El buffer de dibujo mide lo que mide el canvas ahora, no lo que medía al crearse el contexto. Un canvas sin
   // `width` numérico (un objeto pelado de un test) deja la medida del doble base.
   const envolver = (entrada, base) => {
-    const metodos = Object.create(null)
+    const metodos = new WeakMap()   // por función, no por nombre: un `mock.method` puesto después de usarla se ve
     return new Proxy(base, { get: (t, p) => {
       if (typeof p === 'symbol') return t[p]
       if (p === 'isContextLost') return () => entrada.estado === 'perdido'
@@ -324,7 +324,7 @@ export const crearNavegador = ({
       if (LADO.has(p)) return entrada.estado === 'perdido' ? 0 : entrada.canvas[LADO.get(p)] ?? t[p]
       if (ENUMS.has(p)) return ENUMS.get(p)
       const valor = t[p]
-      return typeof valor === 'function' ? (metodos[p] ??= metodo(entrada, p, valor)) : valor
+      return typeof valor === 'function' ? metodos.get(valor) ?? metodos.set(valor, metodo(entrada, p, valor)).get(valor) : valor
     } })
   }
 
