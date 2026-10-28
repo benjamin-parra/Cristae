@@ -1153,6 +1153,20 @@ test('N11: la primera pérdida del realm rehace en el próximo rato ocioso el or
   assert.deepEqual(estados(alta, baja), ['live', 'lost'])
 })
 
+test('desde la primera pérdida, recuperar una necesaria rehace el orden entero en el cuadro: una ráfaga de ajenos se lleva a las de menor z, en orden', () => {
+  nuevoNavegador({ techo: 3 })
+  const c = superficie('c', { z: 30 })
+  const b = superficie('b', { z: 20 })
+  const a = superficie('a', { z: 10 })                  // por alta, la más joven: el orden es c, b, a
+  desalojar(a)
+  asentar(2)                                            // la pierde y la recupera en un cuadro, sin rato ocioso
+  assert.deepEqual(estados(a, b, c), ['live', 'live', 'live'])
+  const ids = new Map([a, b, c].map(s => [contextoDe(s).id, s.nombre]))
+  navegador.ajeno()
+  navegador.ajeno()                                     // en la misma tarea: nadie llega a avisar entre los dos
+  assert.deepEqual(navegador.victimas.slice(1).map(id => ids.get(id)), ['a', 'b'])
+})
+
 test('N14/N19: sin presión, una alta por su cuenta que no se ve hace que el rato ocioso ordene el desalojo una vez; la siguiente alta que se ve no lo repite', () => {
   nuevoNavegador({ techo: 4 })
   const n = superficie('n', { z: 10 })
