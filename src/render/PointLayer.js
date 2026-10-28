@@ -498,12 +498,13 @@ export class PointLayer {
   /* ── Política de membresía del buffer (punto único: rebuild e incremental la comparten) ── */
 
   // Un ítem NO entra al buffer si es ajeno a esta capa (`where`), si el cluster lo suprime o si su
-  // posición no es finita (§15.2). Devuelve la posición a renderizar, o null si se omite.
+  // posición no es finita (§15.2). Devuelve la posición a renderizar, null si se omite, o undefined si es
+  // ajeno: lo demás está entregado (la supresión sólo decide si se dibuja), y quien llama anota `#fed` una vez,
+  // no un campo privado por ítem.
   // Se consulta en CADA lectura (nunca se cachea la decisión): el ítem que recupera posición o sale
   // del cluster vuelve solo, sin depender de qué clase de omisión lo dejó afuera.
   #renderablePos(item, id) {
-    if (this.#where && !this.#where(item)) return null
-    this.#fed = true                                  // entregado: la supresión sólo decide si se dibuja
+    if (this.#where && !this.#where(item)) return undefined
     if (this.#suppressed?.has(id)) return null
     const pos = this.#accessors.positionOf(item)
     return pos && Number.isFinite(pos.lat) && Number.isFinite(pos.lng) ? pos : null
@@ -514,7 +515,10 @@ export class PointLayer {
   // el cluster suprime al set: cada move de un punto clusterizado dispararía un rebuild O(n).
   // El duplicado (§15.2) no es caso de ausencia: su id SÍ tiene slot, nunca llega hasta acá.
   #absentByPolicy(id, item) {
-    return item != null && this.#renderablePos(item, id) === null
+    if (item == null) return false
+    const pos = this.#renderablePos(item, id)
+    pos === undefined || (this.#fed = true)
+    return pos == null                                // ajena (undefined) u omitida (null)
   }
 
   /* ── Rebuild (O(n), reusa el espejo salvo crecimiento del set) ── */
@@ -530,20 +534,22 @@ export class PointLayer {
     if (this.#verts.length < snap.length * POINT_FLOATS)
       this.#verts = new Float32Array(Math.max(snap.length, 2 * this.#verts.length / POINT_FLOATS) * POINT_FLOATS)
     this.#slot.clear()
-    this.#fed = false
     if (!this.#gl && snap.length) this.#claim(snap)
-    let n = 0
+    let n   = 0
+    let fed = false
     for (let i = 0; i < snap.length; i++) {
       const item = snap[i]
       const id   = a.idOf(item)
       if (this.#slot.has(id)) continue                                 // §15.2 duplicado → gana el primero
       const pos = this.#renderablePos(item, id)
+      fed ||= pos !== undefined
       if (!pos) continue
       const { lat, lng } = pos     // copia inmediata: el objeto de `positionOf` puede ser scratch reusado
       this.#encode(n, item, id, lat, lng)
       this.#idBySlot[n] = id
       this.#slot.set(id, n++)
     }
+    this.#fed = fed
     if (this.#iconSet.atlas !== atlas0) return this.#rebuild(snap)
 
     this.#idBySlot.length = n
