@@ -67,6 +67,25 @@ import { createSource, defineIconSet } from 'cristae/map'
 `node build.mjs` produce `dist/cristae/` (ESM + UMD con todo bundleado, Leaflet incluido, skill y `llms.txt`) para
 consumo sin npm/CDN. El código fuente vive bajo [`src/`](src/).
 
+## Navegadores
+
+| Motor                   | Mínimo | Lo fija                                                      |
+|-------------------------|--------|--------------------------------------------------------------|
+| Chromium (Chrome, Edge) | 92     | `Array.prototype.at`                                         |
+| Firefox                 | 90     | campos y métodos privados (`#x`), `Array.prototype.at`       |
+| Safari (macOS, iOS)     | 16     | campos públicos de clase: de 14.1 a 15.x tienen un fallo de alcance |
+
+El build (`build.mjs`) emite `es2022` sin bajar sintaxis: los campos y métodos privados y los campos de
+clase quedan nativos, y no hay bloques `static {}`, que subirían Safari a 16.4. Las cifras salen de
+[MDN browser-compat-data](https://github.com/mdn/browser-compat-data) (`javascript/classes.json`,
+`javascript/builtins/Array.json`); el mapa además pide WebGL2, que no sube ninguno de los tres mínimos.
+Quien importa `src/` con su propio bundler hereda la misma sintaxis y puede bajarla con su `target`,
+salvo `Array.prototype.at`, que es una API y no sintaxis.
+
+La tabla es el mínimo del núcleo. `terrain` (de `cristae/geometry`) pide además `DecompressionStream`
+para el PNG, que fija Safari 16.4 y Firefox 113, y `OffscreenCanvas` y `createImageBitmap` para el WebP
+([`docs/geometry.md`](docs/geometry.md)). En un navegador sin ellos rechaza con un mensaje de entorno.
+
 ## Limitaciones conocidas
 
 - **Un vuelo animado de cámara y el gesto de dos dedos dejan quietas las capas GL.** Con un modo de

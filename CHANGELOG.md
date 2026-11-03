@@ -5,6 +5,15 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
 [`docs/versionado.md`](docs/versionado.md) — en `0.x`, el **minor cuenta los cambios medios**
 (capacidad o eje de API nuevo) y el **patch los menores desde el último medio** (fix / perf / revert).
 
+## [Sin publicar]
+
+### Cambiado
+- **El build emite `es2022`** (antes `es2020`): los campos y métodos privados y los campos de clase
+  quedan nativos en `dist/`, sin el `WeakMap` con que se bajaban. Sube el mínimo de Safari de 15.4
+  (`Array.prototype.at`) a 16, porque en 15.x los campos de clase tienen un fallo de alcance; Chromium
+  queda en 92 y Firefox en 90 ([`README.md`](README.md#navegadores)).
+  *Migración*: quien deba soportar Safari 15.4–15.x importa `src/` con el `target` propio de su bundler.
+
 ## [0.37.0] - 2026-10-08
 
 > Sale como **minor**: la capa de formas dibuja círculos, elipses y sectores en metros, los editores

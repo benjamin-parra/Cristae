@@ -282,8 +282,7 @@ export class PointLayer {
 
   // Reasienta el canvas a la vista viva y la dibuja en el acto; el motor la invoca en move/moveend/zoomend.
   // Un cambio de escala (la ventana pasó a otro monitor) re-codifica los tamaños, que van en px del buffer.
-  // Corre por capa en cada `invalidateCanvas` y cada reencuadre: el contexto se lee una vez y se pasa, que cada
-  // campo privado leído es un acceso a un WeakMap en el bundle (target es2020).
+  // Corre por capa en cada `invalidateCanvas` y cada reencuadre: el contexto se lee una vez y se pasa.
   resetCanvasReference() {
     this.#injected = false
     const gl = this.#gl

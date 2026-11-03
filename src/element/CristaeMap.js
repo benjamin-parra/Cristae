@@ -66,11 +66,6 @@ function createResizeSync(target, sync) {
 
 export class CristaeMap extends LitElement {
 
-  // El motor necesita el contenedor que pinta el primer render, así que nace en `firstUpdated`, y lo que
-  // el elemento muestra de él —el zoom, la atribución— pide un segundo render. Es el diseño y no una
-  // cascada: Lit no avisa de eso en modo desarrollo (la API no existe en producción).
-  static { this.disableWarning?.('change-in-update') }
-
   static properties = {
     tile               : { type: Object },
     worldCopies        : { type: Boolean, attribute: 'world-copies' },
@@ -454,3 +449,9 @@ export class CristaeMap extends LitElement {
     this.dispatchEvent(new CustomEvent(`cristae:${type}`, { detail, bubbles: true, composed: true }))
   }
 }
+
+// El motor necesita el contenedor que pinta el primer render, así que nace en `firstUpdated`, y lo que
+// el elemento muestra de él —el zoom, la atribución— pide un segundo render. Es el diseño y no una
+// cascada: Lit no avisa de eso en modo desarrollo (la API no existe en producción). Va fuera de la clase
+// y no en un bloque `static {}` porque ese bloque sube el mínimo de Safari a 16.4 (README, navegadores).
+CristaeMap.disableWarning?.('change-in-update')

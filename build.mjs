@@ -53,7 +53,7 @@ const baseConfig = mode => ({
   build: {
     emptyOutDir: false,        // limpiamos `dist/cristae` una sola vez, manualmente, antes de todo
     minify: 'esbuild',
-    target: 'es2020',
+    target: 'es2022',
     cssCodeSplit: false,
     ...mode,
   },
