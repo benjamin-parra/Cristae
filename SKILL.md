@@ -21,7 +21,9 @@ Leaflet. Un mapa Leaflet que ya existe se entrega al motor con `adoptLeafletHost
 > Specifiers: `cristae/map` (mapa) · `cristae/core` (datos) · `cristae/table` (tabla) ·
 > `cristae/geojson` (lector) · `cristae/geometry` (distancias, áreas, perímetros y diámetros en
 > metros, sobre la esfera, el elipsoide WGS84 o un terreno de tiles de altura, con su relieve; y cajas en
-> grados).
+> grados) ·
+> `cristae/formats` (lectores de KML/KMZ, GPX, WKT/WKB, TopoJSON, EsriJSON, Shapefile y FlatGeobuf a las
+> tablas de `cristae/geojson`, en grados WGS84).
 > Detalle de cada elemento en [`docs/elements.md`](./docs/elements.md).
 
 ---

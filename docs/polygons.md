@@ -64,7 +64,8 @@ contesta **una vez** por entidad.
 
 ## Geometría tipada, sin Source
 
-La misma puerta acepta las tablas CSR del [lector](geojson.md) sin pasar por arrays:
+La misma puerta acepta las tablas CSR del [lector](geojson.md), o de uno de los [formatos](formats.md),
+sin pasar por arrays:
 
 ```js
 engine.addPolygonLayer({ id: 'geocercas', geometry: areasOf(readGeoJson(bytes)) })

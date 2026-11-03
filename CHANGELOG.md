@@ -5,6 +5,40 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
 [`docs/versionado.md`](docs/versionado.md) — en `0.x`, el **minor cuenta los cambios medios**
 (capacidad o eje de API nuevo) y el **patch los menores desde el último medio** (fix / perf / revert).
 
+## [Sin publicar]
+
+### Agregado
+- **`cristae/formats`: lectores por especificación a las tablas de `readGeoJson`.** Entry nuevo, sin DOM,
+  Leaflet ni dependencias, como `cristae/geojson`, con global UMD `CristaeFormats`. Cada lector deja la
+  geometría en los arrays tipados de §17.1, sin grafo intermedio, y suma `format`, `crs` y capas
+  (`layers`, `layerOf`); `propertiesOf` decodifica a demanda y `areasOf` sirve sin cambios. La salida
+  siempre está en grados WGS84: UTM, Web Mercator y los `.prj` de transversa de Mercator se pasan a
+  grados, y `read.crs` dice en qué venía la fuente. Ver [`docs/formats.md`](docs/formats.md) y SPECS §19.
+  - `readKml`, `readKmz` y `readGpx`: KML 2.2, KMZ y GPX 1.1, sin DOM y sin resolver DTD. KMZ se infla
+    con `DecompressionStream`.
+  - `readWkt` (WKT y EWKT, varias geometrías por entrada) y `readWkb` (WKB y EWKB, binario o hex).
+  - `readTopoJson`: TopoJSON 1.0 con `transform`, arcos compartidos e invertidos, una capa por miembro
+    de `objects` y tope de expansión de arcos (`maxBytes`).
+  - `readEsriJson`: FeatureSet, feature o geometría de ArcGIS REST, con anillos agrupados por
+    orientación y contención, `hasZ`/`hasM` y CRS desde `spatialReference`.
+  - `readShapefile` y `readShapefileZip`: Shapefile con su `.dbf`, `.prj` y `.cpg`, sueltos o en un zip.
+    Polígonos agrupados por orientación y contención, Z a `z`, M descartada y contada, y atributos de
+    dBase decodificados a demanda con la codificación del `.cpg`, del language driver o windows-1252.
+  - `readFlatGeobuf`: FlatGeobuf 3 en lectura secuencial (el índice se salta), con los siete tipos de
+    geometría, colecciones aplanadas, z, las quince clases de columna y el CRS de la cabecera.
+  - `FormatError`, el error común, con `format`, `code`, `at` y `hint`, y siete códigos más que
+    `GeoJsonError`: `crs`, `compresion`, `tope`, `entorno`, `version`, `codificacion` y `dtd`.
+  - `detectFormat`, que reconoce el formato por los bytes mágicos y el primer token, sin lanzar.
+  - Opciones comunes `maxBytes`, el tope de lo que la entrada hace crecer, y `crs`, el CRS de una fuente
+    que no declara el suyo (un Shapefile sin `.prj`, el WKT de `ST_AsText`).
+
+  *Migración*: ninguna.
+
+### Cambiado
+- `cristae/geojson` toma la división exacta de números largos del núcleo de `cristae/formats`, que la
+  comparte con los lectores de texto. El resultado no cambia, bit a bit.
+  *Migración*: ninguna.
+
 ## [0.37.0] - 2026-10-08
 
 > Sale como **minor**: la capa de formas dibuja círculos, elipses y sectores en metros, los editores
