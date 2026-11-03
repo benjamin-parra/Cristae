@@ -75,12 +75,8 @@ export const openDbf = (bytes, label, stats) => {
     records,
     at         : r => header + r * size,
     size,
-    properties : (data, from) => {
-      const out = {}
-      fields.forEach(({ name, offset, length, value }) => {
-        out[name] = value ? value(decoder.decode(data.subarray(from + offset, from + offset + length))) : null
-      })
-      return out
-    },
+    // `fromEntries` y no asignación: un campo `__proto__` es una clave, no el prototipo.
+    properties : (data, from) => Object.fromEntries(fields.map(({ name, offset, length, value }) =>
+      [name, value ? value(decoder.decode(data.subarray(from + offset, from + offset + length))) : null])),
   }
 }

@@ -217,6 +217,13 @@ test('dbf: un valor que no decodifica es properties al pedirlo, no al leer', () 
   ;[0, 1, 2].forEach(f => assert.throws(() => read.propertiesOf(f), e => e instanceof FormatError && e.code === 'properties'))
 })
 
+test('dbf: un campo __proto__ es una clave, no el prototipo', () => {
+  const dbf = escribirDbf([{ nombre: '__proto__', tipo: 'C', largo: 3 }, { nombre: 'b', tipo: 'N', largo: 2 }], [['x', '7']])
+  const p   = readShapefile({ shp: puntos(1), dbf }).propertiesOf(0)
+  assert.equal(Object.getPrototypeOf(p), Object.prototype)
+  assert.deepEqual(Object.entries(p), [['__proto__', 'x'], ['b', 7]])
+})
+
 test('dbf: liberado', () => {
   const read = readShapefile({ shp: PUNTO, dbf: ATRIBUTOS })
   read.release()
@@ -317,6 +324,8 @@ test('zip: lo inflado suma contra maxBytes', async () => {
   const zip = await escribirZip([{ nombre: 'a.shp', bytes: PUNTO }, { nombre: 'a.dbf', bytes: ATRIBUTOS }])
   assert.equal((await readShapefileZip(zip, { maxBytes: PUNTO.length + ATRIBUTOS.length })).featureCount, 1)
   await rechaza(readShapefileZip(zip, { maxBytes: PUNTO.length + ATRIBUTOS.length - 1 }), 'tope')
+  // Una cota que no es entero ≥ 1 es entrada, como en readKmz: NaN no puede apagar el tope.
+  for (const maxBytes of [NaN, 'x', 0, 1.5]) await rechaza(readShapefileZip(zip, { maxBytes }), 'entrada')
 })
 
 // ── salidas y fuzz ──────────────────────────────────────────────────────────────────────────────

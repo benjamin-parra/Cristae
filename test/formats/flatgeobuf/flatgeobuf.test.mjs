@@ -138,6 +138,16 @@ test('propiedades: una columna inexistente o un valor cortado es properties al p
   ;[0, 1, 2].forEach(f => assert.throws(() => read.propertiesOf(f), e => e instanceof FormatError && e.code === 'properties'))
 })
 
+test('propiedades: una columna __proto__ es una clave, no el prototipo', () => {
+  const columnas = [{ nombre: '__proto__', tipo: 14 }, { nombre: 'b', tipo: 5 }]
+  const props    = Object.fromEntries([['__proto__', Uint8Array.of(1)], ['b', 2]])
+  const p        = readFlatGeobuf(escribirFgb({ type: 'FeatureCollection', features: [{ type: 'Feature', properties: props, geometry: null }] },
+    { tipo: 1, columnas })).propertiesOf(0)
+  assert.equal(Object.getPrototypeOf(p), Object.prototype)
+  assert.deepEqual(Object.keys(p), ['__proto__', 'b'])
+  assert.deepEqual([...Object.getOwnPropertyDescriptor(p, '__proto__').value], [1])
+})
+
 test('propiedades: columns por feature se cuenta como miembro ajeno', () => {
   const read = readFlatGeobuf(archivo([tabla([undefined, undefined, ref(tablas([]))])]))
   assert.equal(read.stats.foreignMembers, 1)
@@ -237,6 +247,9 @@ test('recursión: 100 mil colecciones anidadas son profundidad, no un RangeError
   const fgb = Uint8Array.from([...escribirFgb(fc(), { tipo: 0, conteo: false }), ...largo(new Uint8Array(f.buffer))])
   falla(() => readFlatGeobuf(fgb), 'profundidad')
   falla(() => readFlatGeobuf(fgb, { maxDepth: 2000 }), 'profundidad')
+  // Una cota más alta que la pila: la recursión se agota antes y sigue siendo profundidad.
+  falla(() => readFlatGeobuf(fgb, { maxDepth: 1e9 }), 'profundidad')
+  ;[Infinity, 'x', 0, 1.5].forEach(maxDepth => falla(() => readFlatGeobuf(fgb, { maxDepth }), 'entrada'))
 })
 
 // ── CRS ─────────────────────────────────────────────────────────────────────────────────────────

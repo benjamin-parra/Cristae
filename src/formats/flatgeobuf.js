@@ -36,8 +36,10 @@ const SCALAR = [
 const fail = (code, at = -1, detail = null) => { throw new FormatError(FORMAT, code, at, null, detail) }
 
 export const readFlatGeobuf = (input, options = {}) => {
-  const bytes = asBytes(input) ?? fail('entrada')
-  const len   = bytes.length
+  const bytes    = asBytes(input) ?? fail('entrada')
+  const maxDepth = options.maxDepth ?? 512
+  Number.isInteger(maxDepth) && maxDepth >= 1 || fail('entrada')
+  const len      = bytes.length
   len < 12 && fail('truncado', len)
   bytes[0] === 0x66 && bytes[1] === 0x67 && bytes[2] === 0x62 && bytes[4] === 0x66 && bytes[5] === 0x67
     && bytes[6] === 0x62 || fail('formato', 0)
@@ -124,7 +126,6 @@ export const readFlatGeobuf = (input, options = {}) => {
 
   const t        = createTables(FORMAT, { capacityHint: options.capacityHint, bounds: options.bounds })
   const stats    = t.stats
-  const maxDepth = options.maxDepth ?? 512
   let budget = 0, visits = 0
 
   const vertex = (xy, z, k) => {
@@ -208,7 +209,10 @@ export const readFlatGeobuf = (input, options = {}) => {
     const props   = vector(feature, 1, 1)
     slot(feature, 2) && stats.foreignMembers++
     props < 0 || t.attributes(f, props, props + count(props))
-    shape && geometry(ref(shape), type, 0)
+    // `maxDepth` es opción pública: con una cota alta la pila se agota antes que la cota, y eso es
+    // 'profundidad', no un RangeError crudo (§1.5), como en TopoJSON.
+    try { shape && geometry(ref(shape), type, 0) }
+    catch (e) { if (e instanceof RangeError) fail('profundidad', shape); throw e }
     pos = hi
     read++
   }
@@ -218,7 +222,7 @@ export const readFlatGeobuf = (input, options = {}) => {
   // sellado lo convierte en FormatError('properties').
   const properties = (data, from, to) => {
     const values = new DataView(data.buffer, data.byteOffset, data.length)
-    const out    = {}
+    const out    = []
     const need   = (p, n) => p + n <= to || fail('properties', p)
     for (let p = from; p < to;) {
       need(p, 2)
@@ -228,17 +232,19 @@ export const readFlatGeobuf = (input, options = {}) => {
       p += 2
       need(p, SIZE[kind])
       if (kind < 11) {
-        out[names[c]] = SCALAR[kind](values, p)
+        out.push([names[c], SCALAR[kind](values, p)])
         p += SIZE[kind]
         continue
       }
       const length = values.getUint32(p, true)
       p += 4
       need(p, length)
-      out[names[c]] = kind === 14 ? data.slice(p, p + length) : utf8.decode(data.subarray(p, p + length))
+      out.push([names[c], kind === 14 ? data.slice(p, p + length) : utf8.decode(data.subarray(p, p + length))])
       p += length
     }
-    return out
+    // `fromEntries` y no asignación: una columna `__proto__` es una clave, no el prototipo. Una columna
+    // repetida gana la última, como antes.
+    return Object.fromEntries(out)
   }
 
   return t.seal({ crs: source?.name ?? null, source, bytes, properties, id: () => null })

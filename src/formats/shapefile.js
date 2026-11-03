@@ -147,6 +147,8 @@ const cpgLabel = label =>
 // mayúsculas en la extensión. La suma de lo inflado va contra `maxBytes` (§2.7).
 export const readShapefileZip = async (input, options = {}) => {
   const bytes   = asBytes(input) ?? fail('entrada')
+  let budget    = options.maxBytes ?? 268435456
+  Number.isInteger(budget) && budget >= 1 || fail('entrada')
   const entries = listZip(bytes, FORMAT)
   const stem    = name => name.replace(/\.[^./]*$/, '')
   const ext     = name => /\.([^./]*)$/.exec(name)?.[1].toLowerCase()
@@ -155,7 +157,6 @@ export const readShapefileZip = async (input, options = {}) => {
   chosen.length === 1 || fail('formato', -1, `capas: ${shps.map(entry => stem(entry.name)).join(', ') || 'ninguna'}`)
 
   const base = stem(chosen[0].name)
-  let budget = options.maxBytes ?? 268435456
 
   const inflate = async kind => {
     const entry = entries.find(entry => stem(entry.name) === base && ext(entry.name) === kind)
