@@ -8,19 +8,20 @@
 
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync, existsSync } from 'node:fs'
+import { readFileSync, readdirSync, existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
 const raiz = (rel) => fileURLToPath(new URL(`../${rel}`, import.meta.url))
 const pkg = JSON.parse(readFileSync(raiz('package.json'), 'utf8'))
 
-// ── Orden de carga: `core`, `grammar`, `geojson` y `geometry` PRIMERO y sin ningún stub. Si
+// ── Orden de carga: `core`, `grammar`, `geojson`, `geometry` y `formats` PRIMERO y sin ningún stub. Si
 //    alguno tocara customElements o Leaflet al importarse (no deben: no figuran en `sideEffects`)
 //    reventaría acá.
 const core = await import('../src/data/index.js')
 const grammar = await import('../src/grammar/index.js')
 const geojson = await import('../src/geojson/index.js')
 const geometry = await import('../src/geometry/index.js')
+const formats = await import('../src/formats/index.js')
 
 // Módulos que DEFINEN cada export re-exportado por los entries de arriba. El golden de
 // nombres no distingue una función de otra (todas son `function`): la identidad contra el
@@ -41,6 +42,16 @@ const gMeasure = await import('../src/geometry/measure.js')
 const gShape = await import('../src/geometry/shape.js')
 const gCurve = await import('../src/geometry/curve.js')
 const gTerrain = await import('../src/geometry/terrain.js')
+const fError = await import('../src/formats/core/error.js')
+const fDetect = await import('../src/formats/core/detect.js')
+const fKml = await import('../src/formats/kml.js')
+const fGpx = await import('../src/formats/gpx.js')
+const fWkt = await import('../src/formats/wkt.js')
+const fWkb = await import('../src/formats/wkb.js')
+const fTopo = await import('../src/formats/topojson.js')
+const fEsri = await import('../src/formats/esrijson.js')
+const fShp = await import('../src/formats/shapefile.js')
+const fFgb = await import('../src/formats/flatgeobuf.js')
 
 // `table/` SÍ registra el custom element al importarse: se stubea el registry para observar
 // la definición sin DOM. El stub va después de los imports de arriba, a propósito.
@@ -153,7 +164,7 @@ test('el trío propio de cristae/table es la MISMA función que define su módul
 })
 
 test('ningún entry point tiene export default', () => {
-  for (const [nombre, mod] of Object.entries({ core, grammar, table, geojson, geometry }))
+  for (const [nombre, mod] of Object.entries({ core, grammar, table, geojson, geometry, formats }))
     assert.equal('default' in mod, false, `${nombre} trae default`)
 })
 
@@ -203,6 +214,54 @@ test('el lector no registra ningún custom element', () => {
   geojson.readGeoJson('{"type":"Point","coordinates":[1,2]}')
   assert.equal(registry.defines.length, antes)
   assert.ok(!pkg.sideEffects.includes('./src/geojson/index.js'))
+})
+
+// ── formats: los lectores y el error, sin el núcleo que comparten ──
+
+// Doce nombres. El constructor de tablas (`createTables`, `closeRings`), el CRS (`crsFromEpsg`,
+// `crsFromWkt`, `optionCrs`, `toLngLat`), el zip (`listZip`, `unzipEntry`), los números (`scanNumber`,
+// `joinLimbs`), el tokenizador XML (`createXml`), el escáner JSON (`createScanner`), el `.dbf`
+// (`openDbf`) y `sourceCrs` de WKT son internos: si salen del entry, alguien los usa y ya no se pueden
+// mover.
+const FORMATS = {
+  FormatError      : 'function',
+  detectFormat     : 'function',
+  readEsriJson     : 'function',
+  readFlatGeobuf   : 'function',
+  readGpx          : 'function',
+  readKml          : 'function',
+  readKmz          : 'function',
+  readShapefile    : 'function',
+  readShapefileZip : 'function',
+  readTopoJson     : 'function',
+  readWkb          : 'function',
+  readWkt          : 'function',
+}
+
+test('cristae/formats expone los lectores, la detección y el error — nada del núcleo compartido', () => {
+  assert.deepEqual(firma(formats), FORMATS)
+  assert.ok(!pkg.sideEffects.includes('./src/formats/index.js'))
+})
+
+test('cada export de cristae/formats es el MISMO valor que define su módulo', () => {
+  const origen = {
+    FormatError: fError, detectFormat: fDetect,
+    readKml: fKml, readKmz: fKml, readGpx: fGpx, readWkt: fWkt, readWkb: fWkb,
+    readTopoJson: fTopo, readEsriJson: fEsri,
+    readShapefile: fShp, readShapefileZip: fShp, readFlatGeobuf: fFgb,
+  }
+  assert.deepEqual(Object.keys(origen).sort(), Object.keys(FORMATS).sort())
+  for (const [k, mod] of Object.entries(origen))
+    assert.equal(formats[k], mod[k], `formats.${k} no es el ${k} de su módulo fuente`)
+})
+
+// La dependencia va de `geojson` al núcleo de formatos (los números exactos), nunca al revés: el entry
+// de formatos no arrastra el lector de GeoJSON.
+test('cristae/formats no importa cristae/geojson', () => {
+  const fuentes = readdirSync(raiz('src/formats'), { recursive: true }).filter(f => f.endsWith('.js'))
+  assert.ok(fuentes.length >= 18, `sólo ${fuentes.length} módulos`)
+  for (const f of fuentes.map(f => `src/formats/${f}`))
+    assert.doesNotMatch(readFileSync(raiz(f), 'utf8'), /from '[^']*geojson/, f)
 })
 
 // ── geometry: la medida, los modelos y el contrato de path, sin la regla interna ──
@@ -285,7 +344,7 @@ test('cristae/map re-exporta distance, sphere, toParts, sampleAlong y arc, sin e
 
 // ── package.json: rutas de exports y sideEffects ──
 
-test('el mapa exports congela las 7 rutas públicas más ./package.json', () => {
+test('el mapa exports congela las 8 rutas públicas más ./package.json', () => {
   assert.deepEqual(pkg.exports, {
     './core': { types: './types/core.d.ts', default: './src/data/index.js' },
     './table': { types: './types/table.d.ts', default: './src/table/index.js' },
@@ -293,6 +352,7 @@ test('el mapa exports congela las 7 rutas públicas más ./package.json', () => 
     './grammar': { types: './types/grammar.d.ts', default: './src/grammar/index.js' },
     './geojson': { types: './types/geojson.d.ts', default: './src/geojson/index.js' },
     './geometry': { types: './types/geometry.d.ts', default: './src/geometry/index.js' },
+    './formats': { types: './types/formats.d.ts', default: './src/formats/index.js' },
     './react': { types: './react/types/index.d.ts', default: './react/src/index.js' },
     './package.json': './package.json',
   })
@@ -321,6 +381,7 @@ const DESTINOS = [
   './types/grammar.d.ts', './src/grammar/index.js',
   './types/geojson.d.ts', './src/geojson/index.js',
   './types/geometry.d.ts', './src/geometry/index.js',
+  './types/formats.d.ts', './src/formats/index.js',
   './react/types/index.d.ts', './react/src/index.js',
   './package.json',
 ]

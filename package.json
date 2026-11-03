@@ -58,6 +58,10 @@
       "types": "./types/geometry.d.ts",
       "default": "./src/geometry/index.js"
     },
+    "./formats": {
+      "types": "./types/formats.d.ts",
+      "default": "./src/formats/index.js"
+    },
     "./react": {
       "types": "./react/types/index.d.ts",
       "default": "./react/src/index.js"
