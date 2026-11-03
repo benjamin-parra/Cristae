@@ -7,6 +7,7 @@ import { OBJ_BITS } from '../render/Picking.js'
 import { LineGpuLayer } from '../render/LineGpuLayer.js'
 import { PolygonGpuLayer } from '../render/PolygonGpuLayer.js'
 import { ShapeLayer } from '../render/ShapeLayer.js'
+import { ImageLayer } from '../render/ImageLayer.js'
 import { HeatLayer } from '../render/HeatLayer.js'
 import { EditableGeometry } from '../render/EditableGeometry.js'
 import { HtmlLayer } from '../render/HtmlLayer.js'
@@ -355,6 +356,31 @@ export class MapEngine {
       source,
       set:        items => controls?.set(items),
       setVisible: v => this.setLayerVisibility(id, v),
+    }
+  }
+
+  /* ── Imagen georreferenciada (un nodo DOM propio; GL-safe): bajo las etiquetas y los marcadores HTML ── */
+
+  addImageLayer(cfg) {
+    const { id, interactive = false, pane, z, visible = true, ...image } = cfg
+    const order    = this.#order++
+    const paneName = pane ?? `cristae-image-${id}`
+    const zIndex   = z ?? (BASE_Z + order * Z_STEP)
+    const layer    = this.#build(paneName, zIndex, () => new ImageLayer({ ...image, host: this.#host, pane: paneName, id, interactive }))
+
+    const record = { kind: 'image', layer, paneName, zIndex, order, interactive, visible, enabled: true }
+    this.#layers.set(id, record)
+    if (interactive)
+      this.#registerResolver(id, 'image', zIndex, order, sample => layer.resolveClick(sample), sample => layer.resolveHover(sample))
+    this.#applyVisibility(id, paneName, visible)
+    return {
+      id,
+      setUrl     : url => layer.setUrl(url),
+      setImage   : node => layer.setImage(node),
+      setBounds  : bounds => layer.setBounds(bounds),
+      setCorners : corners => layer.setCorners(corners),
+      setOpacity : opacity => layer.setOpacity(opacity),
+      setVisible : v => this.setLayerVisibility(id, v),
     }
   }
 
