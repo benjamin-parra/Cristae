@@ -439,7 +439,7 @@ export class MapEngine {
     const controls = cfg.source ? null : createSource(accessors)
     const source   = cfg.source ?? controls
     const layer    = this.#build(paneName, zIndex, () =>
-      new HeatLayer({ host: this.#host, pane: paneName, source, radius, blur, intensity, colorRamp }))
+      new HeatLayer({ host: this.#host, pane: paneName, source, radius, blur, intensity, colorRamp, visible }))
 
     const record = { kind: 'heat', source, layer, controls, paneName, zIndex, order, interactive: false, visible, enabled: true }
     this.#layers.set(id, record)

@@ -7,6 +7,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { MapEngine } from '../../src/engine/MapEngine.js'
 import { adoptLeafletHost } from '../../src/host/LeafletHost.js'
+import { createSource } from '../../src/data/Source.js'
 
 const accessors = { idOf: it => it.id, positionOf: it => ({ lat: it.lat, lng: it.lng }) }
 const flush     = () => new Promise(r => setTimeout(r, 5))
@@ -39,6 +40,20 @@ test('el alta oculta no colorea ante un flush, y mostrarla colorea', async () =>
 
     handle.setVisible(true)
     assert.equal(espia.cuenta.getImageData, 1)
+  } finally {
+    espia.restaurar()
+    engine.destroy()
+  }
+})
+
+test('el alta oculta con una Source ya cargada no colorea al construirse', () => {
+  const engine = new MapEngine({ host: adoptLeafletHost(makeMap(), { leaflet: makeLeaflet() }) })
+  const espia  = conLienzoEspia()
+  try {
+    const source = createSource(accessors)
+    source.set([{ id: 1, lat: 1, lng: 1 }])
+    engine.addHeatLayer({ id: 'calor', source, visible: false })
+    assert.equal(espia.cuenta.getImageData, 0, 'nace oculta: ni el primer pintado colorea')
   } finally {
     espia.restaurar()
     engine.destroy()

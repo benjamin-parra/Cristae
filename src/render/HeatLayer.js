@@ -73,7 +73,7 @@ export class HeatLayer {
   #unsub    = null
   #offView  = []                // bajas del ciclo de vista
 
-  constructor({ host, pane, source, accessors = null, radius, blur, intensity, colorRamp } = {}) {
+  constructor({ host, pane, source, accessors = null, radius, blur, intensity, colorRamp, visible = true } = {}) {
     const canvas = document.createElement('canvas')
     canvas.className           = 'cristae-heat-canvas'
     canvas.style.position      = 'absolute'
@@ -88,6 +88,7 @@ export class HeatLayer {
     this.#blur      = nonNeg(blur, DEFAULT_BLUR)
     this.#intensity = intensity ?? DEFAULT_INTENSITY
     this.#colorRamp = colorRamp ?? defaultRamp
+    this.#visible   = visible
 
     this.#buildBrush()
     // Consulta colorRamp GRAD_STEPS veces (una vez; se re-muestrea si cambia la rampa). Es código del
