@@ -5,6 +5,40 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
 [`docs/versionado.md`](docs/versionado.md) — en `0.x`, el **minor cuenta los cambios medios**
 (capacidad o eje de API nuevo) y el **patch los menores desde el último medio** (fix / perf / revert).
 
+## [Sin publicar]
+
+### Agregado
+- **Capa de imagen georreferenciada.** `engine.addImageLayer`, `<cristae-image-layer>` y `<CristaeImageLayer>`
+  ponen una imagen (por `url`, o un nodo propio: `<img>`, `<canvas>`, `<video>` o `<svg>`) sobre una caja
+  o sobre cuatro esquinas, con opacidad, apilado y click opcional (`ImageHit`, `{ kind: 'image' }`). Es un
+  nodo DOM, sin contexto WebGL, y sigue la paridad con `L.imageOverlay`. `ImageLayerConfig` e
+  `ImageLayerHandle` tipan el conjunto. Ver [`docs/image-layer.md`](docs/image-layer.md).
+  *Migración*: ninguna.
+- **Escala gráfica.** `<cristae-scale>` y `<CristaeScale>` muestran una barra métrica y/o imperial
+  (`units="metric imperial"`, `max-width`) con la distancia en el centro de la vista, como
+  `L.control.scale`: va en una zona del overlay por `slot`, mide con el `model` del mapa y sigue el paneo.
+  Bajo 1 m sigue en decimales en vez de subir a 1 m como Leaflet. Ver [`docs/scale.md`](docs/scale.md).
+  *Migración*: ninguna.
+- **Texto sobre líneas.** `engine.addLineLabelLayer`, `<cristae-line-label-layer>` y
+  `<CristaeLineLabelLayer>` dibujan un texto que sigue el trazo de una línea, centrado, al inicio o
+  repetido, con desplazamiento perpendicular y siempre derecho para quien lee. Se liga a una capa de líneas
+  con `bind-to` o usa una Source propia; el estilo va en vivo por `handle.style(patch)`. Equivale a
+  `polyline.setText` de Leaflet.TextPath. Canvas 2D, sin contexto WebGL, y no se pica. Ver
+  [`docs/line-labels.md`](docs/line-labels.md).
+  *Migración*: ninguna.
+- **Elemento y componente React de la capa de calor.** `<cristae-heat-layer>` y `<CristaeHeatLayer>`
+  declaran la capa de `engine.addHeatLayer`: `data`, `source`, `accessors` y `colorRamp` como props;
+  `radius`, `blur`, `intensity` y `visible` como atributos. Todo salvo `source` y `accessors` se aplica en
+  vivo. No se pica. Ver [`docs/heat.md`](docs/heat.md).
+  *Migración*: ninguna.
+
+### Corregido
+- **La capa de calor oculta ya no pinta.** Ocultarla sólo ocultaba su pane, y cada cambio de la Source
+  seguía leyendo y escribiendo el framebuffer entero. Ahora no dibuja mientras está oculta y repinta al
+  volver. Vale también para `addHeatLayer({ visible: false })`, que antes coloreaba hasta el primer
+  `setVisible`.
+  *Migración*: ninguna.
+
 ## [0.37.0] - 2026-10-08
 
 > Sale como **minor**: la capa de formas dibuja círculos, elipses y sectores en metros, los editores

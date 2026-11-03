@@ -256,6 +256,8 @@ new MapEngine({ host: adoptLeafletHost(map, { leaflet? }), … }) → engine
 | `addEditableLayer(cfg) → handle` | acción | O(1) | editor de una geometría, input controlado (§8.8) |
 | `addCircleLayer(cfg) → handle` | acción | O(1) | `@deprecated`, se retira en 1.0: alias de la capa de formas (§8.7) |
 | `addLabelLayer(cfg) → handle` | acción | O(1) | standalone o `bindTo` |
+| `addLineLabelLayer(cfg) → { id, setVisible, style }` | acción | O(1) | texto sobre líneas, standalone o `bindTo` a una capa de líneas (§19.3) |
+| `addImageLayer(cfg) → { id, setUrl, setImage, setBounds, setCorners, setOpacity, setVisible }` | acción | O(1) | imagen georreferenciada en DOM (§19.1) |
 | `attachSource(id, source)` | acción | O(1) | ruta B/C; interno del setter `.source` de la capa |
 | `removeLayer(id)` / `getLayer(id)` | acción | O(1) | |
 | `addGeodesic({ hostId }) → off \| null` | acción | O(1) + el rearmado del host | curva el host sobre la geodésica del modelo del mapa; `null` si no se curva (§8.6) |
@@ -487,6 +489,19 @@ Siete elementos —`polygon`, `polyline`, `point`, `rectangle`, `circle`, `ellip
 - **Curva geodésica**: envuelto por `<cristae-geodesic>`, el editor de polilínea o de polígono dibuja cada tramo sobre la geodésica del modelo del mapa; las manijas quedan en los vértices del `value`, que no gana puntos.
 - **Contexto GL**: cada editor toma un contexto WebGL, del techo de ~16 del navegador: se monta uno por vez.
 
+### 8.9 `<cristae-image-layer>`, `<cristae-line-label-layer>`, `<cristae-heat-layer>` y `<cristae-scale>`
+
+Las piezas de paridad con Leaflet. Su contrato está en §19; acá, sólo su lugar en la gramática:
+
+| Elemento | Firma |
+|---|---|
+| `<cristae-image-layer>` | `{ consumes: [], produces: ['image'], combine: null, arity: 'leaf' }` |
+| `<cristae-line-label-layer>` | `{ consumes: [], produces: ['label'], combine: null, arity: 'leaf', bindsTo: 'line' }` |
+| `<cristae-heat-layer>` | `{ consumes: [], produces: ['heat'], combine: null, arity: 'leaf' }` |
+| `<cristae-scale>` | sin firma: es UI en una zona del overlay, como `<cristae-toolbar>`, y no una capa |
+
+Ningún modificador consume `image` ni `heat`, así que ninguna de las tres se envuelve (R2).
+
 ---
 
 ## 9. Cámara
@@ -627,6 +642,7 @@ La **ley** (MODELO §5.4) formalizada como contrato que un implementador debe cu
 | eventos | `hover` emite el set vigente de cada resolución y `hover:start`/`hover:end` sus cambios; `click` entrega hits ordenados; una pulsación quieta sale por `click` con su hit y, en el vacío, por `map:click`, y el `click` que dispara Leaflet no cuenta; cursor automático; sobre el Leaflet real, ningún payload lleva una instancia de Leaflet |
 | lifecycle | StrictMode doble-mount ⇒ 1 motor; `destroy()` cancela rAF y quita listeners (sin leak) |
 | lector GeoJSON (§17) | corpus de conformidad contra un **oráculo diferencial** sobre `JSON.parse`, nunca contra la implementación; las cuatro formas de entrada dan salidas idénticas byte a byte; fuzzer de mutación sin lectura fuera de rango ni excepción cruda; ausencia de grafo (conteo de asignaciones, no milisegundos) |
+| paridad con Leaflet (§19) | ver §19.5 |
 | geometría (§18) | referencias independientes (radios a mano, fórmulas distintas, valores publicados del elipsoide), nunca la misma haversine; las formas de llamada y de punto miden lo mismo; los bordes de §18.1; el tree-shaking del elipsoide, empaquetando; el octante y la banda contra fórmulas cerradas; geographiclib con f = 0 como implementación independiente de la esfera, anillos polares incluidos, y el destino y el rumbo del protocolo; el diámetro contra la fuerza bruta; el terreno con stubs de `fetch`, PNG sintéticos, un tile real de fixture y rampas de pendiente conocida; una segunda copia empaquetada; el tree-shaking del terreno |
 
 ---
@@ -1410,3 +1426,125 @@ contra el área de esa base por √(1 + s²); los `NaN` por cada lado de la caja
 dentro del mosaico, y por un 404; `diameter` que lo rechaza; `elevation` contra una rampa diagonal,
 donde medio píxel de corrimiento en cualquier eje da metros; y una segunda copia que mide con un
 terreno de la primera.
+
+---
+
+## 19. Paridad con Leaflet — imagen, escala, texto sobre líneas y calor declarativo
+
+> Cuatro piezas que cubren lo que un consumidor de Leaflet pide con `L.imageOverlay`, `L.control.scale`,
+> Leaflet.TextPath y una capa de calor declarativa. Comparten tres reglas: se dibujan en **DOM o canvas
+> 2D**, sin abrir un contexto WebGL (§8.8), no importan Leaflet (usan las facetas del anfitrión,
+> §16.7) y no tienen ruta incremental: dibujan al asentar la vista o con el flush coalescido de la Source,
+> así que §13 les aplica en el dibujo (proyección inlineada, buffers reusados, `safe` en el código del
+> consumidor) y no hay `[0-alloc]` que cumplir. Guías de uso en [`docs/image-layer.md`](./docs/image-layer.md),
+> [`docs/scale.md`](./docs/scale.md), [`docs/line-labels.md`](./docs/line-labels.md) y
+> [`docs/heat.md`](./docs/heat.md).
+
+### 19.1 Imagen — `addImageLayer` / `<cristae-image-layer>`
+
+Un nodo DOM en un pane propio con una transformación CSS (`matrix3d`) que lleva la imagen a su lugar. Sin
+`z`, apila por orden de declaración **sin** el `+200` de las etiquetas: queda bajo ellas y bajo los
+marcadores HTML.
+
+| Entrada | Tipo | Notas |
+|---|---|---|
+| `url` \| `image` | string \| `<img>`/`<canvas>`/`<video>`/`<svg>` | exactamente una; las dos o ninguna → `TypeError` |
+| `bounds` \| `corners` | caja \| 4 puntos nw, ne, se, sw | exactamente uno; `corners` rota o deforma (homografía) |
+| `opacity` | [0, 1], default 1 | no finito → `TypeError`; `setOpacity` acota |
+| `interactive` | bool, default `false` | sin él el puntero pasa al mapa; con él, hit `{ kind: 'image', id, ref: id, distancePx: 0 }` dentro del cuadrilátero |
+| `crossOrigin`, `alt`, `onLoad`, `onError` | — | se leen en el alta |
+
+- **Validación antes de tocar lo que se ve:** número no finito, `south > north`, cuadrilátero sin área,
+  cóncavo o en moño → `TypeError` en el alta, en `setBounds` y en `setCorners`. Esquinas en sentido inverso
+  dan la imagen espejada, que es válida. El `TypeError` del alta desmonta el pane (§8, `pane`).
+- **Antimeridiano:** con `bounds`, `west > east` suma 360 al este; con `corners`, cada longitud queda a ±180
+  de la anterior.
+- **Proyección:** se estira sobre la caja proyectada en Mercator, como Leaflet; no reproyecta.
+- **Carga:** la imagen de `url` nace oculta y aparece en `load`; `setUrl` mantiene la vigente hasta que
+  carga la nueva, y el `load` de una URL descartada no se aplica. `destroy` durante la carga suelta los
+  oyentes. Un nodo propio no emite `load` ni `error`; mientras está en la capa, la capa le toma `display`,
+  `width`, `height`, `maxWidth`, `maxHeight` y `objectFit`, y se los devuelve al soltarlo.
+- **Vista:** sigue el zoom animado con `followZoom` y se recoloca en `moveend zoomend resize`. La capa
+  expone `bounds`, así que `camera.fitToLayer(id)` la encuadra.
+- **Elemento:** monta cuando tiene una fuente y un lugar; `url`, `image`, `bounds`, `corners`, `opacity` y
+  `visible` en vivo; `interactive`, `cross-origin` y `alt` al montar. Emite `cristae:load` y `cristae:error`
+  (`bubbles`, `composed`). Una imagen no tiene Source, así que `<cristae-popup for>` no la abre: el click
+  llega por el bus.
+
+### 19.2 Escala — `<cristae-scale>`
+
+UI pura en una zona del overlay por `slot`, equivalente de `L.control.scale`. No entra a la gramática ni
+toca el motor.
+
+- **Medida:** `camera.containerPointToLatLng` de `[0, h/2]` y `[maxWidth, h/2]`, y `distance` con el
+  `model` del `<cristae-map>` (la esfera por defecto). Redondea hacia abajo a {1, 2, 3, 5}·10ⁿ y acorta la
+  barra en la misma proporción: el ancho queda en [maxWidth/2, maxWidth] y no se redondea a px.
+- **Unidades:** `units` es una lista de tokens, `metric` (default) y/o `imperial`. Desde 1000 m pasa a km;
+  desde 5280 ft, a mi (Leaflet corta en > 5280). Bajo 1 m sigue en decimales (Leaflet sube a 1 m).
+- **Cuándo:** el `move` del motor, re-enganchado en cada `cristae:ready`, y `cristae:viewportchange`,
+  coalescidos a un rAF. Fuera de un mapa, antes de `ready` o con alto 0, no dibuja. `max-width` no finito o
+  ≤ 0 vale 100.
+- La función de redondeo es interna: el entry no la re-exporta.
+
+### 19.3 Texto sobre líneas — `addLineLabelLayer` / `<cristae-line-label-layer>`
+
+Texto que sigue el trazo, equivalente de `polyline.setText` de Leaflet.TextPath. Canvas 2D; se oculta en
+`zoomstart` y redibuja en `moveend zoomend resize`, como `LabelLayer`.
+
+- **Bind:** `bindTo` es el id de una capa de **líneas**: toma su Source, su `idOf` y su `pathOf`. Mientras
+  no exista una capa de líneas con ese id, el alta queda pendiente y se liga cuando aparece. Standalone:
+  `source` y, opcionalmente, `accessors` `{ idOf, pathOf }`. `textOf` (default `String(idOf(item))`),
+  `source` y `accessors` se leen al montar. Como en `<cristae-label-layer>`, la baja del host no suelta la
+  Source ligada, y la visibilidad es independiente de la del host.
+- **Estilo** (`placement`, `repeat`, `offset`, `orientation`, `maxAngle`, `font`, `color`, `halo`,
+  `haloWidth`): en vivo por `handle.style(patch)`, que mezcla, vuelve una clave a su default con `null`,
+  lanza `TypeError` ante un valor inválido sin cambiar nada y devuelve el estilo resultante. En el elemento,
+  los atributos se mezclan sobre la prop `style`.
+- **Colocación:** una función pura, `placeGlyphs(xy, cum, from, n, widths, opts, out) → count`, sobre un
+  buffer de vértices proyectados y su largo acumulado compartidos por todas las partes, que sólo crecen. El
+  centro de cada glifo sale por búsqueda binaria sobre el largo; el ancho, de `measureText` por punto de
+  código, cacheado por fuente. `center` en la mitad de cada parte, `start` en su inicio, `repeat` en
+  `repeat/2 + k·repeat`. Se omite —nunca se desborda— la colocación que no cabe, la que pisaría a la
+  anterior y la que gira entre dos glifos más de `maxAngle` (normalizado a (−180°, 180°]).
+- **Orientación `auto`:** cada colocación decide por la cuerda de su comienzo a su final en px de pantalla:
+  con `dx < 0`, o `dx = 0` y `dy < 0`, se recorre al revés. No usa un promedio de ángulos, que falla cerca
+  de ±180°. El `offset` se mide desde el sentido de lectura: positivo, arriba para quien lee; en una línea
+  que pasa por la vertical, el texto cambia de lado del trazo.
+- **Culling:** se descarta la parte cuya caja proyectada no toca el contenedor más un margen, y la
+  colocación cuyo punto medio queda fuera del contenedor más el ancho del texto.
+- No se pica. Oculta, no pinta.
+
+### 19.4 Calor declarativo — `<cristae-heat-layer>`
+
+Declara la capa de `addHeatLayer` (§6): `data`, `source`, `accessors` y `colorRamp` como props; `radius`,
+`blur`, `intensity` y `visible` como atributos. Todo salvo `source` y `accessors` va en vivo por el handle
+`{ id, source, set, setVisible, setRadius, setBlur, setIntensity, setColorRamp }`. `colorRamp` se compara
+por referencia. No se pica.
+
+- **Oculta no pinta.** `setLayerVisibility` llama a `layer.setVisible`, y la capa no colorea mientras está
+  oculta: ni por flush de la Source ni por la vista. Al volver repinta con el snapshot y la vista actuales.
+  Vale también para el alta con `visible: false`, que pasa por `setLayerVisibility`.
+
+### 19.5 Test
+
+| Archivo | Fija |
+|---|---|
+| `test/render/homography.test.mjs` | la homografía lleva las cuatro esquinas de la imagen a sus destinos |
+| `test/render/image-layer.test.mjs`, `test/engine/image-layer.test.mjs`, `test/element/image-layer.test.mjs` | exclusiones y `TypeError` sin tocar lo visible, antimeridiano, carga y URL descartada, destroy en carga, nodo propio devuelto, picking dentro del cuadrilátero, pane desmontado si el alta lanza, montaje diferido del elemento |
+| `test/element/scale.test.mjs` | redondeo 1-2-3-5 y un barrido al azar con semilla fija (rótulo, ancho, proporción); sobre el Leaflet real, el ecuador contra 2πR·w/(256·2^z) y la latitud 60 a la mitad; re-enganche en `cristae:ready` |
+| `test/render/text-path.test.mjs` | propiedades con semilla fija: derecho con `auto`, invertir el path o trasladarlo da lo mismo, ninguna colocación desborda ni pisa, ningún glifo escrito más allá de `count` |
+| `test/render/line-label-layer.test.mjs`, `test/engine/line-label.test.mjs`, `test/element/line-label-layer.test.mjs` | estilo en vivo e inválido, bind pendiente y a una capa que no es de líneas, oculta no pinta, atributos sobre `style` |
+| `test/element/heat-layer.test.mjs`, `test/engine/heat-visible.test.mjs`, el caso final de `test/render/heat-layer.test.mjs` | reenvío de cada prop al handle, alta oculta que no colorea ante un flush, repintado al volver |
+
+### 19.6 Bordes y límites
+
+| Borde | Contrato |
+|---|---|
+| imagen en EPSG:4326 | se estira en Mercator; no se reproyecta |
+| imagen pasado ±85,0511 | se aplasta en el borde |
+| `corners` con zoom animado | la transición del `matrix3d` puede ondular 250 ms; con la política por defecto no hay transición |
+| texto bajo `<cristae-geodesic>` | sigue los vértices de `pathOf` (la cuerda), no la curva dibujada |
+| texto RTL o con ligaduras | glifo por glifo: sólo se garantiza LTR sin ligaduras |
+| textos superpuestos | sin colisión entre etiquetas |
+| fuente web tardía | se remide al resolverse `document.fonts.ready`, una vez |
+| escala bajo 1 m | sigue en decimales |

@@ -294,7 +294,8 @@ atribución del elemento comparten `top-left` y `bottom-right` con lo sloteado (
 
 ### Apilado — `z` / `pane`
 
-Toda capa hoja (`point` / `line` / `polygon` / `shape` / `html` / `label`) los hereda de la base:
+Toda capa hoja (`point` / `line` / `polygon` / `shape` / `html` / `label` / `line-label` / `image` / `heat`) los
+hereda de la base:
 
 | Miembro | Tipo | Atributo / prop |
 |---|---|---|
@@ -302,8 +303,9 @@ Toda capa hoja (`point` / `line` / `polygon` / `shape` / `html` / `label`) los h
 | `pane` | string | atributo — pane propio (default `cristae-<kind>-<id>`). Se lee en el alta; con el mismo nombre, varias capas lo comparten ([SPECS §8](../SPECS.md)) |
 
 Sin `z`, el motor lo deriva del orden de declaración (`400 + orden·10`): las mismas capas montadas en
-otro orden apilan distinto. Las de `html` y `label` y el editor suman `200`: quedan sobre las demás
-aunque se declaren antes, y la puerta del puntero les da la pulsación por el mismo orden.
+otro orden apilan distinto. Las de `html`, `label` y `line-label` y el editor suman `200`: quedan sobre
+las demás aunque se declaren antes, y la puerta del puntero les da la pulsación por el mismo orden. La de
+`image` no los suma: queda bajo las etiquetas y los marcadores HTML.
 
 ```html
 <cristae-line-layer z="378"></cristae-line-layer>   <!-- recorrido: debajo de los marcadores -->
@@ -466,6 +468,61 @@ host, resuelto por nombre, orden-independiente).
 | `textOf` | `(item) => string` | **prop** |
 | `paint` / `style` | función / objeto | **prop** |
 
+### `<cristae-line-label-layer>` — texto sobre líneas
+
+Texto que sigue el trazo de una línea, ligado a una `<cristae-line-layer>` (`bind-to`) o con Source
+propia. Equivale a `polyline.setText` de Leaflet.TextPath.
+
+| Miembro | Tipo | Atributo / prop |
+|---|---|---|
+| `id` | string | atributo |
+| `bind-to` | string (id de una capa de líneas) | atributo |
+| `placement` `repeat` `offset` `orientation` `max-angle` | estilo | atributo (se mezcla sobre `style`) |
+| `visible` | boolean (default `true`) | atributo |
+| `style` | `LineLabelStyle` | **prop** |
+| `textOf` | `(item) => string` | **prop** |
+| `source` / `accessors` | Source / `{ idOf, pathOf }` | **prop** |
+
+El estilo va en vivo por `controls.style(patch)`; `textOf`, `source` y `accessors` se leen **al montar**.
+No se pica. Detalle en [`line-labels.md`](line-labels.md).
+
+### `<cristae-image-layer>` — imagen georreferenciada
+
+```html
+<cristae-image-layer id="radar" url="radar.png" bounds='{"south":-34,"west":-72,"north":-32,"east":-70}' opacity="0.7"></cristae-image-layer>
+```
+
+| Miembro | Tipo | Atributo / prop |
+|---|---|---|
+| `id` | string | atributo |
+| `url` | string | atributo |
+| `bounds` | `{ south, west, north, east }` (JSON) | atributo |
+| `opacity` | number en [0, 1] | atributo |
+| `interactive` `visible` | boolean | atributo |
+| `cross-origin` `alt` | string | atributo |
+| `image` | `<img>`, `<canvas>`, `<video>` o `<svg>` | **prop** |
+| `corners` | cuatro puntos nw, ne, se, sw | **prop** |
+
+Fuente (`url` o `image`) y lugar (`bounds` o `corners`); si se dan los dos de un par, mandan `image` y
+`corners`. Monta cuando tiene una fuente y un lugar. `url`, `image`, `bounds`, `corners`, `opacity` y
+`visible` van en vivo; `interactive`, `cross-origin` y `alt`, al montar. Emite `cristae:load` y
+`cristae:error`. Nodo DOM, sin contexto WebGL. Detalle en [`image-layer.md`](image-layer.md).
+
+### `<cristae-heat-layer>` — campo de calor
+
+| Miembro | Tipo | Atributo / prop |
+|---|---|---|
+| `id` | string | atributo (sin él, `heat-N`) |
+| `radius` `blur` `intensity` | number | atributo |
+| `visible` | boolean (default `true`) | atributo |
+| `data` | `Item[]` | **prop** |
+| `source` | `Source` | **prop** |
+| `accessors` | `{ idOf, positionOf, weightOf?, hashOf? }` | **prop** |
+| `colorRamp` | `(t) => color` | **prop** |
+
+Densidad en canvas 2D, sin contexto WebGL. `source` y `accessors` se leen **al montar**; lo demás va en
+vivo por el handle. Oculta no pinta. No se pica. Detalle en [`heat.md`](heat.md).
+
 ### `<cristae-editable-polygon|polyline|point|rectangle|circle|ellipse|sector>` — edición de geometría
 
 No son capas de dato: sin `source` ni accessors, su dato es UNA geometría y el contrato es el de un
@@ -558,6 +615,17 @@ const recta = engine.addGeodesic({ hostId: 'vuelos' })   // recta() vuelve a rec
 `icon` es markup SVG/HTML; `title` es el nombre accesible. Métodos: `addItem(item)`,
 `removeItem(id)`, `setActive(id)`. Los items suelen necesitar el `engine`, así que se asignan en
 `cristae:ready`.
+
+### `<cristae-scale>` — escala gráfica
+
+| Miembro | Tipo | Atributo / prop |
+|---|---|---|
+| `slot` | zona del overlay | atributo |
+| `units` | `metric` (default) y/o `imperial`, separados por espacio | atributo |
+| `max-width` | px, default 100 | atributo (`maxWidth`) |
+
+Barra métrica y/o imperial con la distancia en el centro de la vista, como `L.control.scale`. No es una
+capa. Ver [`scale.md`](scale.md).
 
 ### `<cristae-popup>` — tarjeta HTML anclada al dato
 
@@ -687,6 +755,9 @@ Regla: si existe una prop declarativa para lo que se busca, conviene usarla; `co
 | polygon | `{ id, source, set, setVisible, redraw, style }` |
 | shape | `{ id, source, set, setVisible, style }` |
 | label | `{ id, setLabels, setHovered, setVisible }` |
+| line-label | `{ id, setVisible, style }` |
+| image | `{ id, setUrl, setImage, setBounds, setCorners, setOpacity, setVisible }` |
+| heat | `{ id, source, set, setVisible, setRadius, setBlur, setIntensity, setColorRamp }` |
 | editable | `{ id, setValue, setMode, setStyle, getValue, handleMapClick, destroy }` |
 | cluster | `{ id }` (id del host; quitar el `<cristae-cluster>` arrastra el cluster) |
 | geodesic | `{ id }` (un marcador, sin operaciones: la curva la destruye el host al irse; `enabled` la alterna) |

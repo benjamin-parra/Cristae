@@ -314,6 +314,10 @@ const latlng   = map.camera.containerPointToLatLng([x, y])
 | `map.latLngToContainerPoint` para un overlay | `map.camera.latLngToContainerPoint(latlng)` |
 | popup/tarjeta al click sobre un punto | `<cristae-popup for="fleet">` + `contentOf(item)` (HTML en light DOM) |
 | labels/tooltips a mano | `<cristae-label-layer bind-to="fleet">` |
+| `L.imageOverlay`, `VideoOverlay`, `SVGOverlay` | `<cristae-image-layer url bounds>` o con `image` y `corners` para rotarla ([`docs/image-layer.md`](./docs/image-layer.md)) |
+| `L.control.scale()` | `<cristae-scale slot="bottom-left">` ([`docs/scale.md`](./docs/scale.md)) |
+| `polyline.setText` (Leaflet.TextPath) | `<cristae-line-label-layer bind-to="rutas" repeat="200">` ([`docs/line-labels.md`](./docs/line-labels.md)) |
+| `L.heatLayer` (`leaflet.heat`) | `<cristae-heat-layer>` + `accessors:{ idOf, positionOf, weightOf? }` ([`docs/heat.md`](./docs/heat.md)) |
 | clustering manual | `<cristae-cluster>` envolviendo la capa |
 | `L.icon`/`divIcon` puntual | `map.engine.createIcon({ size, draw })` |
 
