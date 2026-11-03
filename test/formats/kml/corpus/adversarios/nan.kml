@@ -1,0 +1,2 @@
+<!-- DISENO-INTEROP §2.2 y §1.6-4: NaN no es una coordenada. -->
+<kml><Placemark><Point><coordinates>NaN,1</coordinates></Point></Placemark></kml>

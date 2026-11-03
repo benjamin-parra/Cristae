@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- gpx.xsd: latitudeType y longitudeType son xsd:decimal con whiteSpace collapse; la normalización
+     de atributos de XML 1.0 §3.3.3 deja espacios al principio y al final, y una referencia &#32;
+     vale espacio. `ele` partido por un comentario y un CDATA (DISENO-INTEROP §2.6). -->
+<gpx version="1.1"><wpt lat="  -33.5&#32;" lon="&#9;-70.25 "><ele>1<!-- c -->2<![CDATA[.5]]></ele></wpt>
+<wpt lat="+.5" lon="5."/></gpx>

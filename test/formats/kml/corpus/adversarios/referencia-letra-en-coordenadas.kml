@@ -1,0 +1,2 @@
+<!-- DISENO-INTEROP §2.6: una referencia dentro de coordenadas sólo vale espacio o un carácter numérico. -->
+<kml><Placemark><Point><coordinates>1,&#65;</coordinates></Point></Placemark></kml>

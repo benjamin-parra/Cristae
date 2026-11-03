@@ -1,0 +1,2 @@
+<!-- 07-147r2: kml:coordinates es texto, sin elementos hijos. -->
+<kml><Placemark><Point><coordinates>1,<b/>2</coordinates></Point></Placemark></kml>

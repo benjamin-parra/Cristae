@@ -1,0 +1,2 @@
+<!-- 07-147r2, kml:Point: una sola posición. -->
+<kml><Placemark><Point><coordinates>1,2 3,4</coordinates></Point></Placemark></kml>

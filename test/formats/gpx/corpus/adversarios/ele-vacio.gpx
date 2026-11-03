@@ -1,0 +1,2 @@
+<!-- gpx.xsd: ele es xsd:decimal; vacío no es un número. -->
+<gpx><wpt lat="1" lon="1"><ele></ele></wpt></gpx>

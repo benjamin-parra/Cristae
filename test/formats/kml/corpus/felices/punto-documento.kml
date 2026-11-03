@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 07-147r2: kml:Document, kml:Placemark (atributo id), kml:name, kml:description, kml:styleUrl,
+     kml:ExtendedData (Data/value y SchemaData/SimpleData) y kml:Point con altitud (§ a verificar). -->
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>Predios &amp; caminos</name>
+    <Placemark id="p&#49;">
+      <name>Torre</name>
+      <description><![CDATA[<b>alta</b> & visible]]></description>
+      <styleUrl>#rojo</styleUrl>
+      <ExtendedData>
+        <Data name="altura"><displayName>Altura</displayName><value>42</value></Data>
+        <SchemaData schemaUrl="#s"><SimpleData name="tipo">mirador</SimpleData></SchemaData>
+      </ExtendedData>
+      <Point><coordinates>-72.5,-37.25,310.5</coordinates></Point>
+    </Placemark>
+    <Placemark>
+      <Point><coordinates> -72.4,-37.2 </coordinates></Point>
+    </Placemark>
+  </Document>
+</kml>

@@ -1,0 +1,2 @@
+<!-- 07-147r2, kml:Polygon: outerBoundaryIs primero; el exterior es el anillo 0. -->
+<kml><Placemark><Polygon><innerBoundaryIs><LinearRing><coordinates>0,0 1,0 0,0</coordinates></LinearRing></innerBoundaryIs></Polygon></Placemark></kml>
