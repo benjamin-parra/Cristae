@@ -12,6 +12,7 @@ import { HeatLayer } from '../render/HeatLayer.js'
 import { EditableGeometry } from '../render/EditableGeometry.js'
 import { HtmlLayer } from '../render/HtmlLayer.js'
 import { LabelLayer } from '../render/LabelLayer.js'
+import { LineLabelLayer } from '../render/LineLabelLayer.js'
 import { createHighlightOverlay } from '../render/HighlightOverlay.js'
 import { frameTransform } from '../render/frame.js'
 import { createClusterFold } from '../cluster/ClusterFold.js'
@@ -554,6 +555,39 @@ export class MapEngine {
         labelLayer.setVisibility(v && (!host || host.enabled))
       },
     }
+  }
+
+  /* ── Texto sobre líneas (canvas; standalone o bind-to una capa de líneas) ── */
+
+  // Nace con su visibilidad por `setLayerVisibility`, que además de ocultar el pane corta el pintado. El
+  // estilo inválido lanza al construir la capa, antes de que haya registro.
+  addLineLabelLayer(cfg) {
+    const { id, bindTo, source, accessors, textOf, style, pane, z, visible = true } = cfg
+    const order    = this.#order++
+    const paneName = pane ?? `cristae-line-label-${id}`
+    const zIndex   = z ?? (BASE_Z + order * Z_STEP + LABEL_Z_OFFSET)
+    const layer    = this.#build(paneName, zIndex, () => new LineLabelLayer({ host: this.#host, pane: paneName, style, visible }))
+    const record   = { kind: 'line-label', layer, paneName, zIndex, order, bindTo, visible, enabled: true }
+    this.#layers.set(id, record)
+    this.setLayerVisibility(id, visible)
+
+    const bind = () => this.#bindLineLabels(layer, { bindTo, source, accessors, textOf })
+    bind() || this.#pendingBinds.push({ id, bind })
+    return {
+      id,
+      setVisible : v => this.setLayerVisibility(id, v),
+      style      : patch => layer.style(patch),
+    }
+  }
+
+  // Pendiente mientras no exista una capa de líneas con ese id. Como en `#bindLabels`, la baja del host no
+  // suelta la Source ligada.
+  #bindLineLabels(layer, { bindTo, source, accessors, textOf }) {
+    const host = bindTo ? this.#layers.get(bindTo) : null
+    if (bindTo && host?.kind !== 'line') return false
+    const src = host ? host.source : source
+    src && layer.bind(src, host ? src.accessors : accessors ?? src.accessors, textOf)
+    return true
   }
 
   /* ── Cluster (fold): agrupa N capas de puntos en UN clustering y comparte la supresión ── */
