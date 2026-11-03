@@ -1,6 +1,9 @@
 // Lector de coordenadas GeoJSON: bytes UTF-8 → geometría en arrays tipados, en una pasada y sin
 // construir el grafo de `JSON.parse`. Contrato completo en SPECS.md §17.
 
+// La división exacta en dos limbos la comparten todos los lectores de texto (SPECS §19.2).
+import { POW10, LIMB, joinLimbs } from '../formats/core/number.js'
+
 export class GeoJsonError extends Error {
   constructor(code, at = -1, hint = null) {
     super(at >= 0 ? `geojson: ${code} (byte ${at})` : `geojson: ${code}`)
@@ -76,31 +79,6 @@ const grown = (arr, need) => {
   const next = new arr.constructor(Math.max(need, arr.length * 2))
   next.set(arr)
   return next
-}
-
-const POW10 = Array.from({ length: 23 }, (_, k) => Number('1e' + k))
-const SPLIT = 134217729                 // 2^27 + 1
-const LIMB  = 900719925474099           // el mayor valor al que todavía se le puede anexar un dígito bajo 2^53
-
-// Los dígitos que no entran en la mantisa de 2^53 van a un segundo limbo exacto: el valor es
-// `a·10^nb + b`, una suma no evaluada de dos doubles que se divide corrigiendo por el residuo con las
-// transformaciones de Dekker. El alcance son ~31 dígitos significativos; pasados, el llamador delega
-// en `Number`, al que el estándar obliga a redondear correctamente.
-const joinLimbs = (a, b, nb, dec, neg) => {
-  const p    = a * POW10[nb]
-  const ca   = SPLIT * a, ah = ca - (ca - a), al = a - ah
-  const t    = POW10[nb], ct = SPLIT * t, th = ct - (ct - t), tl = t - th
-  const perr = ((ah * th - p) + ah * tl + al * th) + al * tl
-  const s    = p + b, db = s - p
-  const lo   = (p - (s - db)) + (b - db) + perr
-  const P    = POW10[dec]
-  const q    = s / P
-  const cq   = SPLIT * q, qh = cq - (cq - q)
-  const cp   = SPLIT * P, ph = cp - (cp - P)
-  const qp   = q * P
-  const err  = ((qh * ph - qp) + qh * (P - ph) + (q - qh) * ph) + (q - qh) * (P - ph)
-  const v    = q + (((s - qp) - err) + lo) / P
-  return neg ? -v : v
 }
 
 const D_START = 0, D_KEY = 1, D_KIND = 2, D_FEATURE = 3, D_PROP0 = 4, D_PROP1 = 5,
