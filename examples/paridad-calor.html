@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Cristae · Capa de calor declarativa</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #f8fafc; color: #0f172a;
+    font: 13px/1.5 ui-sans-serif, system-ui, -apple-system, sans-serif; overflow: hidden; }
+  cristae-map { position: fixed; inset: 0; background: #e2e8f0; }
+  #panel { position: fixed; top: 14px; right: 14px; z-index: 1000; width: 260px; background: #fff;
+    border: 1px solid #cbd5e1; border-radius: 10px; padding: 10px 12px; }
+  h1 { font-size: 13px; margin: 0 0 8px; }
+  .row { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+  .exp { color: #475569; font-size: 11px; margin: 8px 0 0; }
+</style>
+</head>
+<body>
+<cristae-map initial-center="-33.45,-70.65" initial-zoom="11">
+  <cristae-line-layer id="marco"></cristae-line-layer>
+  <cristae-heat-layer id="calor" radius="25"></cristae-heat-layer>
+</cristae-map>
+
+<div id="panel">
+  <h1>&lt;cristae-heat-layer&gt;</h1>
+  <div class="row">radio
+    <label><input type="radio" name="radio" value="10"> 10</label>
+    <label><input type="radio" name="radio" value="25" checked> 25</label>
+    <label><input type="radio" name="radio" value="50"> 50</label>
+  </div>
+  <div class="row"><label><input type="checkbox" id="rampa"> rampa propia (gris → violeta)</label></div>
+  <div class="row"><label><input type="checkbox" id="visible" checked> visible</label></div>
+  <p class="exp">El marco gris rodea los tres focos: al hacer zoom el calor tiene que seguir dentro.</p>
+</div>
+
+<script type="module" src="./paridad-calor.js"></script>
+</body>
+</html>

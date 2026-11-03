@@ -15,8 +15,14 @@ import {
   CristaeLineLayer,
   CristaeShapeLayer,
   CristaeLabelLayer,
+  CristaeLineLabelLayer,
+  CristaeImageLayer,
+  CristaeHeatLayer,
   CristaeToolbar,
+  CristaeScale,
   CristaeTable,
+  type CristaeHeatLayerElement,
+  type CristaeImageLayerElement,
   type CristaeClusterElement,
   type CristaeDrawingIndicator,
   type CristaeLabelPaint,
@@ -102,8 +108,43 @@ export const ViaData = () => (
       orientation="horizontal"
       items={[{ id: 'a', title: 'Capas', icon: '<svg/>', onClick: (it) => void it.id }]}
     />
+    <CristaeScale slot="bottom-left" units="metric imperial" maxWidth={120} />
   </CristaeMap>
 )
+
+// Texto sobre una línea ligada, imagen por caja con su carga y click, y campo de calor con la rampa
+// fuera del render (una función nueva por render rehace la paleta).
+interface Ruta { id: string; nombre: string; path: [number, number][] }
+interface Muestra { id: number; lat: number; lng: number; n: number }
+const rampa = (t: number): [number, number, number, number] => [t, 0, 1 - t, t]
+export const Paridad = () => {
+  const imagen = useRef<CristaeImageLayerElement>(null)
+  const calor  = useRef<CristaeHeatLayerElement<Muestra>>(null)
+  return (
+    <CristaeMap>
+      <CristaeLineLayer<Ruta> id="rutas" data={[]} accessors={{ idOf: (r) => r.id, pathOf: (r) => r.path }} />
+      <CristaeLineLabelLayer<Ruta> bindTo="rutas" repeat={200} offset={-6} textOf={(r) => r.nombre} />
+      <CristaeImageLayer
+        ref={imagen}
+        id="radar"
+        url="radar.png"
+        bounds={{ south: -34, west: -72, north: -32, east: -70 }}
+        opacity={0.7}
+        interactive
+        onLoad={(ev) => void ev.detail.url}
+        onClick={(hits) => void hits[0]?.kind}
+      />
+      <CristaeHeatLayer<Muestra>
+        ref={calor}
+        data={[]}
+        accessors={{ idOf: (m) => m.id, positionOf: (m) => ({ lat: m.lat, lng: m.lng }), weightOf: (m) => m.n }}
+        radius={30}
+        colorRamp={rampa}
+      />
+      <button onClick={() => { calor.current?.controls?.setVisible(false); imagen.current?.controls?.setOpacity(0.5) }}>ocultar</button>
+    </CristaeMap>
+  )
+}
 
 // Ruta `source` (Source compartida) + composición cluster › overlay › punto + línea.
 export const ViaSource = () => (
@@ -343,6 +384,12 @@ export const BadHost = () => new MapEngine({ host: {} })
 // slot fuera de las zonas del overlay (un typo quedaría mudo en runtime).
 // @ts-expect-error "arriba" no es una zona del overlay 3×3
 export const BadSlot = () => <CristaeToolbar slot="arriba" />
+
+// @ts-expect-error maxWidth es number, no string
+export const BadScaleWidth = () => <CristaeScale maxWidth="100" />
+
+// @ts-expect-error orientation es 'auto' o 'path'
+export const BadLineLabel = () => <CristaeLineLabelLayer bindTo="rutas" orientation="left" />
 
 // el hit de línea sólo expone partIndex/vertexIndex tras discriminar por `kind`.
 export const BadHit = () => (

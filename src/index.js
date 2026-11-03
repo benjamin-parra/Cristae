@@ -11,6 +11,9 @@ import { CristaeShapeLayer } from './element/CristaeShapeLayer.js'
 import { CristaeLineLayer } from './element/CristaeLineLayer.js'
 import { CristaeHtmlLayer } from './element/CristaeHtmlLayer.js'
 import { CristaeLabelLayer } from './element/CristaeLabelLayer.js'
+import { CristaeLineLabelLayer } from './element/CristaeLineLabelLayer.js'
+import { CristaeImageLayer } from './element/CristaeImageLayer.js'
+import { CristaeHeatLayer } from './element/CristaeHeatLayer.js'
 import { CristaeEditablePolygon } from './element/CristaeEditablePolygon.js'
 import { CristaeEditablePolyline } from './element/CristaeEditablePolyline.js'
 import { CristaeEditablePoint } from './element/CristaeEditablePoint.js'
@@ -22,6 +25,7 @@ import { CristaeCluster } from './element/CristaeCluster.js'
 import { CristaeOverlay } from './element/CristaeOverlay.js'
 import { CristaeGeodesic } from './element/CristaeGeodesic.js'
 import { CristaeToolbar } from './element/CristaeToolbar.js'
+import { CristaeScale } from './element/CristaeScale.js'
 import { CristaePopup } from './element/CristaePopup.js'
 
 // Registrar las firmas de la gramática de composición ANTES de customElements.define:
@@ -33,6 +37,9 @@ grammar.register('cristae-shape-layer', CristaeShapeLayer.cristaeSignature)
 grammar.register('cristae-line-layer', CristaeLineLayer.cristaeSignature)
 grammar.register('cristae-html-layer', CristaeHtmlLayer.cristaeSignature)
 grammar.register('cristae-label-layer', CristaeLabelLayer.cristaeSignature)
+grammar.register('cristae-line-label-layer', CristaeLineLabelLayer.cristaeSignature)
+grammar.register('cristae-image-layer', CristaeImageLayer.cristaeSignature)
+grammar.register('cristae-heat-layer', CristaeHeatLayer.cristaeSignature)
 grammar.register('cristae-editable-polygon', CristaeEditablePolygon.cristaeSignature)
 grammar.register('cristae-editable-polyline', CristaeEditablePolyline.cristaeSignature)
 grammar.register('cristae-editable-point', CristaeEditablePoint.cristaeSignature)
@@ -53,6 +60,9 @@ define('cristae-shape-layer', CristaeShapeLayer)
 define('cristae-line-layer', CristaeLineLayer)
 define('cristae-html-layer', CristaeHtmlLayer)
 define('cristae-label-layer', CristaeLabelLayer)
+define('cristae-line-label-layer', CristaeLineLabelLayer)
+define('cristae-image-layer', CristaeImageLayer)
+define('cristae-heat-layer', CristaeHeatLayer)
 define('cristae-editable-polygon', CristaeEditablePolygon)
 define('cristae-editable-polyline', CristaeEditablePolyline)
 define('cristae-editable-point', CristaeEditablePoint)
@@ -64,6 +74,7 @@ define('cristae-cluster', CristaeCluster)
 define('cristae-overlay', CristaeOverlay)
 define('cristae-geodesic', CristaeGeodesic)
 define('cristae-toolbar', CristaeToolbar)
+define('cristae-scale', CristaeScale)
 define('cristae-popup', CristaePopup)
 
 export { MapEngine } from './engine/MapEngine.js'
@@ -84,5 +95,6 @@ export { toParts, sampleAlong } from './geometry/polyline.js'
 export { arc } from './geometry/shape.js'
 export { tilePresets } from './tiles/presets.js'
 export { CristaeMap, CristaePointLayer, CristaePolygonLayer, CristaeShapeLayer, CristaeLineLayer, CristaeHtmlLayer, CristaeLabelLayer, CristaeCluster, CristaeOverlay, CristaeGeodesic, CristaeToolbar, CristaePopup }
+export { CristaeLineLabelLayer, CristaeImageLayer, CristaeHeatLayer, CristaeScale }
 export { CristaeEditablePolygon, CristaeEditablePolyline, CristaeEditablePoint, CristaeEditableRectangle }
 export { CristaeEditableCircle, CristaeEditableEllipse, CristaeEditableSector }

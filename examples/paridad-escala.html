@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Cristae · Paridad · Escala</title>
+<style>
+  html, body { margin: 0; height: 100%; font: 13px/1.5 ui-sans-serif, system-ui, sans-serif; color: #1f2937; background: #f8fafc; }
+  cristae-map { position: fixed; inset: 0; }
+  #panel { position: fixed; top: 12px; right: 12px; z-index: 2000; width: 300px; padding: 10px 12px; background: #fff;
+    border: 1px solid #e2e8f0; border-radius: 10px; box-shadow: 0 4px 12px rgba(0, 0, 0, .08); }
+  #panel p { margin: 4px 0; color: #475569; font-size: 12px; }
+  button { font: inherit; font-size: 12px; padding: 4px 9px; margin: 2px 2px 0 0; cursor: pointer; }
+</style>
+</head>
+<body>
+<cristae-map initial-center="-33.44,-70.65" initial-zoom="15">
+  <cristae-line-layer id="reglas"></cristae-line-layer>
+  <cristae-scale slot="bottom-left" units="metric imperial" max-width="300"></cristae-scale>
+</cristae-map>
+
+<div id="panel">
+  <b>&lt;cristae-scale&gt;</b>
+  <p>La línea azul mide 1 km y la naranja 1 mi, sobre el paralelo del centro. Con zoom 15, la barra de «1 km» tiene que
+    medir lo mismo que la azul, y con zoom 14 la de «1 mi» lo mismo que la naranja.</p>
+  <p>Al ir al sur cambia la barra; con «units» y «max-width» se ve el cambio en vivo.</p>
+  <button id="sur">Ir 30° al sur</button>
+  <button id="z14">Zoom 14</button>
+  <button id="z15">Zoom 15</button>
+  <br />
+  <button data-units="metric">metric</button>
+  <button data-units="imperial">imperial</button>
+  <button data-units="metric imperial">las dos</button>
+  <button id="ancho">max-width 100 ↔ 300</button>
+</div>
+
+<script type="module" src="./paridad-escala.js"></script>
+</body>
+</html>

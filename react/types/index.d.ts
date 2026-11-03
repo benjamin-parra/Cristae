@@ -36,6 +36,15 @@ import type {
   Label,
   LabelStyle,
   LabelPaint,
+  LineLabelStyle,
+  LineLabelHandle,
+  ImageLayerNode,
+  ImageLayerBox,
+  ImageLayerHandle,
+  HeatAccessors,
+  HeatHandle,
+  LatLngPath,
+  LatLngPoint,
   EditableStyle,
   EditableHandle,
   EditablePolygonValue,
@@ -52,6 +61,7 @@ import type {
   HtmlHit,
   CircleHit,
   LineHit,
+  ImageHit,
   Hit,
   ClusterEntity,
   ClusterGroup,
@@ -112,6 +122,7 @@ export type CristaeHtmlHit    = HtmlHit
 /** @deprecated Se retira en 1.0: `CristaeShapeHit`. */
 export type CristaeCircleHit  = CircleHit
 export type CristaeLineHit    = LineHit
+export type CristaeImageHit   = ImageHit
 export type CristaeHit        = Hit
 
 // ── Detalles de los CustomEvent cristae:* (los emite el <cristae-map>) ───────
@@ -395,6 +406,68 @@ export declare function CristaeLabelLayer<T = unknown>(
   props: CristaeLabelLayerProps<T> & RefAttributes<CristaeLabelLayerElement>,
 ): ReactElement | null;
 
+// ── Texto sobre líneas (docs/line-labels.md) ────────────────────────────────
+export type CristaeLineLabelStyle = LineLabelStyle
+
+export interface CristaeLineLabelLayerElement extends HTMLElement { readonly controls: LineLabelHandle | null }
+
+/** No se pica: extiende las props de hoja, sin canales de click ni hover. Los atributos sueltos se mezclan
+ *  sobre `style` y se aplican en vivo; `textOf`, `source` y `accessors` se leen al montar. */
+export interface CristaeLineLabelLayerProps<T = unknown> extends CristaeLeafLayerProps {
+  bindTo?      : string;
+  source?      : CristaeReadSource<T>;
+  accessors?   : { idOf: (item: T) => string | number; pathOf: (item: T) => LatLngPath };
+  textOf?      : (item: T) => string;
+  style?       : CristaeLineLabelStyle;
+  placement?   : 'center' | 'start';
+  repeat?      : number | null;
+  offset?      : number;
+  orientation? : 'auto' | 'path';
+  maxAngle?    : number;
+  visible?     : boolean;
+}
+export declare function CristaeLineLabelLayer<T = unknown>(
+  props: CristaeLineLabelLayerProps<T> & RefAttributes<CristaeLineLabelLayerElement>,
+): ReactElement | null;
+
+// ── Imagen georreferenciada (docs/image-layer.md) ───────────────────────────
+export interface CristaeImageLayerElement extends HTMLElement { readonly controls: ImageLayerHandle | null }
+
+/** Fuente: `url` o `image`; lugar: `bounds` o `corners`. El click llega por el bus sólo con `interactive`. */
+export interface CristaeImageLayerProps extends CristaeDataLayerProps {
+  url?         : string;
+  image?       : ImageLayerNode;
+  bounds?      : ImageLayerBox;
+  corners?     : [LatLngPoint, LatLngPoint, LatLngPoint, LatLngPoint];
+  opacity?     : number;
+  interactive? : boolean;
+  visible?     : boolean;
+  crossOrigin? : string;
+  alt?         : string;
+  onLoad?      : CristaeEventHandler<{ url: string }>;
+  onError?     : CristaeEventHandler<{ url: string }>;
+}
+export declare const CristaeImageLayer: ForwardRefExoticComponent<CristaeImageLayerProps & RefAttributes<CristaeImageLayerElement>>;
+
+// ── Campo de calor (docs/heat.md) ───────────────────────────────────────────
+export interface CristaeHeatLayerElement<T = unknown> extends HTMLElement { readonly controls: HeatHandle<T> | null }
+
+/** No se pica: extiende las props de hoja, sin canales de click ni hover. */
+export interface CristaeHeatLayerProps<T = unknown> extends CristaeLeafLayerProps {
+  data?      : T[];
+  source?    : CristaeReadSource<T>;
+  accessors? : HeatAccessors<T>;
+  visible?   : boolean;
+  radius?    : number;
+  blur?      : number;
+  intensity? : number;
+  /** Se compara por referencia: una función nueva por render re-muestrea la paleta (256 llamadas). */
+  colorRamp? : (t: number) => string | [number, number, number, number];
+}
+export declare function CristaeHeatLayer<T = unknown>(
+  props: CristaeHeatLayerProps<T> & RefAttributes<CristaeHeatLayerElement<T>>,
+): ReactElement | null;
+
 // ── Edición de geometría (docs/editing.md) ──────────────────────────────────
 
 export type CristaeEditableStyle = EditableStyle
@@ -603,6 +676,14 @@ export interface CristaeToolbarProps extends CristaeBaseProps {
   orientation? : 'vertical' | 'horizontal';
 }
 export declare const CristaeToolbar: ForwardRefExoticComponent<CristaeToolbarProps & RefAttributes<HTMLElement>>;
+
+// ── <CristaeScale> ───────────────────────────────────────────────────────────
+export interface CristaeScaleProps extends CristaeBaseProps {
+  /** Tokens separados por espacio: `metric` (default), `imperial`. */
+  units?    : string;
+  maxWidth? : number;
+}
+export declare const CristaeScale: ForwardRefExoticComponent<CristaeScaleProps & RefAttributes<HTMLElement>>;
 
 // ── <CristaeTable> ───────────────────────────────────────────────────────────
 // El OTRO entry de la lib (`import 'cristae/table'` registra el elemento — no lo arrastra `cristae/map`).

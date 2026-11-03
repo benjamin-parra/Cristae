@@ -32,6 +32,7 @@ const BUS = {
   'cristae-polygon-layer': LAYER_BUS,
   'cristae-shape-layer':   LAYER_BUS,
   'cristae-html-layer':    LAYER_BUS,
+  'cristae-image-layer':   LAYER_BUS,
   'cristae-cluster': {
     scoped: false,
     channels: {
@@ -110,6 +111,9 @@ export const CristaePolygonLayer = wrap('cristae-polygon-layer')
 export const CristaeShapeLayer = wrap('cristae-shape-layer')
 export const CristaeHtmlLayer = wrap('cristae-html-layer')
 export const CristaeLabelLayer = wrap('cristae-label-layer')
+export const CristaeLineLabelLayer = wrap('cristae-line-label-layer')
+export const CristaeImageLayer = wrap('cristae-image-layer')
+export const CristaeHeatLayer = wrap('cristae-heat-layer')
 export const CristaeEditablePolygon = wrap('cristae-editable-polygon')
 export const CristaeEditablePolyline = wrap('cristae-editable-polyline')
 export const CristaeEditablePoint = wrap('cristae-editable-point')
@@ -122,5 +126,6 @@ export const CristaeOverlay = wrap('cristae-overlay')
 export const CristaeGeodesic = wrap('cristae-geodesic')
 export const CristaePopup = wrap('cristae-popup')
 export const CristaeToolbar = wrap('cristae-toolbar')
+export const CristaeScale = wrap('cristae-scale')
 // El otro entry de la lib: lo registra `import 'cristae/table'` (no lo arrastra `cristae/map`).
 export const CristaeTable = wrap('cristae-table')

@@ -194,7 +194,12 @@ export interface LineHit extends HitBase {
   vertexIndex : number;
 }
 
-export type Hit = PointHit | PolygonHit | HtmlHit | ShapeHit | CircleHit | LineHit
+/** De `addImageLayer` con `interactive`: el click dentro del cuadrilátero; `id` y `ref` son el id de la capa. */
+export interface ImageHit extends HitBase {
+  kind: 'image';
+}
+
+export type Hit = PointHit | PolygonHit | HtmlHit | ShapeHit | CircleHit | LineHit | ImageHit
 
 // ── Sesión de expansión del cluster (payloads de los canales `cluster:*`) ────
 
@@ -656,6 +661,78 @@ export interface LabelHandle {
   setVisible(visible: boolean): void;
 }
 
+// ── Texto sobre líneas (addLineLabelLayer) — canvas 2D. Ver docs/line-labels.md ──
+export interface LineLabelStyle {
+  /** Dónde va el texto cuando no hay `repeat`. */
+  placement?   : "center" | "start";
+  /** Px entre los centros de las repeticiones, finito y > 0. `null` o ausente: una sola vez. */
+  repeat?      : number | null;
+  /** Px perpendiculares; positivo, a la izquierda del sentido de lectura (arriba). */
+  offset?      : number;
+  /** `auto` da vuelta la colocación para que se lea derecha; `path` sigue el sentido del path. */
+  orientation? : "auto" | "path";
+  /** Grados en (0, 180): la colocación con un giro mayor entre glifos consecutivos se omite. */
+  maxAngle?    : number;
+  font?        : string;
+  color?       : string;
+  halo?        : string;
+  haloWidth?   : number;
+}
+export interface LineLabelLayerConfig<T = unknown> {
+  id         : string;
+  /** Id de la capa de líneas cuyos ítems rotula; queda pendiente hasta que exista. */
+  bindTo?    : string;
+  /** Standalone: sin `accessors`, salen de la Source. */
+  source?    : CristaeSource<T>;
+  accessors? : { idOf: (item: T) => string | number; pathOf: (item: T) => LatLngPath };
+  textOf?    : (item: T) => string;
+  style?     : LineLabelStyle;
+  pane?      : string;
+  z?         : number;
+  visible?   : boolean;
+}
+export interface LineLabelHandle {
+  readonly id: string;
+  setVisible(visible: boolean): boolean;
+  /** Mezcla el parche con el estilo vigente y redibuja en el próximo frame; un `null` vuelve la clave a su
+   *  valor por defecto. Lanza TypeError ante un valor inválido, sin cambiar el estilo. Devuelve el estilo
+   *  resultante. */
+  style(patch: LineLabelStyle): Required<LineLabelStyle>;
+}
+
+// ── Imagen georreferenciada (addImageLayer) — nodo DOM. Ver docs/image-layer.md ──
+export type ImageLayerNode = HTMLImageElement | HTMLCanvasElement | HTMLVideoElement | SVGSVGElement;
+export interface ImageLayerBox { south: number; west: number; north: number; east: number }
+export interface ImageLayerConfig {
+  id           : string;
+  /** Uno de los dos: `url` o `image`. */
+  url?         : string;
+  image?       : ImageLayerNode;
+  /** Uno de los dos: `bounds` o `corners` (nw, ne, se, sw). */
+  bounds?      : ImageLayerBox;
+  corners?     : [LatLngPoint, LatLngPoint, LatLngPoint, LatLngPoint];
+  /** [0, 1]; un valor no finito lanza TypeError. Default 1. */
+  opacity?     : number;
+  interactive? : boolean;
+  crossOrigin? : string;
+  alt?         : string;
+  pane?        : string;
+  z?           : number;
+  visible?     : boolean;
+  onLoad?      : (detail: { url: string }) => void;
+  onError?     : (detail: { url: string }) => void;
+}
+export interface ImageLayerHandle {
+  readonly id: string;
+  setUrl(url: string): HTMLImageElement;
+  setImage(node: ImageLayerNode): Element;
+  /** Devuelven la caja nueva; un lugar inválido lanza TypeError sin tocar lo que se ve. */
+  setBounds(bounds: ImageLayerBox): ImageLayerBox;
+  setCorners(corners: [LatLngPoint, LatLngPoint, LatLngPoint, LatLngPoint]): ImageLayerBox;
+  setOpacity(opacity: number): number;
+  setVisible(visible: boolean): boolean;
+}
+
 export interface OverlayConfig<T> {
   id         : string;
   /** Id del host de puntos: comparte su Source (posición viva) y su supresión de cluster. */
@@ -808,6 +885,8 @@ export class MapEngine {
   addLineLayer<T>(config: LineLayerConfig<T>): LineHandle<T>;
   addHtmlLayer<T>(config: HtmlLayerConfig<T>): HtmlHandle<T>;
   addLabelLayer<T>(config: LabelLayerConfig<T>): LabelHandle;
+  addLineLabelLayer<T>(config: LineLabelLayerConfig<T>): LineLabelHandle;
+  addImageLayer(config: ImageLayerConfig): ImageLayerHandle;
   addOverlay<T>(config: OverlayConfig<T>): OverlayHandle<T> | null;
   addHighlightOverlay(config: HighlightOverlayConfig): HighlightOverlayHandle | null;
   addShapeLayer<T>(config: ShapeLayerConfig<T>): ShapeHandle<T>;
@@ -894,10 +973,19 @@ export class CristaeShapeLayer extends HTMLElement {}
 export class CristaeLineLayer extends HTMLElement {}
 export class CristaeHtmlLayer extends HTMLElement {}
 export class CristaeLabelLayer extends HTMLElement {}
+export class CristaeLineLabelLayer extends HTMLElement {}
+export class CristaeImageLayer extends HTMLElement {}
+export class CristaeHeatLayer extends HTMLElement {}
 export class CristaeCluster extends HTMLElement {}
 export class CristaeOverlay extends HTMLElement {}
 export class CristaeGeodesic extends HTMLElement {}
 export class CristaeToolbar extends HTMLElement {}
+export class CristaeScale extends HTMLElement {
+  /** Tokens separados por espacio: `metric` (default), `imperial`. */
+  units    : string;
+  /** px a lo largo de los que se mide; no finito o ≤ 0 vale 100. */
+  maxWidth : number;
+}
 export class CristaePopup extends HTMLElement {}
 
 // ── Polígonos ESTÁTICOS en GPU (addPolygonGpuLayer) — stencil sobre geometría tipada ──
