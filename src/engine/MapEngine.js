@@ -416,7 +416,7 @@ export class MapEngine {
 
     const record = { kind: 'heat', source, layer, controls, paneName, zIndex, order, interactive: false, visible, enabled: true }
     this.#layers.set(id, record)
-    this.#applyVisibility(id, paneName, visible)
+    this.setLayerVisibility(id, visible)
 
     if (data && controls) controls.set(data)
     return {

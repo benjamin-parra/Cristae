@@ -69,6 +69,7 @@ export class HeatLayer {
   #palette = null               // Uint8ClampedArray(GRAD_STEPS*4): rampa pre-muestreada, alpha → color
   #radius; #blur; #intensity; #colorRamp
   #agendado = false             // ya hay un redibujo pedido para este frame (coalescing)
+  #visible  = true              // oculta no pinta: el pane oculto no detiene el colorizado por flush
   #unsub    = null
   #offView  = []                // bajas del ciclo de vista
 
@@ -118,6 +119,13 @@ export class HeatLayer {
   refresh() { this.#buildPalette(); this.#draw() }    // re-encode (p. ej. cambio de tema en la rampa)
   syncPickingSize() {}                                // sin picking (un heat no se pica)
 
+  // Lo llama setLayerVisibility del motor. Al volver repinta con el snapshot actual: oculta no siguió
+  // los flushes ni la vista.
+  setVisible(visible) {
+    this.#visible = visible
+    visible && this.#draw()
+  }
+
   destroy() {
     if (!this.#canvas) return
     this.#unsub?.()
@@ -154,7 +162,7 @@ export class HeatLayer {
   #draw() {
     const ctx    = this.#ctx
     const canvas = this.#canvas
-    if (!ctx || !canvas || !this.#camera.hasView()) return
+    if (!this.#visible || !ctx || !canvas || !this.#camera.hasView()) return
     const rect = this.#surface.container.getBoundingClientRect()
     const w    = Math.round(rect.width)
     const h    = Math.round(rect.height)
