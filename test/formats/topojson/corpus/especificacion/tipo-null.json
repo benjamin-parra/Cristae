@@ -1,0 +1,14 @@
+{
+  "type": "Topology",
+  "objects": {
+    "mezcla": {
+      "type": "GeometryCollection",
+      "geometries": [
+        { "type": null, "properties": { "sin": "geometria" }, "id": "n1" },
+        { "type": "Point", "coordinates": [1, 1] }
+      ]
+    },
+    "suelto": { "type": null }
+  },
+  "arcs": []
+}

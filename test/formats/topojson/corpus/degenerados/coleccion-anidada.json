@@ -1,0 +1,21 @@
+{
+  "type": "Topology",
+  "objects": {
+    "n": {
+      "type": "GeometryCollection",
+      "geometries": [
+        {
+          "type": "GeometryCollection",
+          "properties": { "nivel": 1 },
+          "geometries": [
+            { "type": "Point", "coordinates": [0, 0], "properties": { "ignorado": true } },
+            { "type": "GeometryCollection", "geometries": [{ "type": "LineString", "arcs": [0] }] },
+            { "type": "Point", "coordinates": [1, 1] }
+          ]
+        },
+        { "type": "Point", "coordinates": [2, 2] }
+      ]
+    }
+  },
+  "arcs": [[[0, 0], [5, 5]]]
+}

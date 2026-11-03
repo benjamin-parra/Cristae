@@ -1,0 +1,5 @@
+{ "features": [
+  { "geometry": { "hasZ": true, "hasM": true, "points": [[0, 0, 5, 1], [1, 1, 6, null], [2, 2, null, 3]] } },
+  { "geometry": { "points": [[3, 3, 7]], "hasZ": false } },
+  { "geometry": { "x": 4, "y": 4, "m": 9 } }
+] }

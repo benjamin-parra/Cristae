@@ -1,0 +1,17 @@
+{
+  "type": "Topology",
+  "objects": {
+    "red": {
+      "type": "GeometryCollection",
+      "geometries": [
+        { "type": "MultiLineString", "properties": { "tramo": "a" }, "arcs": [[0, 1], [-2]] },
+        { "type": "LineString", "arcs": [-1, 2] }
+      ]
+    }
+  },
+  "arcs": [
+    [[-70.5, -33.25], [-70.25, -33.5]],
+    [[-70.25, -33.5], [-70.125, -33.75], [-70, -34]],
+    [[-70.5, -33.25], [-71, -33]]
+  ]
+}

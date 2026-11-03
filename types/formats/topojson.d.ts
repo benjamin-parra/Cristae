@@ -1,0 +1,17 @@
+// Tipos del lector de TopoJSON 1.0 (`cristae/formats`). Contrato en SPECS.md §19; mantener sincronizado
+// con src/formats/topojson.js.
+import type { FormatInput, FormatOptions, FormatRead } from './core'
+
+export interface TopoJsonOptions extends FormatOptions {
+  /** Lee sólo el miembro de `objects` con este nombre. Si no está, `'formato'`. */
+  object? : string;
+}
+
+/**
+ * Una `Topology`: cada miembro de `objects` es una capa; si es `GeometryCollection`, cada hijo es un
+ * feature, y si no, el objeto lo es. Con `transform`, los arcos se decuantizan (delta, escala y
+ * traslación); `~i` recorre el arco `i` al revés. `propertiesOf(f)` y `idOf(f)` hacen `JSON.parse` de
+ * `properties` e `id` del objeto que es feature. La expansión de arcos se acota con `maxBytes`
+ * (`'tope'`). Sin `options.crs` las coordenadas deben caber en grados (`'crs'` si no) y `crs` es `null`.
+ */
+export declare function readTopoJson(input: FormatInput, options?: TopoJsonOptions): FormatRead
