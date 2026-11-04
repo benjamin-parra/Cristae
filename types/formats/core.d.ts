@@ -60,12 +60,15 @@ export interface FormatStats extends GeoJsonStats {
 }
 
 // ── Avisos ───────────────────────────────────────────────────────────────────────────────────────
-/** Lo que no impide leer: `'codificacion'`, un `.cpg` que no se reconoce o que `TextDecoder` no trae. */
-export type FormatWarningCode = 'codificacion'
+/**
+ * Lo que no impide leer: `'codificacion'`, un `.cpg` que no se reconoce o que `TextDecoder` no trae;
+ * `'crs'`, un TopoJSON sin `options.crs` con coordenadas fuera de ±180/±90.
+ */
+export type FormatWarningCode = 'codificacion' | 'crs'
 
 export interface FormatWarning {
   readonly code   : FormatWarningCode;
-  /** Lo leído que motivó el aviso (la etiqueta del `.cpg`), para diagnosticar; `null` si no hay. */
+  /** Lo que motivó el aviso (la etiqueta del `.cpg`, el vértice fuera de rango); `null` si no hay. */
   readonly detail : string | null;
 }
 

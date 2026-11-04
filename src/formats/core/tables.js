@@ -320,7 +320,9 @@ export const createTables = (format, { capacityHint = 0, bounds = false, orienta
       open             = partOpen = ringOpen = 0
     },
 
-    seal: ({ crs = null, source = null, bytes = null, properties = null, id = null } = {}) => {
+    // `assumed`: el lector supone grados sin que la fuente lo diga (TopoJSON sin `options.crs`); fuera
+    // de rango es aviso y no 'crs', porque el error vendría de una suposición nuestra.
+    seal: ({ crs = null, source = null, assumed = false, bytes = null, properties = null, id = null } = {}) => {
       need(!open, 'seal() con una geometría abierta')
       geometryAt = grown(geometryAt, features + 1)
       geometryAt[features] = geometries
@@ -328,7 +330,12 @@ export const createTables = (format, { capacityHint = 0, bounds = false, orienta
       // La inversa va sobre `xy` en sitio y antes de `bounds` (§2.5). Sin CRS de la fuente las
       // coordenadas tienen que caber en el rango geográfico: un UTM sin `.prj` no se dibuja en el océano.
       if (source !== null) toLngLat(source, xy, 0, vertices) || fail('crs')
-      else isGeographic(xy, 0, vertices) < 0 || fail('crs')
+      else {
+        const v = isGeographic(xy, 0, vertices)
+        v < 0 || (assumed
+          ? tables.warn('crs', `vértice ${v} en (${xy[v * 2]}, ${xy[v * 2 + 1]}): no parecen grados; declare options.crs`)
+          : fail('crs'))
+      }
 
       // `z` es del documento y lo deciden las posiciones retenidas (SPECS §17.3-4).
       z === null || z.subarray(0, vertices).some(a => !Number.isNaN(a)) || (z = null)

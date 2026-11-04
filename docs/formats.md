@@ -48,7 +48,8 @@ Además de las tablas de GeoJSON, cada lectura trae cuatro campos:
   padre, y `layerOf[f]` dice en cuál está cada feature. Los formatos sin contenedores tienen una sola,
   `{ name: null, parent: -1 }`.
 - **`warnings`**: avisos no fatales `{ code, detail }`. La lectura siguió, pero hay algo que conviene
-  mostrar: hoy, un `.cpg` que no se reconoce. Vacío casi siempre.
+  mostrar: un `.cpg` que no se reconoce (`'codificacion'`) o un TopoJSON sin la opción `crs` cuyas
+  coordenadas no parecen grados (`'crs'`). Vacío casi siempre.
 
 ```js
 const read = readShapefile({ shp, dbf, cpg })
@@ -72,7 +73,7 @@ descartó la M o una cuarta ordenada.
 
 Sin CRS declarado ni pedido, las coordenadas tienen que caber en ±180/±90. Si no caben, la lectura es
 `FormatError('crs')`: un Shapefile en UTM sin `.prj` falla con ese diagnóstico, en vez de dibujarse en
-el océano.
+el océano. TopoJSON es la excepción: avisa en `warnings` y sigue (ver abajo).
 
 ## Errores y detección
 
@@ -119,8 +120,9 @@ SRID, `options.crs` dice en qué CRS vienen las coordenadas. Las curvas de SQL/M
 `readTopoJson(bytes, { object })` lee una `Topology`. Cada miembro de `objects` es una capa: si es una
 `GeometryCollection`, cada hijo es un feature. Los arcos compartidos se resuelven a coordenadas, sin
 intermediario GeoJSON. `object` lee una sola capa. La especificación no fija un CRS: sin `crs` se
-asume lon/lat WGS84, `read.crs` dice `'EPSG:4326'` y las coordenadas tienen que caber en grados (si no,
-`FormatError('crs')`). Una topología proyectada se lee declarando su CRS, por ejemplo
+asume lon/lat WGS84 y `read.crs` dice `'EPSG:4326'`. Si las coordenadas no caben en grados, la lectura
+sigue y deja un aviso `'crs'` en `warnings` que pide declarar `crs`; un `crs` inválido sí es
+`FormatError('crs')`. Una topología proyectada se lee declarando su CRS, por ejemplo
 `readTopoJson(texto, { crs: 'EPSG:3857' })` o `{ crs: 32719 }`.
 
 ## EsriJSON

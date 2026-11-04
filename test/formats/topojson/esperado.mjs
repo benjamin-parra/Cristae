@@ -1,5 +1,6 @@
 // Qué ejercita cada fixture del corpus de TopoJSON y qué se espera. Sin `error`, la salida esperada es
-// la del oráculo. Las citas de topojson-specification 1.0 están verificadas contra la especificación (DISENO-INTEROP §8, D-11).
+// la del oráculo, y `aviso` es el código del único warning si lo hay. Las citas de
+// topojson-specification 1.0 están verificadas contra la especificación (DISENO-INTEROP §8, D-11).
 
 export const ESPERADO = {
   'felices/poligonos-compartidos.json' : { cita: '§2.1.2 transform, §2.1.3 arcos con delta, §2.1.4 ~i y arcos compartidos' },
@@ -38,5 +39,5 @@ export const ESPERADO = {
   'adversarios/coma-final.json'                : { error: 'sintaxis', cita: 'RFC 8259 §4' },
   'adversarios/dos-raices.json'                : { error: 'sintaxis', cita: 'RFC 8259 §2: un solo valor' },
   'adversarios/escape-invalido.json'           : { error: 'sintaxis', cita: 'RFC 8259 §7' },
-  'adversarios/fuera-de-rango-geografico.json' : { error: 'crs', cita: 'DISENO-INTEROP §2.5: sin CRS declarado y fuera de rango' },
+  'adversarios/fuera-de-rango-geografico.json' : { aviso: 'crs', cita: 'SPECS §19.5: sin CRS declarado y fuera de rango avisa' },
 }

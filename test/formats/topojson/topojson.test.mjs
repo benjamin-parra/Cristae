@@ -71,13 +71,19 @@ test('opción object: lee sólo esa capa', async () => {
   await fallaCon(() => readTopoJson(texto, { object: 3 }), 'entrada', 'topojson')
 })
 
-test('sin opción crs se asume lon/lat WGS84 y se declara, con el rango validado (§19.5)', async () => {
+test('sin opción crs se asume lon/lat WGS84 y se declara; fuera de rango avisa y no falla (§19.5)', async () => {
   const r = readTopoJson(topo({ p: { type: 'Point', coordinates: [-72.5, -36.5] } }))
   assert.equal(r.crs, 'EPSG:4326')
   assert.deepEqual(Array.from(r.xy), [-72.5, -36.5])
   assert.deepEqual(r.warnings, [])
-  const e = await fallaCon(() => readTopoJson(topo({ p: { type: 'Point', coordinates: [500000, 6000000] } })), 'crs', 'topojson')
-  assert.equal(e.at, -1)
+  const fuera = readTopoJson(topo({ p: { type: 'Point', coordinates: [500000, 6000000] } }))
+  assert.equal(fuera.crs, 'EPSG:4326')
+  assert.deepEqual(Array.from(fuera.xy), [500000, 6000000])
+  assert.equal(fuera.warnings.length, 1)
+  assert.equal(fuera.warnings[0].code, 'crs')
+  assert.match(fuera.warnings[0].detail, /no parecen grados; declare options\.crs/)
+  // Un `options.crs` inválido sigue siendo error.
+  await fallaCon(() => readTopoJson(topo({ p: { type: 'Point', coordinates: [500000, 6000000] } }), { crs: 'EPSG:99999' }), 'crs', 'topojson')
   // Declararlo explícito es la misma lectura: la fuente sigue en grados.
   assert.equal(readTopoJson(topo({ p: { type: 'Point', coordinates: [-72.5, -36.5] } }), { crs: 4326 }).crs, 'EPSG:4326')
 })

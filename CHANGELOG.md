@@ -19,7 +19,8 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   - `readWkt` (WKT y EWKT, varias geometrías por entrada) y `readWkb` (WKB y EWKB, binario o hex).
   - `readTopoJson`: TopoJSON 1.0 con `transform`, arcos compartidos e invertidos, una capa por miembro
     de `objects` y tope de expansión de arcos (`maxBytes`). Sin `crs` asume lon/lat WGS84 y lo declara
-    (`'EPSG:4326'`), con el rango validado; una topología proyectada se lee con `{ crs }`.
+    (`'EPSG:4326'`); si las coordenadas no parecen grados, la lectura sigue y avisa en `warnings`
+    (`'crs'`) que se declare `{ crs }`, con el que se lee una topología proyectada.
   - `readEsriJson`: FeatureSet, feature o geometría de ArcGIS REST, con anillos agrupados por
     orientación y contención, `hasZ`/`hasM` y CRS desde `spatialReference`.
   - `readShapefile` y `readShapefileZip`: Shapefile con su `.dbf`, `.prj` y `.cpg`, sueltos o en un zip.
@@ -31,7 +32,8 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
     geometría, colecciones aplanadas, z, las quince clases de columna y el CRS de la cabecera.
   - `FormatError`, el error común, con `format`, `code`, `at` y `hint`, y siete códigos más que
     `GeoJsonError`: `crs`, `compresion`, `tope`, `entorno`, `version`, `codificacion` y `dtd`.
-  - `warnings` en cada lectura: avisos no fatales `{ code, detail }`, vacío si no hubo.
+  - `warnings` en cada lectura: avisos no fatales `{ code, detail }`, vacío si no hubo: `'codificacion'`
+    (un `.cpg` que no sirve) y `'crs'` (TopoJSON sin `crs` fuera de rango).
   - `detectFormat`, que reconoce el formato por los bytes mágicos y el primer token, sin lanzar.
   - Opciones comunes `maxBytes`, el tope de lo que la entrada hace crecer, y `crs`, el CRS de una fuente
     que no declara el suyo (un Shapefile sin `.prj`, el WKT de `ST_AsText`).

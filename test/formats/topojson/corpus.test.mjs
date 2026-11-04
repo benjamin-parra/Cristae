@@ -17,7 +17,7 @@ test('cada fixture tiene su entrada en esperado.mjs, y al revés', () => {
 })
 
 nombres.forEach(nombre => {
-  const { error, hint, cita } = ESPERADO[nombre] ?? {}
+  const { error, hint, aviso, cita } = ESPERADO[nombre] ?? {}
   const texto = readFileSync(new URL(nombre, raiz), 'utf8')
 
   test(`${nombre} — ${cita}`, async () => {
@@ -34,6 +34,7 @@ nombres.forEach(nombre => {
       assert.deepEqual(leido.layers, esperado.layers, forma)
       assert.equal(leido.format, 'topojson')
       assert.equal(leido.crs, 'EPSG:4326')
+      assert.deepEqual(leido.warnings.map(w => w.code), aviso ? [aviso] : [], forma)
     })
   })
 })

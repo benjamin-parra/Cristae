@@ -1454,7 +1454,8 @@ métodos, más cuatro campos.
   contenedores tienen una sola, `{ name: null, parent: -1 }`.
 - `warnings`: avisos no fatales `{ code, detail }`, en el orden en que salieron; vacío si no hubo. Lo
   que no impide leer pero cambia cómo se leyó: el consumidor decide si lo muestra. `code` usa los
-  nombres de `FormatError`; hoy el único es `'codificacion'`, un `.cpg` que no sirve (§19.15-7).
+  nombres de `FormatError`: `'codificacion'`, un `.cpg` que no sirve (§19.15-7), y `'crs'`, un
+  TopoJSON sin `options.crs` fuera de ±180/±90 (§19.5).
   `detail` es lo leído, para diagnosticar.
 
 `xy` sale siempre en grados WGS84 `[lng, lat]`, y `areasOf` sirve sin cambios. `propertiesOf(f)` e
@@ -1479,7 +1480,7 @@ Todo error es `FormatError { format, code, at, hint }`. Los códigos son los onc
 
 | Código | Cuándo |
 |---|---|
-| `crs` | CRS declarado sin soporte (§19.5), dos CRS en una lectura, o fuente sin CRS con una coordenada fuera de ±180/±90 |
+| `crs` | CRS declarado sin soporte (§19.5), dos CRS en una lectura, o fuente sin CRS con una coordenada fuera de ±180/±90 (salvo TopoJSON, que avisa) |
 | `compresion` | método de zip distinto de 0 y 8, cifrado, CRC distinto, deflate corrupto, inflado distinto del tamaño declarado |
 | `tope` | lo que la entrada hace crecer pasa de `maxBytes` |
 | `entorno` | no hay `DecompressionStream('deflate-raw')` |
@@ -1545,8 +1546,11 @@ latitud isométrica. Es `'crs'`:
 - ejes invertidos o reflejados.
 
 KML y GPX son WGS84 por especificación: `crs` es `'EPSG:4326'` y el rango no se valida. TopoJSON no
-fija un CRS: sin `options.crs` se asume lon/lat WGS84, `crs` es `'EPSG:4326'` y el rango se valida
-igual, así que una topología proyectada sin la opción es `'crs'` y no un dibujo en el océano. Con
+fija un CRS: sin `options.crs` se asume lon/lat WGS84 y `crs` es `'EPSG:4326'`. Como el CRS es una
+suposición del lector y no de la fuente, una coordenada fuera de ±180/±90 no es `'crs'`: la lectura
+sigue y deja en `warnings` un `{ code: 'crs' }` cuyo `detail` nombra el primer vértice fuera de rango,
+dice que no parecen grados y pide declarar `options.crs`. Un `options.crs` inválido sigue siendo
+`'crs'`. Con
 `options.crs` (la regla común de §19.1) `crs` es el pedido. La inversa se aplica al sellar, sobre
 `xy` en sitio y antes de `bounds`.
 

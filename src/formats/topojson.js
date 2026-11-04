@@ -357,7 +357,7 @@ export const readTopoJson = (input, options = {}) => {
 
   let decoder = null
   const parse = (b, from, to) => JSON.parse((decoder ??= new TextDecoder()).decode(b.subarray(from, to)))
-  // TopoJSON no fija un CRS: sin `options.crs` se asume lon/lat WGS84 y se declara, pero el rango se
-  // valida igual (`source` nulo), porque una topología proyectada sin la opción fallaría en silencio.
-  return t.seal({ crs: source?.name ?? 'EPSG:4326', source, bytes, properties: parse, id: parse })
+  // TopoJSON no fija un CRS: sin `options.crs` se asume lon/lat WGS84 y se declara. Fuera de rango
+  // avisa en `warnings` en vez de fallar, para que una topología proyectada sin la opción no pase muda.
+  return t.seal({ crs: source?.name ?? 'EPSG:4326', source, assumed: source === null, bytes, properties: parse, id: parse })
 }
