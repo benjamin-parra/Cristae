@@ -21,7 +21,7 @@ const rules = ({ lat, lng }) => [
 ]
 
 const layer = $('reglas')
-layer.accessors = { idOf: r => r.id, pathOf: r => r.path, styleOf: r => ({ color: r.color, weight: 4 }) }
+layer.accessors = { idOf: r => r.id, hashOf: r => r.path[0][0], pathOf: r => r.path, styleOf: r => ({ color: r.color, weight: 4 }) } // la regla conserva su id al moverse: el hash es su latitud
 layer.data      = rules({ lat: -33.44, lng: -70.65 })
 
 $('sur').onclick = () => {
