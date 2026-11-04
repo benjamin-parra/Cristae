@@ -1,5 +1,5 @@
 // Lector de WKT y EWKT: texto → las tablas CSR de `readGeoJson`, en una pasada y sin grafo.
-// Gramática de OGC 06-103r4 §7 (§ a verificar) y el prefijo `SRID=n;` de PostGIS. Contrato en
+// Gramática BNF de OGC 06-103r4 §7.2 (7.2.1 a 7.2.6) y el prefijo `SRID=n;` de PostGIS. Contrato en
 // SPECS §19 (WKT).
 
 import { FormatError }                 from './core/error.js'

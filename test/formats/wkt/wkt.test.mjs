@@ -9,10 +9,10 @@ import { lanza, igualAlOraculo, cuatroFormas, fuzz } from './comun-wkt.mjs'
 
 const leer = (texto, opciones) => readWkt(texto, opciones)
 
-// Cada fixture cita lo que ejercita. Las de 06-103r4 llevan su § «a verificar» (DISENO D-11).
+// Cada fixture cita lo que ejercita. Las de 06-103r4 citan su § (verificadas contra la norma, DISENO D-11).
 const CORPUS = {
   felices: [
-    ['POINT(1 2)',                                           '06-103r4 §7.2, point tagged text'],
+    ['POINT(1 2)',                                           '06-103r4 §7.2.2, point tagged text'],
     ['point (1 2)',                                          'palabras clave sin distinguir mayúsculas'],
     ['LINESTRING(0 0, 1 1, 2 2)',                            'linestring text'],
     ['POLYGON((0 0, 10 0, 10 10, 0 10, 0 0), (2 2, 2 4, 4 4, 4 2, 2 2))', 'polygon text, exterior y un hoyo'],

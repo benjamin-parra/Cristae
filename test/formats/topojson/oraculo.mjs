@@ -13,8 +13,8 @@ const texto = entrada =>
   (t => (t.charCodeAt(0) === 0xFEFF ? t.slice(1) : t))(
     typeof entrada === 'string' ? entrada : new TextDecoder('utf-8', { ignoreBOM: true }).decode(entrada))
 
-// topojson-specification 1.0 §2.1.2 (§ a verificar): con `transform`, la primera posición de cada
-// arco es absoluta y las demás son deltas; después todo se escala y se traslada. Las ordenadas desde la
+// topojson-specification 1.0 §2.1.2 y §2.1.3: con `transform` (§2.1.2), la primera posición de cada
+// arco es absoluta y las demás son deltas (§2.1.3); después todo se escala y se traslada. Las ordenadas desde la
 // tercera no se tocan [inf.: como topojson-client].
 const decodificarArcos = (arcs, transform) => arcs.map(arco => {
   if (!transform) return arco.map(p => [...p])

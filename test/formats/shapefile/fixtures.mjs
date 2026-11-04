@@ -1,6 +1,6 @@
 // Fixtures binarios escritos a mano, campo por campo, para contrastar el escritor del test (DISENO-INTEROP
-// §5-3bis): un generador que comparte un error con el lector lo vuelve invisible. Las secciones son de
-// la ESRI Shapefile Technical Description, julio 1998.
+// §5-3bis): un generador que comparte un error con el lector lo vuelve invisible. Las tablas son de
+// la ESRI Shapefile Technical Description, julio 1998 (Tabla 1: cabecera; Tabla 2: encabezado de registro).
 
 const hex = texto => Uint8Array.from(texto.replace(/#.*$/gm, '').match(/[0-9a-f]{2}/gi), h => parseInt(h, 16))
 
@@ -45,7 +45,7 @@ export const CUADRADO = hex(`
   00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00  # (0, 0): cierra
 `)
 
-// `.dbf` de dBase III [inf.: estructura conocida, sin especificación pública] con un campo C de 10 y uno
+// `.dbf` de dBase III [inf.: estructura conocida; dbase.com sólo publica la de Level 7] con un campo C de 10 y uno
 // N de 5, y un registro: «Ñuble», 42.
 export const ATRIBUTOS = hex(`
   03 7e 0b 03                                       # versión 3; fecha 2026-11-03 (AA MM DD)

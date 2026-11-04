@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- 07-147r2: kml:Folder anidados forman `layers`; kml:LineString y kml:Polygon con
-     outerBoundaryIs e innerBoundaryIs (exterior antihorario, hoyo horario). -->
+<!-- 07-147r2 §9.10: kml:Folder anidados forman `layers`; kml:LineString y kml:Polygon con
+     outerBoundaryIs e innerBoundaryIs (exterior antihorario, hoyo horario: convención de RFC 7946; §10.8 no fija el sentido). -->
 <kml xmlns="http://www.opengis.net/kml/2.2">
   <Document>
     <name>Raíz</name>

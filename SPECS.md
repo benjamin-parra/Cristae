@@ -1418,8 +1418,9 @@ terreno de la primera.
 > Segmento como §17: se contrata entero acá y no depende de §0-§11. Guía de uso en
 > [`docs/formats.md`](./docs/formats.md). Las citas de sección de las especificaciones externas (OGC
 > 07-147r2 y 06-103r4, `gpx.xsd`, topojson-specification 1.0, ArcGIS REST, ESRI 1998, `header.fbs` y
-> `feature.fbs`, APPNOTE, XML 1.0) van de memoria y marcadas «a verificar» hasta tener las copias
-> locales.
+> `feature.fbs`, APPNOTE, XML 1.0, RFC 8259 y RFC 1951) están verificadas contra los documentos
+> publicados el 04-11; el detalle, con su fuente, está en `notas/adaptador/tramos-3-4/CITAS-VERIFICADAS.md`.
+> Lo que sigue marcado `[inf.]` es inferencia, no cita.
 
 Ocho formatos leídos desde los bytes a las tablas de §17.1, sin grafo intermedio, sin DOM y sin
 dependencias: KML/KMZ, GPX, WKT/EWKT, WKB/EWKB, TopoJSON, EsriJSON, Shapefile con su `.dbf`, y

@@ -1,6 +1,6 @@
 // Escritor ingenuo de FlatGeobuf para las pruebas: claridad antes que velocidad (DISENO-INTEROP §5-2).
 // Escribe desde una FeatureCollection GeoJSON; lo esperado sale del oráculo de GeoJSON sobre la misma
-// colección. Referencia: esquemas `header.fbs` y `feature.fbs` [inf.: de memoria, D-11].
+// colección. Referencia: esquemas `header.fbs` y `feature.fbs` (verificados, D-11).
 //
 // FlatBuffers hacia adelante: cada objeto se escribe DESPUÉS de quien lo referencia, porque `uoffset`
 // no tiene signo. La vtable va justo antes de su tabla (`soffset` sí lo tiene). Sin alineación: el

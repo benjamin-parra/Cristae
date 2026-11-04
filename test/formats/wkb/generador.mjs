@@ -2,7 +2,7 @@
 // geometría GeoJSON, y lo esperado sale del oráculo de GeoJSON sobre esa misma geometría. Es
 // deliberadamente ingenuo, y se contrasta contra fixtures hex escritas a mano (generador.test.mjs).
 //
-// Codificación: 06-103r4 §8 (§ a verificar): byte de orden (0 = big endian, 1 = little endian),
+// Codificación: 06-103r4 §8.2 (códigos en 8.2.3, estructura en 8.2.8): byte de orden (0 = big endian, 1 = little endian),
 // uint32 de tipo, y después el cuerpo. Tipos ISO 1..7 con +1000 Z, +2000 M, +3000 ZM. EWKB de
 // PostGIS: banderas 0x80000000 Z, 0x40000000 M y 0x20000000 SRID, con el SRID como uint32 tras el
 // tipo.

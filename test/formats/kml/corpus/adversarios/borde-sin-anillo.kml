@@ -1,2 +1,2 @@
-<!-- 07-147r2: outerBoundaryIs contiene un kml:LinearRing. -->
+<!-- 07-147r2 §10.8.3.4: outerBoundaryIs contiene un kml:LinearRing. -->
 <kml><Placemark><Polygon><outerBoundaryIs></outerBoundaryIs></Polygon></Placemark></kml>

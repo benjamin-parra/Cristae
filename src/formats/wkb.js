@@ -1,5 +1,5 @@
 // Lector de WKB y EWKB: bytes (o su hex) → las tablas CSR de `readGeoJson`, en una pasada y sin
-// grafo. Codificación de OGC 06-103r4 §8 (§ a verificar) y las banderas de EWKB de PostGIS.
+// grafo. Codificación de OGC 06-103r4 §8.2 (códigos de tipo en 8.2.3, estructura en 8.2.8) y las banderas de EWKB de PostGIS.
 // Contrato en SPECS §19 (WKB).
 
 import { FormatError }       from './core/error.js'

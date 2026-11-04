@@ -219,7 +219,7 @@ const parseKml = (bytes, options, format) => {
         code === COORDINATES ? tuples(context[d - 1] === C_POINT ? M_POINT : M_LINE) : foreign()
         break
       case C_POLYGON:
-        // El exterior es el anillo 0 y va primero (07-147r2, `kml:Polygon`, § a verificar).
+        // El exterior es el anillo 0 y va primero: `outerBoundaryIs` [0..1] precede a `innerBoundaryIs` [0..*] (07-147r2 §10.8.1).
         if (code === OUTER) {
           boundary++ && fail('estructura', x.tag0)
           t.part()

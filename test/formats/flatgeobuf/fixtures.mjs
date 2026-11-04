@@ -1,5 +1,5 @@
 // FlatGeobuf escritos a mano, campo por campo, para contrastar el escritor del test (DISENO-INTEROP
-// §5-3bis). Esquemas `header.fbs` y `feature.fbs` [inf.: índices de campo de memoria, D-11]. Los
+// §5-3bis). Esquemas `header.fbs` y `feature.fbs` (índices de campo verificados, D-11). Los
 // offsets de los comentarios son relativos al comienzo de cada buffer de FlatBuffers.
 
 const hex = texto => Uint8Array.from(texto.replace(/#.*$/gm, '').match(/[0-9a-f]{2}/gi), h => parseInt(h, 16))

@@ -1,5 +1,5 @@
 // Zip de lectura por el directorio central (DISENO-INTEROP §2.7; PKWARE APPNOTE 6.3.x, §4.3.7, §4.3.12,
-// §4.3.16, §4.4.4 y §4.4.5, números de § a verificar con D-11). Inflado con `DecompressionStream`, un
+// §4.3.16, §4.4.4 y §4.4.5, verificados contra la 6.3.10). Inflado con `DecompressionStream`, un
 // solo camino para todos los motores.
 
 import { FormatError } from './error.js'

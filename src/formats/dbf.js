@@ -1,12 +1,13 @@
-// Atributos de un Shapefile: el `.dbf` de dBase III/IV. No hay especificación oficial pública; la
-// estructura es la conocida [inf.]: cabecera de 32 bytes, descriptores de campo de 32 bytes
-// terminados en 0x0D y registros de largo fijo que abren con la bandera de borrado.
+// Atributos de un Shapefile: el `.dbf` de dBase III/IV. La especificación pública (dbase.com,
+// «db7_file_fmt») es la de dBase Level 7: confirma el terminador 0x0D de los descriptores, el language
+// driver id en el byte 29 y la bandera de borrado (0x20 / 0x2A). La cabecera de 32 bytes y los
+// descriptores de 32 de III/IV son la estructura conocida [inf.]: ninguna fuente oficial los publica.
 import { FormatError } from './core/error.js'
 
 const fail = (code, at = -1) => { throw new FormatError('shapefile', code, at) }
 
 // Versiones de dBase III y IV, con y sin memo, y las de FoxPro, que comparten descriptores de 32
-// bytes [inf.]. dBase 7 (0x04) usa descriptores de 48 y queda fuera.
+// bytes [inf.]. dBase 7 (0x04) usa descriptores de 48 (dbase.com) y queda fuera.
 const VERSIONS = new Set([0x03, 0x30, 0x31, 0x32, 0x43, 0x63, 0x83, 0x8B, 0xCB, 0xF5, 0xFB])
 
 // Byte 29, el language driver id. Sólo los que `TextDecoder` conoce: uno fuera de la tabla no aplica

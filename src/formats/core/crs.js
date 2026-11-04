@@ -180,7 +180,7 @@ export const optionCrs = (option, format) => {
 // ── Inversas ──────────────────────────────────────────────────────────────────────────────────────
 
 // Coeficientes β de la inversa de Krüger a orden 6 en n (Karney 2011, «Transverse Mercator with an
-// accuracy of a few nanometers», ec. 36; de memoria, va con D-11).
+// accuracy of a few nanometers», ec. 36 da β₁…β₈; acá hasta n⁶. Verificada).
 const krugerBeta = n => {
   const n2 = n * n, n3 = n2 * n, n4 = n3 * n, n5 = n4 * n, n6 = n5 * n
   return [

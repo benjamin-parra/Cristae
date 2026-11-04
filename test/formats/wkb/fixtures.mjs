@@ -1,4 +1,4 @@
-// Fixtures WKB escritas a mano, campo por campo. Codificación de 06-103r4 §8 (§ a verificar) y EWKB
+// Fixtures WKB escritas a mano, campo por campo. Codificación de 06-103r4 §8.2 (códigos en 8.2.3, estructura en 8.2.8) y EWKB
 // de PostGIS. Los doubles son IEEE 754: 1 = 3FF0…, 2 = 4000…, 3 = 4008…, 4 = 4010…, 5 = 4014…,
 // 6 = 4018…; en little endian los bytes van al revés.
 const h = (...campos) => campos.join('').toUpperCase()

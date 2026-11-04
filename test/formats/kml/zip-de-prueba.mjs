@@ -1,5 +1,5 @@
 // Escritor de zip deliberadamente ingenuo para los tests de KMZ (PKWARE APPNOTE 6.3.x: encabezado
-// local, directorio central y EOCD; números de § a verificar). Deflate con `CompressionStream`, el
+// local §4.3.7, directorio central §4.3.12 y EOCD §4.3.16). Deflate con `CompressionStream`, el
 // mismo motor del lector, pero el CRC y las cabeceras salen de acá.
 
 const TABLA = Array.from({ length: 256 }, (_, n) => {

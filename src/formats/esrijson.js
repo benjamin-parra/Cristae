@@ -103,8 +103,8 @@ export const readEsriJson = (input, options = {}) => {
     return e
   }
 
-  // Un escalar de Point o Envelope: número, o `null` / `"NaN"`, que son el vacío de Esri (§1.6-4) y
-  // quedan en `sc.value` como NaN.
+  // Un escalar de Point o Envelope: número, o `null` (el vacío que documenta Esri) o `"NaN"` [inf.: la
+  // página «Geometry objects» sólo documenta `null`] (§1.6-4). Ambos quedan en `sc.value` como NaN.
   const scalar = v => {
     if (bytes[v] === 110) return sc.value = NaN, sc.literal(v)
     if (bytes[v] !== 34) return sc.number(v)

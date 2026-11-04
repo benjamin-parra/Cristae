@@ -1,6 +1,6 @@
 // Lector de FlatGeobuf 3: cabecera y features en FlatBuffers → las tablas de `readGeoJson`, en lectura
-// secuencial y sin grafo. Referencia: flatgeobuf.org, esquemas `header.fbs` y `feature.fbs` [inf.: de
-// memoria, D-11]. Contrato en SPECS §19.
+// secuencial y sin grafo. Referencia: flatgeobuf.org, esquemas `header.fbs` y `feature.fbs`
+// (índices de campo verificados contra flatgeobuf/flatgeobuf, D-11). Contrato en SPECS §19.
 import { FormatError } from './core/error.js'
 import { asBytes } from './core/input.js'
 import { createTables } from './core/tables.js'

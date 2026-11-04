@@ -1,2 +1,2 @@
-<!-- 07-147r2: kml:LineString trae un solo kml:coordinates. -->
+<!-- 07-147r2 §10.7.1: kml:LineString trae un solo kml:coordinates [0..1]. -->
 <kml><Placemark><LineString><coordinates>0,0 1,1</coordinates><coordinates>2,2 3,3</coordinates></LineString></Placemark></kml>

@@ -1,12 +1,12 @@
 // Qué ejercita cada fixture del corpus de TopoJSON y qué se espera. Sin `error`, la salida esperada es
-// la del oráculo. Las citas de topojson-specification 1.0 van de memoria (DISENO-INTEROP §8, D-11).
+// la del oráculo. Las citas de topojson-specification 1.0 están verificadas contra la especificación (DISENO-INTEROP §8, D-11).
 
 export const ESPERADO = {
-  'felices/poligonos-compartidos.json' : { cita: '§2.1.2 transform, §2.1.3 arcos compartidos, §2.1.4 ~i' },
+  'felices/poligonos-compartidos.json' : { cita: '§2.1.2 transform, §2.1.3 arcos con delta, §2.1.4 ~i y arcos compartidos' },
   'felices/capas.json'                 : { cita: '§2.1.5 objects como capas, §2.2 Point/MultiPoint/MultiPolygon, bbox' },
   'felices/lineas-sin-transform.json'  : { cita: '§2.1.3 sin transform: posiciones absolutas; §2.1.4 unión de arcos' },
 
-  'especificacion/ejemplo.json'            : { cita: 'ejemplo de la especificación, §1 (de memoria)' },
+  'especificacion/ejemplo.json'            : { cita: 'ejemplo de la especificación, §1.1' },
   'especificacion/orden-de-miembros.json'  : { cita: '§2.1 el orden de los miembros es irrelevante: arcs después de objects' },
   'especificacion/arco-invertido.json'     : { cita: '§2.1.4 índice negativo = ~i, recorrido invertido' },
   'especificacion/tipo-null.json'          : { cita: '§2.2 type null: feature sin geometría' },
@@ -23,7 +23,7 @@ export const ESPERADO = {
   'adversarios/indice-texto.json'              : { error: 'estructura', cita: '§2.1.4: un índice de arco es número' },
   'adversarios/transform-incompleto.json'      : { error: 'estructura', cita: 'DISENO-INTEROP §3.5: transform sin translate' },
   'adversarios/sin-type.json'                  : { error: 'tipo', cita: 'SPECS §17.3-1: type es entrada' },
-  'adversarios/tipo-desconocido.json'          : { error: 'tipo', cita: '§2.2: los tipos son los de GeoJSON' },
+  'adversarios/tipo-desconocido.json'          : { error: 'tipo', cita: '§2.2: lista cerrada de tipos de geometría' },
   'adversarios/tipo-topology-anidado.json'     : { error: 'tipo', cita: '§2.2: Topology no es un objeto geometría' },
   'adversarios/hoja-con-geometries.json'       : { error: 'estructura', cita: 'SPECS §17.3-15' },
   'adversarios/coleccion-sin-geometries.json'  : { error: 'estructura', cita: 'SPECS §17.9: GeometryCollection sin geometries' },

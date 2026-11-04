@@ -1,2 +1,2 @@
-<!-- 07-147r2, kml:Polygon: un solo outerBoundaryIs. -->
+<!-- 07-147r2 §10.8.1, kml:Polygon: outerBoundaryIs [0..1]. -->
 <kml><Placemark><Polygon><outerBoundaryIs><LinearRing><coordinates>0,0 1,0 0,0</coordinates></LinearRing></outerBoundaryIs><outerBoundaryIs><LinearRing><coordinates>0,0 1,0 0,0</coordinates></LinearRing></outerBoundaryIs></Polygon></Placemark></kml>

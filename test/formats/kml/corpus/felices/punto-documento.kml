@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- 07-147r2: kml:Document, kml:Placemark (atributo id), kml:name, kml:description, kml:styleUrl,
-     kml:ExtendedData (Data/value y SchemaData/SimpleData) y kml:Point con altitud (§ a verificar). -->
+     kml:ExtendedData (Data/value y SchemaData/SimpleData) y kml:Point con altitud (§9.7, §9.11, §9.2-9.5, §10.3). -->
 <kml xmlns="http://www.opengis.net/kml/2.2">
   <Document>
     <name>Predios &amp; caminos</name>

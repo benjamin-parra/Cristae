@@ -2,7 +2,7 @@
 // que traduce el texto a GeoJSON. Las tablas esperadas salen del oráculo de GeoJSON sobre esa
 // traducción, así que nada se deriva del lector. Claridad antes que velocidad.
 //
-// Reglas que traduce, con su fuente: gramática de 06-103r4 §7 (§ a verificar); la M se descarta y sin
+// Reglas que traduce, con su fuente: gramática BNF de 06-103r4 §7.2; la M se descarta y sin
 // modificador 3 números son Z (DISENO §3.3); `TRIANGLE` es Polygon y `TIN`/`POLYHEDRALSURFACE` son
 // MultiPolygon; un contenedor vacío bajo el tope ocupa su ranura (§17.3-14); un punto vacío dentro de
 // un MULTIPOINT no aporta posición. Lo que no reconoce lo rechaza con `Error('oraculo: …')`.
