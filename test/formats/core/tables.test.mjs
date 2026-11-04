@@ -97,7 +97,7 @@ test('los campos de §1.1: format, crs, layers y layerOf', () => {
   t.feature(doc)
   t.feature(carpeta)
   t.layerName(carpeta, 'carpeta')
-  const r = t.seal({ crs: 'EPSG:4326', source: crsFromEpsg(4326) })
+  const r = t.seal({ source: crsFromEpsg(4326) })
   assert.equal(r.format, 'kml')
   assert.equal(r.crs, 'EPSG:4326')
   assert.deepEqual(r.layers, [{ name: 'documento', parent: -1 }, { name: 'carpeta', parent: 0 }])
@@ -120,7 +120,7 @@ test('sin layer() hay una capa implícita { name: null, parent: −1 }', () => {
   const r = t.seal({ source: crsFromEpsg(4326) })
   assert.deepEqual(r.layers, [{ name: null, parent: -1 }])
   assert.deepEqual([...r.layerOf], [0])
-  assert.equal(r.crs, null)
+  assert.equal(r.crs, 'EPSG:4326')
 })
 
 test('attributes() después de la geometría; propertiesOf e idOf con la guarda de geojson.js', () => {
@@ -339,7 +339,7 @@ const unPunto = (x, y) => {
   return t
 }
 
-test('sin CRS de la fuente, fuera del rango geográfico declara EPSG:4326 y avisa crs', () => {
+test('sin CRS de la fuente se declara EPSG:4326, y fuera del rango geográfico avisa crs', () => {
   const r = unPunto(350000, 6300000).seal()
   assert.equal(r.crs, 'EPSG:4326')
   assert.deepEqual([...r.xy], [350000, 6300000])
@@ -347,12 +347,12 @@ test('sin CRS de la fuente, fuera del rango geográfico declara EPSG:4326 y avis
   assert.match(r.warnings[0].detail, /no parecen grados; declare options\.crs/)
   const dentro = unPunto(-70.5, -33.4).seal()
   assert.deepEqual([...dentro.xy], [-70.5, -33.4])
-  assert.equal(dentro.crs, null)
+  assert.equal(dentro.crs, 'EPSG:4326')
   assert.deepEqual(dentro.warnings, [])
 })
 
-test('con source, la inversa va en sitio antes de bounds y crs es lo que se publica', () => {
-  const r = unPunto(500000, 10000000).seal({ crs: 'EPSG:32719', source: crsFromEpsg(32719) })
+test('con source, la inversa va en sitio antes de bounds y crs es su nombre', () => {
+  const r = unPunto(500000, 10000000).seal({ source: crsFromEpsg(32719) })
   assert.equal(r.crs, 'EPSG:32719')
   assert.ok(Math.abs(r.xy[0] - -69) < 1e-12 && Math.abs(r.xy[1]) < 1e-12)
   assert.deepEqual([...r.bounds], [r.xy[0], r.xy[1], r.xy[0], r.xy[1]])

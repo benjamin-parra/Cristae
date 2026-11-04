@@ -198,7 +198,6 @@ export const readGpx = (input, options = {}) => {
   }
 
   return t.seal({
-    crs        : 'EPSG:4326',
     source     : crsFromEpsg(WGS84),
     bytes,
     properties : featureProperties(x.encoding, maxDepth),

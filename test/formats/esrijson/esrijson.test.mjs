@@ -77,11 +77,11 @@ test('CRS: wkid 102100 y 32719 salen en grados; la opción crs sólo cuando la f
 
   const wkt = 'GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]]'
   const desdeWkt = leer({ x: -70, y: -33, spatialReference: { wkt } })
-  assert.ok(desdeWkt.crs !== null)
+  assert.equal(typeof desdeWkt.crs, 'string')
   assert.deepEqual([...desdeWkt.xy], [-70, -33])
 
-  assert.equal(leer({ x: -70, y: -33 }).crs, null)
-  assert.equal(leer({ x: -70, y: -33, spatialReference: {} }).crs, null, 'spatialReference sin datos es no declarar')
+  assert.equal(leer({ x: -70, y: -33 }).crs, 'EPSG:4326')
+  assert.equal(leer({ x: -70, y: -33, spatialReference: {} }).crs, 'EPSG:4326', 'spatialReference sin datos es no declarar')
   await fallaCon(() => leer({ x: 0, y: 0 }, { crs: 'EPSG:2000' }), 'crs', 'esrijson')
   await fallaCon(() => leer({ x: 0, y: 0 }, { crs: [] }), 'entrada', 'esrijson')
 })

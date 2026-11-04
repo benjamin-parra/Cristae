@@ -249,7 +249,6 @@ const parseKml = (bytes, options, format) => {
 
   const encoding = x.encoding
   return t.seal({
-    crs        : 'EPSG:4326',
     source     : crsFromEpsg(WGS84),
     bytes,
     properties : placemarkProperties(encoding, maxDepth, format),

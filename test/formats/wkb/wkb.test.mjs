@@ -84,7 +84,7 @@ test('estadísticas: la M se cuenta por posición; una raíz', () => {
 test('salida: formato, capa única, sin atributos, release', () => {
   const geo = leer(FIXTURES.puntoLE)
   assert.equal(geo.format, 'wkb')
-  assert.equal(geo.crs, null)
+  assert.equal(geo.crs, 'EPSG:4326')
   assert.deepEqual(geo.layers, [{ name: null, parent: -1 }])
   assert.equal(geo.propertiesOf(0), null)
   assert.equal(geo.idOf(0), null)

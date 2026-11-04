@@ -320,21 +320,19 @@ export const createTables = (format, { capacityHint = 0, bounds = false, orienta
       open             = partOpen = ringOpen = 0
     },
 
-    seal: ({ crs = null, source = null, bytes = null, properties = null, id = null } = {}) => {
+    // `crs` sale de `source`; sin él la fuente se lee en grados y se declara 'EPSG:4326' (SPECS §19.5).
+    seal: ({ source = null, bytes = null, properties = null, id = null } = {}) => {
+      const crs = source?.name ?? 'EPSG:4326'
       need(!open, 'seal() con una geometría abierta')
       geometryAt = grown(geometryAt, features + 1)
       geometryAt[features] = geometries
 
       // La inversa va sobre `xy` en sitio y antes de `bounds` (§2.5). Sin CRS de la fuente ni de la
-      // opción se suponen grados: fuera de rango se declara 'EPSG:4326' y se avisa, para que un UTM sin
-      // `.prj` no se dibuje mudo en el océano.
+      // opción, fuera de rango se avisa: un UTM sin `.prj` no se dibuja mudo en el océano.
       if (source !== null) toLngLat(source, xy, 0, vertices) || fail('crs')
       else {
         const v = isGeographic(xy, 0, vertices)
-        if (v >= 0) {
-          crs ??= 'EPSG:4326'
-          tables.warn('crs', `vértice ${v} en (${xy[v * 2]}, ${xy[v * 2 + 1]}): no parecen grados; declare options.crs`)
-        }
+        v < 0 || tables.warn('crs', `vértice ${v} en (${xy[v * 2]}, ${xy[v * 2 + 1]}): no parecen grados; declare options.crs`)
       }
 
       // `z` es del documento y lo deciden las posiciones retenidas (SPECS §17.3-4).

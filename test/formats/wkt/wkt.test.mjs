@@ -74,7 +74,7 @@ test('estadísticas que cuenta el lector: M descartada, raíces y números lento
 test('salida: formato, capa única, sin atributos', () => {
   const geo = leer('POINT(1 2)\nPOINT(3 4)')
   assert.equal(geo.format, 'wkt')
-  assert.equal(geo.crs, null)
+  assert.equal(geo.crs, 'EPSG:4326')
   assert.equal(geo.featureCount, 2)
   assert.deepEqual([...geo.layerOf], [0, 0])
   assert.deepEqual(geo.layers, [{ name: null, parent: -1 }])
@@ -131,10 +131,10 @@ test('opciones inválidas son entrada', () => {
   lanza(() => leer('POINT(1 2)', { crs: {} }), 'entrada')
 })
 
-// §2.5: sin CRS declarado manda `options.crs`; sin ninguno, WGS84, y fuera de rango avisa.
+// §2.5: sin CRS declarado manda `options.crs`; sin ninguno, 'EPSG:4326', y fuera de rango avisa.
 test('CRS: declarado, por opción y ausente', () => {
   assert.equal(leer('SRID=4326;POINT(-70 -33)').crs, 'EPSG:4326')
-  assert.equal(leer('SRID=0;POINT(-70 -33)').crs, null)
+  assert.equal(leer('SRID=0;POINT(-70 -33)').crs, 'EPSG:4326')
   assert.equal(leer('SRID=4326;POINT(1 2);SRID=4326;POINT(3 4)').crs, 'EPSG:4326')
   assert.equal(leer('POINT(500000 6300000)', { crs: 32719 }).crs, 'EPSG:32719')
   assert.equal(leer('SRID=4326;POINT(1 2)', { crs: 32719 }).crs, 'EPSG:4326', 'la fuente gana')

@@ -358,5 +358,5 @@ export const readEsriJson = (input, options = {}) => {
   const source = declared ?? fallback
   let decoder = null
   const parse = (b, from, to) => JSON.parse((decoder ??= new TextDecoder()).decode(b.subarray(from, to)))
-  return t.seal({ crs: source?.name ?? null, source, bytes, properties: parse, id: null })
+  return t.seal({ source, bytes, properties: parse, id: null })
 }

@@ -247,5 +247,5 @@ export const readFlatGeobuf = (input, options = {}) => {
     return Object.fromEntries(out)
   }
 
-  return t.seal({ crs: source?.name ?? null, source, bytes, properties, id: () => null })
+  return t.seal({ source, bytes, properties, id: () => null })
 }

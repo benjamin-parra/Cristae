@@ -33,8 +33,9 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
     `GeoJsonError`: `crs`, `compresion`, `tope`, `entorno`, `version`, `codificacion` y `dtd`.
   - `warnings` en cada lectura: avisos no fatales `{ code, detail }`, vacío si no hubo: `'codificacion'`
     (un `.cpg` que no sirve) y `'crs'` (fuente sin CRS fuera de rango).
-  - Sin CRS de la fuente ni `options.crs` se suponen grados: si las coordenadas no caben, la lectura
-    sigue, declara `'EPSG:4326'` y avisa `'crs'` en `warnings` pidiendo `{ crs }`, en vez de fallar.
+  - Sin CRS de la fuente ni `options.crs` se suponen grados y `read.crs` es `'EPSG:4326'`, que nunca
+    es `null`: si las coordenadas no caben, la lectura sigue y avisa `'crs'` en `warnings` pidiendo
+    `{ crs }`, en vez de fallar.
     Vale para Shapefile sin `.prj`, FlatGeobuf sin CRS, EsriJSON sin `spatialReference`, WKT y WKB sin
     SRID y TopoJSON. Un `crs` inválido o un CRS de la fuente sin soporte siguen siendo error.
   - `detectFormat`, que reconoce el formato por los bytes mágicos y el primer token, sin lanzar.

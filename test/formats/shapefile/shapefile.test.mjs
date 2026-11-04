@@ -40,7 +40,7 @@ test('fixture: Point con su .dbf', () => {
   const read = readShapefile({ shp: PUNTO, dbf: ATRIBUTOS })
   iguales(read, fc({ type: 'Point', coordinates: [-70.5, -33.25] }))
   assert.equal(read.format, 'shapefile')
-  assert.equal(read.crs, null)
+  assert.equal(read.crs, 'EPSG:4326')
   assert.deepEqual(read.propertiesOf(0), { nombre: 'Ñuble', valor: 42 })
   assert.equal(read.idOf(0), null)
   assert.deepEqual(read.layers, [{ name: null, parent: -1 }])

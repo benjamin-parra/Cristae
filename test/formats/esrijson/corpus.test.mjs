@@ -34,7 +34,7 @@ nombres.forEach(nombre => {
       compararTablas(leido, esperado)
       assert.deepEqual(leido.layers, [{ name: null, parent: -1 }], forma)
       assert.equal(leido.format, 'esrijson')
-      assert.ok(leido.crs === null || leido.crs === 'EPSG:4326', leido.crs)
+      assert.equal(leido.crs, 'EPSG:4326', forma)
       assert.deepEqual(leido.warnings.map(w => w.code), aviso ? [aviso] : [], forma)
     })
   })

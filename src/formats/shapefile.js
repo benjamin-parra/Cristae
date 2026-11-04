@@ -133,7 +133,6 @@ export const readShapefile = (files, options = {}) => {
   // Sin `.prj` manda `options.crs` (§1.5): código EPSG, `'EPSG:n'` o WKT1.
   const source = prj ? crsFromWkt(prj) ?? fail('crs', 0, text(prj)) : optionCrs(options.crs, FORMAT)
   return t.seal({
-    crs        : source?.name ?? null,
     source,
     bytes      : dbf ?? EMPTY,
     properties : table ? table.properties : () => null,

@@ -33,7 +33,7 @@ test('fixture: Point a mano, contra el oráculo y contra el generador', () => {
   iguales(read, coleccion)
   assert.deepEqual(comparar(readFlatGeobuf(escribirFgb(coleccion, { nodo: 0, conteo: false })), read), [])
   assert.equal(read.format, 'flatgeobuf')
-  assert.equal(read.crs, null)
+  assert.equal(read.crs, 'EPSG:4326')
   assert.equal(read.propertiesOf(0), null)
   assert.deepEqual(read.layers, [{ name: null, parent: -1 }])
 })

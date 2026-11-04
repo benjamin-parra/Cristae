@@ -182,7 +182,7 @@ export const readWkb = (input, options = {}) => {
   stats.roots = 1
 
   return tables.seal({
-    ...sourceCrs('wkb', srid, sridAt, options.crs),
+    source: sourceCrs('wkb', srid, sridAt, options.crs),
     bytes, properties: none, id: none,
   })
 }

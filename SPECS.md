@@ -1448,9 +1448,8 @@ métodos, más cuatro campos.
 
 - `format`: el lector que leyó (`'kml'`, `'kmz'`, `'gpx'`, `'wkt'`, `'wkb'`, `'topojson'`,
   `'esrijson'`, `'shapefile'`, `'flatgeobuf'`).
-- `crs`: el CRS de la fuente (`'EPSG:32719'`…), o `null` si no declaraba ninguno. KML, GPX y TopoJSON
-  sin `options.crs` dicen `'EPSG:4326'`, y también cualquier lector sin CRS cuyas coordenadas no caben
-  en grados (§19.5).
+- `crs`: el CRS de la fuente (`'EPSG:32719'`…) o el de `options.crs`; nunca `null`. Sin ninguno, y en
+  KML y GPX siempre, es `'EPSG:4326'` (§19.5).
 - `layerOf` y `layers`: la capa de cada feature, y las capas con nombre y padre. Los formatos sin
   contenedores tienen una sola, `{ name: null, parent: -1 }`.
 - `warnings`: avisos no fatales `{ code, detail }`, en el orden en que salieron; vacío si no hubo. Lo
@@ -1546,17 +1545,16 @@ latitud isométrica. Es `'crs'`:
 - una unidad angular distinta del grado;
 - ejes invertidos o reflejados.
 
-KML y GPX son WGS84 por especificación: `crs` es `'EPSG:4326'` y el rango no se valida. TopoJSON no
-fija un CRS: sin `options.crs` se asume lon/lat WGS84 y `crs` es `'EPSG:4326'`. Con `options.crs` (la
-regla común de §19.1) `crs` es el pedido.
+KML y GPX son WGS84 por especificación: `crs` es `'EPSG:4326'` y el rango no se valida. Con
+`options.crs` (la regla común de §19.1) `crs` es el pedido.
 
 Sin CRS de la fuente ni de la opción (Shapefile sin `.prj`, FlatGeobuf sin CRS en la cabecera,
-EsriJSON sin `spatialReference`, WKT y WKB sin SRID, TopoJSON sin opción) se suponen grados. Una
-coordenada fuera de ±180/±90 no es `'crs'`, porque el CRS es una suposición del lector: la lectura
-sigue, `crs` es `'EPSG:4326'` y queda en `warnings` un `{ code: 'crs' }` cuyo `detail` nombra el
-primer vértice fuera de rango, dice que no parecen grados y pide declarar `options.crs`. Un
-`options.crs` inválido o un CRS de la fuente sin soporte siguen siendo `'crs'`. La inversa se aplica
-al sellar, sobre `xy` en sitio y antes de `bounds`.
+EsriJSON sin `spatialReference`, WKT y WKB sin SRID, TopoJSON, que no lo fija) se suponen grados
+WGS84 y `crs` es `'EPSG:4326'`, quepan o no. Una coordenada fuera de ±180/±90 no es `'crs'`, porque
+el CRS es una suposición del lector: la lectura sigue y queda en `warnings` un `{ code: 'crs' }` cuyo
+`detail` nombra el primer vértice fuera de rango, dice que no parecen grados y pide declarar
+`options.crs`. Un `options.crs` inválido o un CRS de la fuente sin soporte siguen siendo `'crs'`. La
+inversa se aplica al sellar, sobre `xy` en sitio y antes de `bounds`.
 
 ### 19.6 Zip
 

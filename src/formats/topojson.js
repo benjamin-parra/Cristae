@@ -357,6 +357,5 @@ export const readTopoJson = (input, options = {}) => {
 
   let decoder = null
   const parse = (b, from, to) => JSON.parse((decoder ??= new TextDecoder()).decode(b.subarray(from, to)))
-  // TopoJSON no fija un CRS: sin `options.crs` se asume lon/lat WGS84 y se declara aunque quepa.
-  return t.seal({ crs: source?.name ?? 'EPSG:4326', source, bytes, properties: parse, id: parse })
+  return t.seal({ source, bytes, properties: parse, id: parse })
 }

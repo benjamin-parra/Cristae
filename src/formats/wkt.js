@@ -37,11 +37,11 @@ const isLetter = c => ((c | 32) >= 97 && (c | 32) <= 122)
 const isSpace  = c => c === 32 || c === 9 || c === 10 || c === 13
 
 // El CRS de la fuente para el sellado (§2.5): el SRID declarado gana y, si no hay, manda `options.crs`
-// (§1.5). Sin ninguno sale null y el sellado valida el rango geográfico.
+// (§1.5). Sin ninguno sale null y el sellado supone grados.
 export const sourceCrs = (format, epsg, at, option) => {
   const source = epsg > 0 ? crsFromEpsg(epsg) : optionCrs(option, format)
   if (epsg > 0 && source === null) throw new FormatError(format, 'crs', at, null, `SRID=${epsg}`)
-  return { crs: source?.name ?? null, source }
+  return source
 }
 
 const none = () => null
@@ -270,7 +270,7 @@ export const readWkt = (input, options = {}) => {
   stats.roots = roots
 
   return tables.seal({
-    ...sourceCrs('wkt', srid, sridAt, options.crs),
+    source: sourceCrs('wkt', srid, sridAt, options.crs),
     bytes, properties: none, id: none,
   })
 }
