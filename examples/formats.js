@@ -64,7 +64,7 @@ const LECTOR = {
 const feature = (geometry, properties = {}) => ({ type: 'Feature', geometry, properties })
 
 // Exterior horario y hoyo antihorario: la convención de Shapefile y EsriJSON (§2.4).
-const RODAL = { type: 'Polygon', coordinates: [
+const POLIGONO = { type: 'Polygon', coordinates: [
   [[-72, -37], [-72, -36], [-71, -36], [-71, -37], [-72, -37]],
   [[-71.8, -36.8], [-71.2, -36.8], [-71.2, -36.2], [-71.8, -36.2], [-71.8, -36.8]],
 ] }
@@ -72,8 +72,8 @@ const CAMINO = { type: 'LineString', coordinates: [[-73, -38], [-72.4, -37.6], [
 
 const kmz = () => zip([['doc.kml', utf(kmlCarpetas), 8]])
 const shz = () => escribirZip([
-  { nombre: 'rodales.shp', bytes: escribirShp({ features: [feature(RODAL)] }) },
-  { nombre: 'rodales.dbf', bytes: escribirDbf([{ nombre: 'NOMBRE', tipo: 'C', largo: 20 }], [['Rodal 1']]) },
+  { nombre: 'areas.shp', bytes: escribirShp({ features: [feature(POLIGONO)] }) },
+  { nombre: 'areas.dbf', bytes: escribirDbf([{ nombre: 'NOMBRE', tipo: 'C', largo: 20 }], [['Area 1']]) },
 ])
 const fgb = () => escribirFgb({ features: [feature(CAMINO, { nombre: 'Camino 4' })] }, { columnas: [{ nombre: 'nombre', tipo: 11 }] })
 const wkb = () => escribirWkb({ type: 'GeometryCollection', geometries: [CAMINO, { type: 'Point', coordinates: [-72.5, -36.5] }] })

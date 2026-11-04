@@ -285,7 +285,7 @@ export const readTopoJson = (input, options = {}) => {
     fail('formato', typeAt, type > 0 && type !== TOPOLOGY ? 'geojson' : esri ? 'esrijson' : null)
   only === undefined || found || fail('formato')
 
-  // §2.1.2: con `transform`, cada arco es delta desde su primera posición, y todo escala y traslada.
+  // §2.1.2 y §2.1.3: con `transform`, cada arco es delta desde su primera posición, y todo escala y traslada.
   for (let a = 0, n = quantized ? nArcs : 0; a < n; a++) {
     let x = 0, y = 0
     for (let p = arcAt[a]; p < arcAt[a + 1]; p++) {
