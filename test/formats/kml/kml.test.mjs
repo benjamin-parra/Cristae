@@ -7,6 +7,7 @@ import assert from 'node:assert/strict'
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { readKml, readKmz } from '../../../src/formats/kml.js'
+import { detectFormat } from '../../../src/formats/core/detect.js'
 import { areasOf } from '../../../src/geojson/geojson.js'
 import { compararTablas, esFormatError, fallaCon, formasTexto, fuzz, invariantes, mutante } from '../comun.mjs'
 import { oraculoKml } from '../xml/oraculo-xml.mjs'
@@ -237,12 +238,13 @@ describe('KMZ (§3.1, §2.7)', () => {
   const kml = bytesDe('felices/carpetas-anidadas.kml')
   const otro = new TextEncoder().encode('<kml><Placemark><Point><coordinates>7,8</coordinates></Point></Placemark></kml>')
 
-  test('doc.kml en la raíz gana, comprimido o no', async () => {
+  test('doc.kml en la raíz gana, comprimido o no, y la lectura lleva format kmz', async () => {
     for (const metodo of [0, 8]) {
       const z = await zip([['otro.kml', otro, metodo], ['doc.kml', kml, metodo], ['files/a.png', new Uint8Array(3), 0]])
       const r = await readKmz(z)
       compararTablas(r, readKml(kml))
-      assert.equal(r.format, 'kml')
+      assert.equal(r.format, 'kmz')
+      assert.equal(detectFormat(z), r.format)
       assert.deepEqual(r.propertiesOf(1), readKml(kml).propertiesOf(1))
     }
   })

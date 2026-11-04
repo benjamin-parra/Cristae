@@ -88,7 +88,7 @@ const placemarkProperties = (encoding, maxDepth, format) => (bytes, from, to) =>
 const parseKml = (bytes, options, format) => {
   const { maxDepth, capacityHint, bounds } = xmlOptions(options, bytes, format)
   const x     = createXml(bytes, format, maxDepth)
-  const t     = createTables('kml', { capacityHint, bounds })
+  const t     = createTables(format, { capacityHint, bounds })
   const stats = t.stats
   const out   = new Float64Array(2)
   const fail  = (code, at, hint = null) => { throw new FormatError(format, code, at, hint) }

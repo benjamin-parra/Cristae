@@ -83,7 +83,8 @@ Si el archivo llega sin una extensión confiable, `detectFormat(bytes)` devuelve
 ## KML y KMZ
 
 `readKml` lee KML 2.2 (OGC 07-147r2). `readKmz` abre el zip, toma `doc.kml` de la raíz o la primera
-entrada `.kml`, y lo lee igual.
+entrada `.kml`, y lo lee igual. Su lectura y sus errores llevan `format: 'kmz'`, el mismo nombre que
+devuelve `detectFormat`.
 
 - `Point`, `LineString` y `Polygon` se mapean a sus tipos; un `LinearRing` suelto es un `LineString`;
   `MultiGeometry` se aplana.

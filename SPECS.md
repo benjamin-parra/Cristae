@@ -1602,8 +1602,8 @@ del `ExtendedData`, los que estén; `idOf(f)` es el `id` del `Placemark`. Sólo 
    una referencia en coordenadas que no vale espacio ni un carácter numérico.
 
 **KMZ.** `doc.kml` exacto en la raíz, sin distinguir mayúsculas; si no está, la primera entrada que
-termina en `.kml` en el orden del directorio central; sin ninguna, `'formato'`. Los errores del KML
-llevan `format: 'kmz'` y `at` en el KML inflado. `maxBytes` se valida sólo en `readKmz`: `readKml` no
+termina en `.kml` en el orden del directorio central; sin ninguna, `'formato'`. La lectura y los
+errores del KML llevan `format: 'kmz'`, como `detectFormat`, y `at` es un offset en el KML inflado. `maxBytes` se valida sólo en `readKmz`: `readKml` no
 expande nada.
 
 ### 19.10 GPX 1.1 — `readGpx`

@@ -13,7 +13,8 @@ export declare function readKml(input: FormatInput, options?: FormatOptions): Fo
 
 /**
  * KMZ: lee `doc.kml` de la raíz del zip o, si no está, la primera entrada `.kml`. Asíncrono por el
- * inflado; la promesa rechaza con `FormatError`. `bytes` es el KML inflado y `at` un offset en él.
+ * inflado; la promesa rechaza con `FormatError`. La lectura y los errores llevan `format: 'kmz'`, como
+ * `detectFormat`. `bytes` es el KML inflado y `at` un offset en él.
  * `maxBytes` acota lo que se infla (`'tope'`).
  */
 export declare function readKmz(input: Uint8Array | ArrayBuffer | ArrayBufferView, options?: FormatOptions): Promise<FormatRead>
