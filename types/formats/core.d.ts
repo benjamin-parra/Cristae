@@ -78,8 +78,8 @@ export interface FormatLayer {
 
 export interface FormatRead extends Omit<GeoJson, 'stats'> {
   readonly format   : FormatReader;
-  /** El CRS DE LA FUENTE (`'EPSG:32719'`…), o `null` si no lo declaraba. `xy` sale siempre en grados
-   *  WGS84 `[lng, lat]`. */
+  /** El CRS DE LA FUENTE (`'EPSG:32719'`…), o `null` si no lo declaraba. KML, GPX y TopoJSON sin
+   *  `options.crs` dicen `'EPSG:4326'`. `xy` sale siempre en grados WGS84 `[lng, lat]`. */
   readonly crs      : string | null;
   /** [f] capa de cada feature. */
   readonly layerOf  : Uint32Array;

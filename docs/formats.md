@@ -41,9 +41,9 @@ texto, salvo WKB, que lo toma como hex.
 Además de las tablas de GeoJSON, cada lectura trae cuatro campos:
 
 - **`format`**: el lector que leyó.
-- **`crs`**: el CRS en que venía la fuente (`'EPSG:32719'`), o `null` si no declaraba ninguno. La
-  salida **siempre** está en grados WGS84 `[lng, lat]`: UTM, Web Mercator y los `.prj` de transversa de
-  Mercator se pasan a grados al sellar.
+- **`crs`**: el CRS en que venía la fuente (`'EPSG:32719'`), o `null` si no declaraba ninguno; KML,
+  GPX y TopoJSON sin la opción `crs` dicen `'EPSG:4326'`. La salida **siempre** está en grados WGS84
+  `[lng, lat]`: UTM, Web Mercator y los `.prj` de transversa de Mercator se pasan a grados al sellar.
 - **`layers` y `layerOf`**: las carpetas de KML y los `objects` de TopoJSON son capas con nombre y
   padre, y `layerOf[f]` dice en cuál está cada feature. Los formatos sin contenedores tienen una sola,
   `{ name: null, parent: -1 }`.
@@ -118,8 +118,10 @@ SRID, `options.crs` dice en qué CRS vienen las coordenadas. Las curvas de SQL/M
 
 `readTopoJson(bytes, { object })` lee una `Topology`. Cada miembro de `objects` es una capa: si es una
 `GeometryCollection`, cada hijo es un feature. Los arcos compartidos se resuelven a coordenadas, sin
-intermediario GeoJSON. `object` lee una sola capa. Una topología proyectada se lee con `crs` (por
-ejemplo `{ crs: 'EPSG:3857' }`); sin esa opción, las coordenadas tienen que estar en grados.
+intermediario GeoJSON. `object` lee una sola capa. La especificación no fija un CRS: sin `crs` se
+asume lon/lat WGS84, `read.crs` dice `'EPSG:4326'` y las coordenadas tienen que caber en grados (si no,
+`FormatError('crs')`). Una topología proyectada se lee declarando su CRS, por ejemplo
+`readTopoJson(texto, { crs: 'EPSG:3857' })` o `{ crs: 32719 }`.
 
 ## EsriJSON
 

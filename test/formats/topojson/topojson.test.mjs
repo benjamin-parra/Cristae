@@ -71,6 +71,23 @@ test('opción object: lee sólo esa capa', async () => {
   await fallaCon(() => readTopoJson(texto, { object: 3 }), 'entrada', 'topojson')
 })
 
+test('sin opción crs se asume lon/lat WGS84 y se declara, con el rango validado (§19.5)', async () => {
+  const r = readTopoJson(topo({ p: { type: 'Point', coordinates: [-72.5, -36.5] } }))
+  assert.equal(r.crs, 'EPSG:4326')
+  assert.deepEqual(Array.from(r.xy), [-72.5, -36.5])
+  assert.deepEqual(r.warnings, [])
+  const e = await fallaCon(() => readTopoJson(topo({ p: { type: 'Point', coordinates: [500000, 6000000] } })), 'crs', 'topojson')
+  assert.equal(e.at, -1)
+  // Declararlo explícito es la misma lectura: la fuente sigue en grados.
+  assert.equal(readTopoJson(topo({ p: { type: 'Point', coordinates: [-72.5, -36.5] } }), { crs: 4326 }).crs, 'EPSG:4326')
+})
+
+test('opción crs: una topología en UTM 19S sale en grados y declara su CRS', () => {
+  const r = readTopoJson(topo({ p: { type: 'Point', coordinates: [500000, 10000000] } }), { crs: 32719 })
+  assert.equal(r.crs, 'EPSG:32719')
+  assert.ok(Math.abs(r.xy[0] + 69) < 1e-9 && Math.abs(r.xy[1]) < 1e-9, String(Array.from(r.xy)))
+})
+
 test('opción crs: una topología proyectada en 3857 sale en grados (§1.5, §2.5)', async () => {
   const a = 6378137, x = 1000000, y = -4000000
   const r = readTopoJson(topo({ p: { type: 'Point', coordinates: [x, y] } }), { crs: 'EPSG:3857' })

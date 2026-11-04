@@ -33,7 +33,7 @@ nombres.forEach(nombre => {
       compararTablas(leido, esperado)
       assert.deepEqual(leido.layers, esperado.layers, forma)
       assert.equal(leido.format, 'topojson')
-      assert.equal(leido.crs, null)
+      assert.equal(leido.crs, 'EPSG:4326')
     })
   })
 })

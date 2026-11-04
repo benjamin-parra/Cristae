@@ -12,6 +12,7 @@ export interface TopoJsonOptions extends FormatOptions {
  * feature, y si no, el objeto lo es. Con `transform`, los arcos se decuantizan (delta, escala y
  * traslación); `~i` recorre el arco `i` al revés. `propertiesOf(f)` y `idOf(f)` hacen `JSON.parse` de
  * `properties` e `id` del objeto que es feature. La expansión de arcos se acota con `maxBytes`
- * (`'tope'`). Sin `options.crs` las coordenadas deben caber en grados (`'crs'` si no) y `crs` es `null`.
+ * (`'tope'`). Sin `options.crs` se asume lon/lat WGS84: `crs` es `'EPSG:4326'` y las coordenadas deben
+ * caber en grados (`'crs'` si no). Con `options.crs`, `crs` es el declarado.
  */
 export declare function readTopoJson(input: FormatInput, options?: TopoJsonOptions): FormatRead

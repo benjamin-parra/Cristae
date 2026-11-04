@@ -1448,7 +1448,8 @@ métodos, más cuatro campos.
 
 - `format`: el lector que leyó (`'kml'`, `'kmz'`, `'gpx'`, `'wkt'`, `'wkb'`, `'topojson'`,
   `'esrijson'`, `'shapefile'`, `'flatgeobuf'`).
-- `crs`: el CRS de la fuente (`'EPSG:32719'`…), o `null` si no declaraba ninguno.
+- `crs`: el CRS de la fuente (`'EPSG:32719'`…), o `null` si no declaraba ninguno. KML, GPX y TopoJSON
+  sin `options.crs` dicen `'EPSG:4326'` (§19.5).
 - `layerOf` y `layers`: la capa de cada feature, y las capas con nombre y padre. Los formatos sin
   contenedores tienen una sola, `{ name: null, parent: -1 }`.
 - `warnings`: avisos no fatales `{ code, detail }`, en el orden en que salieron; vacío si no hubo. Lo
@@ -1544,7 +1545,9 @@ latitud isométrica. Es `'crs'`:
 - ejes invertidos o reflejados.
 
 KML y GPX son WGS84 por especificación: `crs` es `'EPSG:4326'` y el rango no se valida. TopoJSON no
-fija un CRS: sin `options.crs` valida el rango y `crs` es `null`. La inversa se aplica al sellar, sobre
+fija un CRS: sin `options.crs` se asume lon/lat WGS84, `crs` es `'EPSG:4326'` y el rango se valida
+igual, así que una topología proyectada sin la opción es `'crs'` y no un dibujo en el océano. Con
+`options.crs` (la regla común de §19.1) `crs` es el pedido. La inversa se aplica al sellar, sobre
 `xy` en sitio y antes de `bounds`.
 
 ### 19.6 Zip

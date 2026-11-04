@@ -18,7 +18,8 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
     con `DecompressionStream`.
   - `readWkt` (WKT y EWKT, varias geometrías por entrada) y `readWkb` (WKB y EWKB, binario o hex).
   - `readTopoJson`: TopoJSON 1.0 con `transform`, arcos compartidos e invertidos, una capa por miembro
-    de `objects` y tope de expansión de arcos (`maxBytes`).
+    de `objects` y tope de expansión de arcos (`maxBytes`). Sin `crs` asume lon/lat WGS84 y lo declara
+    (`'EPSG:4326'`), con el rango validado; una topología proyectada se lee con `{ crs }`.
   - `readEsriJson`: FeatureSet, feature o geometría de ArcGIS REST, con anillos agrupados por
     orientación y contención, `hasZ`/`hasM` y CRS desde `spatialReference`.
   - `readShapefile` y `readShapefileZip`: Shapefile con su `.dbf`, `.prj` y `.cpg`, sueltos o en un zip.
