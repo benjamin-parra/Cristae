@@ -320,21 +320,21 @@ export const createTables = (format, { capacityHint = 0, bounds = false, orienta
       open             = partOpen = ringOpen = 0
     },
 
-    // `assumed`: el lector supone grados sin que la fuente lo diga (TopoJSON sin `options.crs`); fuera
-    // de rango es aviso y no 'crs', porque el error vendría de una suposición nuestra.
-    seal: ({ crs = null, source = null, assumed = false, bytes = null, properties = null, id = null } = {}) => {
+    seal: ({ crs = null, source = null, bytes = null, properties = null, id = null } = {}) => {
       need(!open, 'seal() con una geometría abierta')
       geometryAt = grown(geometryAt, features + 1)
       geometryAt[features] = geometries
 
-      // La inversa va sobre `xy` en sitio y antes de `bounds` (§2.5). Sin CRS de la fuente las
-      // coordenadas tienen que caber en el rango geográfico: un UTM sin `.prj` no se dibuja en el océano.
+      // La inversa va sobre `xy` en sitio y antes de `bounds` (§2.5). Sin CRS de la fuente ni de la
+      // opción se suponen grados: fuera de rango se declara 'EPSG:4326' y se avisa, para que un UTM sin
+      // `.prj` no se dibuje mudo en el océano.
       if (source !== null) toLngLat(source, xy, 0, vertices) || fail('crs')
       else {
         const v = isGeographic(xy, 0, vertices)
-        v < 0 || (assumed
-          ? tables.warn('crs', `vértice ${v} en (${xy[v * 2]}, ${xy[v * 2 + 1]}): no parecen grados; declare options.crs`)
-          : fail('crs'))
+        if (v >= 0) {
+          crs ??= 'EPSG:4326'
+          tables.warn('crs', `vértice ${v} en (${xy[v * 2]}, ${xy[v * 2 + 1]}): no parecen grados; declare options.crs`)
+        }
       }
 
       // `z` es del documento y lo deciden las posiciones retenidas (SPECS §17.3-4).

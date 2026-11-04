@@ -131,14 +131,16 @@ test('opciones inválidas son entrada', () => {
   lanza(() => leer('POINT(1 2)', { crs: {} }), 'entrada')
 })
 
-// §2.5: sin CRS declarado manda `options.crs`; sin ninguno, WGS84 con el rango validado.
+// §2.5: sin CRS declarado manda `options.crs`; sin ninguno, WGS84, y fuera de rango avisa.
 test('CRS: declarado, por opción y ausente', () => {
   assert.equal(leer('SRID=4326;POINT(-70 -33)').crs, 'EPSG:4326')
   assert.equal(leer('SRID=0;POINT(-70 -33)').crs, null)
   assert.equal(leer('SRID=4326;POINT(1 2);SRID=4326;POINT(3 4)').crs, 'EPSG:4326')
   assert.equal(leer('POINT(500000 6300000)', { crs: 32719 }).crs, 'EPSG:32719')
   assert.equal(leer('SRID=4326;POINT(1 2)', { crs: 32719 }).crs, 'EPSG:4326', 'la fuente gana')
-  lanza(() => leer('POINT(500000 6300000)'), 'crs')
+  const fuera = leer('POINT(500000 6300000)')
+  assert.equal(fuera.crs, 'EPSG:4326')
+  assert.deepEqual(fuera.warnings.map(w => w.code), ['crs'])
   assert.equal(leer('POINT(500000 6300000)', { crs: 'EPSG:32719' }).crs, 'EPSG:32719')
   const wgs84 = 'GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433]]'
   assert.equal(typeof leer('POINT(-70 -33)', { crs: wgs84 }).crs, 'string')

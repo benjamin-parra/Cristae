@@ -339,9 +339,16 @@ const unPunto = (x, y) => {
   return t
 }
 
-test('sin CRS de la fuente, una coordenada fuera del rango geográfico es crs', async () => {
-  await fallaCon(() => unPunto(350000, 6300000).seal(), 'crs', 'wkb')
-  assert.deepEqual([...unPunto(-70.5, -33.4).seal().xy], [-70.5, -33.4])
+test('sin CRS de la fuente, fuera del rango geográfico declara EPSG:4326 y avisa crs', () => {
+  const r = unPunto(350000, 6300000).seal()
+  assert.equal(r.crs, 'EPSG:4326')
+  assert.deepEqual([...r.xy], [350000, 6300000])
+  assert.deepEqual(r.warnings.map(w => w.code), ['crs'])
+  assert.match(r.warnings[0].detail, /no parecen grados; declare options\.crs/)
+  const dentro = unPunto(-70.5, -33.4).seal()
+  assert.deepEqual([...dentro.xy], [-70.5, -33.4])
+  assert.equal(dentro.crs, null)
+  assert.deepEqual(dentro.warnings, [])
 })
 
 test('con source, la inversa va en sitio antes de bounds y crs es lo que se publica', () => {

@@ -42,14 +42,15 @@ Además de las tablas de GeoJSON, cada lectura trae cuatro campos:
 
 - **`format`**: el lector que leyó.
 - **`crs`**: el CRS en que venía la fuente (`'EPSG:32719'`), o `null` si no declaraba ninguno; KML,
-  GPX y TopoJSON sin la opción `crs` dicen `'EPSG:4326'`. La salida **siempre** está en grados WGS84
+  GPX y TopoJSON sin la opción `crs` dicen `'EPSG:4326'`, igual que una fuente sin CRS cuyas
+  coordenadas no caben en grados (y avisa). La salida **siempre** está en grados WGS84
   `[lng, lat]`: UTM, Web Mercator y los `.prj` de transversa de Mercator se pasan a grados al sellar.
 - **`layers` y `layerOf`**: las carpetas de KML y los `objects` de TopoJSON son capas con nombre y
   padre, y `layerOf[f]` dice en cuál está cada feature. Los formatos sin contenedores tienen una sola,
   `{ name: null, parent: -1 }`.
 - **`warnings`**: avisos no fatales `{ code, detail }`. La lectura siguió, pero hay algo que conviene
-  mostrar: un `.cpg` que no se reconoce (`'codificacion'`) o un TopoJSON sin la opción `crs` cuyas
-  coordenadas no parecen grados (`'crs'`). Vacío casi siempre.
+  mostrar: un `.cpg` que no se reconoce (`'codificacion'`) o una fuente sin CRS cuyas coordenadas no
+  parecen grados (`'crs'`). Vacío casi siempre.
 
 ```js
 const read = readShapefile({ shp, dbf, cpg })
@@ -71,9 +72,10 @@ descartó la M o una cuarta ordenada.
   Es lo que necesitan un Shapefile sin `.prj` y el WKT de `ST_AsText`:
   `readWkt(texto, { crs: 32719 })`. Si la fuente declara uno, gana la fuente.
 
-Sin CRS declarado ni pedido, las coordenadas tienen que caber en ±180/±90. Si no caben, la lectura es
-`FormatError('crs')`: un Shapefile en UTM sin `.prj` falla con ese diagnóstico, en vez de dibujarse en
-el océano. TopoJSON es la excepción: avisa en `warnings` y sigue (ver abajo).
+Sin CRS declarado ni pedido se suponen grados. Si las coordenadas no caben en ±180/±90, la lectura
+sigue, `read.crs` dice `'EPSG:4326'` y queda un aviso `'crs'` en `warnings` que pide declarar `crs`:
+un Shapefile en UTM sin `.prj` avisa en vez de dibujarse mudo en el océano. Un `crs` inválido, o un
+CRS de la fuente que no se soporta, sí es `FormatError('crs')`.
 
 ## Errores y detección
 

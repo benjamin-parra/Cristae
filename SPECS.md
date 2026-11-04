@@ -1449,13 +1449,14 @@ métodos, más cuatro campos.
 - `format`: el lector que leyó (`'kml'`, `'kmz'`, `'gpx'`, `'wkt'`, `'wkb'`, `'topojson'`,
   `'esrijson'`, `'shapefile'`, `'flatgeobuf'`).
 - `crs`: el CRS de la fuente (`'EPSG:32719'`…), o `null` si no declaraba ninguno. KML, GPX y TopoJSON
-  sin `options.crs` dicen `'EPSG:4326'` (§19.5).
+  sin `options.crs` dicen `'EPSG:4326'`, y también cualquier lector sin CRS cuyas coordenadas no caben
+  en grados (§19.5).
 - `layerOf` y `layers`: la capa de cada feature, y las capas con nombre y padre. Los formatos sin
   contenedores tienen una sola, `{ name: null, parent: -1 }`.
 - `warnings`: avisos no fatales `{ code, detail }`, en el orden en que salieron; vacío si no hubo. Lo
   que no impide leer pero cambia cómo se leyó: el consumidor decide si lo muestra. `code` usa los
-  nombres de `FormatError`: `'codificacion'`, un `.cpg` que no sirve (§19.15-7), y `'crs'`, un
-  TopoJSON sin `options.crs` fuera de ±180/±90 (§19.5).
+  nombres de `FormatError`: `'codificacion'`, un `.cpg` que no sirve (§19.15-7), y `'crs'`, una
+  fuente sin CRS declarado ni pedido fuera de ±180/±90 (§19.5).
   `detail` es lo leído, para diagnosticar.
 
 `xy` sale siempre en grados WGS84 `[lng, lat]`, y `areasOf` sirve sin cambios. `propertiesOf(f)` e
@@ -1480,7 +1481,7 @@ Todo error es `FormatError { format, code, at, hint }`. Los códigos son los onc
 
 | Código | Cuándo |
 |---|---|
-| `crs` | CRS declarado sin soporte (§19.5), dos CRS en una lectura, o fuente sin CRS con una coordenada fuera de ±180/±90 (salvo TopoJSON, que avisa) |
+| `crs` | CRS declarado o pedido sin soporte (§19.5), o dos CRS en una lectura |
 | `compresion` | método de zip distinto de 0 y 8, cifrado, CRC distinto, deflate corrupto, inflado distinto del tamaño declarado |
 | `tope` | lo que la entrada hace crecer pasa de `maxBytes` |
 | `entorno` | no hay `DecompressionStream('deflate-raw')` |
@@ -1489,8 +1490,8 @@ Todo error es `FormatError { format, code, at, hint }`. Los códigos son los onc
 | `dtd` | un `<!DOCTYPE` en KML o GPX |
 
 - `at` es un offset de byte en lo que se publica en `bytes`: en KMZ, del KML inflado; en Shapefile, del
-  archivo que falló (`.shp` o `.dbf`). `-1` si no aplica, como el `'crs'` por rango y el `'tope'` de
-  TopoJSON, que se detectan sobre las tablas.
+  archivo que falló (`.shp` o `.dbf`). `-1` si no aplica, como el `'crs'` de `options.crs` y el
+  `'tope'` de TopoJSON, que se detecta sobre las tablas.
 - `hint` dice a qué formato se parece la entrada, o `null`.
 - Lo leído que no sirve (el CRS que no se soporta, las capas de un zip) va al final del mensaje, para
   diagnosticar, y no a un campo.
@@ -1546,13 +1547,16 @@ latitud isométrica. Es `'crs'`:
 - ejes invertidos o reflejados.
 
 KML y GPX son WGS84 por especificación: `crs` es `'EPSG:4326'` y el rango no se valida. TopoJSON no
-fija un CRS: sin `options.crs` se asume lon/lat WGS84 y `crs` es `'EPSG:4326'`. Como el CRS es una
-suposición del lector y no de la fuente, una coordenada fuera de ±180/±90 no es `'crs'`: la lectura
-sigue y deja en `warnings` un `{ code: 'crs' }` cuyo `detail` nombra el primer vértice fuera de rango,
-dice que no parecen grados y pide declarar `options.crs`. Un `options.crs` inválido sigue siendo
-`'crs'`. Con
-`options.crs` (la regla común de §19.1) `crs` es el pedido. La inversa se aplica al sellar, sobre
-`xy` en sitio y antes de `bounds`.
+fija un CRS: sin `options.crs` se asume lon/lat WGS84 y `crs` es `'EPSG:4326'`. Con `options.crs` (la
+regla común de §19.1) `crs` es el pedido.
+
+Sin CRS de la fuente ni de la opción (Shapefile sin `.prj`, FlatGeobuf sin CRS en la cabecera,
+EsriJSON sin `spatialReference`, WKT y WKB sin SRID, TopoJSON sin opción) se suponen grados. Una
+coordenada fuera de ±180/±90 no es `'crs'`, porque el CRS es una suposición del lector: la lectura
+sigue, `crs` es `'EPSG:4326'` y queda en `warnings` un `{ code: 'crs' }` cuyo `detail` nombra el
+primer vértice fuera de rango, dice que no parecen grados y pide declarar `options.crs`. Un
+`options.crs` inválido o un CRS de la fuente sin soporte siguen siendo `'crs'`. La inversa se aplica
+al sellar, sobre `xy` en sitio y antes de `bounds`.
 
 ### 19.6 Zip
 
@@ -1780,7 +1784,8 @@ los features. `spatialReference` va en la raíz o en la geometría, se resuelve 
 8. **Valores, a demanda.** `C` texto recortado; `N` y `F` número, o `null` en blanco (otro texto lanza y
    sale `'properties'`); `L` booleano o `null`; `D` texto `YYYY-MM-DD`. Memo y tipos fuera de la tabla
    salen `null` y suman `foreignMembers`. Los registros borrados se emiten y suman `deletedRecords`.
-9. **CRS.** El `.prj` (WKT1) manda; sin él, `options.crs`; sin ninguno, el rango geográfico.
+9. **CRS.** El `.prj` (WKT1) manda; sin él, `options.crs`; sin ninguno, grados con aviso fuera de
+   rango (§19.5).
 10. **Zip.** Un solo `.shp`, o el que nombra `options.layer` por su ruta sin extensión; si no,
     `'formato'` con las capas en el mensaje. `.dbf`, `.prj` y `.cpg` se emparejan por nombre base, y lo
     inflado se descuenta de `maxBytes` entrada por entrada.

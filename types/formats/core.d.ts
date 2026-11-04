@@ -62,7 +62,7 @@ export interface FormatStats extends GeoJsonStats {
 // ── Avisos ───────────────────────────────────────────────────────────────────────────────────────
 /**
  * Lo que no impide leer: `'codificacion'`, un `.cpg` que no se reconoce o que `TextDecoder` no trae;
- * `'crs'`, un TopoJSON sin `options.crs` con coordenadas fuera de ±180/±90.
+ * `'crs'`, una fuente sin CRS declarado ni pedido con coordenadas fuera de ±180/±90.
  */
 export type FormatWarningCode = 'codificacion' | 'crs'
 
@@ -82,7 +82,8 @@ export interface FormatLayer {
 export interface FormatRead extends Omit<GeoJson, 'stats'> {
   readonly format   : FormatReader;
   /** El CRS DE LA FUENTE (`'EPSG:32719'`…), o `null` si no lo declaraba. KML, GPX y TopoJSON sin
-   *  `options.crs` dicen `'EPSG:4326'`. `xy` sale siempre en grados WGS84 `[lng, lat]`. */
+   *  `options.crs` dicen `'EPSG:4326'`, y también una fuente sin CRS fuera de rango, que avisa `'crs'`.
+   *  `xy` sale siempre en grados WGS84 `[lng, lat]`. */
   readonly crs      : string | null;
   /** [f] capa de cada feature. */
   readonly layerOf  : Uint32Array;

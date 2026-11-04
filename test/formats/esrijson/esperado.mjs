@@ -1,6 +1,6 @@
 // Qué ejercita cada fixture del corpus de EsriJSON y qué se espera. Sin `error`, la salida esperada es
-// la del oráculo. Las citas son de la ArcGIS REST API, «Geometry objects» y «FeatureSet object»
-// (DISENO-INTEROP §3.6), sin número de sección.
+// la del oráculo, y `aviso` es el código del único warning si lo hay. Las citas son de la ArcGIS REST
+// API, «Geometry objects» y «FeatureSet object» (DISENO-INTEROP §3.6), sin número de sección.
 
 export const ESPERADO = {
   'felices/featureset-poligonos.json' : { cita: 'FeatureSet; Polygon con hoyo y segundo exterior (DISENO-INTEROP §2.4)' },
@@ -37,7 +37,7 @@ export const ESPERADO = {
   'adversarios/crs-distintos.json'       : { error: 'crs', cita: 'DISENO-INTEROP §2.5: una lectura publica un CRS' },
   'adversarios/truncado.json'            : { error: 'truncado', cita: 'SPECS §17.9' },
   'adversarios/hasz-no-booleano.json'    : { error: 'estructura', cita: 'hasZ es booleano' },
-  'adversarios/fuera-de-rango.json'      : { error: 'crs', cita: 'DISENO-INTEROP §2.5: sin CRS y fuera del rango geográfico' },
+  'adversarios/fuera-de-rango.json'      : { aviso: 'crs', cita: 'SPECS §19.5: sin CRS y fuera del rango geográfico avisa' },
   'adversarios/feature-no-objeto.json'   : { error: 'estructura', cita: 'un feature es un objeto' },
   'adversarios/basura-al-final.json'     : { error: 'sintaxis', cita: 'RFC 8259 §2' },
 }

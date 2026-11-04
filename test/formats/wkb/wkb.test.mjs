@@ -139,12 +139,14 @@ test('hex inválido y opciones inválidas son entrada', () => {
   lanza(() => leer(FIXTURES.puntoLE, { maxDepth: 0 }), 'entrada')
 })
 
-test('CRS: SRID de EWKB, SRID en conflicto, sin SRID fuera de rango y options.crs', () => {
+test('CRS: SRID de EWKB, SRID en conflicto, sin SRID fuera de rango avisa y options.crs', () => {
   const srid = (g, s) => escribirWkb(g, { sabor: 'ewkb', srid: s })
   const utm  = { type: 'Point', coordinates: [500000, 6300000] }
   assert.equal(leer(srid(utm, 32719)).crs, 'EPSG:32719')
   assert.equal(leer(escribirWkb(utm), { crs: 32719 }).crs, 'EPSG:32719')
-  lanza(() => leer(escribirWkb(utm)), 'crs')
+  const fuera = leer(escribirWkb(utm))
+  assert.equal(fuera.crs, 'EPSG:4326')
+  assert.deepEqual(fuera.warnings.map(w => w.code), ['crs'])
   lanza(() => leer(srid({ type: 'Point', coordinates: [1, 2] }, 4230)), 'crs', 0)
 
   // GeometryCollection con SRID 4326 cuyo hijo declara 3857.

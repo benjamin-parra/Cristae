@@ -274,9 +274,11 @@ test('CRS: org + code, CRS84, WKT, y lo no soportado es crs', () => {
   falla(() => readFlatGeobuf(escribirFgb(metro, { crs: { org: 'IGNF', code: 7 } })), 'crs')
 })
 
-test('CRS: sin crs declarado, proyectado es crs, y options.crs lo resuelve', () => {
+test('CRS: sin crs declarado, proyectado declara EPSG:4326 y avisa, y options.crs lo resuelve', () => {
   const fgb = escribirFgb(fc({ type: 'Point', coordinates: [500000, 10000000] }))
-  falla(() => readFlatGeobuf(fgb), 'crs')
+  const fuera = readFlatGeobuf(fgb)
+  assert.equal(fuera.crs, 'EPSG:4326')
+  assert.deepEqual(fuera.warnings.map(w => w.code), ['crs'])
   const read = readFlatGeobuf(fgb, { crs: 32719 })
   assert.equal(read.crs, 'EPSG:32719')
   assert.ok(Math.abs(read.xy[0] - -69) < 1e-9)

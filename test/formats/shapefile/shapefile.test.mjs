@@ -364,9 +364,11 @@ test('CRS: el .prj en UTM 19S pasa a grados WGS84', () => {
   assert.ok(read.crs)
 })
 
-test('CRS: sin .prj, UTM es crs; con options.crs se lee, y el .prj gana a la opción', () => {
+test('CRS: sin .prj, UTM declara EPSG:4326 y avisa; con options.crs se lee, y el .prj gana a la opción', () => {
   const shp = escribirShp(fc({ type: 'Point', coordinates: [500000, 6000000] }))
-  falla(() => readShapefile({ shp }), 'crs')
+  const fuera = readShapefile({ shp })
+  assert.equal(fuera.crs, 'EPSG:4326')
+  assert.deepEqual(fuera.warnings.map(w => w.code), ['crs'])
   const read = readShapefile({ shp }, { crs: 32719 })
   assert.equal(read.crs, 'EPSG:32719')
   assert.ok(Math.abs(read.xy[0] - -69) < 1e-9)

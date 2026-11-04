@@ -9,7 +9,7 @@ export interface ShapefileFiles {
   shp  : ShapefileBytes;
   /** Atributos: un registro por registro del `.shp`, en el mismo orden. Sin él, `propertiesOf` es `null`. */
   dbf? : ShapefileBytes | null;
-  /** WKT1 del CRS. Sin él manda `options.crs`, y sin ella las coordenadas deben ser geográficas. */
+  /** WKT1 del CRS. Sin él manda `options.crs`, y sin ella se suponen grados (aviso `'crs'` si no caben). */
   prj? : ShapefileBytes | string | null;
   /** Codificación del `.dbf`: una etiqueta o una página de códigos (`UTF-8`, `1252`, `ANSI 1252`, `88591`).
    *  Una que no se reconoce no frena: deja un aviso `'codificacion'` en `warnings` y se lee como sin `.cpg`. */
