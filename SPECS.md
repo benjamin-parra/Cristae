@@ -1444,13 +1444,17 @@ FlatGeobuf. Sólo lectura: los escritores son otro tramo.
 ### 19.1 Contrato común
 
 Cada lector devuelve un `FormatRead`: el `GeoJson` de §17.1, con la misma semántica y los mismos
-métodos, más tres campos.
+métodos, más cuatro campos.
 
 - `format`: el lector que leyó (`'kml'`, `'kmz'`, `'gpx'`, `'wkt'`, `'wkb'`, `'topojson'`,
   `'esrijson'`, `'shapefile'`, `'flatgeobuf'`).
 - `crs`: el CRS de la fuente (`'EPSG:32719'`…), o `null` si no declaraba ninguno.
 - `layerOf` y `layers`: la capa de cada feature, y las capas con nombre y padre. Los formatos sin
   contenedores tienen una sola, `{ name: null, parent: -1 }`.
+- `warnings`: avisos no fatales `{ code, detail }`, en el orden en que salieron; vacío si no hubo. Lo
+  que no impide leer pero cambia cómo se leyó: el consumidor decide si lo muestra. `code` usa los
+  nombres de `FormatError`; hoy el único es `'codificacion'`, un `.cpg` que no sirve (§19.15-7).
+  `detail` es lo leído, para diagnosticar.
 
 `xy` sale siempre en grados WGS84 `[lng, lat]`, y `areasOf` sirve sin cambios. `propertiesOf(f)` e
 `idOf(f)` decodifican a demanda sobre rangos de byte, con un decodificador por formato; uno que lanza
@@ -1479,7 +1483,7 @@ Todo error es `FormatError { format, code, at, hint }`. Los códigos son los onc
 | `tope` | lo que la entrada hace crecer pasa de `maxBytes` |
 | `entorno` | no hay `DecompressionStream('deflate-raw')` |
 | `version` | zip64 o multidisco, FlatGeobuf de otra versión mayor, `.shp` o `.dbf` de versión desconocida |
-| `codificacion` | XML que no es UTF-8, ASCII, ISO-8859-1 ni windows-1252; texto inválido en su codificación; etiqueta de `.dbf` que `TextDecoder` no conoce |
+| `codificacion` | XML que no es UTF-8, ASCII, ISO-8859-1 ni windows-1252; texto inválido en su codificación, también un nombre de campo del `.dbf` al abrir y un valor al pedirlo |
 | `dtd` | un `<!DOCTYPE` en KML o GPX |
 
 - `at` es un offset de byte en lo que se publica en `bytes`: en KMZ, del KML inflado; en Shapefile, del
@@ -1745,9 +1749,27 @@ los features. `spatialReference` va en la raíz o en la geometría, se resuelve 
 6. **`.dbf`.** Versiones 0x03, 0x30-0x32, 0x43, 0x63, 0x83, 0x8B, 0xCB, 0xF5 y 0xFB; otra es
    `'version'`. Sin terminador 0x0D o con largo de registro distinto de 1 + Σ largos es
    `'estructura'`. Un conteo de registros distinto del `.shp` es `'estructura'`.
-7. **Codificación.** `options.encoding`, si no el `.cpg` (`65001` es UTF-8, `125x` windows-125x, `2859x`
-   ISO-8859-x), si no el language driver del byte 29, si no windows-1252. No se adivina por el
-   contenido.
+7. **Codificación.** `options.encoding`, si no el `.cpg`, si no el language driver del byte 29, si no
+   windows-1252. No se adivina por el contenido. Las etiquetas se comparan sin mayúsculas, espacios,
+   `_` ni `-`, y salen con el nombre canónico de `TextDecoder`:
+
+   | Se escribe | Se lee como |
+   |---|---|
+   | `UTF-8`, `UTF8`, `65001` | UTF-8 |
+   | `125x`, `ANSI 125x`, `CP125x`, `windows-125x` | windows-125x |
+   | `8859x`, `8859-x`, `ISO-8859-x`, `ISO8859x`, `2859x`, `2860x` (13 a 16) | ISO-8859-x |
+   | `874`, `866`, `932`, `936`, `949`, `950`, `20866`, `21866`, `20932`, `54936`, `10000` | windows-874, IBM866, Shift_JIS, GBK, EUC-KR, Big5, KOI8-R, KOI8-U, EUC-JP, GB18030, macintosh |
+   | otro nombre (`LATIN1`, `Shift_JIS`, `EUC-KR`, `Big5`…) | el que `TextDecoder` reconozca |
+
+   WHATWG Encoding lee ISO-8859-1 como windows-1252, que la contiene, e ISO-8859-9 y -11 como
+   windows-1254 y windows-874.
+
+   Un `.cpg` que no se reconoce, o que `TextDecoder` no trae (437 y 850, por ejemplo), no frena la
+   lectura: deja `{ code: 'codificacion', detail: '.cpg "<etiqueta>"' }` en `warnings` y la
+   codificación sigue la cadena como si no hubiera `.cpg`. Un `.cpg` vacío no avisa. Un
+   `options.encoding` que no se reconoce, o que no es texto, es `'entrada'`: lo pidió el consumidor.
+   Decodificar es estricto: un byte inválido en la codificación elegida es `'codificacion'`.
+   windows-1252 asigna los 256 bytes, así que el default no falla nunca.
 8. **Valores, a demanda.** `C` texto recortado; `N` y `F` número, o `null` en blanco (otro texto lanza y
    sale `'properties'`); `L` booleano o `null`; `D` texto `YYYY-MM-DD`. Memo y tipos fuera de la tabla
    salen `null` y suman `foreignMembers`. Los registros borrados se emiten y suman `deletedRecords`.

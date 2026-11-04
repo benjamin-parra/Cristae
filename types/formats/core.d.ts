@@ -59,7 +59,17 @@ export interface FormatStats extends GeoJsonStats {
   orphanHoles       : number;
 }
 
-// ── Salida: el `GeoJson` de §17.1 más tres campos ────────────────────────────────────────────────
+// ── Avisos ───────────────────────────────────────────────────────────────────────────────────────
+/** Lo que no impide leer: `'codificacion'`, un `.cpg` que no se reconoce o que `TextDecoder` no trae. */
+export type FormatWarningCode = 'codificacion'
+
+export interface FormatWarning {
+  readonly code   : FormatWarningCode;
+  /** Lo leído que motivó el aviso (la etiqueta del `.cpg`), para diagnosticar; `null` si no hay. */
+  readonly detail : string | null;
+}
+
+// ── Salida: el `GeoJson` de §17.1 más cuatro campos ──────────────────────────────────────────────
 export interface FormatLayer {
   readonly name   : string | null;
   /** Índice de la capa contenedora, o `-1`. */
@@ -67,16 +77,18 @@ export interface FormatLayer {
 }
 
 export interface FormatRead extends Omit<GeoJson, 'stats'> {
-  readonly format  : FormatReader;
+  readonly format   : FormatReader;
   /** El CRS DE LA FUENTE (`'EPSG:32719'`…), o `null` si no lo declaraba. `xy` sale siempre en grados
    *  WGS84 `[lng, lat]`. */
-  readonly crs     : string | null;
+  readonly crs      : string | null;
   /** [f] capa de cada feature. */
-  readonly layerOf : Uint32Array;
+  readonly layerOf  : Uint32Array;
   /** `Document`/`Folder` de KML, `objects` de TopoJSON; una sola `{ name: null, parent: -1 }` en los
    *  formatos sin contenedores. */
-  readonly layers  : readonly FormatLayer[];
-  readonly stats   : FormatStats;
+  readonly layers   : readonly FormatLayer[];
+  readonly stats    : FormatStats;
+  /** Avisos no fatales, en el orden en que salieron; vacío si no hubo. */
+  readonly warnings : readonly FormatWarning[];
 }
 
 /** Formato por bytes mágicos y primer token. Ningún lector la llama: leer no adivina. */

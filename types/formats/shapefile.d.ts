@@ -11,13 +11,14 @@ export interface ShapefileFiles {
   dbf? : ShapefileBytes | null;
   /** WKT1 del CRS. Sin él manda `options.crs`, y sin ella las coordenadas deben ser geográficas. */
   prj? : ShapefileBytes | string | null;
-  /** Codificación del `.dbf`: una etiqueta o una página de códigos de Windows (`1252`, `65001`). */
+  /** Codificación del `.dbf`: una etiqueta o una página de códigos (`UTF-8`, `1252`, `ANSI 1252`, `88591`).
+   *  Una que no se reconoce no frena: deja un aviso `'codificacion'` en `warnings` y se lee como sin `.cpg`. */
   cpg? : ShapefileBytes | string | null;
 }
 
 export interface ShapefileOptions extends FormatOptions {
-  /** Codificación del `.dbf` (etiqueta de `TextDecoder`). Gana al `.cpg`, al language driver y al
-   *  default windows-1252. */
+  /** Codificación del `.dbf`, con las mismas formas que el `.cpg`. Gana al `.cpg`, al language driver y
+   *  al default windows-1252; una que no se reconoce es `'entrada'`. */
   encoding? : string;
   /** En un zip con varios `.shp`, el nombre del que se lee: su ruta en el zip, sin extensión. */
   layer?    : string;
@@ -27,7 +28,8 @@ export interface ShapefileOptions extends FormatOptions {
  * Síncrono. `propertiesOf(f)` devuelve `{ campo: valor }`: `C` texto recortado a la derecha, `N` y `F`
  * número o `null` en blanco, `L` booleano o `null`, `D` texto `YYYY-MM-DD`; memo y tipos fuera de la
  * tabla, `null`. `bytes` es el `.dbf`. Los polígonos se agrupan por orientación y contención.
- * `FormatError.at` es un offset del archivo que falló (`.shp` o `.dbf`).
+ * `FormatError.at` es un offset del archivo que falló (`.shp` o `.dbf`). Un byte inválido en la
+ * codificación elegida es `'codificacion'`; windows-1252, el default, no falla nunca.
  */
 export declare function readShapefile(files: ShapefileFiles, options?: ShapefileOptions): FormatRead
 

@@ -242,8 +242,89 @@ test('dbf: codificación por opción, .cpg, language driver y windows-1252 por d
   assert.equal(leer(escribirDbf(campo, [['\xC4']], { ldid: 0xC9 })), 'Д')
   // La opción gana al .cpg.
   assert.equal(leer(escribirDbf(campo, [['Ñ']]), { cpg: 'UTF-8' }, { encoding: 'windows-1252' }), 'Ñ')
-  falla(() => readShapefile({ shp: PUNTO, dbf: escribirDbf(campo, [['a']]) }, { encoding: 'klingon' }), 'codificacion')
-  falla(() => readShapefile({ shp: PUNTO, dbf: escribirDbf(campo, [['a']]), cpg: 'klingon' }), 'codificacion')
+  assert.deepEqual(readShapefile({ shp: PUNTO, dbf: escribirDbf(campo, [['a']]) }).warnings, [])
+})
+
+// Cada escritura habitual de un `.cpg` (ArcGIS, QGIS, GDAL) contra el texto que tiene que salir.
+const VARIANTES_CPG = [
+  ['utf-8',        ['UTF-8', 'utf8', 'UTF 8', '65001', ' UTF-8\r\n'], 'Ñandú'],
+  ['windows-1252', ['1252', 'ANSI 1252', 'CP1252', 'cp1252', 'windows-1252', 'Windows 1252'], 'Ñandú€'],
+  ['iso-8859-1',   ['88591', '8859-1', 'ISO-8859-1', 'ISO88591', 'iso8859-1', '28591', 'LATIN1', 'latin1'], 'Ñandú'],
+  ['iso-8859-15',  ['885915', '8859-15', 'ISO-8859-15', 'ISO 8859-15', '28605'], 'Ñandú€'],
+  ['iso-8859-2',   ['88592', 'ISO8859_2', '28592', 'latin2'], 'Łódź'],
+  ['windows-1250', ['1250', 'ANSI 1250', 'CP1250'], 'Łódź'],
+  ['windows-1251', ['1251', 'ANSI 1251'], 'Дом'],
+  ['windows-1253', ['1253', 'CP1253'], 'Αθήνα'],
+  ['ibm866',       ['866', 'CP866', 'IBM866'], 'Дом'],
+  ['koi8-r',       ['KOI8-R', '20866'], 'Дом'],
+  ['big5',         ['Big5', 'BIG5', '950'], '台北'],
+  ['gbk',          ['GBK', '936', 'CP936'], '北京'],
+  ['shift_jis',    ['Shift_JIS', 'SHIFT JIS', '932'], '東京'],
+  ['euc-kr',       ['EUC-KR', 'euc kr', '949'], '서울'],
+]
+
+// Los bytes de `texto` en `codificacion`, buscándolos en la tabla de su decodificador: el escritor de
+// prueba no tiene codificadores y TextEncoder sólo escribe UTF-8.
+const codificarEn = codificacion => texto => {
+  if (codificacion === 'utf-8') return new TextEncoder().encode(texto)
+  const decodificador = new TextDecoder(codificacion, { fatal: true })
+  const salida = []
+  for (const c of texto) {
+    let hallado = null
+    for (let a = 0; a < 256 && !hallado; a++) {
+      try { decodificador.decode(new Uint8Array([a])) === c && (hallado = [a]) } catch { /* no es un byte suelto */ }
+      for (let b = 0x40; b < 256 && !hallado && a >= 0x81; b++)
+        try { decodificador.decode(new Uint8Array([a, b])) === c && (hallado = [a, b]) } catch { /* par inválido */ }
+    }
+    assert.ok(hallado, `${c} no está en ${codificacion}`)
+    salida.push(...hallado)
+  }
+  return salida
+}
+
+test('dbf: el .cpg se reconoce en sus variantes de escritura y decodifica con su página', () => {
+  const campo = [{ nombre: 'n', tipo: 'C', largo: 12 }]
+  VARIANTES_CPG.forEach(([codificacion, etiquetas, texto]) => {
+    const dbf = escribirDbf(campo, [[texto]], { codificar: codificarEn(codificacion) })
+    etiquetas.forEach(cpg => {
+      const read = readShapefile({ shp: PUNTO, dbf, cpg })
+      assert.equal(read.propertiesOf(0).n, texto, `${JSON.stringify(cpg)} como ${codificacion}`)
+      assert.deepEqual(read.warnings, [], cpg)
+    })
+  })
+})
+
+test('dbf: un .cpg desconocido o sin decodificador avisa y no frena; sigue el language driver o windows-1252', () => {
+  const campo = [{ nombre: 'n', tipo: 'C', largo: 8 }]
+  ;['klingon', 'OEM', '437', '850', '885912'].forEach(cpg => {
+    const read = readShapefile({ shp: PUNTO, dbf: escribirDbf(campo, [['Ñandú']]), cpg })
+    assert.equal(read.propertiesOf(0).n, 'Ñandú', cpg)
+    assert.deepEqual(read.warnings, [{ code: 'codificacion', detail: `.cpg ${JSON.stringify(cpg)}` }])
+  })
+  // Con language driver, manda el driver, como sin .cpg: 0xC9 es windows-1251 y 0xC4 es «Д».
+  const conDriver = readShapefile({ shp: PUNTO, dbf: escribirDbf(campo, [['\xC4']], { ldid: 0xC9 }), cpg: 'klingon' })
+  assert.equal(conDriver.propertiesOf(0).n, 'Д')
+  assert.equal(conDriver.warnings.length, 1)
+  // Un .cpg vacío es como no tenerlo: sin aviso.
+  assert.deepEqual(readShapefile({ shp: PUNTO, dbf: escribirDbf(campo, [['a']]), cpg: '\r\n' }).warnings, [])
+})
+
+test('dbf: options.encoding gana, se normaliza como el .cpg, y una que no sirve es entrada', () => {
+  const campo = [{ nombre: 'n', tipo: 'C', largo: 8 }]
+  const dbf   = escribirDbf(campo, [['Ñandú']], { codificar: s => new TextEncoder().encode(s) })
+  assert.equal(readShapefile({ shp: PUNTO, dbf, cpg: '1252' }, { encoding: 'UTF 8' }).propertiesOf(0).n, 'Ñandú')
+  assert.equal(readShapefile({ shp: PUNTO, dbf }, { encoding: '65001' }).propertiesOf(0).n, 'Ñandú')
+  ;['klingon', '437', '', 1252, {}].forEach(encoding =>
+    falla(() => readShapefile({ shp: PUNTO, dbf }, { encoding }), 'entrada'))
+})
+
+test('dbf: un byte inválido en la codificación declarada es codificacion; windows-1252 no falla nunca', () => {
+  const campo = [{ nombre: 'n', tipo: 'C', largo: 4 }]
+  const roto  = escribirDbf(campo, [['x']], { codificar: () => [0xC3, 0x28] })
+  const read  = readShapefile({ shp: PUNTO, dbf: roto, cpg: 'UTF-8' })
+  assert.throws(() => read.propertiesOf(0), e => e instanceof FormatError && e.code === 'codificacion' && e.at === read.bytes.indexOf(0xC3))
+  const todos = escribirDbf([{ nombre: 'n', tipo: 'C', largo: 255 }], [['x']], { codificar: () => Array.from({ length: 255 }, (_, k) => k + 1) })
+  assert.equal(readShapefile({ shp: PUNTO, dbf: todos }).propertiesOf(0).n.length, 255)
 })
 
 test('dbf: versión, estructura y truncado', () => {

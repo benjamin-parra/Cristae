@@ -104,6 +104,16 @@ test('los campos de §1.1: format, crs, layers y layerOf', () => {
   assert.deepEqual([...r.layerOf], [0, 1])
 })
 
+test('warn deja avisos no fatales en warnings, en orden, y no corta la lectura', () => {
+  const t = createTables('shapefile')
+  assert.equal(t.warn('codificacion', '.cpg "x"'), undefined)
+  t.warn('codificacion')
+  t.feature()
+  const r = t.seal({ source: crsFromEpsg(4326) })
+  assert.deepEqual(r.warnings, [{ code: 'codificacion', detail: '.cpg "x"' }, { code: 'codificacion', detail: null }])
+  assert.deepEqual(createTables('kml').seal({ source: crsFromEpsg(4326) }).warnings, [])
+})
+
 test('sin layer() hay una capa implícita { name: null, parent: −1 }', () => {
   const t = createTables('gpx')
   t.feature()

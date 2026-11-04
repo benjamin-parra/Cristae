@@ -117,6 +117,7 @@ Object.entries(GEOMETRIAS).forEach(([tipo, g]) => {
         throw e
       }
       assert.deepEqual(leido.layerOf, new Uint32Array([0]), nombre)
+      assert.deepEqual(leido.warnings, [], `${nombre}: warnings`)
       assert.deepEqual(areasOf(leido).rings, areasOf(esperado).rings, `${nombre}: areasOf`)
     }
   })

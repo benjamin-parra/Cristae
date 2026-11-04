@@ -4,6 +4,7 @@
 
 export type {
   FormatReader, FormatName, FormatInput, FormatOptions, FormatErrorCode, FormatStats, FormatLayer, FormatRead,
+  FormatWarning, FormatWarningCode,
 } from './formats/core'
 export type { WktInput } from './formats/wkt'
 export type { WkbInput } from './formats/wkb'

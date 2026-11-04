@@ -165,6 +165,7 @@ const informar = (read, ms, dibujado) => {
   const stats = Object.entries(read.stats).filter(([, v]) => v).map(([k, v]) => `${k}=${v}`).join(' ')
   const props = read.featureCount ? JSON.stringify(read.propertiesOf(0)) : '—'
   log(`${read.format ?? 'geojson'}: stats ${stats || '—'}\n  propiedades de la feature 0: ${props}`)
+  read.warnings?.forEach(w => log(`  aviso ${w.code}: ${w.detail ?? '—'}`))
 }
 
 // `entrada`: bytes o texto, o `{ shp, dbf?, prj?, cpg? }` cuando llegan los archivos sueltos de un Shapefile.

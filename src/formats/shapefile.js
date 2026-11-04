@@ -5,7 +5,7 @@ import { asBytes } from './core/input.js'
 import { createTables, CW } from './core/tables.js'
 import { crsFromWkt, optionCrs } from './core/crs.js'
 import { listZip, unzipEntry } from './core/zip.js'
-import { openDbf } from './dbf.js'
+import { encodingOf, openDbf } from './dbf.js'
 
 const FORMAT = 'shapefile'
 const EMPTY  = new Uint8Array(0)
@@ -119,8 +119,14 @@ export const readShapefile = (files, options = {}) => {
     records++
   }
 
-  const text  = bytes => new TextDecoder().decode(bytes).trim()
-  const table = dbf && openDbf(dbf, options.encoding ?? (cpg && cpgLabel(text(cpg))), stats)
+  // `options.encoding` gana y tiene que servir. Un `.cpg` que no sirve no frena la lectura: avisa y la
+  // codificación sale como si no estuviera, del language driver o windows-1252 (SPECS §19.15-7).
+  const text     = bytes => new TextDecoder().decode(bytes).trim()
+  const label    = cpg && text(cpg)
+  const encoding = options.encoding == null
+    ? label && (encodingOf(label) ?? t.warn('codificacion', `.cpg ${JSON.stringify(label)}`))
+    : typeof options.encoding === 'string' && encodingOf(options.encoding) || fail('entrada')
+  const table = dbf && openDbf(dbf, encoding || null, stats)
   table && table.records !== records && fail('estructura', 4, `${records} registros en el .shp y ${table.records} en el .dbf`)
   for (let r = 0; table && r < records; r++) t.attributes(r, table.at(r), table.at(r) + table.size)
 
@@ -134,14 +140,6 @@ export const readShapefile = (files, options = {}) => {
     id         : () => null,
   })
 }
-
-// El `.cpg` trae una etiqueta de codificación o un número de página de códigos de Windows.
-const cpgLabel = label =>
-  label === '65001'        ? 'utf-8'
-  : /^125\d$/.test(label)  ? `windows-${label}`
-  : /^2859\d$/.test(label) ? `iso-8859-${label.slice(4)}`
-  : label === ''           ? null
-  : label
 
 // Shapefile dentro de un zip: el `.shp` elegido y sus hermanos por nombre base, sin distinguir
 // mayúsculas en la extensión. La suma de lo inflado va contra `maxBytes` (§2.7).

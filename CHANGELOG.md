@@ -24,10 +24,13 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   - `readShapefile` y `readShapefileZip`: Shapefile con su `.dbf`, `.prj` y `.cpg`, sueltos o en un zip.
     Polígonos agrupados por orientación y contención, Z a `z`, M descartada y contada, y atributos de
     dBase decodificados a demanda con la codificación del `.cpg`, del language driver o windows-1252.
+    El `.cpg` se entiende en sus escrituras habituales (`UTF-8`, `65001`, `ANSI 1252`, `88591`,
+    `ISO-8859-1`, `936`…); uno que no se reconoce avisa en `warnings` y no frena la lectura.
   - `readFlatGeobuf`: FlatGeobuf 3 en lectura secuencial (el índice se salta), con los siete tipos de
     geometría, colecciones aplanadas, z, las quince clases de columna y el CRS de la cabecera.
   - `FormatError`, el error común, con `format`, `code`, `at` y `hint`, y siete códigos más que
     `GeoJsonError`: `crs`, `compresion`, `tope`, `entorno`, `version`, `codificacion` y `dtd`.
+  - `warnings` en cada lectura: avisos no fatales `{ code, detail }`, vacío si no hubo.
   - `detectFormat`, que reconoce el formato por los bytes mágicos y el primer token, sin lanzar.
   - Opciones comunes `maxBytes`, el tope de lo que la entrada hace crecer, y `crs`, el CRS de una fuente
     que no declara el suyo (un Shapefile sin `.prj`, el WKT de `ST_AsText`).

@@ -47,8 +47,9 @@ export const createTables = (format, { capacityHint = 0, bounds = false, orienta
     extraOrdinates: 0, emptyGeometries: 0, foreignMembers: 0, bboxSkipped: 0, roots: 1,
     skippedGeometries: 0, deletedRecords: 0, orphanHoles: 0,
   }
-  const layers = []
-  const fail   = (code, at = -1) => { throw new FormatError(format, code, at) }
+  const layers   = []
+  const warnings = []
+  const fail     = (code, at = -1) => { throw new FormatError(format, code, at) }
 
   let geometryAt = new Uint32Array(16), partAt = new Uint32Array(16), ringAt = new Uint32Array(16),
       vertexAt = new Uint32Array(16), kinds = new Uint8Array(16), featureOf = new Uint32Array(16),
@@ -128,6 +129,9 @@ export const createTables = (format, { capacityHint = 0, bounds = false, orienta
 
   const tables = {
     stats,
+
+    // Lo que no impide leer pero el consumidor tiene que saber (SPECS §19.1). Devuelve `undefined`.
+    warn: (code, detail = null) => { warnings.push({ code, detail }) },
 
     layer: (name = null, parent = -1) => {
       need(layers.length > 0 || features === 0, 'layer() después de features en la capa implícita')
@@ -381,7 +385,7 @@ export const createTables = (format, { capacityHint = 0, bounds = false, orienta
         layers: layers.length ? layers : [{ name: null, parent: -1 }],
         z: z === null ? null : trim(z, vertices),
         bounds: box,
-        bytes, stats,
+        bytes, stats, warnings,
         featureCount: features, geometryCount: geometries,
         partCount: parts, ringCount: rings, vertexCount: vertices,
 

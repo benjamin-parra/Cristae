@@ -38,7 +38,7 @@ texto, salvo WKB, que lo toma como hex.
 
 ## Lo que agrega la lectura
 
-Además de las tablas de GeoJSON, cada lectura trae tres campos:
+Además de las tablas de GeoJSON, cada lectura trae cuatro campos:
 
 - **`format`**: el lector que leyó.
 - **`crs`**: el CRS en que venía la fuente (`'EPSG:32719'`), o `null` si no declaraba ninguno. La
@@ -47,6 +47,13 @@ Además de las tablas de GeoJSON, cada lectura trae tres campos:
 - **`layers` y `layerOf`**: las carpetas de KML y los `objects` de TopoJSON son capas con nombre y
   padre, y `layerOf[f]` dice en cuál está cada feature. Los formatos sin contenedores tienen una sola,
   `{ name: null, parent: -1 }`.
+- **`warnings`**: avisos no fatales `{ code, detail }`. La lectura siguió, pero hay algo que conviene
+  mostrar: hoy, un `.cpg` que no se reconoce. Vacío casi siempre.
+
+```js
+const read = readShapefile({ shp, dbf, cpg })
+read.warnings.forEach(w => console.warn(`${w.code}: ${w.detail}`))   // codificacion: .cpg "OEM"
+```
 
 `stats` suma tres contadores a los de GeoJSON: `skippedGeometries` (curvas, `MultiPatch`, `Model`,
 `gx:Track`), `deletedRecords` (registros borrados del `.dbf`, que igual se emiten) y `orphanHoles`
@@ -133,7 +140,14 @@ Null es un feature sin geometría.
 - **Atributos.** `propertiesOf(f)` decodifica el registro del `.dbf`: `C` texto, `N` y `F` número (o
   `null` en blanco), `L` booleano, `D` texto `YYYY-MM-DD`; memo y tipos de FoxPro salen `null`.
 - **Codificación del `.dbf`.** `options.encoding`, si no el `.cpg`, si no el language driver, si no
-  windows-1252. No se adivina por el contenido.
+  windows-1252. No se adivina por el contenido. El `.cpg` se entiende en las formas en que lo escriben
+  ArcGIS, QGIS y GDAL: `UTF-8` o `65001`; `1252`, `ANSI 1252` o `CP1252`; `88591`, `8859-1` o
+  `ISO-8859-1`; los números de página de Big5, GBK, Shift_JIS y EUC-KR; y los nombres que conoce
+  `TextDecoder`. La tabla completa está en SPECS §19.15-7.
+- **Un `.cpg` que no sirve no frena.** Si no se reconoce, o el entorno no tiene ese decodificador (437
+  y 850 no están en `TextDecoder`), la lectura sigue como si no hubiera `.cpg` y deja un aviso
+  `'codificacion'` en `warnings`. `options.encoding`, en cambio, lo pide el consumidor: si no se
+  reconoce, es `FormatError('entrada')`.
 - **CRS.** El `.prj` manda; sin él, `options.crs`.
 - **Zip.** Con varios `.shp`, `options.layer` elige uno por su ruta sin extensión. `.dbf`, `.prj` y
   `.cpg` se emparejan por nombre base, sin distinguir mayúsculas en la extensión.
