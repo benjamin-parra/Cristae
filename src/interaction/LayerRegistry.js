@@ -70,6 +70,16 @@ export class LayerRegistry {
     return this.#layers.entriesById.get(layerId)?.activeMask ?? 0
   }
 
+  // El motor le corrió el z o el orden a una capa. Escribe en el lugar: resolveHits ordena en cada
+  // consulta, así que no hay nada que reubicar.
+  restack(layerId, zIndex, order) {
+    const entry = this.#layers.entriesById.get(layerId)
+    if (!entry) return false
+    entry.zIndex    = zIndex
+    entry.declOrder = order
+    return true
+  }
+
   layerIds() {
     return [...this.#layers.entriesById.keys()]
   }
