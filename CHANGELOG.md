@@ -13,6 +13,27 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   (`Array.prototype.at`) a 16, porque en 15.x los campos de clase tienen un fallo de alcance; Chromium
   queda en 92 y Firefox en 90 ([`README.md`](README.md#navegadores)).
   *Migración*: quien deba soportar Safari 15.4–15.x importa `src/` con el `target` propio de su bundler.
+- **El z por defecto sigue el orden de declaración, no el de alta** ([SPECS §7.3, §8](SPECS.md)). Sin `z`,
+  una capa declarada por un elemento toma su z de su lugar en el documento dentro de `<cristae-map>` (con
+  React, el orden del árbol): una capa que monta tarde —sus datos llegan después, o es un hijo condicional—
+  cae donde se declaró y no encima de las declaradas después, y remontarla no la sube. Las capas de
+  `addXLayer` sin elemento van sobre las declaradas, en orden de alta, y darlas de baja y de alta no hace
+  crecer su z. Antes el z salía de un contador que sólo crecía con cada alta. Al ser una posición y no un
+  valor, cambian estos contratos:
+  - El z de un derivado cambia cuando monta o se desmonta una capa declarada antes, y en vivo puede cruzar
+    un `z` explícito que cae entre los derivados de su plano. Para fijar ese orden se fijan los dos, o el
+    explícito va fuera de ese tramo.
+  - `setLayerZ(id, null)` vuelve al z derivado de la capa, no al `z` con que montó; en el elemento, quitar
+    el atributo `z` hace lo mismo.
+  - Un `pane` compartido toma el z de su capa declarada más arriba; antes, el de la última alta.
+  - El badge de un overlay sigue el z efectivo de su host (z del host + 7); antes ignoraba su `z` explícito
+    y un `setLayerZ`. Las burbujas, las patas y la espiral de un cluster siguen el lugar del host base.
+  - Las capas declaradas después de un overlay o de un cluster bajan 10 por overlay y entre 20 y 30 por
+    cluster, que ya no gastan lugares del orden.
+
+  *Migración*: quien fijaba `z` o dejaba capas vacías montadas sólo para conservar el apilado puede
+  quitarlo. Quien anotaba como constante un z derivado (por ejemplo, el de las burbujas de un cluster) deja
+  de hacerlo, y quien fijaba un explícito entre derivados revisa que no dependa de lo montado debajo.
 
 ## [0.37.0] - 2026-10-08
 

@@ -1,6 +1,6 @@
 // Apilado declarativo `pane` / `z`: vive en la base (como `focus-ids`), así que toda capa HOJA lo
 // hereda sin declararlo, y cada `mountLayer` lo pasa al alta del motor. Sin declararlo, el motor
-// deriva el z del ORDEN de declaración — las mismas capas montadas en otro orden apilan distinto.
+// deriva el z del lugar de la capa en el documento, no del orden en que montó.
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -37,10 +37,10 @@ test('toda capa hoja pasa el `pane`/`z` declarado al alta del motor', () => {
   })
 })
 
-test('sin declararlo, el alta los recibe ausentes (el motor conserva su z por orden)', () => {
+test('sin declararlo, el alta los recibe ausentes (el motor deriva el z de su lugar)', () => {
   CAPAS.forEach(([kind, Clase]) => {
     const cfg = capa(Clase, { id: kind }).mountLayer(eco)
-    assert.equal(cfg.z, undefined, `${kind}: z ausente → el motor hace z ?? BASE_Z + orden·Z_STEP`)
+    assert.equal(cfg.z, undefined, `${kind}: z ausente → el motor lo deriva de su lugar en el documento`)
     assert.equal(cfg.pane, undefined, `${kind}: pane ausente → el motor le crea uno propio`)
   })
 })
