@@ -512,7 +512,8 @@ El árbol de `<cristae-*>` dentro de `<cristae-map>` se valida y se reduce por l
 `static cristaeSignature = { role, consumes?, produces }`. `produces` lista los kinds que el elemento aporta
 hacia arriba (≥1); `consumes`, los que toma de lo que envuelve (vacío o ausente en una hoja). El rol dice qué
 hace con lo que toma, y el resto de la firma lo deriva la gramática (`deriveSignature`,
-`src/grammar/grammar.js`): no se escribe en la firma ni es contrato.
+`src/grammar/grammar.js`): no se escribe en la firma ni es contrato. `signatureFor` devuelve sólo
+`{ role, consumes, produces }`, y `validate` y `reduceModifier` derivan el resto por dentro.
 
 | Rol | Qué hace | Qué alcanza | Hacia arriba | Elementos |
 |---|---|---|---|---|
@@ -1535,7 +1536,7 @@ Texto sobre cada ítem de una capa base: debajo de un punto, a lo largo de una r
 predio. Equivale a `polyline.setText` de Leaflet.TextPath sobre líneas. Reemplaza a `<cristae-label-layer>`
 (§8.3), que se retira en 1.0.
 
-- **Decorador** (§8.10): un `addLabels` por capa alcanzada, el productor más cercano. `passThrough` queda en `true`, así que un cluster o una geodésica que envuelvan al
+- **Decorador** (§8.10): un `addLabels` por capa alcanzada, el productor más cercano. Re-emite la capa que decora, así que un cluster o una geodésica que envuelvan al
   `labeled` siguen viendo su capa. El `_handle` es un marcador; las units de rótulo llevan `update` y
   `remove`, y el elemento alterna sólo las suyas, como `#own` en la geodésica.
 - **Ruta imperativa:** `addLabels({ hostId, ...props })` devuelve `{ update(props), remove() }`, o `null` si el

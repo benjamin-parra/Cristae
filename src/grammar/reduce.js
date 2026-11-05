@@ -3,7 +3,8 @@
 // conjunto de RenderUnits hacia su padre. Un wrapper (transformador, agregador o
 // decorador) mezcla las units de sus hijos, transforma las que matchean `consumes`
 // (fold = un apply sobre todas; map = uno por target) y pasa el resto. Lee la firma
-// DERIVADA del rol (grammar.js): combine, reach y passThrough no los declara nadie.
+// DERIVADA del rol (`deriveSignature`, grammar.js) a partir de la que devuelve
+// `ctx.signatureFor`: combine, reach y passThrough no los declara nadie.
 // El intérprete hace el DISPATCH fold/map; cada modificador sólo aporta un
 // `apply(engine, targetUnits, config) → Unit[]`.
 //
@@ -13,6 +14,7 @@
 
 import { grammarChildren } from './util.js'
 import { eachNearest } from './validate.js'
+import { deriveSignature } from './grammar.js'
 
 /**
  * @typedef {Object} Unit
@@ -77,7 +79,7 @@ const COMBINERS = {
  * @returns {Unit[]}
  */
 export function reduceModifier(el, engine, ctx) {
-  const sig = ctx.signatureFor(el.tagName)
+  const sig  = deriveSignature(ctx.signatureFor(el.tagName))
   const kids = grammarChildren(el, ctx.isRegistered)
 
   // Post-orden: montar hijos (hoja → handle del motor; wrapper → su propia reducción)

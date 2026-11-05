@@ -4,13 +4,15 @@
 //   · validateSignature(tag, sig, KINDS) — forma de la firma declarada + R4 (kinds del universo).
 //   · validate(root, ctx)                — juicio de tipos sobre el subárbol (R1–R3, R5).
 //
-// El juicio lee la firma DERIVADA del rol (grammar.js). `produced(node)` se computa
+// El juicio lee la firma DERIVADA del rol (`deriveSignature`, grammar.js) a partir de la
+// que devuelve `ctx.signatureFor`. `produced(node)` se computa
 // bottom-up: hoja → produces; wrapper → produces ∪ (passThrough ? kinds consumidos que
 // pasan : ∅). Un subárbol es VÁLIDO si el juicio se cumple en cada nodo. Toda invalidez
 // lanza un GrammarError ANTES de tocar el motor (un árbol inválido no crea estado), y
 // el mensaje nombra el rol del elemento.
 
 import { grammarChildren, firstUnknownChild, tagName } from './util.js'
+import { deriveSignature } from './grammar.js'
 
 export class GrammarError extends Error {
   /**
@@ -65,7 +67,7 @@ export function validateSignature(tag, sig, KINDS) {
 // momento: un cluster apagado sigue aportando `bubble` y no deja ver sus puntos.
 export const eachNearest = (el, ctx, consumed, fn) =>
   grammarChildren(el, ctx.isRegistered).forEach(child => {
-    const sig   = ctx.signatureFor(child.tagName)
+    const sig   = deriveSignature(ctx.signatureFor(child.tagName))
     const own   = sig.arity === 'leaf' ? sig.produces : sig.produces.filter(k => !sig.consumes.includes(k))
     const kinds = own.filter(k => consumed.has(k))
     kinds.length ? fn(child, kinds) : sig.arity === 'wrapper' && eachNearest(child, ctx, consumed, fn)
@@ -133,7 +135,7 @@ const JUZGAR = { leaf: juzgarHoja, wrapper: juzgarWrapper }
  * @returns {Set<string>}
  */
 function producedOf(el, ctx) {
-  const sig = ctx.signatureFor(el.tagName)
+  const sig  = deriveSignature(ctx.signatureFor(el.tagName))
   const kids = grammarChildren(el, ctx.isRegistered)
   return JUZGAR[sig.arity](el, ctx, sig, kids)
 }
@@ -145,7 +147,7 @@ function producedOf(el, ctx) {
  * @returns {Set<string>}
  */
 export function reachedKinds(el, ctx) {
-  const sig      = ctx.signatureFor(el.tagName)
+  const sig      = deriveSignature(ctx.signatureFor(el.tagName))
   const consumed = new Set(sig.consumes)
   const out      = new Set()
   if (sig.reach === 'nearest') eachNearest(el, ctx, consumed, (_node, kinds) => kinds.forEach(k => out.add(k)))

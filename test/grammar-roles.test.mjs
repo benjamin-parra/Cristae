@@ -1,10 +1,12 @@
-// El rol de una firma y lo que se deriva de él: cómo se reduce cada rol (la firma que leen reduce.js y
-// validate.js) y cómo lo nombran los errores del juicio de árbol. Golden literal de los mensajes: es lo único
+// El rol de una firma y lo que se deriva de él: cómo se reduce cada rol (`deriveSignature`, la firma que leen
+// reduce.js y validate.js; `signatureFor` devuelve sólo lo declarado) y cómo lo nombran los errores del juicio
+// de árbol. Golden literal de los mensajes: es lo único
 // que ve quien arma un árbol inválido. Sin DOM: nodos con la interfaz mínima de Element.
 // Corre con: node --test test/grammar-roles.test.mjs
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { defineGrammar, validate, GrammarError } from '../src/grammar/index.js'
+import { defineGrammar, validate, reduceModifier, GrammarError } from '../src/grammar/index.js'
+import { deriveSignature } from '../src/grammar/grammar.js'
 
 const g = defineGrammar({ kinds: ['point', 'label', 'line', 'polygon', 'shape', 'html', 'bubble', 'overlay', 'geodesic', 'heat'] })
 g.register('cristae-point-layer', { role: 'leaf', produces: ['point'] })
@@ -23,25 +25,33 @@ const error = raiz => { try { validate(raiz, vctx) } catch (e) { return e } asse
 
 /* ════════════════ Un rol, una forma de reducir ════════════════ */
 
+const derivada = tag => deriveSignature(g.signatureFor(tag))
+
+test('signatureFor devuelve sólo lo declarado: role, consumes y produces', () => {
+  assert.deepEqual(g.signatureFor('cristae-point-layer'), { role: 'leaf', consumes: [], produces: ['point'] })
+  assert.deepEqual(g.signatureFor('cristae-overlay'), { role: 'decorate', consumes: ['point'], produces: ['overlay'] })
+  assert.equal(derivada('cristae-cluster'), derivada('cristae-cluster'), 'la derivada se arma una vez por firma')
+})
+
 test('leaf: hoja sin combine ni consumes', () => {
-  assert.deepEqual(g.signatureFor('cristae-point-layer'),
+  assert.deepEqual(derivada('cristae-point-layer'),
     { role: 'leaf', consumes: [], produces: ['point'], combine: null, arity: 'leaf', reach: 'all', passThrough: true })
   assert.equal(g.isLeaf('cristae-point-layer'), true)
 })
 
 test('transform: un apply por capa consumida del subárbol, y lo consumido sube', () => {
-  assert.deepEqual(g.signatureFor('cristae-geodesic'),
+  assert.deepEqual(derivada('cristae-geodesic'),
     { role: 'transform', consumes: ['line', 'polygon'], produces: ['geodesic'], combine: 'map', arity: 'wrapper', reach: 'all', passThrough: true })
 })
 
 test('aggregate: un apply sobre todo el subárbol; re-emite lo consumido sólo si vuelve a producirlo', () => {
-  assert.deepEqual(g.signatureFor('cristae-cluster'),
+  assert.deepEqual(derivada('cristae-cluster'),
     { role: 'aggregate', consumes: ['point'], produces: ['point', 'bubble'], combine: 'fold', arity: 'wrapper', reach: 'all', passThrough: true })
-  assert.equal(g.signatureFor('cristae-absorbe').passThrough, false)
+  assert.equal(derivada('cristae-absorbe').passThrough, false)
 })
 
 test('decorate: un apply por productor más cercano, y lo decorado sube', () => {
-  assert.deepEqual(g.signatureFor('cristae-overlay'),
+  assert.deepEqual(derivada('cristae-overlay'),
     { role: 'decorate', consumes: ['point'], produces: ['overlay'], combine: 'map', arity: 'wrapper', reach: 'nearest', passThrough: true })
   assert.equal(g.isWrapper('cristae-labeled'), true)
 })
@@ -98,4 +108,17 @@ test('el overlay como decorador valida igual que cuando tomaba el subárbol', ()
     nodo('cristae-cluster', nodo('cristae-overlay', nodo('cristae-point-layer'))),
   ]) assert.equal(validate(raiz, vctx), true)
   assert.equal(error(nodo('cristae-overlay', nodo('cristae-label-layer'))).code, 'R2')
+})
+
+test('validate y reduceModifier aceptan un ctx propio que devuelve firmas { role, consumes, produces }', () => {
+  const firmas = {
+    'CRISTAE-POINT-LAYER': { role: 'leaf', produces: ['point'] },
+    'CRISTAE-OVERLAY'    : { role: 'decorate', consumes: ['point'], produces: ['overlay'] },
+  }
+  const propio = { signatureFor: tag => firmas[tag] ?? null, isRegistered: tag => tag in firmas, applyFor: () => null, mode: 'throw' }
+  const hoja   = Object.assign(nodo('cristae-point-layer'), { cristaeMount: () => {}, cristaeUnits: () => [{ kind: 'point', id: 'p' }] })
+  const raiz   = nodo('cristae-overlay', hoja)
+
+  assert.equal(validate(raiz, propio), true)
+  assert.deepEqual(reduceModifier(raiz, {}, propio).map(u => u.id), ['p'])
 })

@@ -8,7 +8,8 @@
 // special-casing por modificador.
 //
 // Cada elemento declara su ROL; cómo se reduce (combine, arity, reach, passThrough)
-// se deriva del rol al registrarlo y no se escribe en la firma. Este segmento es
+// lo deriva `deriveSignature` y no se escribe en la firma: `signatureFor` devuelve sólo
+// lo declarado, y validate.js y reduce.js derivan el resto. Este segmento es
 // genérico sobre los KINDS y las firmas (un modificador nuevo sólo agrega firma +
 // apply, sin tocar el reductor) pero asume las convenciones de custom-element de
 // Cristae. NO importa engine/render/element (queda desacoplado como `core`). Sólo
@@ -43,19 +44,25 @@ const ROLES = {
   decorate : { combine: 'map',  arity: 'wrapper', reach: 'nearest' },
 }
 
+// Derivada por firma declarada: la del registro se deriva una vez y el reductor la relee sin asignar.
+const derived = new WeakMap()
+
 /**
  * Firma completa a partir de la declarada. Un agregador re-emite lo consumido sólo si vuelve a producirlo
- * (el cluster deja pasar los puntos sueltos); el resto lo re-emite siempre.
+ * (el cluster deja pasar los puntos sueltos); el resto lo re-emite siempre. Interna del segmento: la usan
+ * validate.js y reduce.js y no sale por cristae/grammar.
  * @param {Signature} sig  ya validada
  * @returns {DerivedSignature}
  */
-const deriveSignature = ({ role, consumes = [], produces }) => ({
-  role,
-  consumes,
-  produces,
-  ...ROLES[role],
-  passThrough: role !== 'aggregate' || produces.some(k => consumes.includes(k)),
-})
+export const deriveSignature = sig => {
+  if (derived.has(sig)) return derived.get(sig)
+
+  const { role, consumes = [], produces } = sig
+  const passThrough = role !== 'aggregate' || produces.some(k => consumes.includes(k))
+  const d           = { role, consumes, produces, ...ROLES[role], passThrough }
+  derived.set(sig, d)
+  return d
+}
 
 /**
  * Crea una instancia de gramática (universo de kinds + registro de firmas).
@@ -63,27 +70,28 @@ const deriveSignature = ({ role, consumes = [], produces }) => ({
  */
 export function defineGrammar({ kinds, mode = 'throw' }) {
   const KINDS = new Set(kinds)
-  /** @type {Map<string, { signature: DerivedSignature, apply: Function|null }>} */
+  /** @type {Map<string, { signature: Signature, apply: Function|null }>} */
   const reg = new Map() // tag MAYÚSCULA → { signature, apply }
 
   const key = tag => (tag == null ? '' : String(tag).toUpperCase())
 
   /**
-   * Registra un elemento de la gramática. La firma declarada no se muta: se guarda la derivada.
+   * Registra un elemento de la gramática. La firma declarada no se muta: se guarda una copia con sus tres campos.
    * @param {string} tag        nombre del custom element (case-insensitive)
    * @param {Signature} signature
    * @param {{ apply?: Function }=} opts  apply(engine, targetUnits, config) → Unit[] (sólo wrappers)
    */
   function register(tag, signature, opts = {}) {
     validateSignature(tag, signature, KINDS) // R4 + forma de la firma
-    reg.set(key(tag), { signature: deriveSignature(signature), apply: opts.apply ?? null })
+    const { role, consumes = [], produces } = signature
+    reg.set(key(tag), { signature: { role, consumes, produces }, apply: opts.apply ?? null })
   }
 
   const signatureFor = tag => reg.get(key(tag))?.signature ?? null
   const applyFor     = tag => reg.get(key(tag))?.apply ?? null
   const isRegistered = tag => reg.has(key(tag))
-  const isWrapper    = tag => signatureFor(tag)?.arity === 'wrapper'
-  const isLeaf       = tag => signatureFor(tag)?.arity === 'leaf'
+  const isLeaf       = tag => signatureFor(tag)?.role === 'leaf'
+  const isWrapper    = tag => isRegistered(tag) && !isLeaf(tag)
 
   return {
     kinds: KINDS,

@@ -42,13 +42,16 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   entre `'leaf'`, `'transform'`, `'aggregate'` y `'decorate'`, y la gramática deriva el resto: `combine`,
   `arity`, `bindsTo` y `passThrough` dejan de escribirse en las firmas y de ser contrato. Los errores de
   validación nombran el rol («`<cristae-labeled>` es un decorador y no envuelve ninguna capa que
-  produzca…»); `GrammarError` y sus códigos no cambian.
+  produzca…»); `GrammarError` y sus códigos no cambian. `signatureFor` devuelve sólo
+  `{ role, consumes, produces }`, y `GrammarSignature` es una unión por `role`: una hoja que consume no
+  compila. Salen los tipos `GrammarCombine` y `GrammarArity` de `cristae/grammar`.
   `<cristae-overlay>` pasa a decorador: toma el productor más cercano en vez de todo su subárbol, y el
   resultado no cambia: dentro o por fuera de un cluster el badge va sobre los mismos puntos que antes. Ver
   [SPECS §8.10](SPECS.md).
   *Migración*: una firma propia registrada con `defineGrammar` declara `role` en vez de `combine` y `arity`:
   una hoja es `'leaf'`; un `'fold'`, `'aggregate'`; un `'map'` con `bindsTo`, `'decorate'`, y el resto de
-  los `'map'`, `'transform'`. Los demás campos se quitan; `bindsTo` también en una hoja.
+  los `'map'`, `'transform'`. Los demás campos se quitan; `bindsTo` también en una hoja. Quien leía
+  `combine` o `arity` de `signatureFor` lee `role`, o `isLeaf` / `isWrapper`.
 - **El apilado sin `z` va en tres planos.** Las capas base siguen en `400 + orden·10`; los rótulos de
   `<cristae-labeled>` van en un plano propio, desde `1 000 400`; y lo que antes sumaba `+200` a su orden
   (capas HTML, editores, `<cristae-label-layer>`, burbujas y espiral del cluster) va desde `2 000 400`, con su

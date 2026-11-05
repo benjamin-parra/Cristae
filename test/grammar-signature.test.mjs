@@ -242,8 +242,8 @@ test('un tag no registrado responde null/false en todo el registro', () => {
   }
 })
 
-test('el registro no muta la firma declarada y devuelve siempre la MISMA derivada', () => {
-  // La derivada se arma una vez al registrar: el reductor la lee en caliente sin rederivar.
+test('el registro no muta la firma declarada y devuelve siempre la MISMA copia', () => {
+  // La copia se arma una vez al registrar, y su derivada una vez por firma: el reductor relee las dos sin asignar.
   const g = defineGrammar({ kinds: [...KINDS] })
   const sig = { role: 'leaf', produces: ['point'] }
   g.register('cristae-point-layer', sig)

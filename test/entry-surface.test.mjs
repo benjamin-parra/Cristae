@@ -105,11 +105,13 @@ test('cristae/grammar expone exactamente las 10 piezas del segmento', () => {
   assert.deepEqual(firma(grammar), GRAMMAR)
 })
 
-test('cristae/grammar no filtra el alcance interno del decorador', () => {
+test('cristae/grammar no filtra el alcance del decorador ni la firma derivada', () => {
   for (const nombre of ['eachNearest', 'reachedKinds']) {
     assert.equal(typeof gValidate[nombre], 'function')
     assert.equal(nombre in grammar, false)
   }
+  assert.equal(typeof gGrammar.deriveSignature, 'function')
+  assert.equal('deriveSignature' in grammar, false)
 })
 
 // El `typeof` de los goldenes de arriba no puede fallar (todo export del segmento es una

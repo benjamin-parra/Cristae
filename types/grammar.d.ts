@@ -12,13 +12,12 @@
  *  transparente y se mira por dentro), que queda como su host. */
 export type GrammarRole = "leaf" | "transform" | "aggregate" | "decorate"
 
-export interface GrammarSignature {
-  role      : GrammarRole;
-  /** Kinds que toma de sus hijos (≥1); una hoja no consume y lo omite. */
-  consumes? : string[];
-  /** Kinds que aporta hacia arriba (≥1). */
-  produces  : string[];
-}
+/** Firma de un elemento, discriminada por `role`: una hoja no consume (`consumes` omitido o vacío) y un
+ *  modificador declara `consumes` con ≥1 kind. `produces` lista los kinds que aporta hacia arriba (≥1).
+ *  `signatureFor` devuelve sólo estos tres campos; cómo se reduce cada rol es interno. */
+export type GrammarSignature =
+  | { role: "leaf"; consumes?: []; produces: string[] }
+  | { role: Exclude<GrammarRole, "leaf">; consumes: string[]; produces: string[] }
 
 // ── Units (src/grammar/reduce.js) ───────────────────────────────────────────
 /** Lo que un nodo aporta a su padre en el recorrido post-orden. */
