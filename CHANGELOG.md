@@ -43,9 +43,9 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   `arity`, `bindsTo` y `passThrough` dejan de escribirse en las firmas y de ser contrato. Los errores de
   validación nombran el rol («`<cristae-labeled>` es un decorador y no envuelve ninguna capa que
   produzca…»); `GrammarError` y sus códigos no cambian.
-  `<cristae-overlay>` pasa a decorador: toma el productor más cercano en vez de todo su subárbol. Dentro de
-  un cluster o sobre capas de puntos alcanza las mismas que antes; por fuera de un cluster decora sus
-  burbujas, sobre ellas y su espiral, y no los puntos. Ver [SPECS §8.10](SPECS.md).
+  `<cristae-overlay>` pasa a decorador: toma el productor más cercano en vez de todo su subárbol, y el
+  resultado no cambia: dentro o por fuera de un cluster el badge va sobre los mismos puntos que antes. Ver
+  [SPECS §8.10](SPECS.md).
   *Migración*: una firma propia registrada con `defineGrammar` declara `role` en vez de `combine` y `arity`:
   una hoja es `'leaf'`; un `'fold'`, `'aggregate'`; un `'map'` con `bindsTo`, `'decorate'`, y el resto de
   los `'map'`, `'transform'`. Los demás campos se quitan; `bindsTo` también en una hoja.

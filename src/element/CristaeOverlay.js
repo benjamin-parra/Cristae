@@ -9,7 +9,7 @@ import { grammarChildren } from '../grammar/index.js'
 let ovlSeq = 0
 
 // <cristae-overlay> — DECORADOR de la gramática de composición.
-// Toma el productor más cercano que envuelve (capa de puntos o burbujas) y, por cada uno, monta un
+// Toma la capa de puntos más cercana que envuelve y, por cada una, monta un
 // badge ligado: comparte la Source del host (mismo dato → se mueve en vivo) pero renderiza con su propio
 // `iconSet`/`variantOf`/`sizeOf` SIN rotar, y filtra con `where` (sólo los ítems con
 // badge). El badge hereda la supresión del host: si un cluster lo envuelve, los badges
@@ -21,12 +21,12 @@ let ovlSeq = 0
 //     </cristae-overlay>
 //   </cristae-cluster>
 //
-// Por fuera del cluster, lo más cercano son sus burbujas: el badge las decora (`variantOf` recibe la
-// burbuja, con su `count`) y los puntos quedan sin badge.
+// Por fuera del cluster da lo mismo: el cluster no produce puntos propios, se atraviesa y el badge va
+// sobre los puntos que re-emite.
 export class CristaeOverlay extends CristaeModifierElement {
 
-  // Decorador: un badge por productor más cercano (capa de puntos o burbujas), ligado a él.
-  static cristaeSignature = { role: 'decorate', consumes: ['point', 'bubble'], produces: ['overlay'] }
+  // Decorador: un badge por capa de puntos más cercana, ligado a ella.
+  static cristaeSignature = { role: 'decorate', consumes: ['point'], produces: ['overlay'] }
 
   // apply del reductor: un badge por productor alcanzado, ligado a él (`hostId`).
   static cristaeApply(engine, targets, cfg) {

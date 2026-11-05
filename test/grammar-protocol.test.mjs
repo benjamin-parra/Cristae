@@ -19,7 +19,7 @@ g.register('CRISTAE-CLUSTER',
   { role: 'aggregate', consumes: ['point'], produces: ['point', 'bubble'] },
   { apply: (engine, targets, cfg) => engine.aplicar('fold', targets, cfg) })
 g.register('CRISTAE-OVERLAY',
-  { role: 'decorate', consumes: ['point', 'bubble'], produces: ['overlay'] },
+  { role: 'decorate', consumes: ['point'], produces: ['overlay'] },
   { apply: (engine, targets, cfg) => engine.aplicar('map', targets, cfg) })
 // Agregador que NO vuelve a producir lo que consume (no lo re-emite) y agregador sin apply que sí.
 g.register('CRISTAE-ABSORBE',

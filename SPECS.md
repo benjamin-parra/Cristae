@@ -529,12 +529,11 @@ hace con lo que toma, y el resto de la firma lo deriva la gramática (`deriveSig
   supresión del cluster y el foco del host (§8), y muere con él.
 - **`<cristae-label-layer>`** es una hoja: su liga a una capa de puntos es el atributo `bind-to` (§8.3), no
   la firma, y se va con el elemento en 1.0.
-- **`<cristae-overlay>` es decorador**: `{ role: 'decorate', consumes: ['point', 'bubble'], produces: ['overlay'] }`.
-  Antes tomaba todo su subárbol; ahora, el productor más cercano. Dentro de un cluster, junto a otro overlay
-  o envuelto por un `labeled` alcanza las mismas capas de puntos que antes. Por fuera de un cluster lo más
-  cercano son sus burbujas: el badge las decora (`variantOf`, `sizeOf` y `where` reciben la burbuja, con su
-  `count`) y los puntos quedan sin badge. Con un `slot="bubble"` de rótulo las burbujas no son una capa de
-  puntos y no hay badges.
+- **`<cristae-overlay>` es decorador**: `{ role: 'decorate', consumes: ['point'], produces: ['overlay'] }`.
+  Antes tomaba todo su subárbol; ahora, el productor más cercano, y el resultado no cambia: dentro de un
+  cluster, por fuera de él, junto a otro overlay o envuelto por un `labeled` alcanza las mismas capas de
+  puntos que antes. El cluster no produce puntos propios (sólo `bubble`), así que el overlay lo atraviesa y
+  el badge va sobre los puntos que re-emite, y se oculta con los que se agrupan.
 - **Errores.** `GrammarError` con su `code`, antes de tocar el motor, y el mensaje nombra el rol:
 
   | Código | Cuándo | Ejemplo |
@@ -1574,7 +1573,7 @@ predio. Equivale a `polyline.setText` de Leaflet.TextPath sobre líneas. Reempla
   |---|---|---|
   | base | `400 + orden·10` | puntos, líneas, polígonos, formas, círculos, calor e imagen; el badge de `addOverlay` a `+7` de su capa de puntos |
   | rótulos | `1 000 400`; un pane `html` en `1 000 400 + (orden + 1)·10` | el canvas compartido y, encima, el pane `html` de cada host |
-  | encima | `2 000 400 + orden·10` | capas HTML, editores y `<cristae-label-layer>` (`+0`); del cluster, patas `+4`, burbujas `+5`, rótulos de burbujas `+6`, espiral `+7`, sub-burbujas `+8` y el badge de `addOverlay` sobre las burbujas `+9` |
+  | encima | `2 000 400 + orden·10` | capas HTML, editores y `<cristae-label-layer>` (`+0`); del cluster, patas `+4`, burbujas `+5`, rótulos de burbujas `+6`, espiral `+7` y sub-burbujas `+8` |
 
   Los rótulos quedan sobre todas las capas base y bajo lo de encima, sin importar el orden de declaración.
   Un orden que pasaría su plano queda en el techo (`plano + 1e6 − 10`), con un aviso por motor. `z` explícito
@@ -1614,8 +1613,8 @@ por referencia. No se pica.
 | `test/render/image-layer.test.mjs`, `test/engine/image-layer.test.mjs`, `test/element/image-layer.test.mjs` | exclusiones y `TypeError` sin tocar lo visible, antimeridiano, carga y URL descartada, destroy en carga, nodo propio devuelto, picking dentro del cuadrilátero, pane desmontado si el alta lanza, montaje diferido del elemento |
 | `test/element/scale.test.mjs` | redondeo 1-2-3-5 y un barrido al azar con semilla fija (rótulo, ancho, proporción); sobre el Leaflet real, el ecuador contra 2πR·w/(256·2^z) y la latitud 60 a la mitad; re-enganche en `cristae:ready` |
 | `test/render/text-path.test.mjs` | propiedades con semilla fija: derecho con `auto`, invertir el path o trasladarlo da lo mismo, ninguna colocación desborda ni pisa, ningún glifo escrito más allá de `count` |
-| `test/element/labeled.test.mjs`, `test/grammar-reach.test.mjs` | qué rotula cada árbol (cluster por dentro y por fuera, geodésica, overlay y `labeled` anidados), R2 con el calor solo, los `TypeError` en sus dos momentos sin tocar el motor, `textOf` nuevo sin remontar, `visible="false"`, `renderer` sin tapar `render()`, los avisos de retiro; cluster y geodésica reducen como antes, y el overlay decorador alcanza lo mismo salvo por fuera del cluster, donde decora las burbujas |
-| `test/grammar-roles.test.mjs`, `test/element/overlay.test.mjs`, `test/engine/overlay-host.test.mjs` | la firma que deriva cada rol y el texto de cada error; el overlay decorador sobre puntos igual que antes y, por fuera de un cluster, sobre sus burbujas, con su z |
+| `test/element/labeled.test.mjs`, `test/grammar-reach.test.mjs` | qué rotula cada árbol (cluster por dentro y por fuera, geodésica, overlay y `labeled` anidados), R2 con el calor solo, los `TypeError` en sus dos momentos sin tocar el motor, `textOf` nuevo sin remontar, `visible="false"`, `renderer` sin tapar `render()`, los avisos de retiro; cluster, geodésica y el overlay decorador reducen como antes |
+| `test/grammar-roles.test.mjs`, `test/element/overlay.test.mjs` | la firma de cada rol y el texto de cada error; el overlay decorador monta los mismos badges que antes, también por fuera de un cluster |
 | `test/render/label-*.test.mjs`, `test/engine/labels*.test.mjs` | colocación, medida por grafema, canvas compartido, `html`, picking por glifo y `[0-alloc]` (piezas A, B y C del diseño) |
 | `test/element/heat-layer.test.mjs`, `test/engine/heat-visible.test.mjs`, el caso final de `test/render/heat-layer.test.mjs` | reenvío de cada prop al handle, alta oculta que no colorea ante un flush, repintado al volver |
 

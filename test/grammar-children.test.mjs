@@ -18,7 +18,7 @@ g.register('CRISTAE-LABEL-LAYER', { role: 'leaf', produces: ['label'] })
 g.register('CRISTAE-CLUSTER',
   { role: 'aggregate', consumes: ['point'], produces: ['point', 'bubble'] })
 g.register('CRISTAE-OVERLAY',
-  { role: 'decorate', consumes: ['point', 'bubble'], produces: ['overlay'] })
+  { role: 'decorate', consumes: ['point'], produces: ['overlay'] })
 
 const vctx = { signatureFor: g.signatureFor, isRegistered: g.isRegistered, mode: 'throw' }
 const capturar = (fn) => { try { fn(); return null } catch (e) { return e } }

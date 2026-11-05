@@ -14,7 +14,7 @@ g.register('cristae-label-layer', { role: 'leaf', produces: ['label'] })
 g.register('cristae-geodesic', { role: 'transform', consumes: ['line', 'polygon'], produces: ['geodesic'] })
 g.register('cristae-cluster', { role: 'aggregate', consumes: ['point'], produces: ['point', 'bubble'] })
 g.register('cristae-absorbe', { role: 'aggregate', consumes: ['point'], produces: ['bubble'] })
-g.register('cristae-overlay', { role: 'decorate', consumes: ['point', 'bubble'], produces: ['overlay'] })
+g.register('cristae-overlay', { role: 'decorate', consumes: ['point'], produces: ['overlay'] })
 g.register('cristae-labeled', { role: 'decorate', consumes: ['point', 'line', 'polygon', 'shape', 'html', 'bubble'], produces: ['label'] })
 
 const vctx  = { signatureFor: g.signatureFor, isRegistered: g.isRegistered, mode: 'throw' }
@@ -42,7 +42,7 @@ test('aggregate: un apply sobre todo el subárbol; re-emite lo consumido sólo s
 
 test('decorate: un apply por productor más cercano, y lo decorado sube', () => {
   assert.deepEqual(g.signatureFor('cristae-overlay'),
-    { role: 'decorate', consumes: ['point', 'bubble'], produces: ['overlay'], combine: 'map', arity: 'wrapper', reach: 'nearest', passThrough: true })
+    { role: 'decorate', consumes: ['point'], produces: ['overlay'], combine: 'map', arity: 'wrapper', reach: 'nearest', passThrough: true })
   assert.equal(g.isWrapper('cristae-labeled'), true)
 })
 

@@ -625,15 +625,13 @@ export class MapEngine {
 
   /* ── Overlay: badge ligado a un host de puntos (sigue su data + su supresión de cluster) ── */
 
-  // El host es la capa de puntos o las burbujas de un cluster (`host.fold`). Las burbujas viven en el plano de
-  // arriba: el badge va sobre ellas (+5), sus rótulos (+6) y la espiral (+7, +8).
   addOverlay({ id, hostId, iconSet, variantOf, sizeOf, where, visible = true }) {
     const host = this.#layers.get(hostId)
     if (!host || host.kind !== 'point') return null
 
     const order    = this.#order++
     const paneName = `${host.paneName}-overlay-${order}`
-    const zIndex   = host.fold ? this.#zOf(TOP_PLANE, host.order) + 9 : this.#zOf(BASE_Z, host.order) + 7
+    const zIndex   = this.#zOf(BASE_Z, host.order) + 7       // sobre el host
 
     // Comparte la Source del host (mismo dato → move/patch en vivo) pero RENDERIZA con
     // accessors propios (badge, sin rotar) y filtra con `where` (sólo los que tienen badge).

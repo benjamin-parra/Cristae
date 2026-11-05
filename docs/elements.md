@@ -552,9 +552,9 @@ suprime del host los puntos agrupados y re-filtra las labels ligadas a él — s
 interacción de burbuja (p. ej. zoom-in al click): la burbuja default es no-interactiva. Para tenerla,
 se declara la capa `slot="bubble"` con `interactive` y se maneja su `cristae:click`.
 
-**Con `<cristae-overlay>`**, un decorador: dentro del cluster pone un badge sobre los puntos, y los que se
-agrupan lo pierden con ellos; por fuera, lo pone sobre las burbujas, y `variantOf`, `sizeOf` y `where`
-reciben la burbuja con su `count`.
+**Con `<cristae-overlay>`**, un decorador, en cualquier orden: pone un badge sobre los puntos, y los que se
+agrupan lo pierden con ellos. Por fuera del cluster da lo mismo, porque el cluster no produce puntos propios
+y el overlay lo atraviesa.
 
 **Ruta imperativa** (headless o capa declarada por JS): `engine.addCluster({ hostId, radius, minPoints,
 maxZoom, bubble })` → `{ setConfig({ radius?, maxZoom?, minPoints? }), dispose() }`. El `<cristae-cluster>`

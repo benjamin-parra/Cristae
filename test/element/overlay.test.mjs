@@ -1,6 +1,6 @@
-// <cristae-overlay>: decorador, el badge va sobre el productor más cercano. Con las firmas REALES registradas por
-// el entry: sobre una capa de puntos monta lo mismo que antes del rol, y envolviendo un cluster decora sus
-// burbujas. Los hijos son nodos falsos con el protocolo del reductor, o el cluster real; el motor anota las altas.
+// <cristae-overlay>: decorador, el badge va sobre la capa de puntos más cercana. Con las firmas REALES registradas
+// por el entry monta lo mismo que antes del rol, también envolviendo un cluster, que se atraviesa. Los hijos son
+// nodos falsos con el protocolo del reductor, o el cluster real; el motor anota las altas.
 import '../../test-helpers/element-stub.mjs'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -69,15 +69,15 @@ test('un cluster que envuelve al overlay clusteriza los puntos, y los badges que
   assert.deepEqual(kinds, ['point', 'overlay', 'bubble'])
 })
 
-test('un overlay que envuelve un cluster decora las burbujas, no los puntos', () => {
+test('un overlay que envuelve un cluster lo atraviesa: los badges quedan sobre los puntos, como antes', () => {
   const { e, handle, kinds } = montar(overlay(cluster(puntos('flota'))))
   assert.deepEqual(e.folds, [['flota']])
-  assert.deepEqual(e.badges, ['flota:clusters'])
+  assert.deepEqual(e.badges, ['flota'])
   assert.equal(handle.id, 'flota', 'el handle sigue siendo el del punto')
   assert.deepEqual(kinds, ['point', 'bubble', 'overlay'])
 })
 
-test('sin capa de puntos ni burbujas que decorar, R2 antes de tocar el motor', () => {
+test('sin capa de puntos que decorar, R2 antes de tocar el motor', () => {
   const e = motor()
   assert.throws(() => overlay(hoja('cristae-polygon-layer', 'predios')).mountLayer(e),
     err => err instanceof GrammarError && err.code === 'R2')

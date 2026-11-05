@@ -22,7 +22,7 @@ g.register('line', { role: 'leaf', produces: ['line'] })
 g.register('heat', { role: 'leaf', produces: ['heat'] })
 g.register('cluster', { role: 'aggregate', consumes: ['point'], produces: ['point', 'bubble'] },
   { apply: anotar('cluster', ts => [{ kind: 'bubble', id: `${ts[0].id}:clusters` }]) })
-g.register('overlay', { role: 'decorate', consumes: ['point', 'bubble'], produces: ['overlay'] },
+g.register('overlay', { role: 'decorate', consumes: ['point'], produces: ['overlay'] },
   { apply: anotar('overlay', ([t]) => [{ kind: 'overlay', id: `${t.id}:overlay` }]) })
 g.register('geodesic', { role: 'transform', consumes: ['line', 'polygon'], produces: ['geodesic'] },
   { apply: anotar('geodesic', ([t]) => [{ kind: 'geodesic', id: `${t.id}:geodesic` }]) })
@@ -118,11 +118,11 @@ test('un hermano que no se consume pasa intacto', () => {
   assert.deepEqual(raiz.cristaeUnits().map(u => u.id), ['calor', 'flota', 'flota:label'])
 })
 
-test('cluster y geodésica reducen como antes; el overlay decorador, igual salvo por fuera del cluster', () => {
+test('cluster, overlay y geodésica reducen como antes', () => {
   assert.deepEqual(reducir(nodo('cluster', nodo('overlay', hoja('point', 'a')), hoja('point', 'b'))),
     [['overlay', ['a']], ['cluster', ['a', 'b']]])
   assert.deepEqual(reducir(nodo('overlay', nodo('cluster', hoja('point', 'a')))),
-    [['cluster', ['a']], ['overlay', ['a:clusters']]], 'por fuera del cluster el productor más cercano son sus burbujas')
+    [['cluster', ['a']], ['overlay', ['a']]], 'el cluster no produce puntos propios: el overlay lo atraviesa')
   assert.deepEqual(reducir(nodo('geodesic', nodo('geodesic', hoja('line', 'r')))),
     [['geodesic', ['r']], ['geodesic', ['r']]])
 })

@@ -16,7 +16,7 @@ g.register('CRISTAE-POINT-LAYER', { role: 'leaf', produces: ['point'] })
 g.register('CRISTAE-LABEL-LAYER', { role: 'leaf', produces: ['label'] })
 g.register('CRISTAE-POLYGON-LAYER', { role: 'leaf', produces: ['polygon'] })
 g.register('CRISTAE-OVERLAY',
-  { role: 'decorate', consumes: ['point', 'bubble'], produces: ['overlay'] },
+  { role: 'decorate', consumes: ['point'], produces: ['overlay'] },
   { apply: (engine, targets) => targets.map(t => engine.addOverlay(t)) })
 g.register('CRISTAE-CLUSTER',
   { role: 'aggregate', consumes: ['point'], produces: ['point', 'bubble'] },

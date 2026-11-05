@@ -186,7 +186,7 @@ test('las 19 firmas del entry map son EXACTAMENTE las esperadas (golden leído d
     ['cristae-editable-ellipse', { role: 'leaf', produces: ['edit'] }],
     ['cristae-editable-sector', { role: 'leaf', produces: ['edit'] }],
     ['cristae-cluster', { role: 'aggregate', consumes: ['point'], produces: ['point', 'bubble'] }],
-    ['cristae-overlay', { role: 'decorate', consumes: ['point', 'bubble'], produces: ['overlay'] }],
+    ['cristae-overlay', { role: 'decorate', consumes: ['point'], produces: ['overlay'] }],
     ['cristae-geodesic', { role: 'transform', consumes: ['line', 'polygon'], produces: ['geodesic'] }],
     ['cristae-labeled', { role: 'decorate', consumes: ['point', 'line', 'polygon', 'shape', 'html', 'bubble'], produces: ['label'] }],
   ]
