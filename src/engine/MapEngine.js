@@ -1152,6 +1152,7 @@ export class MapEngine {
   #build(id, cfg, plane, paneName, create) {
     const dep    = this.#anchors.has(cfg[STACK]) ? cfg[STACK] : null
     const anchor = dep && this.#layers.get(dep.anchor)
+    dep || this.#gap(this.#stack.remove(id))   // un id que sigue en la pila (alta sin baja) deja su hueco, como una baja
     const rank   = dep ? -1 : this.#stack.insert(id, cfg[STACK])
     const wrote  = !dep && this.#restack(Math.min(this.#dirtyFrom, rank + 1))
     const z      = cfg.z ?? null

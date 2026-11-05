@@ -273,3 +273,15 @@ test('un pane compartido toma el z del miembro de mayor rango, sin importar el o
     engine.destroy()
   }
 })
+
+test('un alta con un id que sigue montado corre a las que estaban entre su rango viejo y el nuevo', () => {
+  const { engine, punto, z } = montar()
+  const [a, b, c, d] = nodos(4)
+  punto('a', a)
+  punto('b', b)
+  punto('c', c)
+
+  punto('a', d)
+  assert.deepEqual([z('b'), z('c'), z('a')], [400, 410, 420], 'sin dos capas en el mismo z')
+  engine.destroy()
+})
