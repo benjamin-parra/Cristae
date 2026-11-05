@@ -370,7 +370,7 @@ Ejes **comunes a toda capa hoja** (viven en la base, ninguna subclase los declar
 ```
 
 - **label-layer:** standalone (`source` propio) o attachment (`bind-to="<layerId>"`, deriva posiciones + `textOf` del host). `bind-to` resuelve por nombre, orden-independiente. **`@deprecated`, se retira en 1.0:** la reemplaza `<cristae-labeled>` sobre la capa de puntos (§19.3), y avisa una vez por página al montarse como capa. La hija `slot="bubble"` de label del cluster también se retira y avisa aparte: el rótulo de las burbujas lo da un `<cristae-labeled>` por fuera del cluster. La de puntos, que cambia el ícono, sigue.
-- **cluster:** `radius/max-zoom/min-points/icon-set` **reactivos en runtime** (reconfig sin recrear la capa). Supercluster: build O(n log n), query O(1) por zoom (no se reescribe — MODELO §13).
+- **cluster:** agregador de la gramática (§8.10). `radius/max-zoom/min-points/icon-set` **reactivos en runtime** (reconfig sin recrear la capa). Supercluster: build O(n log n), query O(1) por zoom (no se reescribe — MODELO §13).
 - **Borde eliminado:** `warmup()` de ~278 buckets de cluster → el atlas append-only lo hace innecesario.
 
 ### 8.4 `<cristae-table>` / `PagedTable` (standalone — fuera de `<cristae-map>`)
@@ -445,7 +445,7 @@ root del mapa. Hijo de `<cristae-map>`.
 <cristae-geodesic><cristae-line-layer id="vuelos"></cristae-line-layer></cristae-geodesic>
 ```
 
-- **Modificador `map`**: `{ consumes: ['line', 'polygon'], produces: ['geodesic'], combine: 'map', arity: 'wrapper' }`, con una
+- **Transformador** (§8.10): `{ role: 'transform', consumes: ['line', 'polygon'], produces: ['geodesic'] }`, con una
   unit `geodesic` por host. Los editores de polilínea y de polígono producen `line` y `polygon`, así que los envuelve;
   envolver sólo algo que no se curva —rectángulo, formas, puntos, labels, html— es el error R2, y un hermano que
   no consume pasa intacto.
@@ -469,7 +469,7 @@ root del mapa. Hijo de `<cristae-map>`.
 | `stroke/fill` | bool, default `true` | se leen **al montar** |
 | `focus-ids`, `pane`/`z` | — | ejes comunes (§8) |
 
-- **Hoja de la gramática**: `{ consumes: [], produces: ['shape'], combine: null, arity: 'leaf' }`; ningún modificador la consume. El handle es `{ id, source, set, setVisible, style }`.
+- **Hoja de la gramática** (§8.10): `{ role: 'leaf', produces: ['shape'] }`; ningún modificador la consume. El handle es `{ id, source, set, setVisible, style }`.
 - **Una regla de validez**, la de `ring` (§18): `null`/`undefined` toman el default, un número presente que la forma usa y no es finito la descarta, y el radio y `sweep` además si son ≤ 0.
 - **El modelo es el del mapa** (§6): la forma se coloca y se pica con sus destinos, y el motor no admite un modelo que no los ubique.
 - **El tamaño es de la figura entera**: `camera.fitToLayer`/`fitToLayers` encuadran la caja que la capa informa de lo dibujado, no sus centros.
@@ -481,7 +481,7 @@ root del mapa. Hijo de `<cristae-map>`.
 
 Siete elementos —`polygon`, `polyline`, `point`, `rectangle`, `circle`, `ellipse` y `sector`— y `engine.addEditableLayer({ kind, … })` como su alta imperativa. No son capas de dato: sin `source` ni accessors, su dato es **una** geometría y su contrato es el de un input controlado ([`docs/editing.md`](./docs/editing.md)).
 
-- **Hoja de la gramática** `{ consumes: [], produces: ['edit'], combine: null, arity: 'leaf' }`; el de polilínea produce `line` y el de polígono, `polygon`, que `<cristae-geodesic>` consume (§8.6).
+- **Hoja de la gramática** (§8.10) `{ role: 'leaf', produces: ['edit'] }`; el de polilínea produce `line` y el de polígono, `polygon`, que `<cristae-geodesic>` consume (§8.6).
 - **`value` entra, los cambios salen**: `cristae:change` por frame y `cristae:commit` una vez por gesto. El valor se lee con un getter, y el eco que vuelve por referencia no se reingiere.
 - **`mode`**: `'edit'` (default) y `'draw'`; `'freehand'` sólo en `polygon` y `polyline`, y en los demás es inerte. En `draw`, la pulsación de un dedo o un lápiz es del editor: la figura empieza donde se apoya, el punto siguiente queda donde se levanta, y el mapa se mueve con dos dedos. En `freehand` el puntero traza y al soltar el trazo se simplifica en px (Douglas–Peucker, 2 px), se suaviza con una Catmull-Rom centrípeta que no se aparta de cada cuerda más que el trazo (así quedan vivas las esquinas) y se hornea como vértices de una polilínea o un anillo común, con un solo `change` y un solo `commit`. Continúa lo abierto y reemplaza lo cerrado: el trazo de la polilínea se suma al final del valor, y el del polígono lo reemplaza por un anillo simple.
 - **Los de forma** (`circle`, `ellipse`, `sector`) editan una `Shape` con el radio de su tipo —`{ center, radius }`, `{ center, radius: [a, b], heading }`, `{ center, radius, heading, sweep }`— por las manijas de centro, radio, rumbo y apertura. Se ubican con el `model` del mapa y se dibujan con la esfera mientras dura el gesto. La rotación de toda forma es `heading`. El sector de elipse se dibuja en la capa de formas pero no se edita.
@@ -495,22 +495,55 @@ Las piezas de paridad con Leaflet. Su contrato está en §19; acá, sólo su lug
 
 | Elemento | Firma |
 |---|---|
-| `<cristae-image-layer>` | `{ consumes: [], produces: ['image'], combine: null, arity: 'leaf' }` |
-| `<cristae-labeled>` | `{ consumes: ['point', 'line', 'polygon', 'shape', 'html', 'bubble'], produces: ['label'], combine: 'map', arity: 'wrapper', reach: 'nearest' }` |
-| `<cristae-heat-layer>` | `{ consumes: [], produces: ['heat'], combine: null, arity: 'leaf' }` |
+| `<cristae-image-layer>` | `{ role: 'leaf', produces: ['image'] }` |
+| `<cristae-labeled>` | `{ role: 'decorate', consumes: ['point', 'line', 'polygon', 'shape', 'html', 'bubble'], produces: ['label'] }` |
+| `<cristae-heat-layer>` | `{ role: 'leaf', produces: ['heat'] }` |
 | `<cristae-scale>` | sin firma: es UI en una zona del overlay, como `<cristae-toolbar>`, y no una capa |
 
 Ningún modificador consume `image` ni `heat`, así que la imagen y el calor no se envuelven solos (R2).
 
-- **`reach: 'nearest'`** es un campo opcional de la firma, `'all'` por defecto. Con `'all'` los targets de un
-  wrapper son todo lo consumido que sube de su subárbol, como hasta ahora. Con `'nearest'` salen de cada hijo
-  directo: una hoja aporta sus kinds consumidos; un wrapper aporta los suyos propios (`produces − consumes`)
-  que estén en `consumes`, y si no tiene ninguno es transparente y se mira por dentro. Decide por la firma y
-  no por las units del momento. R2 aplica la misma regla, y `reachedKinds(el, ctx)` la expone para validar
-  antes de montar. Un `reach` fuera de `'all' | 'nearest'` es R4.
-- Por esa regla, `<cristae-labeled>` por fuera de un `<cristae-cluster>` rotula sus burbujas (su kind propio
-  es `bubble`) y no los puntos que el cluster deja pasar; la geodésica, el overlay y otro `labeled` son
-  transparentes.
+- `<cristae-labeled>` es un decorador: toma el productor más cercano (§8.10). Por fuera de un
+  `<cristae-cluster>` rotula sus burbujas (su kind propio es `bubble`) y no los puntos que el cluster deja
+  pasar; la geodésica, el overlay y otro `labeled` son transparentes.
+
+### 8.10 La gramática: el rol de cada elemento
+
+El árbol de `<cristae-*>` dentro de `<cristae-map>` se valida y se reduce por la firma de cada elemento,
+`static cristaeSignature = { role, consumes?, produces }`. `produces` lista los kinds que el elemento aporta
+hacia arriba (≥1); `consumes`, los que toma de lo que envuelve (vacío o ausente en una hoja). El rol dice qué
+hace con lo que toma, y el resto de la firma lo deriva la gramática (`deriveSignature`,
+`src/grammar/grammar.js`): no se escribe en la firma ni es contrato.
+
+| Rol | Qué hace | Qué alcanza | Hacia arriba | Elementos |
+|---|---|---|---|---|
+| `'leaf'` | dibuja; no envuelve | — | `produces` | capas base, editores, `<cristae-label-layer>` |
+| `'transform'` | cambia cada capa alcanzada, una por una | todo lo consumido que sube del subárbol | `produces` y lo alcanzado | `<cristae-geodesic>` |
+| `'aggregate'` | junta todo lo alcanzado en una sola aplicación | todo lo consumido que sube del subárbol | `produces`; lo consumido, sólo si `produces` repite alguno de sus kinds | `<cristae-cluster>` |
+| `'decorate'` | pone algo propio sobre cada capa alcanzada, ligado a ella | el productor más cercano | `produces` y lo alcanzado | `<cristae-overlay>`, `<cristae-labeled>` |
+
+- **El productor más cercano.** Sale de cada hijo directo: una hoja aporta lo que produce y el decorador
+  consume; un modificador aporta lo suyo propio (`produces − consumes`) que el decorador consuma, y si no
+  tiene nada es transparente y se mira por dentro. Decide por la firma y no por las units del momento: un
+  cluster apagado sigue aportando `bubble` y no deja ver sus puntos.
+- **El decorado sigue a su capa.** La capa alcanzada es el host del decorador: lo que pone sigue la
+  supresión del cluster y el foco del host (§8), y muere con él.
+- **`<cristae-label-layer>`** es una hoja: su liga a una capa de puntos es el atributo `bind-to` (§8.3), no
+  la firma, y se va con el elemento en 1.0.
+- **`<cristae-overlay>` es decorador**: `{ role: 'decorate', consumes: ['point', 'bubble'], produces: ['overlay'] }`.
+  Antes tomaba todo su subárbol; ahora, el productor más cercano. Dentro de un cluster, junto a otro overlay
+  o envuelto por un `labeled` alcanza las mismas capas de puntos que antes. Por fuera de un cluster lo más
+  cercano son sus burbujas: el badge las decora (`variantOf`, `sizeOf` y `where` reciben la burbuja, con su
+  `count`) y los puntos quedan sin badge. Con un `slot="bubble"` de rótulo las burbujas no son una capa de
+  puntos y no hay badges.
+- **Errores.** `GrammarError` con su `code`, antes de tocar el motor, y el mensaje nombra el rol:
+
+  | Código | Cuándo | Ejemplo |
+  |---|---|---|
+  | R1 | una hoja envuelve algo | — |
+  | R2 | nada de lo que envuelve produce lo que consume | «`<cristae-labeled>` es un decorador y no envuelve ninguna capa que produzca (point, line, polygon, shape, html, bubble)»; «`<cristae-cluster>` es un agregador: consume `'point'` y no hay capas de `'point'` adentro» |
+  | R3 | un modificador sin hijos | el mismo texto de R2 |
+  | R4 | la firma no cuadra: un `role` fuera de los cuatro, un campo fuera de `role`, `consumes` y `produces`, una hoja con `consumes`, un modificador sin `consumes`, `produces` vacío o un kind fuera del universo | — |
+  | R5 | un hijo que no es de la gramática ni configuración | — |
 
 ---
 
@@ -1503,8 +1536,7 @@ Texto sobre cada ítem de una capa base: debajo de un punto, a lo largo de una r
 predio. Equivale a `polyline.setText` de Leaflet.TextPath sobre líneas. Reemplaza a `<cristae-label-layer>`
 (§8.3), que se retira en 1.0.
 
-- **Modificador `map`** con `reach: 'nearest'` (§8.9): un `addLabels` por capa alcanzada, que es lo que
-  produce el hijo directo. `passThrough` queda en `true`, así que un cluster o una geodésica que envuelvan al
+- **Decorador** (§8.10): un `addLabels` por capa alcanzada, el productor más cercano. `passThrough` queda en `true`, así que un cluster o una geodésica que envuelvan al
   `labeled` siguen viendo su capa. El `_handle` es un marcador; las units de rótulo llevan `update` y
   `remove`, y el elemento alterna sólo las suyas, como `#own` en la geodésica.
 - **Ruta imperativa:** `addLabels({ hostId, ...props })` devuelve `{ update(props), remove() }`, o `null` si el
@@ -1520,7 +1552,7 @@ predio. Equivale a `polyline.setText` de Leaflet.TextPath sobre líneas. Reempla
   `placement` que no es `auto` ni `center`, `repeat` u `orientation` con un `placement` explícito que no es
   `along`, `repeat ≤ 0`, `offset` no finito o un valor desconocido. `renderer="gl"` lanza con un mensaje que
   dice que está pendiente. Lo que depende del hijo —un `placement` que la capa alcanzada no admite— lanza en
-  el montaje antes de reducir, con `reachedKinds`. En caliente se valida todo antes de tocar un host.
+  el montaje antes de reducir, con lo que alcanza el decorador. En caliente se valida todo antes de tocar un host.
 - **Colocación natural (`auto`)**: `below` sobre puntos, HTML y burbujas; `along` sobre líneas; `center`
   sobre polígonos y formas. Admiten: puntos, HTML y burbujas `center`, `above`, `below`, `right`; líneas
   `along`, `center`; polígonos `along` (el borde de cada anillo) y `center` (polo de inaccesibilidad del anillo
@@ -1540,9 +1572,9 @@ predio. Equivale a `polyline.setText` de Leaflet.TextPath sobre líneas. Reempla
 
   | Plano | z | Qué |
   |---|---|---|
-  | base | `400 + orden·10` | puntos, líneas, polígonos, formas, círculos, calor e imagen; el badge de `addOverlay` a `+7` de su host |
+  | base | `400 + orden·10` | puntos, líneas, polígonos, formas, círculos, calor e imagen; el badge de `addOverlay` a `+7` de su capa de puntos |
   | rótulos | `1 000 400`; un pane `html` en `1 000 400 + (orden + 1)·10` | el canvas compartido y, encima, el pane `html` de cada host |
-  | encima | `2 000 400 + orden·10` | capas HTML, editores y `<cristae-label-layer>` (`+0`); del cluster, patas `+4`, burbujas `+5`, rótulos de burbujas `+6`, espiral `+7` y sub-burbujas `+8` |
+  | encima | `2 000 400 + orden·10` | capas HTML, editores y `<cristae-label-layer>` (`+0`); del cluster, patas `+4`, burbujas `+5`, rótulos de burbujas `+6`, espiral `+7`, sub-burbujas `+8` y el badge de `addOverlay` sobre las burbujas `+9` |
 
   Los rótulos quedan sobre todas las capas base y bajo lo de encima, sin importar el orden de declaración.
   Un orden que pasaría su plano queda en el techo (`plano + 1e6 − 10`), con un aviso por motor. `z` explícito
@@ -1582,7 +1614,8 @@ por referencia. No se pica.
 | `test/render/image-layer.test.mjs`, `test/engine/image-layer.test.mjs`, `test/element/image-layer.test.mjs` | exclusiones y `TypeError` sin tocar lo visible, antimeridiano, carga y URL descartada, destroy en carga, nodo propio devuelto, picking dentro del cuadrilátero, pane desmontado si el alta lanza, montaje diferido del elemento |
 | `test/element/scale.test.mjs` | redondeo 1-2-3-5 y un barrido al azar con semilla fija (rótulo, ancho, proporción); sobre el Leaflet real, el ecuador contra 2πR·w/(256·2^z) y la latitud 60 a la mitad; re-enganche en `cristae:ready` |
 | `test/render/text-path.test.mjs` | propiedades con semilla fija: derecho con `auto`, invertir el path o trasladarlo da lo mismo, ninguna colocación desborda ni pisa, ningún glifo escrito más allá de `count` |
-| `test/element/labeled.test.mjs`, `test/grammar-reach.test.mjs` | qué rotula cada árbol (cluster por dentro y por fuera, geodésica, overlay y `labeled` anidados), R2 con el calor solo, los `TypeError` en sus dos momentos sin tocar el motor, `textOf` nuevo sin remontar, `visible="false"`, `renderer` sin tapar `render()`, los avisos de retiro; sin `reach`, cluster, overlay y geodésica reducen como antes |
+| `test/element/labeled.test.mjs`, `test/grammar-reach.test.mjs` | qué rotula cada árbol (cluster por dentro y por fuera, geodésica, overlay y `labeled` anidados), R2 con el calor solo, los `TypeError` en sus dos momentos sin tocar el motor, `textOf` nuevo sin remontar, `visible="false"`, `renderer` sin tapar `render()`, los avisos de retiro; cluster y geodésica reducen como antes, y el overlay decorador alcanza lo mismo salvo por fuera del cluster, donde decora las burbujas |
+| `test/grammar-roles.test.mjs`, `test/element/overlay.test.mjs`, `test/engine/overlay-host.test.mjs` | la firma que deriva cada rol y el texto de cada error; el overlay decorador sobre puntos igual que antes y, por fuera de un cluster, sobre sus burbujas, con su z |
 | `test/render/label-*.test.mjs`, `test/engine/labels*.test.mjs` | colocación, medida por grafema, canvas compartido, `html`, picking por glifo y `[0-alloc]` (piezas A, B y C del diseño) |
 | `test/element/heat-layer.test.mjs`, `test/engine/heat-visible.test.mjs`, el caso final de `test/render/heat-layer.test.mjs` | reenvío de cada prop al handle, alta oculta que no colorea ante un flush, repintado al volver |
 

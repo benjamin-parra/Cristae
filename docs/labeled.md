@@ -3,8 +3,8 @@
 > Pieza de [Cristae](../MODELO.md). Implementa [SPECS §8.9](../SPECS.md) y §19.3.
 
 `<cristae-labeled>` pone un texto sobre cada ítem de la capa que envuelve: debajo de un punto, a lo largo de
-una ruta, en el centro de un predio. Es un modificador, como `<cristae-geodesic>`: no tiene `bind-to`,
-Source ni accessors propios, porque todo eso lo da la capa envuelta.
+una ruta, en el centro de un predio. Es un decorador de la gramática ([SPECS §8.10](../SPECS.md)): no tiene
+`bind-to`, Source ni accessors propios, porque todo eso lo da la capa envuelta.
 
 ```html
 <cristae-labeled placement="along" repeat="240" offset="6">
@@ -23,8 +23,8 @@ así que también sirve de filtro.
 
 ## Qué se rotula
 
-Lo que produce el hijo directo. La geodésica, el overlay y otro `<cristae-labeled>` no crean ítems propios y
-se atraviesan; el cluster sí los crea, sus burbujas.
+El productor más cercano: lo que produce el hijo directo. La geodésica, el overlay y otro
+`<cristae-labeled>` no crean ítems propios y se atraviesan; el cluster sí los crea, sus burbujas.
 
 | Árbol | Se rotula |
 | --- | --- |
@@ -36,8 +36,8 @@ se atraviesan; el cluster sí los crea, sus burbujas.
 | `labeled > cluster > labeled > puntos` | las burbujas el de afuera y los puntos sueltos el de adentro |
 | `labeled > labeled > línea` | la línea, una vez por cada uno |
 
-Envolver sólo un calor, una imagen o un editor que no es de líneas ni de polígonos da R2, como cualquier
-modificador que no tiene qué transformar. Un hermano que no se rotula pasa intacto.
+Envolver sólo un calor, una imagen o un editor que no es de líneas ni de polígonos da R2: un decorador sin
+capa que decorar. Un hermano que no se rotula pasa intacto.
 
 Con varias capas hermanas, cada una toma su colocación natural: con `auto`, los camiones llevan el texto
 debajo y los predios en su centro.

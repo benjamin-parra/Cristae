@@ -21,16 +21,12 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   *Migración*: ninguna.
 - **Rótulos.** `<cristae-labeled>`, `<CristaeLabeled>` y `engine.addLabels` ponen un texto sobre cada ítem
   de la capa que envuelven: debajo de un punto, a lo largo de una ruta (también siguiendo la curva de
-  `<cristae-geodesic>`) o en el centro de un polígono. Es un modificador: rotula lo que produce su hijo
+  `<cristae-geodesic>`) o en el centro de un polígono. Es un decorador: rotula lo que produce su hijo
   directo, así que por fuera de un `<cristae-cluster>` rotula las burbujas, con `textOf` sobre
   `{ count, leaves }`. Sigue la visibilidad, el foco y el cluster de su capa y muere con ella; tocar el rótulo
   es tocar el ítem, así que `<cristae-popup for>` no cambia. Se dibuja en `canvas` (un canvas por mapa) o en
   `html` (`htmlOf`, con `interactive` para que el nodo reciba el puntero). Equivale a `polyline.setText` de
   Leaflet.TextPath. Ver [`docs/labeled.md`](docs/labeled.md).
-  *Migración*: ninguna.
-- **`reach` en la firma de la gramática.** Con `reach: 'nearest'` un wrapper toma sus targets de lo que cada
-  hijo directo produce como propio; `reachedKinds` lo expone en `cristae/grammar`. Sin el campo, la reducción
-  no cambia.
   *Migración*: ninguna.
 - **`drawLabel` devuelve su caja** `{ x, y, w, h }`, y `LabelPaint` admite devolverla: el rótulo de un pintor
   que la devuelve se pica.
@@ -42,6 +38,17 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   *Migración*: ninguna.
 
 ### Cambiado
+- **La gramática declara el rol de cada elemento.** La firma es `{ role, consumes?, produces }`, con `role`
+  entre `'leaf'`, `'transform'`, `'aggregate'` y `'decorate'`, y la gramática deriva el resto: `combine`,
+  `arity`, `bindsTo` y `passThrough` dejan de escribirse en las firmas y de ser contrato. Los errores de
+  validación nombran el rol («`<cristae-labeled>` es un decorador y no envuelve ninguna capa que
+  produzca…»); `GrammarError` y sus códigos no cambian.
+  `<cristae-overlay>` pasa a decorador: toma el productor más cercano en vez de todo su subárbol. Dentro de
+  un cluster o sobre capas de puntos alcanza las mismas que antes; por fuera de un cluster decora sus
+  burbujas, sobre ellas y su espiral, y no los puntos. Ver [SPECS §8.10](SPECS.md).
+  *Migración*: una firma propia registrada con `defineGrammar` declara `role` en vez de `combine` y `arity`:
+  una hoja es `'leaf'`; un `'fold'`, `'aggregate'`; un `'map'` con `bindsTo`, `'decorate'`, y el resto de
+  los `'map'`, `'transform'`. Los demás campos se quitan; `bindsTo` también en una hoja.
 - **El apilado sin `z` va en tres planos.** Las capas base siguen en `400 + orden·10`; los rótulos de
   `<cristae-labeled>` van en un plano propio, desde `1 000 400`; y lo que antes sumaba `+200` a su orden
   (capas HTML, editores, `<cristae-label-layer>`, burbujas y espiral del cluster) va desde `2 000 400`, con su

@@ -528,10 +528,11 @@ Se llama `geometryStyle` y no `style` porque una propiedad `style` pisaría `HTM
 
 ### `<cristae-cluster>` — clustering declarativo
 
-Envuelve la capa **host** (hijo sin slot) y, opcional, una capa hija `slot="bubble"` de puntos que define
-cómo se ven las burbujas. Sin bubble → icon-set de cluster por defecto. La hija `slot="bubble"` de label se
-retira en 1.0 y avisa una vez en consola: el rótulo de las burbujas lo da un `<cristae-labeled>` por fuera
-del cluster ([`labeled.md`](labeled.md#burbujas)).
+Agregador de la gramática ([SPECS §8.10](../SPECS.md)): envuelve la capa **host** (hijo sin slot) y,
+opcional, una capa hija `slot="bubble"` de puntos que define cómo se ven las burbujas. Sin bubble →
+icon-set de cluster por defecto. La hija `slot="bubble"` de label se retira en 1.0 y avisa una vez en
+consola: el rótulo de las burbujas lo da un `<cristae-labeled>` por fuera del cluster
+([`labeled.md`](labeled.md#burbujas)).
 
 | Miembro | Tipo | Atributo |
 |---|---|---|
@@ -551,15 +552,20 @@ suprime del host los puntos agrupados y re-filtra las labels ligadas a él — s
 interacción de burbuja (p. ej. zoom-in al click): la burbuja default es no-interactiva. Para tenerla,
 se declara la capa `slot="bubble"` con `interactive` y se maneja su `cristae:click`.
 
+**Con `<cristae-overlay>`**, un decorador: dentro del cluster pone un badge sobre los puntos, y los que se
+agrupan lo pierden con ellos; por fuera, lo pone sobre las burbujas, y `variantOf`, `sizeOf` y `where`
+reciben la burbuja con su `count`.
+
 **Ruta imperativa** (headless o capa declarada por JS): `engine.addCluster({ hostId, radius, minPoints,
 maxZoom, bubble })` → `{ setConfig({ radius?, maxZoom?, minPoints? }), dispose() }`. El `<cristae-cluster>`
 es azúcar sobre esto (su `controls` expone solo `{ id }` del host: quitar el elemento arrastra el `dispose`).
 
 ### `<cristae-geodesic>` — geodésica declarativa
 
-Modificador que curva sobre la geodésica los tramos largos de lo que envuelve: una capa de líneas, una de
-polígonos —también la arista de cierre— o un editor de polilínea o de polígono. Un track GPS no cambia: sólo
-se parte lo que se aparta más de 0,1 m de la recta de Mercator, con la regla de
+Transformador ([SPECS §8.10](../SPECS.md)) que curva sobre la geodésica los tramos largos de lo que
+envuelve: una capa de líneas, una de polígonos —también la arista de cierre— o un editor de polilínea o de
+polígono. Un track GPS no cambia: sólo se parte lo que se aparta más de 0,1 m de la recta de Mercator, con la
+regla de
 [`geodesic`](geometry.md#geodésica--geodesic). El dibujo, el picking y el encuadre salen de la misma curva.
 
 | Miembro | Tipo | Atributo |
@@ -595,9 +601,10 @@ const recta = engine.addGeodesic({ hostId: 'vuelos' })   // recta() vuelve a rec
 
 ### `<cristae-labeled>` — rótulos
 
-Modificador que pone un texto sobre cada ítem de lo que produce su hijo directo: las capas de puntos, HTML,
-líneas, polígonos y formas que envuelve, o las burbujas de un `<cristae-cluster>`. La geodésica, el overlay y
-otro `<cristae-labeled>` se atraviesan. Sobre líneas equivale a `polyline.setText` de Leaflet.TextPath.
+Decorador ([SPECS §8.10](../SPECS.md)) que pone un texto sobre cada ítem de lo que produce su hijo
+directo: las capas de puntos, HTML, líneas, polígonos y formas que envuelve, o las burbujas de un
+`<cristae-cluster>`. La geodésica, el overlay y otro `<cristae-labeled>` se atraviesan. Sobre líneas
+equivale a `polyline.setText` de Leaflet.TextPath.
 
 | Miembro | Tipo | Atributo / prop |
 |---|---|---|
