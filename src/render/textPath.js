@@ -102,8 +102,8 @@ const placeOne = (xy, cum, from, end, s0, widths, total, offset, auto, maxTurn, 
 /** Coloca los glifos de un texto sobre la parte que ocupa los vértices `from … from+n` de `xy`.
  *  - `xy`: vértices en px de contenedor, intercalados (x, y), de todas las partes.
  *  - `cum`: largo acumulado por vértice, alineado con `xy`; creciente dentro de la parte.
- *  - `widths`: ancho de cada glifo (un punto de código cada uno), en el orden de lectura.
- *  - `opts`: `placement` ('center' | 'start'), `repeat` (px entre centros, o null), `offset` (px a la
+ *  - `widths`: ancho de cada glifo (un grafema cada uno), en el orden de lectura.
+ *  - `opts`: `repeat` (px entre centros, o null: una sola, centrada en la parte), `offset` (px a la
  *    izquierda del sentido de lectura), `orientation` ('auto' | 'path'), `maxAngle` (grados) y, si se
  *    quiere culling, `viewW`/`viewH` del contenedor.
  *  - `out`: `{ buf: Float64Array }` con (x, y, ángulo) por glifo desde el índice 0; si no alcanza se
@@ -116,7 +116,7 @@ export const placeGlyphs = (xy, cum, from, n, widths, opts, out) => {
   const total = widths.reduce((sum, w) => sum + w, 0)
   if (!(total > 0) || total > len) return 0
 
-  const { placement = 'center', repeat = null, offset = 0, orientation = 'auto', maxAngle = 45, viewW, viewH } = opts
+  const { repeat = null, offset = 0, orientation = 'auto', maxAngle = 45, viewW, viewH } = opts
 
   const auto    = orientation === 'auto'
   const maxTurn = maxAngle * DEG
@@ -128,7 +128,7 @@ export const placeGlyphs = (xy, cum, from, n, widths, opts, out) => {
   }
 
   if (repeat == null) {
-    const s0 = placement === 'start' ? 0 : (len - total) / 2
+    const s0 = (len - total) / 2
     return away(s0) > 0 ? 0 : place(s0, 0)
   }
 

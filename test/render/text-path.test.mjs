@@ -76,12 +76,6 @@ test('offset: distancia perpendicular exacta, positivo arriba del sentido de lec
 
 test('texto más largo que la parte: no se coloca', () => {
   assert.equal(place([[0, 0], [25, 0]], [10, 10, 10]).count, 0)
-  assert.equal(place([[0, 0], [25, 0]], [10, 10, 10], { placement: 'start' }).count, 0)
-})
-
-test('start: el texto arranca en el inicio de la parte', () => {
-  const { glyphs } = place([[0, 0], [100, 0]], [10, 10], { placement: 'start' })
-  assert.deepEqual(glyphs.map(([x]) => x), [5, 15])
 })
 
 test('multi-parte: una colocación por parte, cada una sobre su rango', () => {
