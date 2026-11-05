@@ -64,6 +64,7 @@ export class LineGpuLayer {
   #unsub     = null
   #offView   = null
   #visible   = true
+  #stale     = true                   // algo pidió un dibujo mientras estaba oculta o sin contexto
   #maxWeight = 0                      // sólo crece entre rebuilds: una tolerancia generosa no pierde un click
   #focus     = { ids: null, dim: 0.3 }
   #ctx       = { runs: [], points: 0, cuts: 0 }
@@ -73,7 +74,8 @@ export class LineGpuLayer {
   #at        = [0, 0]
   #view      = { zoom: 0, center: { x: 0, y: 0 }, size: { x: 0, y: 0 } }
 
-  constructor({ host, pane, source, color, weight, opacity }) {
+  // `surface` construye la superficie con los opts de `EditSurface`: interna, para que el motor la ponga en un tramo.
+  constructor({ host, pane, source, color, weight, opacity, surface = opts => new EditSurface(opts) }) {
     const a = source.accessors
     this.#camera   = host.camera
     this.#source   = source
@@ -85,7 +87,7 @@ export class LineGpuLayer {
     this.#rgba     = new Uint8Array(this.#scalarOf ? 128 : 0)
     this.#base     = { ...DEFAULT_STYLE, ...(color && { color }), ...(weight != null && { weight }), ...(opacity != null && { opacity }) }
     this.#stroke   = new StrokePass({ closed: false, gradient: !!this.#scalarOf })
-    this.#surface  = new EditSurface({ host, pane, owner: this })
+    this.#surface  = surface({ host, pane, owner: this })
     // Tomar el contexto ocupa uno de los ~16, y lo que siga puede tirar: nadie lo devuelve solo.
     try {
       const snap = source.getSnapshot()
@@ -129,11 +131,17 @@ export class LineGpuLayer {
     this.#gl = null
   }
 
-  // Sin contexto no dibuja ni mide el canvas: al volver a tenerlo se pinta en el acto, desde `buildGl`.
+  // Sin contexto no dibuja ni mide el canvas: al volver a tenerlo se pinta en el acto, desde `buildGl`. La superficie
+  // se reasienta antes de `begin()`, y `end(view)` llega aunque no haya pintado nada: lo limpio también se muestra.
   redraw() {
     const gl = this.#gl
-    if (!gl || !this.#visible) return false
+    if (!gl || !this.#visible) {
+      this.#stale = true
+      return false
+    }
+    this.#stale = false
     this.#surface.resetCanvasReference()
+    this.#surface.begin()
     gl.clearColor(0, 0, 0, 0)
     gl.clear(gl.COLOR_BUFFER_BIT | gl.STENCIL_BUFFER_BIT)
     const view = readView(this.#camera, this.#view)
@@ -143,6 +151,7 @@ export class LineGpuLayer {
       this.#stroke.style(rec.style)
       painted = this.#stroke.draw(rec.parts, view) || painted
     }
+    this.#surface.end(view)
     return painted
   }
 
@@ -171,10 +180,13 @@ export class LineGpuLayer {
     return box[0] <= box[2] ? { south: latOf(box[3]), west: lngOf(box[0]), north: latOf(box[1]), east: lngOf(box[2]) } : null
   }
 
-  setVisible(visible) {
+  // Mostrarla sólo dibuja si algo pidió un dibujo mientras estaba oculta (la vista, un dato, el estilo, el contexto): si
+  // no, la imagen sigue valiendo. Devuelve si pintó.
+  setVisible(visible = true) {
+    const shown   = visible && !this.#visible
     this.#visible = visible
-    this.#surface.canvas.style.display = visible ? '' : 'none'
-    return visible ? this.redraw() : false
+    this.#surface.setVisible(visible)
+    return shown && this.#stale && this.redraw()
   }
 
   // El foco es estado de la capa y se pliega en la opacidad de cada entidad: el restyle lo repone solo.

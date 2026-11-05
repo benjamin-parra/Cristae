@@ -147,14 +147,17 @@ export class PolygonGpuLayer {
   #focus   = { ids: null, dim: 0.3 }
   #stroke  = null
   #visible = true
+  #stale   = true                     // algo pidió un dibujo mientras estaba oculta o sin contexto
   #view    = { zoom: 0, center: { x: 0, y: 0 }, size: { x: 0, y: 0 } }
 
   // Las opciones de trazo y relleno (`color`, `weight`, `opacity`, `fillColor`, `fillOpacity`) son las de
-  // la gramática de la librería; `styleOf` las pisa por entidad.
+  // la gramática de la librería; `styleOf` las pisa por entidad. `surface` construye la superficie con los opts de
+  // `EditSurface`: interna, para que el motor la ponga en un tramo.
   constructor({
     host, pane, geometry = null, source = null, interactive = false, idOf = null,
     color = '#3388ff', weight = 3, opacity = 1,
     fill = true, fillColor, fillOpacity = 0.2, stroke = true, styleOf = null,
+    surface = opts => new EditSurface(opts),
   }) {
     this.#camera      = host.camera
     this.#source      = source
@@ -163,7 +166,7 @@ export class PolygonGpuLayer {
     this.#idOf    = idOf ?? source?.accessors?.idOf ?? null
     this.#styleOf = styleOf ?? source?.accessors?.styleOf ?? null
     this.#base    = { color, weight, opacity, fillColor, fillOpacity }
-    this.#surface = new EditSurface({ host, pane, owner: this })
+    this.#surface = surface({ host, pane, owner: this })
     // Tomar el contexto ocupa uno de los ~16 del navegador. Lo que siga puede tirar —el store rechaza una
     // geometría que no entra en la textura, y el estilo llama a `styleOf` e `idOf`, que son código del
     // consumidor—, y un contexto que nadie devuelve no vuelve en toda la vida de la página.
@@ -358,21 +361,30 @@ export class PolygonGpuLayer {
     return this.restyle()
   }
 
-  setVisible(visible) {
+  // Mostrarla sólo dibuja si algo pidió un dibujo mientras estaba oculta (la vista, un dato, el estilo, el contexto): si
+  // no, la imagen sigue valiendo. Devuelve si pintó.
+  setVisible(visible = true) {
+    const shown   = visible && !this.#visible
     this.#visible = visible
-    this.#surface.canvas.style.display = visible ? '' : 'none'
-    return visible ? this.redraw() : false
+    this.#surface.setVisible(visible)
+    return shown && this.#stale && this.redraw()
   }
 
   // El motor la llama en move/zoom/resize: el stencil vive en el framebuffer y no sobrevive al
   // reencuadre, así que el relleno se rehace entero.
   resetCanvasReference() { return this.redraw() }
 
-  // Oculta o sin contexto no dibuja. Al volver a tenerlo, `buildGl` pinta en el acto.
+  // Oculta o sin contexto no dibuja. Al volver a tenerlo, `buildGl` pinta en el acto. La superficie se reasienta antes
+  // de `begin()`, y `end(view)` llega aunque no haya pintado nada: lo limpio también se muestra.
   redraw() {
     const gl = this.#gl
-    if (!gl || !this.#visible) return false
+    if (!gl || !this.#visible) {
+      this.#stale = true
+      return false
+    }
+    this.#stale = false
     this.#surface.resetCanvasReference()
+    this.#surface.begin()
     gl.clearColor(0, 0, 0, 0)
     gl.clear(gl.COLOR_BUFFER_BIT | gl.STENCIL_BUFFER_BIT)
     const view  = readView(this.#camera, this.#view)
@@ -395,6 +407,7 @@ export class PolygonGpuLayer {
       }
     }
     // El contorno sale con el stencil deshabilitado, así que no arrastra estado al pase siguiente.
+    this.#surface.end(view)
     return pintado
   }
 

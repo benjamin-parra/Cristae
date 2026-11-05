@@ -37,7 +37,8 @@ export const blendOver = gl => {
 const dprOf = () => globalThis.devicePixelRatio || 1
 
 // Un canvas de la superficie, con o sin contexto: el marcador tiene la misma clase y el mismo estilo que el que dibuja.
-const nuevoCanvas = () => {
+// También el marcador de un miembro de tramo (`GlTramo.js`).
+export const nuevoCanvas = () => {
   const canvas = document.createElement('canvas')
   canvas.className           = 'cristae-edit-canvas'
   canvas.style.position      = 'absolute'
@@ -190,6 +191,18 @@ export class EditSurface {
   // Si el navegador ya le quitó el contexto y el aviso todavía no llegó, hace ahora lo que haría el aviso: la política no
   // espera a otra tarea para saber a quién desalojó.
   reconcile() { return this.#state === 'live' && this.#gl.isContextLost() && this.#lose() }
+
+  // El protocolo del tramo, que acá no hace nada: la capa dibuja en el framebuffer por defecto de su canvas y la opacidad
+  // la pone el CSS del pane. En un tramo, `begin()` enlaza el FBO del miembro y `end(view)` agenda la composición.
+  begin() {}
+  end() {}
+  setOpacity() {}
+
+  // Muestra u oculta el canvas, marcador incluido: el contexto que lo reemplace hereda su `display`. Devuelve si se ve.
+  setVisible(visible = true) {
+    this.#canvas && (this.#canvas.style.display = visible ? '' : 'none')
+    return visible
+  }
 
   // ÚNICO punto de reposicionado y resize; lo invoca el motor en move/moveend/zoomend. Receta
   // Leaflet-canvas: el canvas se ancla al origen del contenedor en coordenadas de CAPA y mide el

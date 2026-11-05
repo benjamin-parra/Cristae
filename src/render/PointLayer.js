@@ -97,9 +97,11 @@ export class PointLayer {
   // oculta y al intercambiar su fuente, para que la nueva herede lo de la vieja sin un primer cuadro con los
   // puntos clusterizados, sin atenuar o dibujando en un pane que no se ve. `focus` es `{ ids, dim }`, el de
   // `applyFocus`, y se copia.
+  //
+  // `surface` construye la superficie con los opts de `EditSurface`: interna, para que el motor la ponga en un tramo.
   constructor({
     host, pane, source, iconSet, interactive = false, accessors = null, where = null,
-    visible = true, suppressed = null, focus = null,
+    visible = true, suppressed = null, focus = null, surface = opts => new EditSurface(opts),
   }) {
     this.#camera     = host.camera
     this.#source     = source
@@ -109,7 +111,7 @@ export class PointLayer {
     this.#suppressed = suppressed
     this.#iconSet    = iconSet
     this.#picking    = interactive ? new Picking() : null
-    this.#surface    = new EditSurface({ host, pane, depth: true, cssZoom: false, owner: this })
+    this.#surface    = surface({ host, pane, depth: true, cssZoom: false, owner: this })
     focus && Object.assign(this.#focus, focus)
     // Tomar el contexto ocupa uno de los ~16, y lo que siga puede tirar: nadie lo devuelve solo. Una capa que nace
     // vacía deja su marcador en el pane y la política le da el contexto en un rato ocioso, o en la tarea del primer dato.
@@ -322,11 +324,14 @@ export class PointLayer {
   // El orden por banda limpia y prueba profundidad en cada draw: el pase de picking la apaga al salir.
   // Devuelve si dibujó: oculta, o sin contexto, no, y el canvas queda anotado como atrasado. Un contexto que el
   // navegador ya quitó y todavía no avisó ignora el dibujo. `gl` es el de la capa, ya leído por quien lo tiene.
+  // El dibujo va entre `begin()`, antes del primer comando GL (sincronizar el atlas puede subir la textura), y
+  // `end(view)`, que avisa la vista con que pintó.
   #draw(view, gl = this.#gl) {
     if (!gl || !this.#visible) {
       this.#stale = true
       return false
     }
+    this.#surface.begin()
     this.#binding.sync(this.#iconSet.atlas)
     gl.useProgram(this.#program)
     gl.uniformMatrix4fv(this.#uMatrix, false, anchorMatrix(this.#matrix, this.#ax, this.#ay, view.zoom, view.center, view.size))
@@ -337,6 +342,7 @@ export class PointLayer {
     gl.bindVertexArray(this.#vao)
     gl.drawArrays(gl.POINTS, 0, this.#count)
     gl.bindVertexArray(null)
+    this.#surface.end(view)
     this.#stale = false
     return true
   }
