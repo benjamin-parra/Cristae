@@ -95,6 +95,9 @@ export const createLabels = bridge => {
         })
       },
 
+      // La capa cambió de Source (`attachSource`): cada miembro pasa a leer y oír la nueva.
+      rebind: () => links.forEach(({ member }) => member.rebind()),
+
       // Con el foco puesto, lo que no brilla toma `dim`.
       setFocus(on, bright, dim) {
         Object.assign(group.focus, { on, bright, dim })
@@ -144,9 +147,9 @@ export const createLabels = bridge => {
     let slot    = acquire(record, hostId, first.renderer)
 
     const group   = record.labels ??= createGroup(record, hostId)
-    const source  = record.source
-    const a       = source.accessors
-    const idOf    = a.idOf
+    let source    = record.source         // la de la capa: `rebind` la cambia con `attachSource`
+    let a         = source.accessors
+    let idOf      = a.idOf
     const control = record.fold
     const texts   = new Map()             // id → texto, o '' sin rótulo; se rehace con los datos (P2)
     const viewOf  = control ? item => bubbleOf(control, item) : item => item
@@ -230,6 +233,15 @@ export const createLabels = bridge => {
 
       isHovered : id => group.hovered.has(id),
 
+      rebind() {
+        unsub()
+        source = record.source
+        a      = source.accessors
+        idOf   = a.idOf
+        unsub  = source.subscribe(onData)
+        onData()
+      },
+
       remove() {
         if (removed) return
         removed = true
@@ -243,11 +255,12 @@ export const createLabels = bridge => {
       },
     }
 
-    const unsub = source.subscribe(() => {
+    const onData = () => {
       stale = true
       member.version++
       slot.renderer.invalidate(member, 'data')
-    })
+    }
+    let unsub = source.subscribe(onData)
     group.links.push({ member, slot })
     slot.renderer.attach(member)
 

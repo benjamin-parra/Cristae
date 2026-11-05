@@ -10,6 +10,7 @@ import { MapEngine } from '../../src/engine/MapEngine.js'
 import { adoptLeafletHost } from '../../src/host/LeafletHost.js'
 import { LABEL_RENDERERS } from '../../src/engine/labels.js'
 import { tablesFromRings } from '../../src/render/PolygonGpuLayer.js'
+import { createSource } from '../../src/data/index.js'
 
 const frame = () => new Promise(resolve => setTimeout(resolve, 5))
 
@@ -175,6 +176,27 @@ test('la membresía `where` del host también deja sin rótulo', () => {
   engine.addLabels({ hostId: 'flota' })
   flota.setWhere(v => v.id > 4)
   assert.deepEqual(idsDe(miembro(engine, 'flota')), [5, 6])
+  engine.destroy()
+})
+
+test('attachSource: los rótulos pasan a la Source nueva y dejan de oír la vieja', () => {
+  const { engine } = motor()
+  engine.addPointLayer({ id: 'flota', accessors: puntos, iconSet: makeIconSet(), data: FLOTA })
+  engine.addLabels({ hostId: 'flota' })
+  const vieja  = engine.getLayer('flota').source
+  const nueva  = createSource(puntos)
+  nueva.set([{ id: 'n', lat: 1, lng: 1 }])
+  const member = miembro(engine, 'flota')
+  const antes  = member.version
+  engine.attachSource('flota', nueva)
+  assert.deepEqual(idsDe(member), ['n'])
+  assert.ok(member.version > antes, 'se recoloca')
+
+  const tras = member.version
+  vieja.set([{ id: 'x', lat: 0, lng: 0 }])
+  assert.equal(member.version, tras, 'la vieja ya no avisa')
+  nueva.set([{ id: 'n', lat: 1, lng: 1 }, { id: 'm', lat: 2, lng: 2 }])
+  assert.deepEqual(idsDe(member), ['n', 'm'])
   engine.destroy()
 })
 

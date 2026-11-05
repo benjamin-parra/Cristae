@@ -786,6 +786,7 @@ export class MapEngine {
       const entry = this.#pick.entries.find(e => e.layerId === id)
       if (entry) { entry.layer = record.layer; record.layer.pickObject = entry.obj }
     }
+    record.labels?.rebind()                             // los rótulos son de la capa: siguen su Source
     return this
   }
 

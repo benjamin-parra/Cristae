@@ -1556,7 +1556,7 @@ predio. Equivale a `polyline.setText` de Leaflet.TextPath sobre líneas. Reempla
 - **Siguen al host:** visibilidad (`visible` ∧ host visible ∧ host habilitado), supresión del cluster y
   `where`, foco por capa y por ítem (`'label'` en los `kinds` del foco por capa los atenúa aunque el kind del
   host no esté; la composición es la del host, no un producto de los dos focos) y, con el host interactivo,
-  hover, que se pinta al final. `attachSource` no los vuelve a ligar: siguen la Source con que nacieron.
+  hover, que se pinta al final. Con `attachSource` pasan a la Source nueva y se recolocan.
 - **Burbujas:** sobre la capa de burbujas de un cluster, `textOf` y `htmlOf` reciben `{ count, leaves }`;
   `leaves` se resuelve al leerse. El `textOf` por defecto es `String(count)`. Tocar el rótulo expande la
   burbuja.

@@ -141,7 +141,8 @@ burbuja la expande. El hover del rótulo realza el ítem.
   kind de la capa no esté.
 - **Hover.** Con la capa interactiva, el rótulo del ítem bajo el puntero se pinta encima del resto.
 - **Baja.** Los rótulos son estado de la capa y mueren con ella.
-- **Source.** Cambiar la Source de la capa con `attachSource` no los vuelve a ligar: siguen la de su alta.
+- **Source.** Si la capa cambia de Source (`attachSource`, o `.source` en `<cristae-point-layer>`), los rótulos
+  pasan a la nueva.
 
 ## Burbujas
 
