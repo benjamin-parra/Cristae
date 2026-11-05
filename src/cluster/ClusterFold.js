@@ -8,7 +8,7 @@ import { Cluster } from './Cluster.js'
 // `control` + el descriptor de retorno) es idéntica a la que devolvía el motor.
 //
 // El bridge expone: `camera` (la faceta del anfitrión), `layerOf(id)`, `nextOrder()`,
-// `overlayZ(order, extra)` (z de las capas del fold, sobre los labels), `subAccent` (acento default de
+// `overlayZ(order, extra)` (z de las capas del fold, sobre los rótulos), `subAccent` (acento default de
 // la traza), `makeBubbleSink`, `subClusterIconSet`, `addPointLayer`, `addLineLayer(cfg, order)`,
 // `removeLayer`, `resyncBound`, `focus`, `unfocusAll`, `emit`, `busOn`, `destroying()`.
 
@@ -134,7 +134,7 @@ export function createClusterFold(bridge, targets, { radius, maxZoom, minPoints,
   if (ha.sizeOf)    spiderAccessors.sizeOf    = s => ha.sizeOf(s.orig)
   const spiderHandle = base.iconSet ? bridge.addPointLayer({
     id: spiderId, data: [], accessors: spiderAccessors, iconSet: base.iconSet,
-    interactive: true, z: bridge.overlayZ(base.order, 7), presentAs: presentLeaf,   // hoja: sobre labels(+200), burbuja(+5) y líneas(+4)
+    interactive: true, z: bridge.overlayZ(base.order, 7), presentAs: presentLeaf,   // hoja: sobre los rótulos(+6), la burbuja(+5) y las líneas(+4)
   }) : null
   // Capa de SUB-CLUSTERS de la espiral (jerarquía): burbujas de conteo con el MISMO iconSet de
   // conteo que las burbujas base. Slots {kind:'subcluster'} van acá; los {kind:'leaf'} a `spiderHandle`.
@@ -148,7 +148,7 @@ export function createClusterFold(bridge, targets, { radius, maxZoom, minPoints,
       variantOf : s => (subIconSet.variantForCount?.(s.count) ?? String(s.count)),
       hashOf    : s => `${s.count}:${s.lat}:${s.lng}`,   // re-encode al cambiar conteo/posición
     },
-    iconSet: subIconSet, interactive: true, z: bridge.overlayZ(base.order, 8), capture: true,   // sobre labels(+200); ocluye lo de abajo
+    iconSet: subIconSet, interactive: true, z: bridge.overlayZ(base.order, 8), capture: true,   // sobre los rótulos; ocluye lo de abajo
   })
   // Patas y trazas en UNA capa de líneas, creada con la primera expansión: un pliegue que nunca se abre
   // no paga el contexto WebGL. Van DETRÁS de la burbuja (+5) y de los marcadores (+7): look canónico
@@ -159,7 +159,7 @@ export function createClusterFold(bridge, targets, { radius, maxZoom, minPoints,
   let legSeq = 0   // un id nuevo por trazo y por ensamblado: se recalculan enteros, y la Source compara por id
   const setLegs = legs => {
     if (legs.length) legsHandle ??= bridge.addLineLayer({
-      id: legsId, z: bridge.overlayZ(base.order, 4),   // sobre labels(+200)
+      id: legsId, z: bridge.overlayZ(base.order, 4),   // sobre los rótulos
       accessors: { idOf: s => s.id, pathOf: s => s.pts, styleOf: s => s },
     }, base.order)
     legsHandle?.set(legs)
@@ -548,6 +548,9 @@ export function createClusterFold(bridge, targets, { radius, maxZoom, minPoints,
     // ids de burbuja BASE (los de Supercluster + el sintético 'b:' de la sesión); el contenido de
     // una SUB-burbuja de la espiral se lee de la estructura de sesión (getSession / cluster:*).
     contentsOf: id => (bubbleRec?.source?.itemById?.(id) ? cluster.contents(id) : null),
+    // Los ítems que junta una burbuja del frame actual, como los tienen las Source de los hosts y en el
+    // orden de `contentsOf`. Con la espiral abierta, los del snapshot congelado. Lo leen los rótulos.
+    leavesOf: id => control.contentsOf(id)?.map(leaf => resolveOne(leaf).item) ?? [],
     // Id de la capa de burbujas: el consumidor se suscribe a sus hits por el bus normal
     // (map.on('click' | 'hover', bubbleLayerId, cb)) y compone con contentsOf/expand.
     bubbleLayerId: bubbleId,
@@ -559,6 +562,12 @@ export function createClusterFold(bridge, targets, { radius, maxZoom, minPoints,
   }
   // dispose idempotente compartido: quitar cualquiera de los hosts (o el sibling) limpia el fold.
   for (const { rec } of hosts) rec.cluster = control
+  // El registro de las burbujas lleva su fold: `addLabels` lo reconoce y pone sus rótulos sobre ellas y
+  // bajo la espiral (DISENO-ROTULOS §2.7).
+  if (bubbleRec) {
+    bubbleRec.fold   = control
+    bubbleRec.labelZ = bridge.overlayZ(base.order, 6)
+  }
 
   return { kind: 'bubble', id: bubbleId, handle: { id: bubbleId, control }, source: bridge.layerOf(bubbleId)?.source, suppressed: null }
 }
