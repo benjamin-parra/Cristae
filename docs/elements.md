@@ -310,9 +310,18 @@ Toda capa hoja (`point` / `line` / `polygon` / `shape` / `html` / `label`) los h
 | `z` | number | atributo — z-index del pane. Reactivo |
 | `pane` | string | atributo — pane propio (default `cristae-<kind>-<id>`). Se lee en el alta; con el mismo nombre, varias capas lo comparten ([SPECS §8](../SPECS.md)) |
 
-Sin `z`, el motor lo deriva del orden de declaración (`400 + orden·10`): las mismas capas montadas en
-otro orden apilan distinto. Las de `html` y `label` y el editor suman `200`: quedan sobre las demás
-aunque se declaren antes, y la puerta del puntero les da la pulsación por el mismo orden.
+Sin `z`, el motor lo deriva del orden del documento dentro de `<cristae-map>` (`400 + posición·10`), que
+con React es el del árbol. Una capa que monta tarde —sus datos llegan después, o es un hijo condicional—
+cae donde se declaró, y remontarla no la sube; moverla en el DOM la reapila en su lugar nuevo. Las de
+`html` y `label` y el editor suman `200`: quedan sobre las demás aunque se declaren antes, y la puerta
+del puntero les da la pulsación por el mismo orden.
+
+El derivado es una posición, no un valor: su número cambia cuando monta o se desmonta una capa declarada
+antes, y sólo se garantiza el orden entre derivadas. Un `z` explícito gana, no se mueve y ocupa lugar en
+el orden. Si cae entre los derivados de su plano, su lugar frente a ellos depende de lo que esté montado
+debajo: para fijar el orden contra un derivado se fijan los dos, o el explícito va fuera de ese tramo.
+Quitar `z` vuelve al derivado, aunque la capa haya montado con uno. Varias capas con el mismo `pane`: el
+pane toma el z de la declarada más arriba.
 
 ```html
 <cristae-line-layer z="378"></cristae-line-layer>   <!-- recorrido: debajo de los marcadores -->

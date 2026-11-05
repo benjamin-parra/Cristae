@@ -156,7 +156,8 @@ export interface HitBase {
   ref            : string | number;
   /** Distancia en px del puntero al elemento (0 = dentro); sin geometría, `+Infinity`. */
   distancePx     : number;
-  /** z del pane y orden de declaración: definen el desempate top-first. */
+  /** z del pane y posición de declaración de la capa (en una que cuelga de un host, la de su host). Vivos:
+   *  siguen a la capa cuando se reapila, y definen el desempate top-first. */
   zIndex         : number;
   order          : number;
   /** Posición con la que un overlay presentó el hit (la hoja del spider, ya desplegada). */
@@ -831,10 +832,10 @@ export interface MapEngineOptions {
   maxBoundsViscosity? : number | null;
 }
 
-// Orquestador headless: monta sobre un mapa propio o adoptado, deriva panes por orden de declaración (el
-// consumidor no toca z) y cablea registry + bus + Interaction (picking) + Camera. La superficie de
-// INSTANCIA de las capas (props por ref del custom element, sesión de cluster) sigue siendo rica; el
-// consumidor la castea según el eje que use (ver docs/ y SKILL.md).
+// Orquestador headless: monta sobre un mapa propio o adoptado, deriva el z de los panes del orden de
+// declaración y no de la historia de altas (el consumidor no toca z), y cablea registry + bus + Interaction
+// (picking) + Camera. La superficie de INSTANCIA de las capas (props por ref del custom element, sesión de
+// cluster) sigue siendo rica; el consumidor la castea según el eje que use (ver docs/ y SKILL.md).
 export class MapEngine {
   constructor(options: MapEngineOptions);
   readonly ready  : Promise<MapEngine>;
@@ -888,7 +889,8 @@ export class MapEngine {
    *  retira del eje. Varias capas pueden declararlo a la vez (cross-layer). */
   setLayerFocus(layerId: string, ids?: Iterable<string | number> | null | false): this;
 
-  /** Reapila una capa montada (z-index de su pane). `z` nulo vuelve al derivado en el alta. */
+  /** Reapila una capa montada (z-index de su pane). `z` nulo borra el z explícito y la capa vuelve a su lugar
+   *  por orden de declaración. */
   setLayerZ(layerId: string, z?: number | null): this;
 
   /** Suscripción a un canal del bus o a una señal del motor (no es un CustomEvent del DOM: el payload
