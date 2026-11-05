@@ -274,8 +274,9 @@ window.__nav = {
     N.eng.addHtmlLayer({ id: 'hitos', pane: 'cristae-ruta-620', z: 620, accessors: { idOf: h => h.id, positionOf: h => ({ lat: h.lat, lng: h.lng }), htmlOf: () => '<b>I</b>' }, data: items([[100, 700]], 500) })
     const montaje = ahora() - t0
     const sincrono = { ...contar(), filas: filas(N.eng) }
-    // las capas que nacieron vacías toman su contexto en ratos ociosos, de a una: se espera a que no quede ninguna sin tomarlo
-    while (ahora() - t0 < 12_000 && filas(N.eng).some(f => f.state === 'none')) await dormir(20)
+    // las capas con contenido que no tienen contexto todavía lo toman en ratos ociosos: se espera a que no quede ninguna. Una
+    // vacía en un tramo vivo sigue en `none` hasta tener contenido, así que no cuenta
+    while (ahora() - t0 < 12_000 && filas(N.eng).some(f => f.state === 'none' && f.hasContent)) await dormir(20)
     await quieto()
     return { montajeMs: Math.round(montaje), alMontar: sincrono, ...this.estado() }
   },

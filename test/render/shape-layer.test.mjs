@@ -621,7 +621,8 @@ test('desde el motor: kind shape, su pane, sus hits de arriba hacia abajo y la v
   handle.setVisible(true)
   assert.ok(draws() > antes, 'y al mostrarla vuelve a dibujar')
   engine.removeLayer('zonas')
-  assert.equal(spy.released, 1, 'la baja devuelve el contexto')
+  await flush()
+  assert.equal(spy.released, 1, 'la baja devuelve el contexto: el tramo vacío se va al final de la microtarea')
 })
 
 test('desde el motor: el alta toma el estilo de capa, el handle lo cambia y el círculo no tiene `style`', async () => {

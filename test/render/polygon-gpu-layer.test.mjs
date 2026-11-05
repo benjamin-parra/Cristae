@@ -155,16 +155,17 @@ test('el alta que reemplaza a una capa dada de baja cuelga su canvas de un pane 
   const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeLeaflet() }) })
   const pane   = 'cristae-polygon-gpu-areas'
 
-  currentGl = editGl(newSpy())
+  // Con tramos, el recambio en la misma tarea reusa el contexto del tramo: la textura nueva sube al mismo.
+  const spy = newSpy()
+  currentGl = editGl(spy)
   engine.addPolygonGpuLayer({ id: 'areas', geometry: ONE_RING() })
   const abandoned = map.getPane(pane)
   engine.removeLayer('areas')
 
-  const spy = newSpy()
-  currentGl = editGl(spy)
+  spy.texImages.length = 0
   const handle = engine.addPolygonGpuLayer({ id: 'areas', geometry: ONE_RING() })
 
-  assert.equal(spy.texImages.length, 1, 'la capa nueva sube su textura')
+  assert.ok(spy.texImages.length >= 1, 'la capa nueva sube su textura (y el tramo la de su FBO)')
   assert.equal(handle.redraw(), true)
   assert.ok(spy.draws.length > 0, 'y emite draws')
 
@@ -172,8 +173,11 @@ test('el alta que reemplaza a una capa dada de baja cuelga su canvas de un pane 
   // documento no aparece nunca, y ningún repintado lo arregla.
   const live = map.getPane(pane)
   assert.equal(live.connected, true, 'el pane del alta nueva sigue montado en el mapa')
-  assert.notEqual(live, abandoned, 'y no es el que la baja anterior desprendió')
-  assert.equal(live.children.length, 1, 'con un solo canvas: el de la capa viva')
+  // El tramo que la baja dejó vacío retiene el pane hasta el final de la microtarea y el alta lo reusa: el pane puede ser
+  // el mismo, pero nunca uno desprendido.
+  assert.ok(live === abandoned || !abandoned.connected, 'y no es uno que la baja anterior desprendió')
+  // Sin árbol DOM en el stub, la capa va en un tramo solo: su marcador y el canvas del tramo, nada del ciclo anterior.
+  assert.equal(live.children.length, 2, 'el marcador de la capa viva y el canvas de su tramo')
 })
 
 const VIEW_EVENTS = ['moveend', 'zoomend', 'resize', 'zoomanim']
@@ -260,7 +264,7 @@ test('MapEngine.setLayerVisibility alcanza a la capa, no sólo al pane', () => {
 
   engine.setLayerVisibility('areas', false)
   assert.equal(pane.style.visibility, 'hidden', 'el pane se oculta')
-  assert.equal(pane.children[0].style.display, 'none', 'y la capa se entera: una capa que dibuja sola no se apaga ocultando el pane')
+  assert.equal(engine.getLayer('areas').layer.surface.visible, false, 'y la capa se entera: en su tramo no se compone')
   assert.equal(drawsOf(spy, () => engine.getLayer('areas').layer.redraw()), 0)
 
   engine.setLayerVisibility('areas', true)

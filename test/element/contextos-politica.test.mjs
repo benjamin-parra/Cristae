@@ -26,6 +26,10 @@ import { afterEach, mock, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { JSDOM } from 'jsdom'
 
+// Escenarios de la política con un contexto por capa (techo de 16 con 13 capas y ajenos, rotaciones, una capa que cae sola).
+// Con tramos el modelo de 13 es un contexto y esos escenarios no existen; se rediseñan sobre tramos (PLAN-C-MINIMO §10).
+const POR_CAPA = 'un contexto por capa: se rediseña sobre tramos'
+
 /* ── Cuadros a mano ── */
 
 const rafPrevio    = globalThis.requestAnimationFrame
@@ -113,7 +117,9 @@ const asentarCuadros = (navegador, ajenos = [], n = 4) => {
 
 /* ── T3.1 · el alta difiere las vacías ── */
 
-test('T3.1 el montaje no toma contexto para las cuatro capas vacías: las toma en ratos ociosos, de a una, y creados == vivos', async () => {
+// Con tramos, las cuatro vacías entran al tramo de las demás: no piden contexto, ni al montar ni en los ratos ociosos, y
+// no se arman hasta tener contenido.
+test('T3.1 el montaje toma un contexto para todo el modelo: las cuatro capas vacías entran al tramo sin armarse', async () => {
   await esperar(20)                                     // los ratos ociosos de los tests de antes ya pasaron
   const ociosos = []
   globalThis.requestIdleCallback = cb => ociosos.push(cb)
@@ -123,21 +129,12 @@ test('T3.1 el montaje no toma contexto para las cuatro capas vacías: las toma e
     const { engine } = map
     const vacias = vaciasDe(engine)
     assert.equal(vacias.length, 4, 'las dos líneas del kit, y la espiral y la sub-espiral del cluster')
-    assert.deepEqual(vacias.map(id => estados(engine)[id]), ['none', 'none', 'none', 'none'], 'las vacías sólo dejaron su marcador')
-    assert.deepEqual([navegador.creados, navegador.vivos], [9, 9])
+    assert.deepEqual([navegador.creados, navegador.vivos], [1, 1], 'un tramo, un contexto')
     vacias.forEach(id => assert.ok(superficie(engine, id).canvas.isConnected, `el marcador de ${id} guarda su lugar`))
 
-    const tomadas = []
-    for (let i = 0; i < 5; i++) {
-      ociosos.splice(0).forEach(cb => cb({ didTimeout: false, timeRemaining: () => 50 }))
-      tomadas.push(navegador.creados)
-    }
-    assert.deepEqual(tomadas, [10, 11, 12, 13, 13], 'una por rato ocioso')
-    assert.deepEqual([navegador.creados, navegador.vivos, navegador.desalojados], [13, 13, 0])
-    const porZ = engine.surfaces().filter(s => !s.hasContent).sort((a, b) => b.z - a.z)
-    assert.deepEqual(porZ.map(s => s.pane), navegador.contextos.slice(9, 13).map(c => c.pane), 'la de mayor z primero')
-    vacias.filter(id => engine.getLayer(id).kind === 'line').forEach(id =>
-      assert.equal(dibujos(contextoDe(navegador, engine, id)), 0, `${id} no dibuja: no tiene qué`))
+    for (let i = 0; i < 5; i++) ociosos.splice(0).forEach(cb => cb({ didTimeout: false, timeRemaining: () => 50 }))
+    assert.deepEqual([navegador.creados, navegador.vivos, navegador.desalojados], [1, 1, 0], 'los ratos ociosos no toman nada')
+    assert.deepEqual(vacias.map(id => estados(engine)[id]), ['none', 'none', 'none', 'none'], 'vacías: sin armar en su tramo')
     intactos(navegador)
   } finally {
     delete globalThis.requestIdleCallback
@@ -186,7 +183,7 @@ test('T3.2 una capa oculta conserva su contexto: diez alternancias no toman ni s
 /* ── T3.5 · ajenos que dibujan ── */
 
 for (const n of [4, 8, 12]) {
-  test(`T3.5 13 capas + ${n} ajenos que dibujan: caen primero las prescindibles y, sin cupo, las necesarias de menor z`, async () => {
+  test(`T3.5 13 capas + ${n} ajenos que dibujan: caen primero las prescindibles y, sin cupo, las necesarias de menor z`, { skip: POR_CAPA }, async () => {
     const { engine, navegador } = await montar()
     const orden   = necesariasPorZ(engine)
     const vacias  = vaciasDe(engine)
@@ -219,7 +216,7 @@ for (const n of [4, 8, 12]) {
 
 /* ── T3.6 · ajenos que se rehacen al perder ── */
 
-test('T3.6 con ajenos que se rehacen al perder: una rotación, la de menor z queda sin superficie con su señal, y sin bucle', async () => {
+test('T3.6 con ajenos que se rehacen al perder: una rotación, la de menor z queda sin superficie con su señal, y sin bucle', { skip: POR_CAPA }, async () => {
   const { engine, navegador } = await montar()
   const avisos = []
   engine.on('surfacechange', d => avisos.push([d.layerId, d.state]))
@@ -255,7 +252,7 @@ test('T3.6 con ajenos que se rehacen al perder: una rotación, la de menor z que
 
 /* ── T3.7 · dos ventanas, un realm ── */
 
-test('T3.7 un mapa montado por portal en otra ventana comparte el registro: perder una necesaria en uno suelta las vacías del otro', async () => {
+test('T3.7 un mapa montado por portal en otra ventana comparte el registro: perder una necesaria en uno suelta las vacías del otro', { skip: POR_CAPA }, async () => {
   const { map, navegador } = await armarVacio({ crearGl })
   limpiar.push(() => map.remove())
   const segunda = new JSDOM('<!doctype html><html><body></body></html>', { pretendToBeVisual: true })
@@ -288,7 +285,7 @@ test('T3.7 un mapa montado por portal en otra ventana comparte el registro: perd
 
 /* ── T3.8 · invalidateCanvas es una señal de cupo ── */
 
-test('T3.8 invalidateCanvas() vuelve a intentar lo que la saturación dejó sin superficie, y con cupo lo consigue', async () => {
+test('T3.8 invalidateCanvas() vuelve a intentar lo que la saturación dejó sin superficie, y con cupo lo consigue', { skip: POR_CAPA }, async () => {
   const { engine, navegador } = await montar()
   const orden  = necesariasPorZ(engine)
   const ajenos = Array.from({ length: 8 }, () => navegador.ajeno())
@@ -322,6 +319,8 @@ for (const [gesto, abre, cierra] of [
       assert.equal(agendados.size, 0, 'ni agenda cuadros')
       leaflet.fire(cierra)
       cuadro()
+      assert.equal(superficie(engine, id).tramo.surface.state, 'live', 'el contexto del tramo vuelve en el cuadro siguiente')
+      for (let i = 0; i < 20 && estados(engine)[id] !== 'live'; i++) cuadro()   // los miembros, en tandas de ≤ 8 ms
       assert.equal(estados(engine)[id], 'live')
       intactos(navegador)
     })
@@ -353,7 +352,7 @@ test('quitar un mapa en pleno gesto cierra su gesto: los otros mapas del realm r
 
 /* ── Quitar en cada estado de la política ── */
 
-test('quitar una capa sin superficie por saturación, o una vacía que esperaba su rato ocioso, no toma nada', async () => {
+test('quitar una capa sin superficie por saturación, o una vacía que esperaba su rato ocioso, no toma nada', { skip: POR_CAPA }, async () => {
   const ociosos = []
   await esperar(20)
   globalThis.requestIdleCallback = cb => ociosos.push(cb)
@@ -391,7 +390,7 @@ test('R1: tras un reinicio de la GPU, los datos de tres capas de líneas en un m
   await asentar(engine)
   cuadros()
   const vivas = navegador.contextos.filter(c => c.estado === 'vivo')
-  assert.equal(vivas.length, 3)
+  assert.equal(vivas.length, 1, 'las tres líneas forman un tramo')
   vivas.forEach(c => navegador.desalojar(c))           // reinicio de la GPU
   navegador.vaciar()
   assert.deepEqual(Object.values(estados(engine)), ['lost', 'lost', 'lost'])
@@ -405,15 +404,15 @@ test('R1: tras un reinicio de la GPU, los datos de tres capas de líneas en un m
   await esperar(60)
   assert.ok(antes >= 0 && despues >= 0)
   assert.equal(despues - antes, 0, 'el dato no adelanta a la recuperación, que va de a una por cuadro')
-  for (let i = 0; i < 3; i++) {
-    const creados = navegador.creados
-    cuadro()
-    assert.equal(navegador.creados, creados + 1, `el cuadro ${i + 1} de la política toma una`)
-  }
+  const creados = navegador.creados
+  cuadro()
+  assert.equal(navegador.creados, creados + 1, 'el cuadro de la política toma el del tramo')
+  for (let i = 0; i < 20 && Object.values(estados(engine)).some(e => e !== 'live'); i++) cuadro()   // tandas de ≤ 8 ms
   assert.deepEqual(Object.values(estados(engine)), ['live', 'live', 'live'])
+  assert.equal(navegador.creados, creados + 1, 'las tres sobre ese contexto')
 })
 
-test('R4: habilitar el host de vehículos tras una presión que soltó sus capas toma un contexto en el clic y las demás en los cuadros siguientes', async () => {
+test('R4: habilitar el host de vehículos tras una presión que soltó sus capas toma un contexto en el clic y las demás en los cuadros siguientes', { skip: POR_CAPA }, async () => {
   const { engine, navegador } = await montar()
   engine.setLayerEnabled('veh', false)
   asentarCuadros(navegador)
@@ -431,7 +430,7 @@ test('R4: habilitar el host de vehículos tras una presión que soltó sus capas
   intactos(navegador)
 })
 
-test('R4: mostrar una capa que la presión soltó no lanza aunque el navegador ya no dé WebGL', async () => {
+test('R4: mostrar una capa que la presión soltó no lanza aunque el navegador ya no dé WebGL', { skip: POR_CAPA }, async () => {
   const { engine, navegador } = await montar()
   engine.setLayerVisibility('lugares', false)
   asentarCuadros(navegador)
@@ -470,7 +469,7 @@ test('R5: el registro del realm no vuelve a tomar contextos para un mapa cuya ve
   await asentar(otro.engine)
   cuadros()
   const enB = () => navegador.contextos.filter(c => c.estado === 'vivo' && c.paneEl?.ownerDocument === docB)
-  assert.equal(enB().length, 3)
+  assert.equal(enB().length, 1, 'las tres líneas de B forman un tramo: un contexto')
 
   // En Chromium el documento de una ventana cerrada queda sin ventana con sus nodos colgados (sin disconnectedCallback); jsdom
   // los desconectaría en close(), así que se simula: sin `defaultView`, y el proceso suelta sus contextos.

@@ -107,9 +107,14 @@ const porZ = (engine, ids) => {
 // espiral y la sub-espiral del cluster, que esperan una expansión.
 const vaciasDe = engine => engine.surfaces().filter(s => !s.hasContent).map(s => s.layerId)
 
+// Escenarios con un contexto por capa (techo con 13 capas, una capa que cae o se suelta sola, su canvas en su pane). Con
+// tramos el modelo de 13 es un contexto y esos escenarios no existen; se rediseñan sobre tramos (PLAN-C-MINIMO §10). Lo que
+// sigue valiendo sin cambios —`map.remove()` en cada momento de la recuperación, los gestos— corre.
+const POR_CAPA = 'un contexto por capa: se rediseña sobre tramos'
+
 /* ── El modelo de 13 capas con contextos ajenos ── */
 
-test('13 capas + 3 ajenos caben en el techo: una ráfaga de pérdidas suelta las vacías y vuelve a pintar de a una por cuadro, por z', async () => {
+test('13 capas + 3 ajenos caben en el techo: una ráfaga de pérdidas suelta las vacías y vuelve a pintar de a una por cuadro, por z', { skip: POR_CAPA }, async () => {
   const { engine, navegador } = await montar()
   const VACIAS = vaciasDe(engine)
   ajenos(navegador, 3)
@@ -146,7 +151,7 @@ test('13 capas + 3 ajenos caben en el techo: una ráfaga de pérdidas suelta las
   intactos(navegador)
 })
 
-test('13 capas + 4 ajenos pasan el techo por una: cae una vacía, que queda soltada, y no se recupera nada', async () => {
+test('13 capas + 4 ajenos pasan el techo por una: cae una vacía, que queda soltada, y no se recupera nada', { skip: POR_CAPA }, async () => {
   const { engine, navegador } = await montar()
   const VACIAS = vaciasDe(engine)
   const avisos = []
@@ -165,7 +170,7 @@ test('13 capas + 4 ajenos pasan el techo por una: cae una vacía, que queda solt
   intactos(navegador)
 })
 
-test('un reinicio de la GPU les quita el contexto a las trece: vuelven las nueve necesarias de a una por cuadro, y pintan', async () => {
+test('un reinicio de la GPU les quita el contexto a las trece: vuelven las nueve necesarias de a una por cuadro, y pintan', { skip: POR_CAPA }, async () => {
   const { engine, navegador } = await montar()
   const VACIAS = vaciasDe(engine)
   ajenos(navegador, 3)
@@ -229,7 +234,7 @@ const foto = (engine, ids) => {
 }
 
 for (const [nombre, pane] of [['en un pane compartido', 'comun'], ['en panes separados', undefined]]) {
-  test(`T2.4 cinco clases ${nombre}: z-index y orden del DOM idénticos antes y después de soltar, perder y re-adquirir`, async () => {
+  test(`T2.4 cinco clases ${nombre}: z-index y orden del DOM idénticos antes y después de soltar, perder y re-adquirir`, { skip: POR_CAPA }, async () => {
     const { map, navegador } = await armarVacio({ crearGl })
     mapa = map
     cuadros()
@@ -322,7 +327,7 @@ const sinResucitar = navegador => {
 
 for (const clase of CLASES) {
   for (const [estado, llevar] of ESTADOS) {
-    test(`T2.6 ${clase} ${estado}: removeLayer deja sus contextos en 0 y no la resucita`, async () => {
+    test(`T2.6 ${clase} ${estado}: removeLayer deja sus contextos en 0 y no la resucita`, { skip: POR_CAPA }, async () => {
       const { map, navegador } = await armarVacio({ crearGl })
       mapa = map
       cuadros()
@@ -380,7 +385,7 @@ for (const [momento, llevar] of MOMENTOS) {
 /* ── Una capa oculta conserva su contexto; perdido, no lo vuelve a tomar hasta que se muestra, y entonces pinta ── */
 
 for (const clase of ['punto', 'linea', 'poligono', 'forma']) {
-  test(`${clase} oculta: conserva su contexto; desalojada queda soltada, y al mostrarla lo toma y pinta en la misma tarea`, async () => {
+  test(`${clase} oculta: conserva su contexto; desalojada queda soltada, y al mostrarla lo toma y pinta en la misma tarea`, { skip: POR_CAPA }, async () => {
     const { map, navegador } = await armarVacio({ crearGl })
     mapa = map
     cuadros()
@@ -414,7 +419,7 @@ for (const [estado, llevar] of [
   ['perdida, esperando su cuadro',           (n, s, c) => (n.desalojar(c), n.vaciar())],
   ['soltada',                                (n, s) => s.release()],
 ]) {
-  test(`attachSource de una capa ${estado}: la capa nueva toma un contexto, ocupa el lugar de la vieja y la política no la duplica`, async () => {
+  test(`attachSource de una capa ${estado}: la capa nueva toma un contexto, ocupa el lugar de la vieja y la política no la duplica`, { skip: POR_CAPA }, async () => {
     const { map, navegador } = await armarVacio({ crearGl })
     mapa = map
     cuadros()

@@ -4,9 +4,34 @@
 > [MODELO §17 / §17.5](../MODELO.md) (los dos paths de render). Consume el [Atlas](./atlas.md) +
 > [IconSet](./icons.md) (residencia GPU vía `GpuAtlasBinding`) y un [Source](./data.md).
 
-`PointLayer` dibuja miles de puntos sobre WebGL con un VBO propio, en una superficie propia
-(`EditSurface`), con los shaders de la casa (atlas de iconos, rotación, picking por color) y un **path
-incremental [0-alloc]** para mover/recolorear un punto sin reconstruir el buffer.
+`PointLayer` dibuja miles de puntos sobre WebGL con un VBO propio, en la superficie que le da el motor
+—la de su tramo, o una `EditSurface` propia si se construye suelta—, con los shaders de la casa (atlas de
+iconos, rotación, picking por color) y un **path incremental [0-alloc]** para mover/recolorear un punto
+sin reconstruir el buffer.
+
+---
+
+## Tramos: lo que cambia al depurar
+
+Las capas de puntos, líneas y polígonos contiguas en el apilado comparten un contexto WebGL: el de su
+**tramo** ([SPECS §10.1](../SPECS.md)). Cada una dibuja en su propia textura y el tramo las compone en su
+canvas, en la microtarea de la tarea que pintó. No hay API nueva; lo que cambia es dónde mirar:
+
+| Antes | Ahora |
+|---|---|
+| un `<canvas>` con contexto en el pane de cada capa | en el pane de cada capa, un **marcador**: un `<canvas>` sin contexto, con la misma clase y estilo, que guarda su lugar en el apilado |
+| — | un pane `cristae-tramo-<n>` por tramo, sin puntero, justo después del pane de su miembro de menor z, con el único canvas con contexto |
+| `engine.surfaces()`: una fila por capa | igual, con la misma forma; `state` es el del miembro dentro de su tramo |
+| perder un contexto deja en blanco una capa | deja en blanco el tramo entero; vuelven de mayor a menor z, en un canvas nuevo |
+| ocultar o atenuar una capa cambia el CSS de su pane | el pane del marcador sigue cambiando, pero lo que se ve lo decide la composición del tramo |
+
+Contar contextos: `engine.surfaces()` no lo dice (una fila por capa); se cuentan los canvases con
+contexto de los panes `cristae-tramo-*` y de los editores. Un tramo **solo** (una capa en un pane que
+comparte con nodos ajenos) pone su canvas en el pane de la capa, después del marcador, y ahí la
+visibilidad y la opacidad siguen siendo CSS. Los editores conservan su superficie.
+
+Construida suelta, sin la opción interna `surface`, una capa usa `EditSurface`, cuyos `begin()`, `end()`
+y `setOpacity()` no hacen nada: los tests de cada capa no cambian.
 
 ---
 

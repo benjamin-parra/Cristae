@@ -22,13 +22,16 @@ import { MapEngine } from '../../src/engine/MapEngine.js'
 import { adoptLeafletHost } from '../../src/host/LeafletHost.js'
 import { createSource } from '../../src/data/index.js'
 
-// Cada contexto lleva, además del espía del doble, lo que se le dio al uniform `uDim` (el `dim` del foco).
+// Cada contexto lleva, además del espía del doble, lo que se le dio al uniform `uDim` (el `dim` del foco). Los draws
+// que cuenta son los de las capas de puntos: la composición del tramo dibuja un triángulo por miembro y no es un dibujo
+// de la capa.
 const conDim = () => {
   const dims = []
   return new Proxy(makeEditGl(), { get: (t, p) =>
     p === 'dims'               ? dims
     : p === 'getUniformLocation' ? (_programa, nombre) => ({ nombre })
     : p === 'uniform1f'          ? (loc, v) => loc?.nombre === 'uDim' && dims.push(v)
+    : p === 'drawArrays'         ? (mode, first, count) => mode === t.POINTS && t.drawArrays(mode, first, count)
     : t[p] })
 }
 
@@ -83,7 +86,8 @@ test('T1.1 attachSource con la misma source no crea ni libera, y la capa sigue s
   engine.destroy()
 })
 
-test('T1.1 una source distinta sí es un intercambio: se reconstruye y el contexto viejo se devuelve antes de tomar el nuevo', async () => {
+// Con tramos, la capa nueva entra al tramo de la vieja en la misma tarea: el recambio no crea ni devuelve contextos.
+test('T1.1 una source distinta sí es un intercambio: se reconstruye sobre el contexto del tramo, sin tomar otro', async () => {
   const { engine } = await montar()
 
   const antes = navegador.stat()
@@ -92,8 +96,8 @@ test('T1.1 una source distinta sí es un intercambio: se reconstruye y el contex
   const despues = navegador.stat()
 
   assert.notEqual(engine.getLayer('flota').layer, capa)
-  assert.equal(despues.creados - antes.creados, 1)
-  assert.equal(despues.liberados - antes.liberados, 1)
+  assert.equal(despues.creados - antes.creados, 0)
+  assert.equal(despues.liberados - antes.liberados, 0)
   assert.equal(despues.vivos, antes.vivos, 'el recambio no sube el pico')
   assert.equal(despues.desalojados, antes.desalojados)
   engine.destroy()
@@ -122,7 +126,7 @@ test('T1.2 otra source conserva el foco por ítem: los atenuados nacen atenuados
   assert.deepEqual(signos(gl(0)), [1, 1, -1, -1, -1], 'el foco está aplicado en la capa vieja')
 
   engine.attachSource('flota', llena())
-  assert.notEqual(ultimo(), gl(0), 'es la capa nueva')
+  assert.equal(ultimo(), gl(0), 'la capa nueva sube al contexto del tramo de la vieja')
   assert.deepEqual(signos(ultimo()), [1, 1, -1, -1, -1], 'sube los tamaños ya firmados, sin pasar por un cuadro sin atenuar')
   engine.destroy()
 })
