@@ -75,8 +75,13 @@ sin re-propagar. Datos nuevos (`index`) o reconfig invalidan la firma.
    [icons.md](./icons.md).
 4. **La supresión es un set compartido, no una copia.** `clusteredIds` (ref estable) lo observan
    **dos** renderers del host: la capa de puntos (lo omite del buffer GL) y **toda label ligada al
-   host** (no pinta etiquetas flotantes de lo clusterizado). El motor re-filtra las labels en cada
-   recluster — sin esto aparecen labels sin su marcador. Ver [labels.md](./labels.md).
+   host** (no pinta etiquetas flotantes de lo clusterizado), sean `<cristae-label-layer bind-to>` o los
+   rótulos de un `<cristae-labeled>`. El motor re-filtra las labels en cada recluster — sin esto aparecen
+   labels sin su marcador. Ver [labels.md](./labels.md) y [labeled.md](./labeled.md).
+5. **Rótulos de burbujas.** Un `<cristae-labeled>` por fuera del cluster rotula las burbujas, no las hojas
+   sueltas: `textOf` recibe `{ count, leaves }`, y tocar el rótulo expande la burbuja. Reemplaza a la hija
+   `<cristae-label-layer slot="bubble">`, que se retira en 1.0 ([labeled.md](./labeled.md#burbujas)). La
+   hija `slot="bubble"` de puntos, que cambia el ícono, sigue.
 
 ---
 

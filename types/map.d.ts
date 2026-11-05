@@ -335,22 +335,84 @@ export interface LabelStyle {
   text    : string;
   accent  : string;
 }
-/** Painter de etiqueta: recibe el ctx ya preparado y la etiqueta resuelta. */
+/** Caja de un rótulo en px del contenedor. */
+export interface LabelBox { x: number; y: number; w: number; h: number }
+/** Painter de etiqueta: recibe el ctx ya preparado y la etiqueta resuelta. Si devuelve su caja, el rótulo
+ *  de un `<cristae-labeled>` se pica; sin caja dibuja igual, pero no se pica. */
 export type LabelPaint = (
   ctx: CanvasRenderingContext2D,
   point: Point,
   label: Label,
   hovered: boolean,
   style: LabelStyle,
-) => void;
-/** Painter default de etiquetas (inyectable en la label-layer vía `paint`). */
+) => LabelBox | void;
+/** Painter de la píldora: el default de la label-layer, y en `<cristae-labeled>` se pide con
+ *  `paint={drawLabel}`. Devuelve su caja sobre un objeto reusado: se lee en el momento, no se guarda. */
 export function drawLabel(
   ctx: CanvasRenderingContext2D,
   point: Point,
   label: Label,
   hovered: boolean,
   style?: LabelStyle,
-): void;
+): LabelBox;
+
+// ── Rótulos (addLabels / <cristae-labeled>). Ver docs/labeled.md ─────────────
+/** Dónde va el rótulo. `auto` toma la colocación natural de cada capa (docs/labeled.md). */
+export type LabelPlacement   = "auto" | "along" | "center" | "above" | "below" | "right";
+/** Cómo se dibuja: `canvas` acepta cualquier fuente y se curva; `html` acepta cualquier CSS y no se curva. */
+export type LabelRenderer    = "canvas" | "html";
+/** `path` deja el texto siempre del mismo lado del trazo; `auto` lo da vuelta para que se lea derecho. */
+export type LabelOrientation = "auto" | "path";
+
+/** Lo que reciben `textOf` y `htmlOf` por cada burbuja de un `<cristae-cluster>` envuelto. Es un objeto por
+ *  burbuja y por reagrupamiento: no se guarda. */
+export interface ClusterBubble<T = unknown> {
+  /** Cuántos ítems junta: el número que pinta su ícono. */
+  readonly count  : number;
+  /** Los ítems que junta, como los tienen las Source de los hosts. Se resuelven al leerse. */
+  readonly leaves : readonly T[];
+}
+
+/** Lo que se declara, en el elemento y en React. `T` es lo que se rotula: los ítems de las capas
+ *  alcanzadas y `ClusterBubble` por cada cluster envuelto. */
+export interface LabelProps<T = unknown> {
+  /** El contenido. `null` o `''` deja al ítem sin rótulo. Default: el id; sobre una burbuja, su `count`. */
+  textOf?      : (item: T) => string | number | null | undefined;
+  /** El contenido en `html`: un string va por `innerHTML`, un `Node` tal cual. Si está y no hay
+   *  `renderer`, el renderer es `html`. */
+  htmlOf?      : (item: T) => string | Node | null | undefined;
+  /** Default: `html` si hay `htmlOf`; si no, `canvas`. */
+  renderer?    : LabelRenderer;
+  placement?   : LabelPlacement;
+  /** Px entre centros sobre el trazo, > 0. Sólo donde la colocación resuelve a `along`. */
+  repeat?      : number;
+  /** Px desde el ancla de la colocación; positivo hacia arriba para quien lee. Default `0`. */
+  offset?      : number;
+  /** Sólo donde la colocación resuelve a `along`. */
+  orientation? : LabelOrientation;
+  font?        : string;
+  /** Default `#0f172a`. */
+  color?       : string;
+  /** Color del halo; `'none'` lo apaga. Default `#ffffff`. */
+  halo?        : string;
+  /** Sólo `canvas`, con `placement` `auto` o `center`. `drawLabel` da la píldora. */
+  paint?       : LabelPaint;
+  /** Sólo `html`: el nodo recibe el puntero, y un arrastre o un click que nace en él no mueve el mapa. */
+  interactive? : boolean;
+  /** Muestra u oculta los rótulos sin desmontar. Default `true`. */
+  visible?     : boolean;
+}
+
+/** Lo que recibe `update`: `undefined` no cambia nada y `null` vuelve al valor por defecto. */
+export type LabelOptions<T = unknown> = { [K in keyof LabelProps<T>]?: LabelProps<T>[K] | null };
+
+/** Rótulos de un host (retorno de `MapEngine.addLabels`). Son estado del host y mueren con él. */
+export interface LabelsHandle<T = unknown> {
+  /** Lanza TypeError ante una opción inválida, sin cambiar nada. */
+  update(options: LabelOptions<T>): void;
+  /** Idempotente; después de la baja del host no hace nada. */
+  remove(): void;
+}
 
 // ── Tiles (src/tiles/presets.js) ─────────────────────────────────────────────
 export const tilePresets: Record<
@@ -374,6 +436,9 @@ export interface ClusterConfig {
   radius?    : number;
   maxZoom?   : number;
   minPoints? : number;
+  /** Cómo se ven las burbujas: `{ kind: 'point', iconSet, sizeOf }`. La forma `{ kind: 'label', … }`, la
+   *  que arma `<cristae-label-layer slot="bubble">`, está deprecada: el rótulo de las burbujas lo da un
+   *  `<cristae-labeled>` por fuera del cluster. Se retira en 1.0. */
   bubble?    : Record<string, unknown>;
 }
 
@@ -661,45 +726,6 @@ export interface LabelHandle {
   setVisible(visible: boolean): void;
 }
 
-// ── Texto sobre líneas (addLineLabelLayer) — canvas 2D. Ver docs/line-labels.md ──
-export interface LineLabelStyle {
-  /** Dónde va el texto cuando no hay `repeat`. */
-  placement?   : "center" | "start";
-  /** Px entre los centros de las repeticiones, finito y > 0. `null` o ausente: una sola vez. */
-  repeat?      : number | null;
-  /** Px perpendiculares; positivo, a la izquierda del sentido de lectura (arriba). */
-  offset?      : number;
-  /** `auto` da vuelta la colocación para que se lea derecha; `path` sigue el sentido del path. */
-  orientation? : "auto" | "path";
-  /** Grados en (0, 180): la colocación con un giro mayor entre glifos consecutivos se omite. */
-  maxAngle?    : number;
-  font?        : string;
-  color?       : string;
-  halo?        : string;
-  haloWidth?   : number;
-}
-export interface LineLabelLayerConfig<T = unknown> {
-  id         : string;
-  /** Id de la capa de líneas cuyos ítems rotula; queda pendiente hasta que exista. */
-  bindTo?    : string;
-  /** Standalone: sin `accessors`, salen de la Source. */
-  source?    : CristaeSource<T>;
-  accessors? : { idOf: (item: T) => string | number; pathOf: (item: T) => LatLngPath };
-  textOf?    : (item: T) => string;
-  style?     : LineLabelStyle;
-  pane?      : string;
-  z?         : number;
-  visible?   : boolean;
-}
-export interface LineLabelHandle {
-  readonly id: string;
-  setVisible(visible: boolean): boolean;
-  /** Mezcla el parche con el estilo vigente y redibuja en el próximo frame; un `null` vuelve la clave a su
-   *  valor por defecto. Lanza TypeError ante un valor inválido, sin cambiar el estilo. Devuelve el estilo
-   *  resultante. */
-  style(patch: LineLabelStyle): Required<LineLabelStyle>;
-}
-
 // ── Imagen georreferenciada (addImageLayer) — nodo DOM. Ver docs/image-layer.md ──
 export type ImageLayerNode = HTMLImageElement | HTMLCanvasElement | HTMLVideoElement | SVGSVGElement;
 export interface ImageLayerBox { south: number; west: number; north: number; east: number }
@@ -884,8 +910,11 @@ export class MapEngine {
   addPolygonGpuLayer(config: PolygonGpuLayerConfig): PolygonGpuHandle;
   addLineLayer<T>(config: LineLayerConfig<T>): LineHandle<T>;
   addHtmlLayer<T>(config: HtmlLayerConfig<T>): HtmlHandle<T>;
+  /** @deprecated Se retira en 1.0: la reemplaza `<cristae-labeled>` sobre la capa de puntos (docs/labeled.md). */
   addLabelLayer<T>(config: LabelLayerConfig<T>): LabelHandle;
-  addLineLabelLayer<T>(config: LineLabelLayerConfig<T>): LineLabelHandle;
+  /** Rótulos sobre los ítems del host. `null` si el host no es rotulable: un editor, el calor, la imagen o
+   *  una burbuja de rótulo. Las opciones se validan antes del alta (TypeError). */
+  addLabels<T = unknown>(config: LabelProps<T> & { hostId: string }): LabelsHandle<T> | null;
   addImageLayer(config: ImageLayerConfig): ImageLayerHandle;
   addOverlay<T>(config: OverlayConfig<T>): OverlayHandle<T> | null;
   addHighlightOverlay(config: HighlightOverlayConfig): HighlightOverlayHandle | null;
@@ -972,8 +1001,24 @@ export class CristaePolygonLayer extends HTMLElement {}
 export class CristaeShapeLayer extends HTMLElement {}
 export class CristaeLineLayer extends HTMLElement {}
 export class CristaeHtmlLayer extends HTMLElement {}
+/** @deprecated Se retira en 1.0: la reemplaza `<cristae-labeled>` sobre la capa de puntos (docs/labeled.md). */
 export class CristaeLabelLayer extends HTMLElement {}
-export class CristaeLineLabelLayer extends HTMLElement {}
+/** Modificador que rotula lo que produce su hijo directo (docs/labeled.md). */
+export class CristaeLabeled<T = unknown> extends HTMLElement implements LabelProps<T> {
+  textOf?      : LabelProps<T>["textOf"];
+  htmlOf?      : LabelProps<T>["htmlOf"];
+  renderer?    : LabelRenderer;
+  placement?   : LabelPlacement;
+  repeat?      : number;
+  offset?      : number;
+  orientation? : LabelOrientation;
+  font?        : string;
+  color?       : string;
+  halo?        : string;
+  paint?       : LabelPaint;
+  interactive? : boolean;
+  visible?     : boolean;
+}
 export class CristaeImageLayer extends HTMLElement {}
 export class CristaeHeatLayer extends HTMLElement {}
 export class CristaeCluster extends HTMLElement {}

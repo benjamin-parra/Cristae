@@ -36,8 +36,8 @@ import type {
   Label,
   LabelStyle,
   LabelPaint,
-  LineLabelStyle,
-  LineLabelHandle,
+  LabelProps,
+  CristaeLabeled as CristaeLabeledClass,
   ImageLayerNode,
   ImageLayerBox,
   ImageLayerHandle,
@@ -300,6 +300,7 @@ export interface CristaeLineLayerElement<T = unknown> extends HTMLElement { read
 export interface CristaePolygonLayerElement<T = unknown> extends HTMLElement { readonly controls: PolygonHandle<T> | null }
 export interface CristaeShapeLayerElement<T = unknown> extends HTMLElement { readonly controls: ShapeHandle<T> | null }
 export interface CristaeHtmlLayerElement<T = unknown> extends HTMLElement { readonly controls: HtmlHandle<T> | null }
+/** @deprecated Se retira en 1.0: la reemplaza `CristaeLabeled` sobre la capa de puntos (docs/labeled.md). */
 export interface CristaeLabelLayerElement extends HTMLElement { readonly controls: LabelHandle | null }
 
 export interface CristaePointLayerProps<T = unknown> extends CristaeDataLayerProps {
@@ -392,6 +393,7 @@ export type CristaeLabel      = Label
 export type CristaeLabelStyle = LabelStyle
 export type CristaeLabelPaint = LabelPaint
 
+/** @deprecated Se retira en 1.0: la reemplaza `CristaeLabeled` sobre la capa de puntos (docs/labeled.md). */
 export interface CristaeLabelLayerProps<T = unknown> extends CristaeLeafLayerProps {
   /** Id de la capa host cuyos ítems etiqueta (attachment); o standalone con `source`+`accessors`. */
   bindTo?    : string;
@@ -402,32 +404,9 @@ export interface CristaeLabelLayerProps<T = unknown> extends CristaeLeafLayerPro
   style?     : CristaeLabelStyle;
   visible?   : boolean;
 }
+/** @deprecated Se retira en 1.0: la reemplaza `CristaeLabeled` sobre la capa de puntos (docs/labeled.md). */
 export declare function CristaeLabelLayer<T = unknown>(
   props: CristaeLabelLayerProps<T> & RefAttributes<CristaeLabelLayerElement>,
-): ReactElement | null;
-
-// ── Texto sobre líneas (docs/line-labels.md) ────────────────────────────────
-export type CristaeLineLabelStyle = LineLabelStyle
-
-export interface CristaeLineLabelLayerElement extends HTMLElement { readonly controls: LineLabelHandle | null }
-
-/** No se pica: extiende las props de hoja, sin canales de click ni hover. Los atributos sueltos se mezclan
- *  sobre `style` y se aplican en vivo; `textOf`, `source` y `accessors` se leen al montar. */
-export interface CristaeLineLabelLayerProps<T = unknown> extends CristaeLeafLayerProps {
-  bindTo?      : string;
-  source?      : CristaeReadSource<T>;
-  accessors?   : { idOf: (item: T) => string | number; pathOf: (item: T) => LatLngPath };
-  textOf?      : (item: T) => string;
-  style?       : CristaeLineLabelStyle;
-  placement?   : 'center' | 'start';
-  repeat?      : number | null;
-  offset?      : number;
-  orientation? : 'auto' | 'path';
-  maxAngle?    : number;
-  visible?     : boolean;
-}
-export declare function CristaeLineLabelLayer<T = unknown>(
-  props: CristaeLineLabelLayerProps<T> & RefAttributes<CristaeLineLabelLayerElement>,
 ): ReactElement | null;
 
 // ── Imagen georreferenciada (docs/image-layer.md) ───────────────────────────
@@ -622,6 +601,20 @@ export interface CristaeGeodesicProps extends CristaeLayerProps {
   enabled? : boolean;
 }
 export declare function CristaeGeodesic(props: CristaeGeodesicProps): ReactElement | null;
+
+/** El `<cristae-labeled>` vivo, por `ref`. Es un MODIFICADOR: no expone `controls`; sus props se reasignan
+ *  en caliente. */
+export type CristaeLabeledElement<T = unknown> = CristaeLabeledClass<T>
+
+/** `<CristaeLabeled>` rotula lo que produce su hijo directo: las capas que envuelve, o las burbujas de un
+ *  `<CristaeCluster>` (`textOf` recibe `{ count, leaves }`). Para encender y apagar los rótulos va
+ *  `visible`: envolver condicionalmente cambia el padre del host y React lo remonta. */
+export interface CristaeLabeledProps<T = unknown> extends CristaeLayerProps, LabelProps<T> {
+  children : ReactNode;
+}
+export declare function CristaeLabeled<T = unknown>(
+  props: CristaeLabeledProps<T> & RefAttributes<CristaeLabeledElement<T>>,
+): ReactElement | null;
 
 // ── <CristaePopup> ───────────────────────────────────────────────────────────
 

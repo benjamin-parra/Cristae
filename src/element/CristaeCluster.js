@@ -35,6 +35,9 @@ function ensureCenterCss() {
   document.head.appendChild(st)
 }
 
+// La hija `slot="bubble"` de rótulo se retira en 1.0: se avisa una vez por página.
+let bubbleLabelWarned = false
+
 // <cristae-cluster> — MODIFICADOR de la gramática de composición (combine: 'fold').
 // Clusteriza el/los hijo(s) de puntos: los agrupa en UN supercluster (si hay varios, sobre
 // la unión) y los suprime, emitiendo burbujas. Como modificador, compone con `<cristae-overlay>`
@@ -44,7 +47,8 @@ function ensureCenterCss() {
 //     <cristae-overlay><cristae-point-layer id="fleet"/></cristae-overlay>   <!-- badges se ocultan al clusterizar -->
 //   </cristae-cluster>
 //
-// Hija opcional `slot="bubble"` (point o label) = cómo se ven las burbujas. Sin ella → default.
+// Hija opcional `slot="bubble"` (point o label) = cómo se ven las burbujas. Sin ella → default. La de
+// label se retira en 1.0: el rótulo de las burbujas lo da un <cristae-labeled> por fuera del cluster.
 //
 // expandable (default true): click en una burbuja la expande (los puntos del cluster aparecen
 // individualmente); click fuera la colapsa. Desactivar con expandable="false" si el proyecto
@@ -309,10 +313,11 @@ export class CristaeCluster extends CristaeModifierElement {
 
   #bubbleConfig() {
     const b = [...this.children].find(el => el.getAttribute?.('slot') === 'bubble')
-    return !b
-      ? undefined
-      : b.tagName === 'CRISTAE-LABEL-LAYER'
-        ? { kind: 'label', textOf: b.textOf, paint: b.paint, style: b.style }
-        : { kind: 'point', iconSet: b.iconSet, sizeOf: b.sizeOf }
+    if (b?.tagName !== 'CRISTAE-LABEL-LAYER') return b && { kind: 'point', iconSet: b.iconSet, sizeOf: b.sizeOf }
+
+    bubbleLabelWarned || console.warn('[cristae-cluster] <cristae-label-layer slot="bubble"> se retira en 1.0: ' +
+      'el rótulo de las burbujas lo da un <cristae-labeled> por fuera del cluster (docs/labeled.md).')
+    bubbleLabelWarned = true
+    return { kind: 'label', textOf: b.textOf, paint: b.paint, style: b.style }
   }
 }

@@ -7,7 +7,7 @@
 // cablea el montaje. Ver SPECS.md / MODELO.md.
 
 export { defineGrammar } from './grammar.js'
-export { GrammarError, validate, validateSignature } from './validate.js'
+export { GrammarError, validate, validateSignature, reachedKinds } from './validate.js'
 export { reduceModifier, leafUnits, buildUnit } from './reduce.js'
 export { enclosingModifier } from './mounting.js'
 export { grammarChildren, tagName } from './util.js'

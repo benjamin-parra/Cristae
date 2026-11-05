@@ -10,6 +10,7 @@
 // units con `child.cristaeUnits()`.
 
 import { grammarChildren } from './util.js'
+import { eachNearest } from './validate.js'
 
 /**
  * @typedef {Object} Unit
@@ -86,14 +87,19 @@ export function reduceModifier(el, engine, ctx) {
     for (let i = 0; i < us.length; i++) childUnits.push(us[i])
   }
 
+  // `reach: 'nearest'`: los targets son lo que cada hijo directo produce como propio (validate.js); con
+  // 'all', todo lo consumido que sube del subárbol.
   const consumed = new Set(sig.consumes)
-  const targets = childUnits.filter(u => consumed.has(u.kind))
+  const targets  = []
+  sig.reach === 'nearest'
+    ? eachNearest(el, ctx, consumed, (node, kinds) => node.cristaeUnits?.().forEach(u => kinds.includes(u.kind) && targets.push(u)))
+    : childUnits.forEach(u => consumed.has(u.kind) && targets.push(u))
 
   const apply = ctx.applyFor(el.tagName)
   const cfg = el.cristaeConfig ? el.cristaeConfig() : {}
   const combine = COMBINERS[sig.combine]
   const produced = apply && targets.length && combine ? combine(apply, engine, targets, cfg) : []
 
-  const carried = sig.passThrough ? childUnits : childUnits.filter(u => !consumed.has(u.kind))
+  const carried = sig.passThrough ? childUnits : childUnits.filter(u => !targets.includes(u))
   return [...carried, ...produced]
 }

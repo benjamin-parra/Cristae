@@ -43,7 +43,23 @@ Hit = { layerId, kind: 'point'|'polygon'|'line'|'shape'|'html'|'circle', ref, id
 - `id` — id opcional provisto por el resolver; si está, es la clave estable de diffing de hover.
 - `distancePx` — distancia en píxeles del puntero al elemento (0 = dentro). Ausente cuenta como
   `+Infinity` (queda al fondo del desempate).
-- `zIndex` / `order` — z del pane y orden de declaración; definen el desempate top-first.
+- `zIndex` / `order` — z del pane y orden de declaración; definen el desempate top-first. Una parte que
+  trae su propio `zIndex` lo usa en vez del de su capa: es el caso del rótulo, que se dibuja en otro pane
+  (abajo). La identidad (`layerId`, `kind`, `order`) sale siempre de la entrada.
+
+### El rótulo es parte de su ítem
+
+Los rótulos de `<cristae-labeled>` ([`labeled.md`](labeled.md)) no tienen capa propia en el registro. El
+motor envuelve el resolver del host y suma las partes de sus rótulos, que leen el registro del host en el
+momento: un `labeled` que monta después no obliga a registrar de nuevo.
+
+- La parte del rótulo trae el `ref` y el `id` del ítem, `distancePx: 0` y el `zIndex` del pane donde se
+  dibuja. Tocar el nombre de un punto dentro de una geocerca interactiva declarada después abre el punto.
+- Si la capa y su rótulo dan el mismo `id`, queda la parte del rótulo, que está dibujada encima.
+- Se pica contra lo ya colocado, sin asignar: una caja por letra sobre el trazo, el rectángulo del texto en
+  `center`, la caja que devuelve el `paint` o la del nodo en `html`. Durante el zoom animado no hay partes.
+- Sin resolver no hay rótulo que picar: un rótulo no vuelve interactiva una capa que no lo es.
+- Con `renderer="html"` e `interactive`, el nodo recibe el puntero y no aporta partes (abajo).
 
 Las **máscaras de canal** ([`events.js`](../src/events/events.js)) son el otro tipo público:
 
@@ -157,6 +173,11 @@ resuelven sólo si algún participante reconoció el píxel.
   `host.input.suppressDoubleClickZoom` y el mapa no hace zoom.
 - **Fuera de la superficie** (`host.input.onSurface`), en la UI que el anfitrión pone en el contenedor,
   una pulsación no toma handles ni es un click, y el doble click no llega a nadie.
+- **Lo blindado** (`host.surface.shield(node)`, que devuelve con qué deshacerlo) tampoco es superficie, y la
+  pulsación que nace en el nodo no llega al arrastre del anfitrión. Lo usa
+  `<cristae-labeled renderer="html" interactive>`: un botón dentro del rótulo responde y arrastrar desde él
+  no mueve el mapa. El hover del mapa no pasa por `onSurface`, así que el ítem se sigue realzando bajo el
+  puntero.
 - **Salir del contenedor** les llega a todos como `leave()`.
 - **El píxel** de cada evento sale de la caja del contenedor, cacheada con su escala CSS y su borde; se
   relee al entrar el puntero, en cada pulsación y cuando el mapa cambia de tamaño.

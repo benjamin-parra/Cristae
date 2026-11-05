@@ -24,6 +24,8 @@ import { validateSignature } from './validate.js'
  * @property {Arity}    arity         'leaf' | 'wrapper'
  * @property {string=}  bindsTo       productores ligados (label/overlay): kind del host cuyo `suppressed` leen
  * @property {boolean=} passThrough   el wrapper re-emite hacia arriba los hijos consumidos (default true)
+ * @property {'all'|'nearest'=} reach de dónde salen los targets: 'all' (default) = todo el subárbol;
+ *                                    'nearest' = lo que produce como propio cada hijo directo (ver validate.js)
  */
 
 /**

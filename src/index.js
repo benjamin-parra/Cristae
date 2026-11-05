@@ -11,7 +11,6 @@ import { CristaeShapeLayer } from './element/CristaeShapeLayer.js'
 import { CristaeLineLayer } from './element/CristaeLineLayer.js'
 import { CristaeHtmlLayer } from './element/CristaeHtmlLayer.js'
 import { CristaeLabelLayer } from './element/CristaeLabelLayer.js'
-import { CristaeLineLabelLayer } from './element/CristaeLineLabelLayer.js'
 import { CristaeImageLayer } from './element/CristaeImageLayer.js'
 import { CristaeHeatLayer } from './element/CristaeHeatLayer.js'
 import { CristaeEditablePolygon } from './element/CristaeEditablePolygon.js'
@@ -24,6 +23,7 @@ import { CristaeEditableSector } from './element/CristaeEditableSector.js'
 import { CristaeCluster } from './element/CristaeCluster.js'
 import { CristaeOverlay } from './element/CristaeOverlay.js'
 import { CristaeGeodesic } from './element/CristaeGeodesic.js'
+import { CristaeLabeled } from './element/CristaeLabeled.js'
 import { CristaeToolbar } from './element/CristaeToolbar.js'
 import { CristaeScale } from './element/CristaeScale.js'
 import { CristaePopup } from './element/CristaePopup.js'
@@ -37,7 +37,6 @@ grammar.register('cristae-shape-layer', CristaeShapeLayer.cristaeSignature)
 grammar.register('cristae-line-layer', CristaeLineLayer.cristaeSignature)
 grammar.register('cristae-html-layer', CristaeHtmlLayer.cristaeSignature)
 grammar.register('cristae-label-layer', CristaeLabelLayer.cristaeSignature)
-grammar.register('cristae-line-label-layer', CristaeLineLabelLayer.cristaeSignature)
 grammar.register('cristae-image-layer', CristaeImageLayer.cristaeSignature)
 grammar.register('cristae-heat-layer', CristaeHeatLayer.cristaeSignature)
 grammar.register('cristae-editable-polygon', CristaeEditablePolygon.cristaeSignature)
@@ -50,6 +49,7 @@ grammar.register('cristae-editable-sector', CristaeEditableSector.cristaeSignatu
 grammar.register('cristae-cluster', CristaeCluster.cristaeSignature, { apply: CristaeCluster.cristaeApply })
 grammar.register('cristae-overlay', CristaeOverlay.cristaeSignature, { apply: CristaeOverlay.cristaeApply })
 grammar.register('cristae-geodesic', CristaeGeodesic.cristaeSignature, { apply: CristaeGeodesic.cristaeApply })
+grammar.register('cristae-labeled', CristaeLabeled.cristaeSignature, { apply: CristaeLabeled.cristaeApply })
 
 const define = (name, ctor) => !customElements.get(name) && customElements.define(name, ctor)
 
@@ -60,7 +60,6 @@ define('cristae-shape-layer', CristaeShapeLayer)
 define('cristae-line-layer', CristaeLineLayer)
 define('cristae-html-layer', CristaeHtmlLayer)
 define('cristae-label-layer', CristaeLabelLayer)
-define('cristae-line-label-layer', CristaeLineLabelLayer)
 define('cristae-image-layer', CristaeImageLayer)
 define('cristae-heat-layer', CristaeHeatLayer)
 define('cristae-editable-polygon', CristaeEditablePolygon)
@@ -73,6 +72,7 @@ define('cristae-editable-sector', CristaeEditableSector)
 define('cristae-cluster', CristaeCluster)
 define('cristae-overlay', CristaeOverlay)
 define('cristae-geodesic', CristaeGeodesic)
+define('cristae-labeled', CristaeLabeled)
 define('cristae-toolbar', CristaeToolbar)
 define('cristae-scale', CristaeScale)
 define('cristae-popup', CristaePopup)
@@ -95,6 +95,6 @@ export { toParts, sampleAlong } from './geometry/polyline.js'
 export { arc } from './geometry/shape.js'
 export { tilePresets } from './tiles/presets.js'
 export { CristaeMap, CristaePointLayer, CristaePolygonLayer, CristaeShapeLayer, CristaeLineLayer, CristaeHtmlLayer, CristaeLabelLayer, CristaeCluster, CristaeOverlay, CristaeGeodesic, CristaeToolbar, CristaePopup }
-export { CristaeLineLabelLayer, CristaeImageLayer, CristaeHeatLayer, CristaeScale }
+export { CristaeLabeled, CristaeImageLayer, CristaeHeatLayer, CristaeScale }
 export { CristaeEditablePolygon, CristaeEditablePolyline, CristaeEditablePoint, CristaeEditableRectangle }
 export { CristaeEditableCircle, CristaeEditableEllipse, CristaeEditableSector }

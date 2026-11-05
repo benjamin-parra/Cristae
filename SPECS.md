@@ -255,8 +255,8 @@ new MapEngine({ host: adoptLeafletHost(map, { leaflet? }), … }) → engine
 | `addShapeLayer(cfg) → handle` | acción | O(1) | círculos, elipses y sectores en metros (§8.7) |
 | `addEditableLayer(cfg) → handle` | acción | O(1) | editor de una geometría, input controlado (§8.8) |
 | `addCircleLayer(cfg) → handle` | acción | O(1) | `@deprecated`, se retira en 1.0: alias de la capa de formas (§8.7) |
-| `addLabelLayer(cfg) → handle` | acción | O(1) | standalone o `bindTo` |
-| `addLineLabelLayer(cfg) → { id, setVisible, style }` | acción | O(1) | texto sobre líneas, standalone o `bindTo` a una capa de líneas (§19.3) |
+| `addLabelLayer(cfg) → handle` | acción | O(1) | standalone o `bindTo`. `@deprecated`, se retira en 1.0: lo reemplaza `addLabels` (§19.3) |
+| `addLabels({ hostId, ...props }) → { update, remove } \| null` | acción | O(1) + la colocación del host | rótulos sobre los ítems del host; `null` si no se rotula (§19.3) |
 | `addImageLayer(cfg) → { id, setUrl, setImage, setBounds, setCorners, setOpacity, setVisible }` | acción | O(1) | imagen georreferenciada en DOM (§19.1) |
 | `attachSource(id, source)` | acción | O(1) | ruta B/C; interno del setter `.source` de la capa |
 | `removeLayer(id)` / `getLayer(id)` | acción | O(1) | |
@@ -369,7 +369,7 @@ Ejes **comunes a toda capa hoja** (viven en la base, ninguna subclase los declar
 </cristae-point-layer>
 ```
 
-- **label-layer:** standalone (`source` propio) o attachment (`bind-to="<layerId>"`, deriva posiciones + `textOf` del host). `bind-to` resuelve por nombre, orden-independiente.
+- **label-layer:** standalone (`source` propio) o attachment (`bind-to="<layerId>"`, deriva posiciones + `textOf` del host). `bind-to` resuelve por nombre, orden-independiente. **`@deprecated`, se retira en 1.0:** la reemplaza `<cristae-labeled>` sobre la capa de puntos (§19.3), y avisa una vez por página al montarse como capa. La hija `slot="bubble"` de label del cluster también se retira y avisa aparte: el rótulo de las burbujas lo da un `<cristae-labeled>` por fuera del cluster. La de puntos, que cambia el ícono, sigue.
 - **cluster:** `radius/max-zoom/min-points/icon-set` **reactivos en runtime** (reconfig sin recrear la capa). Supercluster: build O(n log n), query O(1) por zoom (no se reescribe — MODELO §13).
 - **Borde eliminado:** `warmup()` de ~278 buckets de cluster → el atlas append-only lo hace innecesario.
 
@@ -489,18 +489,28 @@ Siete elementos —`polygon`, `polyline`, `point`, `rectangle`, `circle`, `ellip
 - **Curva geodésica**: envuelto por `<cristae-geodesic>`, el editor de polilínea o de polígono dibuja cada tramo sobre la geodésica del modelo del mapa; las manijas quedan en los vértices del `value`, que no gana puntos.
 - **Contexto GL**: cada editor toma un contexto WebGL, del techo de ~16 del navegador: se monta uno por vez.
 
-### 8.9 `<cristae-image-layer>`, `<cristae-line-label-layer>`, `<cristae-heat-layer>` y `<cristae-scale>`
+### 8.9 `<cristae-image-layer>`, `<cristae-labeled>`, `<cristae-heat-layer>` y `<cristae-scale>`
 
 Las piezas de paridad con Leaflet. Su contrato está en §19; acá, sólo su lugar en la gramática:
 
 | Elemento | Firma |
 |---|---|
 | `<cristae-image-layer>` | `{ consumes: [], produces: ['image'], combine: null, arity: 'leaf' }` |
-| `<cristae-line-label-layer>` | `{ consumes: [], produces: ['label'], combine: null, arity: 'leaf', bindsTo: 'line' }` |
+| `<cristae-labeled>` | `{ consumes: ['point', 'line', 'polygon', 'shape', 'html', 'bubble'], produces: ['label'], combine: 'map', arity: 'wrapper', reach: 'nearest' }` |
 | `<cristae-heat-layer>` | `{ consumes: [], produces: ['heat'], combine: null, arity: 'leaf' }` |
 | `<cristae-scale>` | sin firma: es UI en una zona del overlay, como `<cristae-toolbar>`, y no una capa |
 
-Ningún modificador consume `image` ni `heat`, así que ninguna de las tres se envuelve (R2).
+Ningún modificador consume `image` ni `heat`, así que la imagen y el calor no se envuelven solos (R2).
+
+- **`reach: 'nearest'`** es un campo opcional de la firma, `'all'` por defecto. Con `'all'` los targets de un
+  wrapper son todo lo consumido que sube de su subárbol, como hasta ahora. Con `'nearest'` salen de cada hijo
+  directo: una hoja aporta sus kinds consumidos; un wrapper aporta los suyos propios (`produces − consumes`)
+  que estén en `consumes`, y si no tiene ninguno es transparente y se mira por dentro. Decide por la firma y
+  no por las units del momento. R2 aplica la misma regla, y `reachedKinds(el, ctx)` la expone para validar
+  antes de montar. Un `reach` fuera de `'all' | 'nearest'` es R4.
+- Por esa regla, `<cristae-labeled>` por fuera de un `<cristae-cluster>` rotula sus burbujas (su kind propio
+  es `bubble`) y no los puntos que el cluster deja pasar; la geodésica, el overlay y otro `labeled` son
+  transparentes.
 
 ---
 
@@ -557,6 +567,7 @@ Hit = { layerId, kind: 'point'|'polygon'|'line'|'shape'|'html'|'circle', ref, id
 - **`zoomlevelschange`, sólo en el motor:** `engine.on('zoomlevelschange', fn)` avisa con `{minZoom, maxZoom}` cada cambio de un tope de `getMinZoom()/getMaxZoom()` (§9) —un límite, o una capa que trae los suyos—. Abrir un tope no mueve la vista, así que no sale `viewportchange`; es para la UI que se deshabilita en los topes, como el zoom de `<cristae-map>`. No tiene evento `cristae:`.
 - **`drawingstart` / `drawingend`, sólo en el motor:** marcan la entrada y la salida del estado de dibujo, no de un trazo, con `{}`. El estado dura mientras algún editor toma la pulsación para dibujar —`draw` en cualquier kind, o `freehand` en `polygon` y `polyline`—, con el criterio de la puerta del puntero y sin mirar el dispositivo: con el mouse en `draw` el mapa sigue paneando, y el estado igual. `drawingstart` sale con el primero que entra, con su capa ya registrada, y `drawingend` con el último que sale, también por `removeLayer`, con la capa ya quitada; `destroy()` no avisa. No tienen evento `cristae:`: `<cristae-map>` las sigue con su indicador (§7.1).
 - **Cursor automático (affordance de interactividad):** el motor pone `cursor:pointer` cuando el puntero cae sobre una feature de una capa interactiva con demanda de **click _u_ hover**, y lo restaura. **No requiere suscribir `cristae:hover`:** una capa clickeable (listener de `cristae:click`) ya muestra el puntero, igual que `.leaflet-interactive` en Leaflet. Para conseguirlo, la sesión de picking de hover (la que sabe si el puntero cae sobre una feature) corre también bajo demanda de click — aunque los EVENTOS `cristae:hover` se sigan emitiendo solo si hay demanda de hover. Implica que un mapa solo-click paga el picking de hover (throttled por `hover-throttle`) por el cursor. El consumidor pide el suyo con `cursor` (§7.1), que gana sobre este y apaga ese picking.
+- **El z de una parte:** un resolver puede devolver una parte con su propio `zIndex`, y el `Hit` lo usa en vez del de la capa; la identidad (`layerId`, `kind`, `order`) sale siempre de la capa. Es el caso del rótulo de `<cristae-labeled>`, que se dibuja en otro pane que su host (§19.3).
 - **Sin `onDisambiguate` en el core:** `click` entrega todos los hits; el popup de desambiguación lo arma el consumidor con el `originalEvent` provisto.
 - **La muestra del puntero es una:** `PointerSample` es el detail de `cristae:pointermove`, el segundo argumento de los canales `pointer:move`, `hover`, `hover:start` y `hover:end` del motor y la entrada de los resolvers de cada capa. Llega congelada: la comparten los handlers y el picking del mismo evento. Un click trae la del píxel donde se soltó. Los canales `click` y `secondary-click` entregan el evento del DOM, nunca el de Leaflet.
 - **El click lo sintetiza el motor:** es la pulsación quieta del botón primario que no tomó un handle de un editor, con la regla en [`docs/interaction.md`](./docs/interaction.md#la-puerta-del-puntero). El `click` que reconoce Leaflet —también el de `map.fire('click')`— no es un click de Cristae.
@@ -1429,16 +1440,16 @@ terreno de la primera.
 
 ---
 
-## 19. Paridad con Leaflet — imagen, escala, texto sobre líneas y calor declarativo
+## 19. Paridad con Leaflet — imagen, escala, rótulos y calor declarativo
 
 > Cuatro piezas que cubren lo que un consumidor de Leaflet pide con `L.imageOverlay`, `L.control.scale`,
 > Leaflet.TextPath y una capa de calor declarativa. Comparten tres reglas: se dibujan en **DOM o canvas
 > 2D**, sin abrir un contexto WebGL (§8.8), no importan Leaflet (usan las facetas del anfitrión,
-> §16.7) y no tienen ruta incremental: dibujan al asentar la vista o con el flush coalescido de la Source,
-> así que §13 les aplica en el dibujo (proyección inlineada, buffers reusados, `safe` en el código del
-> consumidor) y no hay `[0-alloc]` que cumplir. Guías de uso en [`docs/image-layer.md`](./docs/image-layer.md),
-> [`docs/scale.md`](./docs/scale.md), [`docs/line-labels.md`](./docs/line-labels.md) y
-> [`docs/heat.md`](./docs/heat.md).
+> §16.7) y dibujan al asentar la vista o con el flush coalescido de la Source, así que §13 les aplica en el
+> dibujo (proyección inlineada, buffers reusados, `safe` en el código del consumidor). Los rótulos son los
+> únicos con `[0-alloc]`: el repintado de lo ya colocado y su picking (§19.3). Guías de uso en
+> [`docs/image-layer.md`](./docs/image-layer.md), [`docs/scale.md`](./docs/scale.md),
+> [`docs/labeled.md`](./docs/labeled.md) y [`docs/heat.md`](./docs/heat.md).
 
 ### 19.1 Imagen — `addImageLayer` / `<cristae-image-layer>`
 
@@ -1486,33 +1497,62 @@ toca el motor.
   ≤ 0 vale 100.
 - La función de redondeo es interna: el entry no la re-exporta.
 
-### 19.3 Texto sobre líneas — `addLineLabelLayer` / `<cristae-line-label-layer>`
+### 19.3 Rótulos — `addLabels` / `<cristae-labeled>`
 
-Texto que sigue el trazo, equivalente de `polyline.setText` de Leaflet.TextPath. Canvas 2D; se oculta en
-`zoomstart` y redibuja en `moveend zoomend resize`, como `LabelLayer`.
+Texto sobre cada ítem de una capa base: debajo de un punto, a lo largo de una ruta, en el centro de un
+predio. Equivale a `polyline.setText` de Leaflet.TextPath sobre líneas. Reemplaza a `<cristae-label-layer>`
+(§8.3), que se retira en 1.0.
 
-- **Bind:** `bindTo` es el id de una capa de **líneas**: toma su Source, su `idOf` y su `pathOf`. Mientras
-  no exista una capa de líneas con ese id, el alta queda pendiente y se liga cuando aparece. Standalone:
-  `source` y, opcionalmente, `accessors` `{ idOf, pathOf }`. `textOf` (default `String(idOf(item))`),
-  `source` y `accessors` se leen al montar. Como en `<cristae-label-layer>`, la baja del host no suelta la
-  Source ligada, y la visibilidad es independiente de la del host.
-- **Estilo** (`placement`, `repeat`, `offset`, `orientation`, `maxAngle`, `font`, `color`, `halo`,
-  `haloWidth`): en vivo por `handle.style(patch)`, que mezcla, vuelve una clave a su default con `null`,
-  lanza `TypeError` ante un valor inválido sin cambiar nada y devuelve el estilo resultante. En el elemento,
-  los atributos se mezclan sobre la prop `style`.
-- **Colocación:** una función pura, `placeGlyphs(xy, cum, from, n, widths, opts, out) → count`, sobre un
-  buffer de vértices proyectados y su largo acumulado compartidos por todas las partes, que sólo crecen. El
-  centro de cada glifo sale por búsqueda binaria sobre el largo; el ancho, de `measureText` por punto de
-  código, cacheado por fuente. `center` en la mitad de cada parte, `start` en su inicio, `repeat` en
-  `repeat/2 + k·repeat`. Se omite —nunca se desborda— la colocación que no cabe, la que pisaría a la
-  anterior y la que gira entre dos glifos más de `maxAngle` (normalizado a (−180°, 180°]).
-- **Orientación `auto`:** cada colocación decide por la cuerda de su comienzo a su final en px de pantalla:
-  con `dx < 0`, o `dx = 0` y `dy < 0`, se recorre al revés. No usa un promedio de ángulos, que falla cerca
-  de ±180°. El `offset` se mide desde el sentido de lectura: positivo, arriba para quien lee; en una línea
-  que pasa por la vertical, el texto cambia de lado del trazo.
-- **Culling:** se descarta la parte cuya caja proyectada no toca el contenedor más un margen, y la
-  colocación cuyo punto medio queda fuera del contenedor más el ancho del texto.
-- No se pica. Oculta, no pinta.
+- **Modificador `map`** con `reach: 'nearest'` (§8.9): un `addLabels` por capa alcanzada, que es lo que
+  produce el hijo directo. `passThrough` queda en `true`, así que un cluster o una geodésica que envuelvan al
+  `labeled` siguen viendo su capa. El `_handle` es un marcador; las units de rótulo llevan `update` y
+  `remove`, y el elemento alterna sólo las suyas, como `#own` en la geodésica.
+- **Ruta imperativa:** `addLabels({ hostId, ...props })` devuelve `{ update(props), remove() }`, o `null` si el
+  host no es rotulable: un editor, el calor, la imagen o una burbuja de rótulo. No hay id, registro ni pane:
+  los rótulos son estado del host y mueren con él. `update` mezcla como el elemento: `undefined` no cambia y
+  `null` vuelve al valor por defecto. `remove` es idempotente y no hace nada tras la baja del host.
+- **Props:** `textOf`, `htmlOf`, `renderer` (`canvas` | `html`), `placement` (`auto` | `along` | `center` |
+  `above` | `below` | `right`), `repeat`, `offset`, `orientation` (`auto` | `path`), `font`, `color`, `halo`,
+  `paint`, `interactive` y `visible`. Todas en vivo, sin remontar. Un `textOf` o un `paint` nuevos en cada
+  render recalculan los textos y repintan sólo si cambió alguno (se compara la salida, sin `deps`).
+- **Validación en dos momentos.** Lo que depende sólo de las props lanza `TypeError` en `cristaeConfig()`,
+  antes de tocar el motor: `htmlOf` o `interactive` sin `html`, `paint` sin `canvas`, `paint` con un
+  `placement` que no es `auto` ni `center`, `repeat` u `orientation` con un `placement` explícito que no es
+  `along`, `repeat ≤ 0`, `offset` no finito o un valor desconocido. `renderer="gl"` lanza con un mensaje que
+  dice que está pendiente. Lo que depende del hijo —un `placement` que la capa alcanzada no admite— lanza en
+  el montaje antes de reducir, con `reachedKinds`. En caliente se valida todo antes de tocar un host.
+- **Colocación natural (`auto`)**: `below` sobre puntos, HTML y burbujas; `along` sobre líneas; `center`
+  sobre polígonos y formas. Admiten: puntos, HTML y burbujas `center`, `above`, `below`, `right`; líneas
+  `along`, `center`; polígonos `along` (el borde de cada anillo) y `center` (polo de inaccesibilidad del anillo
+  exterior más grande); formas sólo `center`. `offset` se mide desde el ancla, positivo hacia arriba para
+  quien lee. `repeat` y `orientation` se ignoran donde `auto` no resuelve a `along`.
+- **Sobre el trazo** la colocación es la de `placeGlyphs` (`src/render/textPath.js`): grafema a grafema
+  (`Intl.Segmenter`), centro en la mitad de cada parte o `repeat/2 + k·repeat`, omitida si no cabe, pisaría a
+  la anterior o gira más de 45° entre dos grafemas. Con `orientation="auto"` cada colocación se lee de
+  izquierda a derecha según su cuerda en px. Bajo `<cristae-geodesic>`, por dentro o por fuera, el trazo se
+  interpola con la curva del host antes de proyectar, como `LineGpuLayer#pack`.
+- **Renderers.** `canvas`: un canvas 2D por mapa en el plano de rótulos, compartido por todos los hosts, más
+  uno por cluster rotulado sobre sus burbujas; dos pasadas por miembro (halos y después rellenos), estado del
+  contexto fijado por miembro y cada `paint` entre `save` y `restore`; la medida se cachea por fuente y se
+  rehace cuando resuelve `document.fonts.load(font)`. `html`: un nodo por rótulo, estable por id; `htmlOf` se
+  llama otra vez sólo si cambia el hash del ítem; con `along` va en el punto medio, girado según la tangente.
+- **Z: tres planos.** Base (`BASE_Z + orden·10`), rótulos (el canvas compartido y encima los panes `html`) y
+  encima (capas HTML, editores, label-layer, burbujas y espiral). Los rótulos quedan sobre todas las capas
+  base y bajo lo de encima, sin importar el orden de declaración.
+- **Picking.** El rótulo es parte de su ítem: el motor envuelve el resolver del host y suma las partes de
+  sus rótulos, con el `layerId`, `kind`, `ref` e `id` del host, `distancePx: 0` y el `zIndex` del pane donde
+  se dibuja (`resolveHits` usa `part.zIndex ?? entry.zIndex`, §10). Se pica contra lo colocado: una caja por
+  grafema sobre el trazo, el rectángulo del texto en `center`, la caja que devuelve `paint` o la del nodo
+  `html`. Sin resolver del host no hay picking del rótulo. Con `interactive` en `html`, el nodo recibe el
+  puntero por `host.surface.shield(node)` y no aporta partes.
+- **Siguen al host:** visibilidad (`visible` ∧ host visible ∧ host habilitado), supresión del cluster y
+  `where`, foco por capa y por ítem (`'label'` en los `kinds` del foco por capa los atenúa aunque el kind del
+  host no esté) y hover, que se pinta al final.
+- **Burbujas:** sobre la capa de burbujas de un cluster, `textOf` y `htmlOf` reciben `{ count, leaves }`;
+  `leaves` se resuelve al leerse. El `textOf` por defecto es `String(count)`. Tocar el rótulo expande la
+  burbuja.
+- **`[0-alloc]`:** el repintado de un miembro ya colocado (un tick ajeno, el hover, el foco) no llama
+  `textOf` ni coloca, y `hitsAt` reusa su salida y sus partes. Recolocar por datos o por vista puede asignar.
 
 ### 19.4 Calor declarativo — `<cristae-heat-layer>`
 
@@ -1533,7 +1573,8 @@ por referencia. No se pica.
 | `test/render/image-layer.test.mjs`, `test/engine/image-layer.test.mjs`, `test/element/image-layer.test.mjs` | exclusiones y `TypeError` sin tocar lo visible, antimeridiano, carga y URL descartada, destroy en carga, nodo propio devuelto, picking dentro del cuadrilátero, pane desmontado si el alta lanza, montaje diferido del elemento |
 | `test/element/scale.test.mjs` | redondeo 1-2-3-5 y un barrido al azar con semilla fija (rótulo, ancho, proporción); sobre el Leaflet real, el ecuador contra 2πR·w/(256·2^z) y la latitud 60 a la mitad; re-enganche en `cristae:ready` |
 | `test/render/text-path.test.mjs` | propiedades con semilla fija: derecho con `auto`, invertir el path o trasladarlo da lo mismo, ninguna colocación desborda ni pisa, ningún glifo escrito más allá de `count` |
-| `test/render/line-label-layer.test.mjs`, `test/engine/line-label.test.mjs`, `test/element/line-label-layer.test.mjs` | estilo en vivo e inválido, bind pendiente y a una capa que no es de líneas, oculta no pinta, atributos sobre `style` |
+| `test/element/labeled.test.mjs`, `test/grammar-reach.test.mjs` | qué rotula cada árbol (cluster por dentro y por fuera, geodésica, overlay y `labeled` anidados), R2 con el calor solo, los `TypeError` en sus dos momentos sin tocar el motor, `textOf` nuevo sin remontar, `visible="false"`, `renderer` sin tapar `render()`, los avisos de retiro; sin `reach`, cluster, overlay y geodésica reducen como antes |
+| `test/render/label-*.test.mjs`, `test/engine/labels*.test.mjs` | colocación, medida por grafema, canvas compartido, `html`, picking por glifo y `[0-alloc]` (piezas A, B y C del diseño) |
 | `test/element/heat-layer.test.mjs`, `test/engine/heat-visible.test.mjs`, el caso final de `test/render/heat-layer.test.mjs` | reenvío de cada prop al handle, alta oculta que no colorea ante un flush, repintado al volver |
 
 ### 19.6 Bordes y límites
@@ -1543,8 +1584,9 @@ por referencia. No se pica.
 | imagen en EPSG:4326 | se estira en Mercator; no se reproyecta |
 | imagen pasado ±85,0511 | se aplasta en el borde |
 | `corners` con zoom animado | la transición del `matrix3d` puede ondular 250 ms; con la política por defecto no hay transición |
-| texto bajo `<cristae-geodesic>` | sigue los vértices de `pathOf` (la cuerda), no la curva dibujada |
-| texto RTL o con ligaduras | glifo por glifo: sólo se garantiza LTR sin ligaduras |
-| textos superpuestos | sin colisión entre etiquetas |
-| fuente web tardía | se remide al resolverse `document.fonts.ready`, una vez |
+| rótulo `along` en `canvas`, RTL, ligaduras o kerning | grafema a grafema: se pierden; `center` y `html` no tienen el problema |
+| rótulos superpuestos | sin colisión entre rótulos, ni entre dos `labeled` con el mismo `offset` |
+| fuente web tardía | se remide cuando resuelve `document.fonts.load` de esa `font` |
+| rótulo sobre un editor | no en esta versión: `addLabels` devuelve `null` y el elemento avisa una vez por editor |
+| `renderer="gl"` | pendiente: lanza `TypeError` |
 | escala bajo 1 m | sigue en decimales |

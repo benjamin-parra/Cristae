@@ -19,18 +19,35 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   `L.control.scale`: va en una zona del overlay por `slot`, mide con el `model` del mapa y sigue el paneo.
   Bajo 1 m sigue en decimales en vez de subir a 1 m como Leaflet. Ver [`docs/scale.md`](docs/scale.md).
   *Migración*: ninguna.
-- **Texto sobre líneas.** `engine.addLineLabelLayer`, `<cristae-line-label-layer>` y
-  `<CristaeLineLabelLayer>` dibujan un texto que sigue el trazo de una línea, centrado, al inicio o
-  repetido, con desplazamiento perpendicular y siempre derecho para quien lee. Se liga a una capa de líneas
-  con `bind-to` o usa una Source propia; el estilo va en vivo por `handle.style(patch)`. Equivale a
-  `polyline.setText` de Leaflet.TextPath. Canvas 2D, sin contexto WebGL, y no se pica. Ver
-  [`docs/line-labels.md`](docs/line-labels.md).
+- **Rótulos.** `<cristae-labeled>`, `<CristaeLabeled>` y `engine.addLabels` ponen un texto sobre cada ítem
+  de la capa que envuelven: debajo de un punto, a lo largo de una ruta (también siguiendo la curva de
+  `<cristae-geodesic>`) o en el centro de un polígono. Es un modificador: rotula lo que produce su hijo
+  directo, así que por fuera de un `<cristae-cluster>` rotula las burbujas, con `textOf` sobre
+  `{ count, leaves }`. Sigue la visibilidad, el foco y el cluster de su capa y muere con ella; tocar el rótulo
+  es tocar el ítem, así que `<cristae-popup for>` no cambia. Se dibuja en `canvas` (un canvas por mapa) o en
+  `html` (`htmlOf`, con `interactive` para que el nodo reciba el puntero). Equivale a `polyline.setText` de
+  Leaflet.TextPath. Ver [`docs/labeled.md`](docs/labeled.md).
   *Migración*: ninguna.
+- **`reach` en la firma de la gramática.** Con `reach: 'nearest'` un wrapper toma sus targets de lo que cada
+  hijo directo produce como propio; `reachedKinds` lo expone en `cristae/grammar`. Sin el campo, la reducción
+  no cambia.
+  *Migración*: ninguna.
+- **`drawLabel` devuelve su caja** `{ x, y, w, h }`, y `LabelPaint` admite devolverla: el rótulo de un pintor
+  que la devuelve se pica.
+  *Migración*: ninguna; un pintor que no devuelve nada sigue dibujando.
 - **Elemento y componente React de la capa de calor.** `<cristae-heat-layer>` y `<CristaeHeatLayer>`
   declaran la capa de `engine.addHeatLayer`: `data`, `source`, `accessors` y `colorRamp` como props;
   `radius`, `blur`, `intensity` y `visible` como atributos. Todo salvo `source` y `accessors` se aplica en
   vivo. No se pica. Ver [`docs/heat.md`](docs/heat.md).
   *Migración*: ninguna.
+
+### Deprecado
+- **`<cristae-label-layer>`, `<CristaeLabelLayer>`, `addLabelLayer` y la hija `slot="bubble"` de label del
+  cluster.** Siguen funcionando y se retiran en 1.0; al montarse avisan una vez por página.
+  *Migración*: envolver la capa en `<cristae-labeled>` en vez de `bind-to`; la píldora se pide con
+  `paint={drawLabel}`, porque el aspecto por defecto pasa a texto con halo; el rótulo de las burbujas va en un
+  `<cristae-labeled>` por fuera del cluster. La equivalencia está en
+  [`docs/labels.md`](docs/labels.md#retiro-en-10).
 
 ### Corregido
 - **La capa de calor oculta ya no pinta.** Ocultarla sólo ocultaba su pane, y cada cambio de la Source

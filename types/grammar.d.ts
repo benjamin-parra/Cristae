@@ -7,6 +7,7 @@
 /** `'fold'` = un apply sobre TODOS los targets; `'map'` = uno por target; `null` = hoja. */
 export type GrammarCombine = "fold" | "map" | null
 export type GrammarArity   = "leaf" | "wrapper"
+export type GrammarReach   = "all" | "nearest"
 
 export interface GrammarSignature {
   /** Kinds que el nodo transforma de sus hijos; `[]` (u omitido) ⇒ hoja. */
@@ -19,6 +20,10 @@ export interface GrammarSignature {
   bindsTo?     : string;
   /** El wrapper re-emite hacia arriba los hijos consumidos (default `true`). */
   passThrough? : boolean;
+  /** De dónde salen los targets de un wrapper. `'all'` (default): todo lo consumido que sube del
+   *  subárbol. `'nearest'`: lo que cada hijo directo produce como propio (`produces − consumes`); un
+   *  wrapper sin kinds propios consumidos es transparente y se mira por dentro. */
+  reach?       : GrammarReach;
 }
 
 // ── Units (src/grammar/reduce.js) ───────────────────────────────────────────
@@ -94,6 +99,16 @@ export function validate(
     mode         : "throw" | "warn";
   },
 ): boolean;
+
+/** Kinds de `consumes` que alcanza el wrapper `el` según su `reach`. Con `'all'` también valida el
+ *  subárbol de cada hijo (lanza `GrammarError`). */
+export function reachedKinds(
+  el: Element,
+  ctx: {
+    signatureFor : (tag: string) => GrammarSignature | null;
+    isRegistered : (tag: string) => boolean;
+  },
+): Set<string>;
 
 // ── Reducción (src/grammar/reduce.js) ───────────────────────────────────────
 /** Unit a partir de la capa montada. `suppressed` es un getter → siempre la ref viva. */

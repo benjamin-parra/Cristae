@@ -46,7 +46,22 @@ export function validateSignature(tag, sig, KINDS) {
     throw new GrammarError('R4', null, `${PFX} <${t}> es hoja: consumes debe ser [] y combine null.`)
   if (sig.arity === 'wrapper' && !(sig.combine === 'fold' || sig.combine === 'map'))
     throw new GrammarError('R4', null, `${PFX} <${t}> es wrapper: combine debe ser 'fold' o 'map'.`)
+  if (sig.reach != null && sig.reach !== 'all' && sig.reach !== 'nearest')
+    throw new GrammarError('R4', null, `${PFX} <${t}> reach inválido '${sig.reach}' (all|nearest).`)
 }
+
+// ── Alcance `reach: 'nearest'` ──
+// Recorre los hijos de gramática de `el`: una hoja aporta sus kinds de `consumed`; un wrapper aporta los
+// suyos propios (`produces − consumes`) que estén en `consumed`, y sin ninguno es transparente y se recorre
+// por dentro. `fn(nodo, kinds)` corre una vez por nodo que aporta. Decide por la firma, no por las units del
+// momento: un cluster apagado sigue aportando `bubble` y no deja ver sus puntos.
+export const eachNearest = (el, ctx, consumed, fn) =>
+  grammarChildren(el, ctx.isRegistered).forEach(child => {
+    const sig   = ctx.signatureFor(child.tagName)
+    const own   = sig.arity === 'leaf' ? sig.produces : sig.produces.filter(k => !sig.consumes.includes(k))
+    const kinds = own.filter(k => consumed.has(k))
+    kinds.length ? fn(child, kinds) : sig.arity === 'wrapper' && eachNearest(child, ctx, consumed, fn)
+  })
 
 // ── Juicio por arity (dispatch por tabla en vez de if/else) ──
 // `produced(node)` bifurca según la arity de la firma: una HOJA no envuelve hijos y
@@ -84,7 +99,8 @@ const juzgarWrapper = (el, ctx, sig, kids) => {
       if (consumed.has(k)) passKinds.add(k)
     }
   }
-  if (passKinds.size === 0)
+  // Con `reach: 'nearest'` R2 mira lo que alcanza la regla; lo que sube hacia el padre no cambia.
+  if ((sig.reach === 'nearest' ? reachedKinds(el, ctx) : passKinds).size === 0)
     throw new GrammarError('R2', el,
       `${PFX} <${tagName(el)}> consume [${sig.consumes.join(',')}] pero ningún hijo lo produce (los hijos producen: [${[...allChildKinds].join(',')}]).`)
 
@@ -104,6 +120,20 @@ function producedOf(el, ctx) {
   const sig = ctx.signatureFor(el.tagName)
   const kids = grammarChildren(el, ctx.isRegistered)
   return JUZGAR[sig.arity](el, ctx, sig, kids)
+}
+
+/**
+ * Kinds de `consumes` que alcanza un wrapper según su `reach`: con `'nearest'`, los de la regla de
+ * `eachNearest`; si no, los que produce el subárbol de cada hijo (y lo valida).
+ * @returns {Set<string>}
+ */
+export function reachedKinds(el, ctx) {
+  const sig      = ctx.signatureFor(el.tagName)
+  const consumed = new Set(sig.consumes)
+  const out      = new Set()
+  if (sig.reach === 'nearest') eachNearest(el, ctx, consumed, (_node, kinds) => kinds.forEach(k => out.add(k)))
+  else grammarChildren(el, ctx.isRegistered).forEach(child => producedOf(child, ctx).forEach(k => consumed.has(k) && out.add(k)))
+  return out
 }
 
 /**

@@ -71,6 +71,7 @@ const GRAMMAR = {
   enclosingModifier: 'function',
   grammarChildren: 'function',
   leafUnits: 'function',
+  reachedKinds: 'function',
   reduceModifier: 'function',
   tagName: 'function',
   validate: 'function',
@@ -100,9 +101,14 @@ test('cristae/core no filtra los internos Store ni Emitter', () => {
   assert.equal('Emitter' in core, false)
 })
 
-test('cristae/grammar expone exactamente las 10 piezas del segmento', () => {
+test('cristae/grammar expone exactamente las 11 piezas del segmento', () => {
   assert.deepEqual(Object.keys(grammar).sort(), Object.keys(GRAMMAR).sort())
   assert.deepEqual(firma(grammar), GRAMMAR)
+})
+
+test('cristae/grammar no filtra el recorrido interno de `reach`', () => {
+  assert.equal(typeof gValidate.eachNearest, 'function')
+  assert.equal('eachNearest' in grammar, false)
 })
 
 // El `typeof` de los goldenes de arriba no puede fallar (todo export del segmento es una
@@ -113,7 +119,7 @@ test('cristae/grammar expone exactamente las 10 piezas del segmento', () => {
 test('cada export de cristae/grammar es la MISMA función que define su módulo', () => {
   const origen = {
     defineGrammar: gGrammar,
-    GrammarError: gValidate, validate: gValidate, validateSignature: gValidate,
+    GrammarError: gValidate, validate: gValidate, validateSignature: gValidate, reachedKinds: gValidate,
     reduceModifier: gReduce, leafUnits: gReduce, buildUnit: gReduce,
     enclosingModifier: gMounting,
     grammarChildren: gUtil, tagName: gUtil,
@@ -281,6 +287,17 @@ test('cristae/map re-exporta distance, sphere, toParts, sampleAlong y arc, sin e
     .map(([, nombres, desde]) => [desde, nombres.split(',').map(n => n.trim()).sort()]))
   assert.deepEqual(reexporta, MAPA_GEOMETRIA)
   assert.doesNotMatch(fuente.replace(/\/\/.*$/gm, ''), /ellipsoid|WGS84|geometry\/index\.js/, 'fuera de los comentarios')
+})
+
+// El entry del mapa se lee como texto por la misma razón: registra <cristae-labeled> y no la capa de texto
+// sobre líneas, que salió de la rama, y las opciones internas de los rótulos no salen por él.
+test('cristae/map registra <cristae-labeled>, sin la capa de texto ni las opciones internas de los rótulos', () => {
+  const fuente = readFileSync(raiz('src/index.js'), 'utf8').replace(/\/\/.*$/gm, '')
+  assert.match(fuente, /grammar\.register\('cristae-labeled', CristaeLabeled\.cristaeSignature, \{ apply: CristaeLabeled\.cristaeApply \}\)/)
+  assert.match(fuente, /define\('cristae-labeled', CristaeLabeled\)/)
+  assert.match(fuente, /^export \{[^}]*\bCristaeLabeled\b[^}]*\}$/m)
+  assert.doesNotMatch(fuente, /line-label|LineLabel/)
+  assert.doesNotMatch(fuente, /labelOptions|mergeLabelOptions|resolvePlacement|LABEL_DEFAULTS|reachedKinds/)
 })
 
 // ── package.json: rutas de exports y sideEffects ──

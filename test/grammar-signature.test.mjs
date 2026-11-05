@@ -1,7 +1,7 @@
-// Contrato de validateSignature — la puerta de entrada del registro (R4). Congela LAS SEIS
+// Contrato de validateSignature — la puerta de entrada del registro (R4). Congela LAS SIETE
 // ramas de rechazo, el orden en que se evalúan (una firma que viola dos reglas reporta
 // siempre la primera) y la forma del error. La rama "kind desconocido" ya la cubre
-// test/grammar.test.mjs; acá están las otras cinco, más el golden de las 19 firmas reales.
+// test/grammar.test.mjs; acá están las otras seis, más el golden de las 19 firmas reales.
 // Corre con: node --test test/grammar-signature.test.mjs
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -35,8 +35,9 @@ const RE_PRODUCES = /debe declarar produces/
 const RE_KIND = /referencia kind desconocido/
 const RE_HOJA = /es hoja: consumes/
 const RE_WRAPPER = /es wrapper: combine/
+const RE_REACH = /reach inválido/
 
-// Ninguna rama puede quedar tapada por otra: los seis mensajes son mutuamente excluyentes.
+// Ninguna rama puede quedar tapada por otra: los siete mensajes son mutuamente excluyentes.
 test('cada rama de rechazo tiene un mensaje propio: ninguna regex matchea el mensaje de otra', () => {
   const RAMAS = [
     [RE_FIRMA, null],
@@ -45,6 +46,7 @@ test('cada rama de rechazo tiene un mensaje propio: ninguna regex matchea el men
     [RE_KIND, { consumes: [], produces: ['punto'], combine: null, arity: 'leaf' }],
     [RE_HOJA, { consumes: ['point'], produces: ['label'], combine: null, arity: 'leaf' }],
     [RE_WRAPPER, { consumes: ['point'], produces: ['overlay'], combine: 'reduce', arity: 'wrapper' }],
+    [RE_REACH, { consumes: ['point'], produces: ['label'], combine: 'map', arity: 'wrapper', reach: 'first' }],
   ]
   for (const [propia, sig] of RAMAS) {
     const msg = capturar(() => validateSignature('cristae-x', sig, KINDS)).message.toLowerCase()
@@ -138,6 +140,15 @@ test('un wrapper puede no consumir nada: consumes [] no es rechazo de firma', ()
   acepta({ consumes: [], produces: ['overlay'], combine: 'map', arity: 'wrapper' })
 })
 
+/* ════════════════ Rama 7 · reach ∈ {all, nearest}, o ausente ════════════════ */
+
+test('reach fuera de {all, nearest} se rechaza; ausente, null, all o nearest se aceptan', () => {
+  for (const reach of ['first', 'NEAREST', '', true, 0])
+    rechaza({ consumes: ['point'], produces: ['label'], combine: 'map', arity: 'wrapper', reach }, RE_REACH)
+  for (const reach of [undefined, null, 'all', 'nearest'])
+    acepta({ consumes: ['point'], produces: ['label'], combine: 'map', arity: 'wrapper', reach })
+})
+
 /* ════════════════ Golden · las 19 firmas reales del entry `map` ════════════════ */
 
 // El golden se LEE de la fuente, no se copia a mano: importar las clases arrastraría lit +
@@ -171,7 +182,6 @@ test('las 19 firmas del entry map son EXACTAMENTE las esperadas (golden leído d
     ['cristae-line-layer', { consumes: [], produces: ['line'], combine: null, arity: 'leaf' }],
     ['cristae-html-layer', { consumes: [], produces: ['html'], combine: null, arity: 'leaf' }],
     ['cristae-label-layer', { consumes: [], produces: ['label'], combine: null, arity: 'leaf', bindsTo: 'point' }],
-    ['cristae-line-label-layer', { consumes: [], produces: ['label'], combine: null, arity: 'leaf', bindsTo: 'line' }],
     ['cristae-image-layer', { consumes: [], produces: ['image'], combine: null, arity: 'leaf' }],
     ['cristae-heat-layer', { consumes: [], produces: ['heat'], combine: null, arity: 'leaf' }],
     ['cristae-editable-polygon', { consumes: [], produces: ['polygon'], combine: null, arity: 'leaf' }],
@@ -184,6 +194,7 @@ test('las 19 firmas del entry map son EXACTAMENTE las esperadas (golden leído d
     ['cristae-cluster', { consumes: ['point'], produces: ['point', 'bubble'], combine: 'fold', arity: 'wrapper' }],
     ['cristae-overlay', { consumes: ['point'], produces: ['overlay'], combine: 'map', arity: 'wrapper', bindsTo: 'point' }],
     ['cristae-geodesic', { consumes: ['line', 'polygon'], produces: ['geodesic'], combine: 'map', arity: 'wrapper' }],
+    ['cristae-labeled', { consumes: ['point', 'line', 'polygon', 'shape', 'html', 'bubble'], produces: ['label'], combine: 'map', arity: 'wrapper', reach: 'nearest' }],
   ]
   assert.deepEqual(firmasDeclaradas(), FIRMAS, 'firma real ≠ golden (tag, orden de registro o campos)')
 })
@@ -204,6 +215,7 @@ test('las 19 firmas reales pasan la validación y entran al registro con su arit
   assert.equal(g.isWrapper('CRISTAE-CLUSTER'), true)
   assert.equal(g.isWrapper('CRISTAE-OVERLAY'), true)
   assert.equal(g.isWrapper('CRISTAE-GEODESIC'), true)
+  assert.equal(g.isWrapper('CRISTAE-LABELED'), true)
   assert.equal(g.isLeaf('CRISTAE-POINT-LAYER'), true)
   assert.equal(g.isWrapper('CRISTAE-POINT-LAYER'), false)
 })

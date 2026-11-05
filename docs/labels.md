@@ -3,6 +3,11 @@
 > Pieza de [Cristae](../MODELO.md). Implementa [SPECS §8.3](../SPECS.md) (label-layer). Capa de
 > presentación pura: posiciona etiquetas sobre el mapa; no resuelve hits ni conoce el dominio.
 
+> **`<cristae-label-layer>` y `addLabelLayer` se retiran en 1.0.** Los reemplaza
+> [`<cristae-labeled>`](labeled.md) sobre la capa de puntos. Hasta entonces funcionan sin cambios, y el
+> elemento avisa una vez en consola al montarse. La equivalencia está en
+> [Retiro en 1.0](#retiro-en-10). `LabelLayer` y `drawLabel` se quedan.
+
 `LabelLayer` dibuja etiquetas de texto (píldoras) sobre un canvas montado en la superficie del mapa,
 ancladas a coordenadas geográficas. Una sola capa genérica: el **glifo** lo pinta una función
 inyectable (`paint`), así que el estilo (vehículo, lugar, lo que sea) es del consumidor, no de la capa.
@@ -125,3 +130,24 @@ recluster por **zoom** no cambia los datos (la suscripción a la fuente no dispa
 explícitamente la sincronización de toda label ligada al host cuando la supresión cambia. Al quitar el
 cluster, la supresión se vacía y las labels vuelven a mostrarse completas. Es coordinación del motor:
 la `LabelLayer` sigue siendo presentación pura y no conoce clusters.
+
+---
+
+## Retiro en 1.0
+
+`<cristae-labeled>` envuelve la capa en vez de ligarse por nombre, y sigue su visibilidad, su foco y su
+cluster sin que se declare ([`labeled.md`](labeled.md)).
+
+| Antes | Después |
+| --- | --- |
+| `bind-to="x"` | envolver `x` |
+| `textOf` | `textOf` |
+| `paint` | `paint`, misma firma |
+| píldora por defecto | texto con halo; la píldora con `paint={drawLabel}` (cambio visible) |
+| `<cristae-label-layer slot="bubble">` en el cluster | `<cristae-labeled>` por fuera del cluster; `textOf` recibe `{ count, leaves }` en vez de `count` |
+| `setHovered` | implícito |
+| `visible` | `visible`, que además sigue a la capa |
+| `{cond && <CristaeLabelLayer/>}` | `visible={cond}`; no envolver condicionalmente |
+
+`drawLabel` devuelve la caja de la píldora `{ x, y, w, h }`, sobre un objeto que reusa. Un pintor propio que
+la devuelve deja picar su rótulo en `<cristae-labeled>`; uno que no devuelve nada dibuja igual.

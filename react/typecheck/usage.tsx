@@ -15,7 +15,7 @@ import {
   CristaeLineLayer,
   CristaeShapeLayer,
   CristaeLabelLayer,
-  CristaeLineLabelLayer,
+  CristaeLabeled,
   CristaeImageLayer,
   CristaeHeatLayer,
   CristaeToolbar,
@@ -26,6 +26,7 @@ import {
   type CristaeClusterElement,
   type CristaeDrawingIndicator,
   type CristaeLabelPaint,
+  type CristaeLabeledElement,
   type CristaeMapElement,
   type CristaePointLayerElement,
   type CristaePopupElement,
@@ -33,7 +34,7 @@ import {
   type CristaeTableElement,
   type CristaeViewportChangeDetail,
 } from '@cristae/react'
-import { MapEngine, adoptLeafletHost, arc, createSource, defineSource, defineIconSet, distance, drawLabel, sphere, toParts, type Bounds, type CristaeSource, type LineAccessors, type PointerSample } from 'cristae/map'
+import { MapEngine, adoptLeafletHost, arc, createSource, defineSource, defineIconSet, distance, drawLabel, sphere, toParts, type Bounds, type ClusterBubble, type CristaeSource, type LineAccessors, type PointerSample } from 'cristae/map'
 import { WGS84, boundsOf, boundsPad } from 'cristae/geometry'
 
 interface Movil {
@@ -112,7 +113,7 @@ export const ViaData = () => (
   </CristaeMap>
 )
 
-// Texto sobre una línea ligada, imagen por caja con su carga y click, y campo de calor con la rampa
+// Texto sobre las líneas que envuelve, imagen por caja con su carga y click, y campo de calor con la rampa
 // fuera del render (una función nueva por render rehace la paleta).
 interface Ruta { id: string; nombre: string; path: [number, number][] }
 interface Muestra { id: number; lat: number; lng: number; n: number }
@@ -120,10 +121,14 @@ const rampa = (t: number): [number, number, number, number] => [t, 0, 1 - t, t]
 export const Paridad = () => {
   const imagen = useRef<CristaeImageLayerElement>(null)
   const calor  = useRef<CristaeHeatLayerElement<Muestra>>(null)
+  const texto  = useRef<CristaeLabeledElement<Ruta>>(null)
   return (
     <CristaeMap>
-      <CristaeLineLayer<Ruta> id="rutas" data={[]} accessors={{ idOf: (r) => r.id, pathOf: (r) => r.path }} />
-      <CristaeLineLabelLayer<Ruta> bindTo="rutas" repeat={200} offset={-6} textOf={(r) => r.nombre} />
+      <CristaeLabeled<Ruta> ref={texto} repeat={200} offset={6} orientation="path" textOf={(r) => r.nombre}>
+        <CristaeGeodesic>
+          <CristaeLineLayer<Ruta> id="rutas" data={[]} accessors={{ idOf: (r) => r.id, pathOf: (r) => r.path }} />
+        </CristaeGeodesic>
+      </CristaeLabeled>
       <CristaeImageLayer
         ref={imagen}
         id="radar"
@@ -142,6 +147,7 @@ export const Paridad = () => {
         colorRamp={rampa}
       />
       <button onClick={() => { calor.current?.controls?.setVisible(false); imagen.current?.controls?.setOpacity(0.5) }}>ocultar</button>
+      <button onClick={() => { texto.current && (texto.current.visible = false) }}>sin texto</button>
     </CristaeMap>
   )
 }
@@ -162,6 +168,23 @@ export const ViaSource = () => (
     />
     <CristaeLabelLayer bindTo="fleet" textOf={(m: Movil) => m.patente} paint={paint} style={estilo}
                        pane="cristae-etiquetas" z={620} />
+  </CristaeMap>
+)
+
+// Rótulos: la píldora con `paint={drawLabel}` bajo cada punto suelto, y el conteo bajo cada burbuja. El
+// `labeled` de afuera rotula las burbujas: `textOf` recibe `{ count, leaves }`.
+export const Rotulos = ({ visibles }: { visibles: boolean }) => (
+  <CristaeMap>
+    <CristaeLabeled<ClusterBubble<Movil>> placement="below" textOf={(b) => `${b.count} · ${b.leaves[0]?.patente ?? ''}`}>
+      <CristaeCluster>
+        <CristaeLabeled<Movil> paint={drawLabel} visible={visibles} textOf={(m) => m.patente}>
+          <CristaePointLayer<Movil> id="fleet" data={moviles} accessors={acc} iconSet={iconSet} />
+        </CristaeLabeled>
+      </CristaeCluster>
+    </CristaeLabeled>
+    <CristaeLabeled<Movil> renderer="html" interactive htmlOf={(m) => `<button>${m.patente}</button>`} placement="right">
+      <CristaePointLayer<Movil> id="otros" data={moviles} accessors={acc} iconSet={iconSet} />
+    </CristaeLabeled>
   </CristaeMap>
 )
 
@@ -389,7 +412,13 @@ export const BadSlot = () => <CristaeToolbar slot="arriba" />
 export const BadScaleWidth = () => <CristaeScale maxWidth="100" />
 
 // @ts-expect-error orientation es 'auto' o 'path'
-export const BadLineLabel = () => <CristaeLineLabelLayer bindTo="rutas" orientation="left" />
+export const BadLabeled = () => <CristaeLabeled orientation="left"><CristaeLineLayer id="rutas" /></CristaeLabeled>
+
+// @ts-expect-error `gl` no está entre los renderers
+export const BadRenderer = () => <CristaeLabeled renderer="gl"><CristaeLineLayer id="rutas" /></CristaeLabeled>
+
+// @ts-expect-error sin hijo no hay qué rotular
+export const BadLabeledSinHijo = () => <CristaeLabeled textOf={() => 'x'} />
 
 // el hit de línea sólo expone partIndex/vertexIndex tras discriminar por `kind`.
 export const BadHit = () => (
