@@ -11,8 +11,9 @@ let retirementWarned = false
 // Se retira en 1.0: la reemplaza <cristae-labeled> sobre la capa de puntos (docs/labeled.md).
 export class CristaeLabelLayer extends CristaeLayerElement {
 
-  // Gramática de composición: entidad hoja que produce `label`, ligada a un `point`.
-  static cristaeSignature = { consumes: [], produces: ['label'], combine: null, arity: 'leaf', bindsTo: 'point' }
+  // Gramática de composición: hoja que produce `label`. El ligado a un host lo da el atributo `bind-to`, no
+  // la firma.
+  static cristaeSignature = { role: 'leaf', produces: ['label'] }
 
   static properties = {
     bindTo: { attribute: 'bind-to' },

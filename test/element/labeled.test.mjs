@@ -1,4 +1,4 @@
-// <cristae-labeled>: modificador `map` con `reach: 'nearest'`. Con las firmas REALES registradas por el entry,
+// <cristae-labeled>: decorador, toma el productor más cercano. Con las firmas REALES registradas por el entry,
 // se monta cada árbol de la regla de qué se rotula (docs/labeled.md) y se valida R2 con el calor solo, los
 // TypeError de las props y los del hijo antes de tocar el motor, el cambio en caliente sin remontar,
 // `visible`, que `renderer` no tape el `render()` de Lit y los avisos de retiro. Los hijos son nodos falsos con
@@ -59,11 +59,10 @@ const motor = ({ nulos = [], capas = {} } = {}) => {
 
 const hosts = e => e.altas.map(c => c.hostId)
 
-test('la firma: modificador `map` que alcanza lo que produce el hijo directo', () => {
+test('la firma: decorador que alcanza lo que produce el hijo directo', () => {
   assert.deepEqual(CristaeLabeled.cristaeSignature, {
-    consumes: ['point', 'line', 'polygon', 'shape', 'html', 'bubble'], produces: ['label'], combine: 'map', arity: 'wrapper', reach: 'nearest',
-    passThrough: true,
-  }, 'la capa base sube intacta')
+    role: 'decorate', consumes: ['point', 'line', 'polygon', 'shape', 'html', 'bubble'], produces: ['label'],
+  })
   assert.equal(grammar.isWrapper('cristae-labeled'), true)
 })
 

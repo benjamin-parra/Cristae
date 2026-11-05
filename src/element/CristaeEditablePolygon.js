@@ -2,7 +2,7 @@ import { CristaeEditable } from './CristaeEditable.js'
 
 export class CristaeEditablePolygon extends CristaeEditable {
 
-  static cristaeSignature = { consumes: [], produces: ['polygon'], combine: null, arity: 'leaf' }
+  static cristaeSignature = { role: 'leaf', produces: ['polygon'] }
 
   static kind = 'polygon'
 }

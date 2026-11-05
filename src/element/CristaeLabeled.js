@@ -2,7 +2,8 @@ import { CristaeModifierElement } from './base.js'
 import { boolDefaultOn, boolOff } from './attrs.js'
 import { makeAutoId } from './autoId.js'
 import { grammar } from './composite.js'
-import { buildUnit, grammarChildren, reachedKinds } from '../grammar/index.js'
+import { buildUnit, grammarChildren } from '../grammar/index.js'
+import { reachedKinds } from '../grammar/validate.js'
 import { LABEL_DEFAULTS, mergeLabelOptions, resolvePlacement } from '../render/labelOptions.js'
 
 // Las props que llegan al motor, en el orden de `LabelProps` (types/map.d.ts).
@@ -14,7 +15,7 @@ let seq = 0
 // Editores ya avisados: el aviso sale una vez por editor, no por montaje.
 const warned = new Set()
 
-// <cristae-labeled> — MODIFICADOR de la gramática de composición (combine: 'map', docs/labeled.md).
+// <cristae-labeled> — DECORADOR de la gramática de composición (docs/labeled.md).
 // Rotula lo que produce su hijo directo: las capas base que envuelve, o las burbujas de un
 // <cristae-cluster>. La geodésica, el overlay y otro `labeled` son transparentes.
 //
@@ -25,9 +26,9 @@ const warned = new Set()
 // Los rótulos son estado del host: siguen su visibilidad, su foco y su cluster, y mueren con él.
 export class CristaeLabeled extends CristaeModifierElement {
 
-  // Modificador `map`: un `addLabels` por capa alcanzada. `reach: 'nearest'` toma lo que produce cada hijo
-  // directo, así que por fuera de un cluster rotula las burbujas y no las hojas sueltas.
-  static cristaeSignature = { consumes: ['point', 'line', 'polygon', 'shape', 'html', 'bubble'], produces: ['label'], combine: 'map', arity: 'wrapper', reach: 'nearest' }
+  // Decorador: un `addLabels` por productor más cercano, lo que produce como propio cada hijo directo; por
+  // fuera de un cluster rotula las burbujas y no las hojas sueltas.
+  static cristaeSignature = { role: 'decorate', consumes: ['point', 'line', 'polygon', 'shape', 'html', 'bubble'], produces: ['label'] }
 
   // apply del reductor: los rótulos de cada host, con su alta y su baja en el handle de la unit. Un editor no
   // tiene ítems: `addLabels` devuelve null y se avisa una vez.

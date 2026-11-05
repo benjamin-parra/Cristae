@@ -38,7 +38,7 @@ function ensureCenterCss() {
 // La hija `slot="bubble"` de rótulo se retira en 1.0: se avisa una vez por página.
 let bubbleLabelWarned = false
 
-// <cristae-cluster> — MODIFICADOR de la gramática de composición (combine: 'fold').
+// <cristae-cluster> — AGREGADOR de la gramática de composición: un solo `apply` sobre todos los puntos.
 // Clusteriza el/los hijo(s) de puntos: los agrupa en UN supercluster (si hay varios, sobre
 // la unión) y los suprime, emitiendo burbujas. Como modificador, compone con `<cristae-overlay>`
 // en CUALQUIER orden de anidación — el orden declarativo es la semántica, sin métodos de control:
@@ -55,8 +55,8 @@ let bubbleLabelWarned = false
 // necesita manejar la interacción a mano.
 export class CristaeCluster extends CristaeModifierElement {
 
-  // Modificador `fold`: consume `point`, produce `point` (pass-through, suprimido) + `bubble`.
-  static cristaeSignature = { consumes: ['point'], produces: ['point', 'bubble'], combine: 'fold', arity: 'wrapper' }
+  // Agregador: consume `point` y produce `bubble`; re-emite los `point` (suprimidos los clusterizados).
+  static cristaeSignature = { role: 'aggregate', consumes: ['point'], produces: ['point', 'bubble'] }
 
   // apply del reductor: fold → clusteriza TODOS los targets juntos; devuelve la unit de burbuja.
   static cristaeApply(engine, targets, cfg) {

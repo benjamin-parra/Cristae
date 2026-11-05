@@ -120,5 +120,5 @@ test('el atributo bounds se lee como JSON y cross-origin con guión', () => {
 })
 
 test('la firma es una hoja que produce image', () => {
-  assert.deepEqual(CristaeImageLayer.cristaeSignature, { consumes: [], produces: ['image'], combine: null, arity: 'leaf' })
+  assert.deepEqual(CristaeImageLayer.cristaeSignature, { role: 'leaf', produces: ['image'] })
 })

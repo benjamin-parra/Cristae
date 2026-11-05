@@ -15,7 +15,7 @@ const sourceOf = el => {
 // como `cristae:load` y `cristae:error`.
 export class CristaeImageLayer extends CristaeLayerElement {
 
-  static cristaeSignature = { consumes: [], produces: ['image'], combine: null, arity: 'leaf' }
+  static cristaeSignature = { role: 'leaf', produces: ['image'] }
 
   static properties = {
     url         : {},

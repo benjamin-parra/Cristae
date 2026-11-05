@@ -15,7 +15,7 @@ const LIVE = {
 export class CristaeHeatLayer extends CristaeLayerElement {
 
   // Gramática de composición: entidad hoja que produce `heat`, que ningún modificador consume.
-  static cristaeSignature = { consumes: [], produces: ['heat'], combine: null, arity: 'leaf' }
+  static cristaeSignature = { role: 'leaf', produces: ['heat'] }
 
   static properties = {
     data      : { type: Array },

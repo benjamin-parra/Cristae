@@ -10,7 +10,7 @@ import { makeAutoId } from './autoId.js'
 export class CristaePointLayer extends CristaeLayerElement {
 
   // Gramática de composición: entidad hoja que produce `point`.
-  static cristaeSignature = { consumes: [], produces: ['point'], combine: null, arity: 'leaf' }
+  static cristaeSignature = { role: 'leaf', produces: ['point'] }
 
   static properties = {
     data       : { type: Array },
