@@ -8,16 +8,24 @@
 //
 // La instrumentación se instala antes de importar el bundle: `getContext` envuelto (cuenta cada contexto nuevo, propio o ajeno),
 // los avisos `webglcontextlost`, `surfacechange` del motor, los errores de la página y un contador de cuadros.
+//
+// Con `?preservar=1` el envoltorio pide `preserveDrawingBuffer: true` a todo contexto propio: así `__nav.huella()` puede leer los
+// canvases GL vivos en cualquier momento, sin depender de la tarea en que pintaron. Sirve igual con un canvas por capa que con
+// tramos (un canvas compartido por varias capas, en un pane `cristae-tramo-*`, y un marcador sin contexto en el pane de cada capa).
+// Con `?dibujos=1` cuenta las llamadas de dibujo de los contextos propios según el framebuffer enlazado: al de pantalla
+// (`pantalla`) o a uno propio (`fbo`: el FBO de un miembro de tramo, o el del picking). `__nav.dibujos()` los lee.
 
 const q      = new URLSearchParams(location.search)
 const DIST   = q.get('dist') ?? '/dist/'
+const PRESERVAR = q.get('preservar') === '1'
+const DIBUJOS   = q.get('dibujos') === '1'
 const ESC    = { w: 1200, h: 760 }
 const VISTA  = { lat: -33.45, lng: -70.66, z: 11 }
 const ahora  = () => performance.now()
 const dormir = ms => new Promise(r => setTimeout(r, ms))
 
 // ───────────────────────── instrumentación ─────────────────────────
-const T = { ctx: new Map(), canvas: new WeakMap(), ev: [], errores: [], avisos: [], cuadro: 0, gestos: [] }
+const T = { ctx: new Map(), canvas: new WeakMap(), ev: [], errores: [], avisos: [], cuadro: 0, gestos: [], dibujos: { pantalla: 0, fbo: 0 }, fb: new WeakMap() }
 let   ajeno = false                    // en true mientras se crea un contexto ajeno: el envoltorio de getContext lo rotula
 
 const ev = (k, datos) => T.ev.push({ t: ahora(), f: T.cuadro, k, ...datos })
@@ -25,9 +33,26 @@ const ev = (k, datos) => T.ev.push({ t: ahora(), f: T.cuadro, k, ...datos })
 // Los canvases de un motor montado en la ventana los crea el JS de la página y los cuelga el motor en otro documento.
 const enVentana = canvas => canvas.ownerDocument !== document
 
+// Cada dibujo de un contexto propio va a `pantalla` o a `fbo` según el framebuffer de dibujo enlazado en ese momento.
+const contarDibujos = proto => {
+  const bind = proto.bindFramebuffer
+  proto.bindFramebuffer = function (blanco, fb) {
+    blanco !== this.READ_FRAMEBUFFER && T.fb.set(this, fb)
+    return bind.call(this, blanco, fb)
+  }
+  for (const k of ['drawArrays', 'drawElements', 'drawArraysInstanced', 'drawElementsInstanced']) {
+    const o = proto[k]
+    proto[k] = function (...a) {
+      T.ctx.get(this)?.ajeno === false && T.dibujos[T.fb.get(this) ? 'fbo' : 'pantalla']++
+      return o.apply(this, a)
+    }
+  }
+}
+
 const vigilar = (win, ventana) => {
   const proto = win.HTMLCanvasElement.prototype, original = proto.getContext
   proto.getContext = function (tipo, ...r) {
+    PRESERVAR && !ajeno && /webgl/.test(String(tipo)) && (r[0] = { ...r[0], preserveDrawingBuffer: true })
     const gl = original.call(this, tipo, ...r)
     if (!/webgl/.test(String(tipo))) return gl
     if (!gl) return (ev('ctx-fallo', { ajeno }), gl)
@@ -38,8 +63,10 @@ const vigilar = (win, ventana) => {
     T.canvas.set(canvas, gl)
     ev('ctx', { n, ajeno })
     canvas.addEventListener('webglcontextlost', () => ev('perdido', { n, ajeno: dato.ajeno, ventana: enVentana(canvas) ? 'ventana' : 'principal', pane: canvas.parentElement?.className ?? '?' }))
+    canvas.addEventListener('webglcontextrestored', () => ev('restaurado', { n, ajeno: dato.ajeno }))
     return gl
   }
+  DIBUJOS && contarDibujos(win.WebGL2RenderingContext.prototype)
   win.addEventListener('error', e => T.errores.push(`${ventana}: ${e.message}`))
   win.addEventListener('unhandledrejection', e => T.errores.push(`${ventana}: ${e.reason?.stack ?? e.reason}`))
   for (const [nivel, lista] of [['error', T.errores], ['warn', T.avisos]]) {
@@ -178,6 +205,35 @@ const ajenoNuevo = ({ pingPong = false, tope = 60, cadena = { rehechos: 0, tope:
   return a
 }
 
+// El canvas GL vivo que dibuja una capa: el de su tramo si la capa es miembro de uno (su `surface.canvas` es entonces un
+// marcador sin contexto), si no el suyo; y si la capa no se encuentra en el motor, el canvas con contexto vivo de su pane.
+const vivo     = c => { const gl = c && T.canvas.get(c); return gl && !gl.isContextLost() ? gl : null }
+const canvasDe = (motor, raiz, f) => {
+  const r = motor.getLayer?.(f.layerId), s = (r?.layer ?? r?.editor)?.surface
+  return [s?.tramo?.surface?.canvas, s?.canvas].find(vivo) ?? [...raiz.querySelectorAll(`.leaflet-${f.pane}-pane canvas`)].find(vivo) ?? null
+}
+
+// Orden de apilamiento de dos canvases del mapa: z del pane (hijo de .leaflet-map-pane) y, a igual z, el orden del DOM (que
+// incluye el orden de los panes y el de los nodos dentro de cada uno).
+const paneDe   = c => { let p = c; while (p.parentElement && !p.parentElement.classList.contains('leaflet-map-pane')) p = p.parentElement; return p }
+const zDe      = c => Number(getComputedStyle(paneDe(c)).zIndex) || 0
+const nombreDe = c => paneDe(c).className.replace(/^leaflet-pane leaflet-|-pane$/g, '')   // el nombre del pane, como `surfaces()`
+const antes    = (a, b) => zDe(a) - zDe(b) || (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1)
+
+// Opacidad efectiva por CSS (producto de los ancestros hasta la raíz de sombra), 0 si algo lo oculta.
+const opacidadCss = c => {
+  if (getComputedStyle(c).visibility === 'hidden') return 0
+  let a = 1
+  for (let e = c; e; e = e.parentElement) {
+    const st = getComputedStyle(e)
+    if (st.display === 'none') return 0
+    a *= Number(st.opacity)
+  }
+  return a
+}
+
+const FONDO = [221, 221, 221]          // el de .leaflet-container: lo que se ve donde no hay nada
+
 window.__nav = {
   config: { ESC, VISTA, COLOR },
 
@@ -252,6 +308,129 @@ window.__nav = {
     }).filter(s => s.x >= 0 && s.y >= 0 && s.x < ESC.w && s.y < ESC.h)
   },
 
+  // Los contextos propios vivos (de la instrumentación): cuántos hay, cuántos con su canvas en el documento, y de qué pane.
+  contextosVivos() {
+    const vivos = [...T.ctx.values()].filter(c => !c.ajeno && !c.gl.isContextLost())
+    return {
+      vivos  : vivos.length,
+      enDom  : vivos.filter(c => c.canvas.isConnected).length,
+      detalle: vivos.map(c => ({ n: c.n, pane: c.canvas.isConnected ? nombreDe(c.canvas) : null, w: c.canvas.width, h: c.canvas.height })),
+    }
+  },
+
+  // El color de cada sonda (vista actual), leído de los canvases GL vivos del mapa principal y compuesto como lo hace el
+  // navegador: en orden de apilamiento, «over» premultiplicado, con la opacidad CSS de cada canvas. Sólo GL: etiquetas y HTML
+  // no entran. `rgba` es la composición sobre transparente y `rgb` sobre el fondo del contenedor. Pide `?preservar=1`: sin
+  // eso un canvas ya presentado se lee vacío, y `preservado` lo dice.
+  huella() {
+    const raiz = N.mapa.shadowRoot, cont = N.mapa.getBoundingClientRect()
+    const capas = [...raiz.querySelectorAll('canvas')].filter(c => vivo(c) && c.isConnected).sort(antes)
+      .map(c => ({ c, gl: T.canvas.get(c), a: opacidadCss(c), r: c.getBoundingClientRect(), pane: nombreDe(c) }))
+    const b = new Uint8Array(4)
+    const leer = (k, x, y) => {
+      const { c, gl, r } = k, cx = Math.floor((cont.left + x - r.left) * c.width / r.width), cy = Math.floor((cont.top + y - r.top) * c.height / r.height)
+      if (cx < 0 || cy < 0 || cx >= gl.drawingBufferWidth || cy >= gl.drawingBufferHeight) return null
+      gl.readPixels(cx, gl.drawingBufferHeight - 1 - cy, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, b)
+      const pre = gl.getContextAttributes().premultipliedAlpha ? 1 : b[3] / 255
+      return [b[0] * pre / 255, b[1] * pre / 255, b[2] * pre / 255, b[3] / 255]
+    }
+    const sondas = this.sondas().map(s => {
+      const o = [0, 0, 0, 0], aportan = []
+      for (const k of capas) {
+        const p = k.a > 0 && leer(k, s.x, s.y)
+        if (!p || p[3] === 0) continue
+        const f = 1 - p[3] * k.a
+        for (let i = 0; i < 4; i++) o[i] = p[i] * k.a + o[i] * f
+        aportan.push(k.pane)
+      }
+      const rgba = o.map(v => Math.round(v * 255)), rgb = FONDO.map((v, i) => Math.round((o[i] + v / 255 * (1 - o[3])) * 255))
+      return { capa: s.capa, x: s.x, y: s.y, rgba, rgb, aportan }
+    })
+    return { preservado: capas.every(k => k.gl.getContextAttributes().preserveDrawingBuffer), canvases: capas.map(k => ({ pane: k.pane, opacidad: k.a })), sondas }
+  },
+
+  dibujos: () => ({ ...T.dibujos }),
+
+  // La composición de los canvases GL vivos (orden de apilamiento y opacidad CSS, como huella) sobre el fondo del contenedor,
+  // en PNG. Sin etiquetas ni HTML. Pide `?preservar=1`. Con `nombre`, la guarda por `servir.mjs --salida`.
+  async imagen(nombre) {
+    const raiz = N.mapa.shadowRoot, cont = N.mapa.getBoundingClientRect()
+    const lienzo = Object.assign(document.createElement('canvas'), { width: ESC.w, height: ESC.h }), x = lienzo.getContext('2d')
+    x.fillStyle = hex(FONDO)
+    x.fillRect(0, 0, ESC.w, ESC.h)
+    for (const c of [...raiz.querySelectorAll('canvas')].filter(c => vivo(c) && c.isConnected).sort(antes)) {
+      const r = c.getBoundingClientRect()
+      x.globalAlpha = opacidadCss(c)
+      x.globalAlpha && x.drawImage(c, r.left - cont.left, r.top - cont.top, r.width, r.height)
+    }
+    const png = await new Promise(r => lienzo.toBlob(r, 'image/png'))
+    return nombre ? this.guardar(nombre, png) : png.size
+  },
+
+  // Guarda un json (o un Blob) en la carpeta `--salida` de servir.mjs. Devuelve los bytes escritos, o null sin servidor que guarde.
+  async guardar(nombre, datos) {
+    const r = await fetch(`/guardar/${encodeURIComponent(nombre)}`, { method: 'POST', body: datos instanceof Blob ? datos : JSON.stringify(datos, null, 2) })
+    return r.ok ? Number(await r.text()) : null
+  },
+
+  // El protocolo de verificación de la etapa C (contexto compartido por tramo), igual para la línea base y la rama nueva. Monta
+  // si hace falta y registra: (a) contextos vivos en reposo; (b) la huella; (c) perder el contexto de `perder` (con tramos, el
+  // de su tramo entero): huella en la misma tarea, eventos y huella tras recuperar; (d) ocultar y mostrar `ocultar`; (e)
+  // `focus(foco)` y `unfocusAll()`; (f) errores y avisos de consola. En (d) y (e) cuenta los dibujos (pide `?dibujos=1`).
+  // Con `guardar`, deja el json y las imágenes por servir.mjs con ese prefijo.
+  async protocoloC({ perder = ['lug'], ocultar = 'lug', foco = ['veh'], guardar = '' } = {}) {
+    N.eng || await this.montar()
+    const asentar = async () => { await quieto(300, 3000); await this.cadencia(3) }
+    const img = nombre => guardar ? this.imagen(`${guardar}${nombre}.png`) : null
+    const dif = (a, b) => a.sondas.map((s, i) => ({ capa: s.capa, antes: s.rgb, ahora: b.sondas[i]?.rgb, max: Math.max(...s.rgb.map((v, k) => Math.abs(v - (b.sondas[i]?.rgb[k] ?? -999)))) }))
+    const resumen = d => ({ iguales: d.every(x => x.max === 0), maxCanal: Math.max(...d.map(x => x.max)), distintas: d.filter(x => x.max > 0) })
+    const tramo = async (accion, cuerpo) => { const d0 = this.dibujos(); accion(); await asentar(); const d1 = this.dibujos(); return { ...cuerpo(), dibujos: { pantalla: d1.pantalla - d0.pantalla, fbo: d1.fbo - d0.fbo } } }
+    const R = { url: location.href, dpr: devicePixelRatio, renderer: T.renderer ?? null }
+
+    await quieto(1000, 10_000)
+    R.a = this.contextosVivos()
+    R.b = this.huella()
+    await img('01-inicial')
+
+    // (c) la huella se lee en la misma tarea de la pérdida: `loseContext` deja el contexto perdido al instante
+    const n0 = T.ev.length, viejos = [...T.ctx.values()].filter(c => !c.ajeno && !c.gl.isContextLost())
+    const hechas = this.perder(perder), enBlanco = this.huella(), imgBlanco = img('02-perdida')
+    await imgBlanco
+    await quieto(1200, 15_000)
+    await this.cadencia(3)
+    const evs = T.ev.slice(n0), fin = this.huella()
+    R.c = {
+      pedidas: perder, hechas: [...hechas], contextosPerdidos: hechas.contextos,
+      enBlanco: dif(R.b, enBlanco).filter(x => x.max > 40).map(x => x.capa),
+      eventos: { perdido: evs.filter(e => e.k === 'perdido').length, ctxNuevos: evs.filter(e => e.k === 'ctx' && !e.ajeno).length, restaurado: evs.filter(e => e.k === 'restaurado').length },
+      viejosSiguenPerdidos: viejos.filter(c => c.gl.isContextLost()).length,
+      vivosTras: this.contextosVivos().vivos,
+      huellaFinal: resumen(dif(R.b, fin)),
+    }
+    await img('03-recuperada')
+
+    // (d) ocultar y mostrar
+    R.d = {
+      capa: ocultar,
+      oculta: await tramo(() => N.eng.setLayerVisibility(ocultar, false), () => { const h = this.huella(); return { cambian: dif(R.b, h).filter(x => x.max > 0).map(x => x.capa), huella: h.sondas.map(s => s.rgb) } }),
+    }
+    await img('04-oculta')
+    R.d.vuelta = await tramo(() => N.eng.setLayerVisibility(ocultar, true), () => resumen(dif(R.b, this.huella())))
+
+    // (e) foco
+    let atenuada
+    R.e = { foco, atenuada: await tramo(() => N.eng.focus(foco), () => { atenuada = this.huella(); return { cambian: dif(R.b, atenuada).filter(x => x.max > 0).map(x => x.capa), huella: atenuada.sondas.map(s => s.rgb) } }) }
+    await img('05-foco')
+    R.e.repetido = await tramo(() => N.eng.focus(foco), () => resumen(dif(atenuada, this.huella())))     // contra la atenuada
+    R.e.sinFoco  = await tramo(() => N.eng.unfocusAll(), () => resumen(dif(R.b, this.huella())))
+
+    // (f) consola
+    R.f = { errores: [...T.errores], avisos: [...T.avisos] }
+    R.reposoFinal = this.contextosVivos().vivos
+    guardar && await this.guardar(`${guardar}protocolo-c.json`, R)
+    return R
+  },
+
   paneSnapshot: () => JSON.stringify(instantaneaPanes(N.mapa.shadowRoot)),
   paneSnapshotVentana: () => JSON.stringify(instantaneaPanes(N.ventana.document.querySelector('#mapa-v'))),
 
@@ -273,16 +452,19 @@ window.__nav = {
   },
   pingPong: () => N.cadenas.map(k => ({ rehechos: k.rehechos, tope: k.tope })),
 
-  // La GPU quita el contexto de estas capas a la vez (un reinicio): `loseContext` sobre el canvas vivo de cada pane.
+  // La GPU quita el contexto de estas capas a la vez (un reinicio): `loseContext` sobre el canvas GL vivo que dibuja cada una,
+  // una vez por contexto. Con tramos ese canvas es el del tramo y no el marcador del pane de la capa: perder una capa pierde a
+  // todos los miembros de su tramo, y `hechas` los lista (sólo los pedidos). `contextos` cuenta los contextos perdidos.
   perder(capas, eng = 'principal') {
     const motor = eng === 'principal' ? N.eng : N.engVentana, raiz = eng === 'principal' ? N.mapa.shadowRoot : N.ventana.document.querySelector('#mapa-v')
-    const hechas = []
+    const hechas = [], gls = new Set()
     for (const f of filas(motor)) {
       if (!capas.includes(f.layerId) || f.state !== 'live') continue
-      const canvas = [...raiz.querySelectorAll(`.leaflet-${f.pane}-pane canvas`)].find(c => { const gl = T.canvas.get(c); return gl && !gl.isContextLost() })
-      const gl = canvas && T.canvas.get(canvas)
-      gl && (gl.getExtension('WEBGL_lose_context').loseContext(), hechas.push(f.layerId))
+      const gl = vivo(canvasDe(motor, raiz, f))
+      gl && (gls.add(gl), hechas.push(f.layerId))
     }
+    gls.forEach(gl => gl.getExtension('WEBGL_lose_context').loseContext())
+    hechas.contextos = gls.size
     return hechas
   },
 
@@ -326,14 +508,21 @@ window.__nav = {
   },
   // Muestra una capa y, en la MISMA tarea, lee su estado y el píxel (x, y) de su canvas: con `preserveDrawingBuffer` apagado el
   // buffer sólo se puede leer antes de que el cuadro se presente, así que un píxel con su color prueba que pintó en esa tarea.
-  mostrarYLeer(capa, x, y) {
+  // Lee después de una microtarea: con tramos la composición corre en la microtarea de la tarea que pintó (sigue siendo la misma
+  // tarea), y el canvas leído es el del tramo, no el marcador de la capa.
+  async mostrarYLeer(capa, x, y) {
     const t0 = ahora()
     N.eng.setLayerVisibility(capa, true)
     const ms = ahora() - t0, f = filas(N.eng).find(r => r.layerId === capa)
-    const canvas = [...N.mapa.shadowRoot.querySelectorAll(`.leaflet-${f.pane}-pane canvas`)].find(c => { const gl = T.canvas.get(c); return gl && !gl.isContextLost() })
-    const gl = canvas && T.canvas.get(canvas)
+    await null
+    const canvas = canvasDe(N.eng, N.mapa.shadowRoot, f), gl = vivo(canvas)
     let pixel = null
-    if (gl) { const b = new Uint8Array(4); gl.readPixels(x, gl.drawingBufferHeight - 1 - y, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, b); pixel = [...b] }
+    if (gl) {
+      const r = canvas.getBoundingClientRect(), c = N.mapa.getBoundingClientRect(), b = new Uint8Array(4)
+      const cx = Math.floor((c.left + x - r.left) * canvas.width / r.width), cy = Math.floor((c.top + y - r.top) * canvas.height / r.height)
+      gl.readPixels(cx, gl.drawingBufferHeight - 1 - cy, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, b)
+      pixel = [...b]
+    }
     return { estado: f.state, pixel, ms }
   },
   setVisible: (id, visible) => N.eng.setLayerVisibility(id, visible),
