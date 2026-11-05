@@ -115,10 +115,16 @@ test('T1.1 una source distinta asignada después sí reemplaza la capa: el recam
   await esperar(40)
   const antes = navegador.stat()
 
+  const vieja = map.engine.getLayer('p').layer
   el.source = fuente(4)
   await esperar(20)
   const despues = navegador.stat()
-  assert.equal(despues.creados - antes.creados, 1, 'una capa nueva')
-  assert.equal(despues.liberados - antes.liberados, 1, 'y la vieja devuelta')
+  const nueva   = map.engine.getLayer('p').layer
+  assert.notEqual(nueva, vieja, 'una capa nueva')
+  assert.equal(nueva.surface.state, 'live', 'que ya tiene contexto')
+  // El recambio es en la misma tarea: la capa nueva entra al tramo de la vieja, que lo conserva (antes, uno creado y uno
+  // devuelto).
+  assert.equal(despues.creados - antes.creados, 0, 'sin getContext')
+  assert.equal(despues.liberados - antes.liberados, 0, 'ni contexto devuelto')
   assert.equal(despues.vivos, antes.vivos)
 })

@@ -32,7 +32,8 @@ const montar = async () => {
   const source = createSource(lineas)
   source.set([{ id: 1, path: [[0, 0], [0, 1]] }])
   el.engine.addLineLayer({ id: 'rutas', source, z: 380 })
-  const canvas = el.engine.getLayer('rutas').layer.surface.canvas
+  // El contexto es del tramo de la capa: su canvas es el que oye la pérdida (el de la capa es un marcador sin contexto).
+  const canvas = el.engine.getLayer('rutas').layer.surface.tramo.surface.canvas
   return { el, eventos, perder: () => canvas.oyentes.webglcontextlost.forEach(fn => fn()) }
 }
 

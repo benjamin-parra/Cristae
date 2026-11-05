@@ -14,6 +14,7 @@ import { LabelLayer } from '../render/LabelLayer.js'
 import { createHighlightOverlay } from '../render/HighlightOverlay.js'
 import { frameTransform } from '../render/frame.js'
 import { glBudget } from '../render/gl-budget.js'
+import { createTramos } from '../render/gl-tramos.js'
 import { createClusterFold } from '../cluster/ClusterFold.js'
 import { defineClusterIconSet } from '../atlas/IconSet.js'
 import { createSource } from '../data/index.js'
@@ -42,6 +43,8 @@ const LABEL_Z_OFFSET = 200
 const BUS_EVENTS = new Set(['click', 'secondary-click', 'hover', 'hover:start', 'hover:end', 'pointer:move'])
 // El detail de `move`: uno compartido, porque sale en cada paso del movimiento.
 const MOVE_DETAIL = Object.freeze({})
+// Estable: el ciclo de render la pasa a cada capa GL en move y zoom sin crear una clausura por evento.
+const resetLayer  = layer => layer.resetCanvasReference()
 
 // Lado del sprite de la burbuja default (px). El radio es `size * 0.42` y el texto escala con `size`,
 // así que esto fija el tamaño visible de toda la burbuja. El consumidor lo cambia con `bubble.sizes`.
@@ -98,6 +101,12 @@ export class MapEngine {
   #bus
   #interaction
   #destroying = false             // teardown del engine en curso → no rebuildear capas ligadas ni emitir viewport
+  // Las capas GL comparten un contexto por tramo de capas contiguas; las demás capas de Cristae declaran su pane como
+  // separador, y la visibilidad, la opacidad y el z de una capa GL se resuelven al componer su tramo.
+  #tramos
+  #separators = new Map()         // capa no GL (o editor) → retira su pane de los separadores del tramo
+  #viewZ      = 0                 // la vista del cuadro de zoom animado, para el recorrido estable de #renderAtView
+  #viewC      = null
 
   #layers             = new Map()      // id → record { kind, source, layer, controls, paneName, order }
   #highlightOverlays  = new Set()      // overlays de interacción (canvas 2D fijo al contenedor) → dispose en destroy
@@ -139,6 +148,7 @@ export class MapEngine {
     // Sin modo explícito queda el del anfitrión: no anima en un mapa propio, y en uno adoptado no se
     // interviene la política de su dueño.
     if (zoomAnimation) this.#host.camera.zoomPolicy = zoomAnimation
+    this.#tramos = createTramos({ host: this.#host })
 
     // La vista que viaja en `viewportchange`, la de la cámara. Sale cuando un movimiento se asienta y
     // cuando cambian los insets, que corren la región visible sin mover la vista; por los insets, sólo
@@ -214,7 +224,7 @@ export class MapEngine {
     // `where`: membresía por-capa (filtra qué ítems de la Source compartida entran a ESTA capa
     // sin mutar la Source). Otras vistas de la misma Source no se ven afectadas.
     const layer = this.#build(paneName, zIndex, () =>
-      this.#trackGl(new PointLayer({ host: this.#host, pane: paneName, source, iconSet: set, interactive, where, visible: visible && enabled })))
+      this.#trackGl(new PointLayer({ host: this.#host, pane: paneName, source, iconSet: set, interactive, where, visible: visible && enabled, surface: this.#tramos.surface })))
 
     // `where`/`enabled` en el record: si esta capa está clusterizada, el cluster indexa `source ∧ where`
     // de los hosts HABILITADOS (no la Source cruda) → cuenta lo que la capa REALMENTE muestra.
@@ -263,7 +273,7 @@ export class MapEngine {
     const controls = geometry || dado ? null : createSource(accessors)
     const source   = geometry ? null : dado ?? controls
     const layer    = this.#build(paneName, zIndex,
-      () => new PolygonGpuLayer({ host: this.#host, pane: paneName, source, geometry, idOf, styleOf, interactive, ...style }))
+      () => new PolygonGpuLayer({ host: this.#host, pane: paneName, source, geometry, idOf, styleOf, interactive, ...style, surface: this.#tramos.surface }))
 
     const record = { kind: 'polygon', source, layer, controls, paneName, zIndex, order, interactive, visible, enabled: true }
     this.#layers.set(id, record)
@@ -309,7 +319,7 @@ export class MapEngine {
     // `controls` = Source que posee el motor (ruta A/data); con `cfg.source` el dueño es el consumidor.
     const controls = cfg.source ? null : createSource(accessors)
     const source   = cfg.source ?? controls
-    const layer = this.#build(paneName, zIndex, () => new LineGpuLayer({ host: this.#host, pane: paneName, source }))
+    const layer = this.#build(paneName, zIndex, () => new LineGpuLayer({ host: this.#host, pane: paneName, source, surface: this.#tramos.surface }))
 
     const record = { kind: 'line', source, layer, controls, paneName, zIndex, order, interactive, visible, enabled: true }
     this.#layers.set(id, record)
@@ -348,7 +358,7 @@ export class MapEngine {
 
     const controls = cfg.source ? null : createSource(accessors)
     const source   = cfg.source ?? controls
-    const layer    = this.#build(paneName, zIndex, () => new HtmlLayer({ host: this.#host, pane: paneName, source, interactive }))
+    const layer    = this.#build(paneName, zIndex, () => new HtmlLayer({ host: this.#host, pane: paneName, source, interactive }), true)
 
     const record = { kind: 'html', source, layer, controls, paneName, zIndex, order, interactive, visible, enabled: true }
     this.#layers.set(id, record)
@@ -390,7 +400,9 @@ export class MapEngine {
     const source   = given ?? controls
     // Se repinta con sus propios moveend/zoomend/resize, así que no va a #glLayers.
     const layer    = this.#build(paneName, zIndex,
-      () => new ShapeLayer({ ...style, host: this.#host, pane: paneName, source, interactive, circle, model: circle ? byDefault : this.#model }))
+      () => new ShapeLayer({
+        ...style, host: this.#host, pane: paneName, source, interactive, circle, model: circle ? byDefault : this.#model, surface: this.#tramos.surface,
+      }))
 
     const record = { kind, source, layer, controls, paneName, zIndex, order, interactive, visible, enabled: true }
     this.#layers.set(id, record)
@@ -420,7 +432,7 @@ export class MapEngine {
     const controls = cfg.source ? null : createSource(accessors)
     const source   = cfg.source ?? controls
     const layer    = this.#build(paneName, zIndex, () =>
-      new HeatLayer({ host: this.#host, pane: paneName, source, radius, blur, intensity, colorRamp }))
+      new HeatLayer({ host: this.#host, pane: paneName, source, radius, blur, intensity, colorRamp }), true)
 
     const record = { kind: 'heat', source, layer, controls, paneName, zIndex, order, interactive: false, visible, enabled: true }
     this.#layers.set(id, record)
@@ -509,7 +521,7 @@ export class MapEngine {
     const order      = this.#order++
     const paneName   = pane ?? `cristae-label-${id}`
     const zIndex     = z ?? (BASE_Z + order * Z_STEP + LABEL_Z_OFFSET)        // labels por encima de las capas
-    const labelLayer = this.#build(paneName, zIndex, () => new LabelLayer({ host: this.#host, pane: paneName, paint, style }))
+    const labelLayer = this.#build(paneName, zIndex, () => new LabelLayer({ host: this.#host, pane: paneName, paint, style }), true)
     // `visible` en record: controla si sync() (la suscripción a la Source) corre el reduce O(n) +
     // setLabels. Con setVisible(false) el sync es no-op → cero CPU por cada emit del WS.
     const record = { kind: 'label', layer: labelLayer, paneName, zIndex, order, bindTo, visible: true, enabled: true }
@@ -605,7 +617,7 @@ export class MapEngine {
       accessors.headingOf = null                            // el overlay no rota (badge de esquina)
       return new PointLayer({
         host: this.#host, pane: paneName, source, accessors, iconSet: set, interactive: false, where: membresia,
-        visible: visible && host.enabled, suppressed: host.suppressed ?? null, focus,
+        visible: visible && host.enabled, suppressed: host.suppressed ?? null, focus, surface: this.#tramos.surface,
       })
     }
     const layer = this.#build(paneName, zIndex, () => this.#trackGl(crear(host.source, visible)))
@@ -663,6 +675,7 @@ export class MapEngine {
     const surface    = this.#host.surface
     const paneName   = `cristae-highlight-${id ?? layerId}`
     const pane       = this.#mount(paneName, z ?? BASE_Z + 250)
+    const unseparate = this.#tramos.separator(pane)
 
     const canvas = document.createElement('canvas')
     canvas.style.position      = 'absolute'
@@ -721,6 +734,7 @@ export class MapEngine {
         offView()
         overlay.destroy()
         canvas.remove()
+        unseparate()
         surface.unmount(paneName)
         this.#highlightOverlays.delete(entry)
       },
@@ -752,7 +766,7 @@ export class MapEngine {
     record.controls = null
     this.#swapLayer(record, () => new PointLayer({
       host: this.#host, pane: record.paneName, source, iconSet: record.iconSet, interactive: record.interactive, where: record.where,
-      visible: record.visible && record.enabled, suppressed: record.suppressed, focus,
+      visible: record.visible && record.enabled, suppressed: record.suppressed, focus, surface: this.#tramos.surface,
     }))
     if (!record.enabled) record.layer.enabled = false   // el swap conserva el gate de la entidad deshabilitada
     if (record.interactive) {
@@ -782,6 +796,8 @@ export class MapEngine {
     record.unsub?.()                      // bind de labels / suscripción de la capa
     record.layer?.destroy?.()
     record.editor?.destroy?.()            // editor de geometría (input controlado, sin record.layer)
+    this.#separators.get(record.layer ?? record.editor)?.()   // su pane deja de separar tramos
+    this.#separators.delete(record.layer ?? record.editor)
     record.controls?.destroy()
     record.cluster?.dispose()             // libera burbujas + sibling y su listener de zoom
     const declarabaFoco = this.#itemFocus.delete(id)
@@ -986,6 +1002,7 @@ export class MapEngine {
     this.camera.destroy()
     this.#layers.forEach((_, id) => this.removeLayer(id))
     this.#signals.clear()
+    this.#tramos.destroy()
     this.#host.destroy()
   }
 
@@ -1002,18 +1019,18 @@ export class MapEngine {
     hostCamera.on('zoomframe', () => this.#renderAtView(hostCamera.zoom(), hostCamera.center()))
     hostCamera.on('zoomend', () => {
       zooming = false; lastX = NaN; lastY = NaN
-      this.#forEachGlLayer(layer => layer.resetCanvasReference())
+      this.#forEachGlLayer(resetLayer)
     })
     hostCamera.on('move', () => {
       if (zooming) return
       const { x, y } = hostCamera.frameOrigin()
       if (x === lastX && y === lastY) return
       lastX = x; lastY = y
-      this.#forEachGlLayer(layer => layer.resetCanvasReference())
+      this.#forEachGlLayer(resetLayer)
     })
     hostCamera.on('moveend', () => {
       lastX = NaN; lastY = NaN
-      this.#forEachGlLayer(layer => layer.resetCanvasReference())
+      this.#forEachGlLayer(resetLayer)
     })
   }
 
@@ -1042,13 +1059,19 @@ export class MapEngine {
       raf = requestAnimationFrame(step)
     })
     // Al asentar: corta la interpolación y deja que cada capa se re-proyecte nítida a la vista final.
-    hostCamera.on('zoomend', () => { cancelAnimationFrame(raf); this.#forEachGlLayer(l => l.resetCanvasReference()) })
+    hostCamera.on('zoomend', () => { cancelAnimationFrame(raf); this.#forEachGlLayer(resetLayer) })
   }
 
+  // Corre por cuadro: la vista va en campos y los recorridos usan callbacks estables. Los tramos reciben la vista después
+  // de que sus capas de puntos pintaron, y componen escalado lo que no se redibuja.
   #renderAtView(z, c) {
-    this.#forEachGlLayer(l => l.renderAtView?.(z, c))
-    this.#highlightOverlays.forEach(o => o.renderAtView?.(z, c))   // el realce sigue a su sprite por frame
+    this.#viewZ = z
+    this.#viewC = c
+    this.#forEachGlLayer(this.#renderLayerAtView)
+    this.#highlightOverlays.forEach(this.#renderLayerAtView)   // el realce sigue a su sprite por frame
+    this.#tramos.renderAtView(z, c)
   }
+  #renderLayerAtView = target => target.renderAtView?.(this.#viewZ, this.#viewC)
 
   // Inscribe una capa GL (un canvas propio que nadie más reproyecta) en el set que el ciclo de
   // render recorre en move/zoom/resize, y envuelve su destroy() para darla de baja sola. ÚNICO punto
@@ -1067,7 +1090,7 @@ export class MapEngine {
   #forEachGlLayer(fn) { this.#glLayers.forEach(fn) }
 
   #resetCanvases() {
-    this.#forEachGlLayer(layer => layer.resetCanvasReference())
+    this.#forEachGlLayer(resetLayer)
   }
 
   /* ── Registro de capas de pick: la sesión de picking y la identidad de OBJETO del pase ── */
@@ -1132,12 +1155,18 @@ export class MapEngine {
   // Una capa entra con su pane: se monta y la capa se construye colgada de él. Lo que valida la
   // configuración —la Source, el iconSet, el sustrato— va antes, y lanza sin haber montado nada. Lo que
   // lanza al construir —un sustrato GPU sin WebGL2, que el consumidor puede degradar a otro, o su propio
-  // código— deja la capa sin registro ni `removeLayer` que suelte el pane: se suelta acá.
-  #build(paneName, zIndex, create) {
-    this.#mount(paneName, zIndex)
+  // código— deja la capa sin registro ni `removeLayer` que suelte el pane: se suelta acá. Una capa que no
+  // dibuja en un tramo (`separa`) declara su pane separador aunque esté vacío: ninguna capa GL de abajo
+  // comparte contexto con una de arriba a través de él.
+  #build(paneName, zIndex, create, separa = false) {
+    const pane = this.#mount(paneName, zIndex)
+    const undo = separa ? this.#tramos.separator(pane) : null
     try {
-      return this.#watchSurface(create())
+      const layer = this.#watchSurface(create())
+      undo && this.#separators.set(layer, undo)
+      return layer
     } catch (error) {
+      undo?.()
       this.#host.surface.unmount(paneName)
       throw error
     }
@@ -1151,6 +1180,7 @@ export class MapEngine {
     record.layer.destroy()
     record.layer = this.#watchSurface(this.#trackGl(create()))
     vecino?.before(record.layer.surface.canvas)
+    this.#tramos.replan()                 // el marcador nuevo cambió de lugar en el pane: su tramo se recalcula
   }
 
   // La fila de `surfaces()` de una capa registrada, o null si no dibuja con una superficie GL. `visible` es
@@ -1187,10 +1217,14 @@ export class MapEngine {
 
   // Mostrarla puede pedir el contexto que soltó bajo presión: lo toma en esta tarea si es la primera toma desde el último
   // cuadro, y pinta con el `setVisible` que sigue; si no, en un cuadro siguiente. Si WebGL ya no da contexto, no lanza.
+  // El pane de una capa GL ya no lleva su dibujo: lo saca o lo pone la composición de su tramo, sin dibujar. El editor no
+  // entra ahí, porque su superficie es propia y su `setVisible` escribiría el display de su canvas.
   #applyVisibility(id, paneName, visible) {
+    const record = this.#layers.get(id)
     this.#host.surface.setVisible(paneName, visible)
     this.#registry.setLayerVisibility(id, visible)
-    visible && (r => (r?.layer ?? r?.editor)?.surface?.need())(this.#layers.get(id))
+    record?.layer?.surface?.setVisible?.(visible)
+    visible && (record?.layer ?? record?.editor)?.surface?.need()
   }
 
   /* ── Enfoque / atenuado de capas (primitivo general) ── */
@@ -1228,14 +1262,19 @@ export class MapEngine {
 
   setLayerOpacity(id, alpha) {
     const rec = this.#layers.get(id)
-    if (rec?.paneName) this.#host.surface.setOpacity(rec.paneName, alpha)
+    if (!rec?.paneName) return
+    this.#host.surface.setOpacity(rec.paneName, alpha)
+    rec.layer?.surface?.setOpacity?.(alpha)   // la de una capa GL la aplica la composición de su tramo
   }
 
   // `z` nulo vuelve al derivado en el alta.
   setLayerZ(layerId, z) {
     const record = this.#layers.get(layerId)
     const zIndex = z ?? record?.zIndex
-    record && zIndex != null && this.#host.surface.setZ(record.paneName, zIndex)
+    if (record && zIndex != null) {
+      this.#host.surface.setZ(record.paneName, zIndex)
+      this.#tramos.replan()               // la capa puede salir del rango de su tramo, o partir uno ajeno
+    }
     return this
   }
 
@@ -1268,9 +1307,15 @@ export class MapEngine {
       const atenua  = !exenta && (porCapa || porItem)
       const dim     = porCapa ? this.#dimOpacity : ITEM_DIM
       const brillan = atenua ? brillantes(key) : null
-      const exacto  = brillan?.size && rec.layer?.applyFocus?.(brillan, dim)
-      if (!exacto) rec.layer?.applyFocus?.(null)
-      this.#host.surface.setOpacity(rec.paneName, exacto || !atenua ? 1 : dim)
+      const aplica  = !!brillan?.size && !!rec.layer?.applyFocus
+      const exacto  = aplica && rec.layer.applyFocus(brillan, dim)
+      const alpha   = exacto || !atenua ? 1 : dim
+      // Soltar el foco por ítem redibuja líneas y polígonos, y un dibujo hace componer su tramo: sólo lo suelta la capa
+      // que lo tenía o la que no lo pudo aplicar exacto.
+      if (!exacto && (aplica || rec.focoItem)) rec.layer.applyFocus(null)
+      rec.focoItem = !!exacto
+      this.#host.surface.setOpacity(rec.paneName, alpha)
+      rec.layer?.surface?.setOpacity?.(alpha)   // la de una capa GL la aplica la composición: el mismo valor no compone
     }
   }
 
@@ -1320,7 +1365,7 @@ export class MapEngine {
 
     if (spec.kind === 'label') {
       const layer  = this.#build(bubblePane, zIndex, () =>
-        new LabelLayer({ host: this.#host, pane: bubblePane, paint: spec.paint, style: spec.style }))
+        new LabelLayer({ host: this.#host, pane: bubblePane, paint: spec.paint, style: spec.style }), true)
       const textOf = spec.textOf ?? (count => String(count))
       this.#layers.set(siblingId, { kind: 'label', layer, paneName: bubblePane, order, visible: true, enabled: true })
       return {
@@ -1349,7 +1394,7 @@ export class MapEngine {
       hashOf: b => `${b.count}:${b.expanded ? 'd' : b.marked ? 'm' : ''}:${b.lat}:${b.lng}`,
     }, iconSet.variants)
     const layer = this.#build(bubblePane, zIndex, () =>
-      this.#trackGl(new PointLayer({ host: this.#host, pane: bubblePane, source: controls, iconSet, interactive })))
+      this.#trackGl(new PointLayer({ host: this.#host, pane: bubblePane, source: controls, iconSet, interactive, surface: this.#tramos.surface })))
     this.#layers.set(siblingId, {
       kind: 'point', source: controls, layer, controls, paneName: bubblePane, order, interactive,
       visible: true, enabled: true,

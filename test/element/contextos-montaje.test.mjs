@@ -14,6 +14,9 @@ import test, { after } from 'node:test'
 import assert from 'node:assert/strict'
 
 const CASOS = [8, 13].flatMap(capas => ['react', 'antes'].map(orden => [capas, orden]))
+// Contextos vivos tras el montaje: uno por tramo. En los dos modelos todas las capas son GL de Cristae y ningún pane las
+// separa, así que forman un solo tramo (antes, uno por capa: 8 y 13).
+const TRAMOS = 1
 
 after(() => document.body.replaceChildren())
 
@@ -22,7 +25,7 @@ for (const [capas, orden] of CASOS) {
     const { map, navegador } = await armar(capas, orden)
     t.after(() => map.remove())
     const estado = navegador.stat()
-    assert.equal(estado.vivos, capas, `capas vivas: ${navegador.resumen()}`)
+    assert.equal(estado.vivos, TRAMOS, `${capas} capas en un tramo: ${navegador.resumen()}`)
     assert.equal(estado.desalojados, 0, 'sin ajenos no hay desalojo')
     const dobles = navegador.contextos.filter(c => c.causa === 'liberado').map(c => c.pane)
     assert.equal(estado.creados, estado.vivos,
@@ -34,7 +37,7 @@ for (const [capas, orden] of CASOS) {
 for (const [capas, orden] of CASOS) {
   test(`T0.2 modelo de ${capas} capas, props ${orden}: map.remove() deja 0 vivos y creados == liberados`, async () => {
     const { map, navegador } = await armar(capas, orden)
-    assert.equal(navegador.vivos, capas, 'el montaje dejó las capas esperadas')
+    assert.equal(navegador.vivos, TRAMOS, `el montaje dejó el tramo de las ${capas} capas`)
     map.remove()
     await esperar(30)
     const estado = navegador.stat()
