@@ -71,7 +71,6 @@ const GRAMMAR = {
   enclosingModifier: 'function',
   grammarChildren: 'function',
   leafUnits: 'function',
-  reachedKinds: 'function',
   reduceModifier: 'function',
   tagName: 'function',
   validate: 'function',
@@ -101,14 +100,16 @@ test('cristae/core no filtra los internos Store ni Emitter', () => {
   assert.equal('Emitter' in core, false)
 })
 
-test('cristae/grammar expone exactamente las 11 piezas del segmento', () => {
+test('cristae/grammar expone exactamente las 10 piezas del segmento', () => {
   assert.deepEqual(Object.keys(grammar).sort(), Object.keys(GRAMMAR).sort())
   assert.deepEqual(firma(grammar), GRAMMAR)
 })
 
-test('cristae/grammar no filtra el recorrido interno de `reach`', () => {
-  assert.equal(typeof gValidate.eachNearest, 'function')
-  assert.equal('eachNearest' in grammar, false)
+test('cristae/grammar no filtra el alcance interno del decorador', () => {
+  for (const nombre of ['eachNearest', 'reachedKinds']) {
+    assert.equal(typeof gValidate[nombre], 'function')
+    assert.equal(nombre in grammar, false)
+  }
 })
 
 // El `typeof` de los goldenes de arriba no puede fallar (todo export del segmento es una
@@ -119,7 +120,7 @@ test('cristae/grammar no filtra el recorrido interno de `reach`', () => {
 test('cada export de cristae/grammar es la MISMA función que define su módulo', () => {
   const origen = {
     defineGrammar: gGrammar,
-    GrammarError: gValidate, validate: gValidate, validateSignature: gValidate, reachedKinds: gValidate,
+    GrammarError: gValidate, validate: gValidate, validateSignature: gValidate,
     reduceModifier: gReduce, leafUnits: gReduce, buildUnit: gReduce,
     enclosingModifier: gMounting,
     grammarChildren: gUtil, tagName: gUtil,

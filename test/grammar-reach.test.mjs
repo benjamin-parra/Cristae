@@ -1,10 +1,12 @@
-// `reach: 'nearest'` en el segmento de gramática: el reductor y la validación toman lo que cada hijo directo
-// produce como propio (`produces − consumes`), y un wrapper sin kinds propios consumidos es transparente.
-// Sin `reach`, cluster, overlay y geodésica reducen y validan como antes. Elementos falsos con el protocolo
+// El alcance del decorador en el segmento de gramática: el reductor y la validación toman lo que cada hijo
+// directo produce como propio (`produces − consumes`), y un wrapper sin kinds propios consumidos es
+// transparente. El cluster y la geodésica toman el subárbol y reducen como antes; el overlay, decorador,
+// da lo mismo que cuando tomaba el subárbol. Elementos falsos con el protocolo
 // del reductor y un motor que anota cada apply, como test/grammar.test.mjs.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { defineGrammar, GrammarError, leafUnits, reachedKinds, reduceModifier, validate } from '../src/grammar/index.js'
+import { defineGrammar, GrammarError, leafUnits, reduceModifier, validate } from '../src/grammar/index.js'
+import { reachedKinds } from '../src/grammar/validate.js'
 
 const g = defineGrammar({ kinds: ['point', 'label', 'polygon', 'line', 'bubble', 'overlay', 'geodesic', 'heat'] })
 
@@ -15,19 +17,19 @@ const anotar = (quien, out) => (_engine, targets) => {
   return targets.length ? out(targets) : []
 }
 
-g.register('point', { consumes: [], produces: ['point'], combine: null, arity: 'leaf' })
-g.register('line', { consumes: [], produces: ['line'], combine: null, arity: 'leaf' })
-g.register('heat', { consumes: [], produces: ['heat'], combine: null, arity: 'leaf' })
-g.register('cluster', { consumes: ['point'], produces: ['point', 'bubble'], combine: 'fold', arity: 'wrapper' },
+g.register('point', { role: 'leaf', produces: ['point'] })
+g.register('line', { role: 'leaf', produces: ['line'] })
+g.register('heat', { role: 'leaf', produces: ['heat'] })
+g.register('cluster', { role: 'aggregate', consumes: ['point'], produces: ['point', 'bubble'] },
   { apply: anotar('cluster', ts => [{ kind: 'bubble', id: `${ts[0].id}:clusters` }]) })
-g.register('overlay', { consumes: ['point'], produces: ['overlay'], combine: 'map', arity: 'wrapper', bindsTo: 'point' },
+g.register('overlay', { role: 'decorate', consumes: ['point', 'bubble'], produces: ['overlay'] },
   { apply: anotar('overlay', ([t]) => [{ kind: 'overlay', id: `${t.id}:overlay` }]) })
-g.register('geodesic', { consumes: ['line', 'polygon'], produces: ['geodesic'], combine: 'map', arity: 'wrapper' },
+g.register('geodesic', { role: 'transform', consumes: ['line', 'polygon'], produces: ['geodesic'] },
   { apply: anotar('geodesic', ([t]) => [{ kind: 'geodesic', id: `${t.id}:geodesic` }]) })
-g.register('labeled', { consumes: ['point', 'line', 'polygon', 'bubble'], produces: ['label'], combine: 'map', arity: 'wrapper', reach: 'nearest' },
+g.register('labeled', { role: 'decorate', consumes: ['point', 'line', 'polygon', 'bubble'], produces: ['label'] },
   { apply: anotar('labeled', ([t]) => [{ kind: 'label', id: `${t.id}:label` }]) })
 // Un cluster que no emite burbujas, como uno con `enabled="false"`.
-g.register('cluster-off', { consumes: ['point'], produces: ['point', 'bubble'], combine: 'fold', arity: 'wrapper' },
+g.register('cluster-off', { role: 'aggregate', consumes: ['point'], produces: ['point', 'bubble'] },
   { apply: anotar('cluster-off', () => []) })
 
 const ctx  = { signatureFor: g.signatureFor, applyFor: g.applyFor, isRegistered: g.isRegistered }
@@ -100,7 +102,7 @@ test('reachedKinds sigue la misma regla, sin montar', () => {
   assert.deepEqual(kinds(nodo('labeled', hoja('point', 'a'), nodo('geodesic', hoja('line', 'b')))), ['line', 'point'])
   assert.deepEqual(kinds(nodo('labeled', nodo('cluster', hoja('point', 'a')))), ['bubble'])
   assert.deepEqual(kinds(nodo('labeled', nodo('overlay', hoja('point', 'a')), hoja('heat', 'c'))), ['point'])
-  assert.deepEqual(kinds(nodo('cluster', nodo('overlay', hoja('point', 'a')))), ['point'], 'sin reach: el subárbol')
+  assert.deepEqual(kinds(nodo('cluster', nodo('overlay', hoja('point', 'a')))), ['point'], 'agregador: el subárbol')
 })
 
 test('R2 con reach: envolver sólo lo que no se consume', () => {
@@ -116,11 +118,11 @@ test('un hermano que no se consume pasa intacto', () => {
   assert.deepEqual(raiz.cristaeUnits().map(u => u.id), ['calor', 'flota', 'flota:label'])
 })
 
-test('sin reach, cluster, overlay y geodésica reducen como antes', () => {
+test('cluster y geodésica reducen como antes; el overlay decorador, igual salvo por fuera del cluster', () => {
   assert.deepEqual(reducir(nodo('cluster', nodo('overlay', hoja('point', 'a')), hoja('point', 'b'))),
     [['overlay', ['a']], ['cluster', ['a', 'b']]])
   assert.deepEqual(reducir(nodo('overlay', nodo('cluster', hoja('point', 'a')))),
-    [['cluster', ['a']], ['overlay', ['a']]], 'el overlay de afuera ve el punto que el cluster deja pasar')
+    [['cluster', ['a']], ['overlay', ['a:clusters']]], 'por fuera del cluster el productor más cercano son sus burbujas')
   assert.deepEqual(reducir(nodo('geodesic', nodo('geodesic', hoja('line', 'r')))),
     [['geodesic', ['r']], ['geodesic', ['r']]])
 })
