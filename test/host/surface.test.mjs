@@ -175,3 +175,32 @@ test('followZoom le suma a un nodo la clase con que Leaflet lo interpola en el z
   surface.followZoom(nodo)
   assert.deepEqual([...nodo.classList], ['propia', 'leaflet-zoom-animated'])
 })
+
+// Un nodo blindado es del consumidor y no del mapa: la puerta del puntero no lo toma por superficie y su
+// pulsación no llega al contenedor, donde Leaflet la oye para arrastrar. `off` lo devuelve al mapa.
+test('shield: lo que nace en el nodo no es superficie ni llega al contenedor, hasta soltarlo', () => {
+  const map                = L.map(contenedor()).setView([-33, -70], 10)
+  const { surface, input } = adoptLeafletHost(map)
+  const nodo               = document.createElement('div')
+  const hijo               = document.createElement('span')
+  const pulsaciones        = []
+  nodo.appendChild(hijo)
+  surface.mount('rotulos', 450).appendChild(nodo)
+  map.getContainer().addEventListener('mousedown', e => pulsaciones.push(e.target))
+  const pulsar = () => hijo.dispatchEvent(new document.defaultView.MouseEvent('mousedown', { bubbles: true }))
+
+  assert.equal(input.onSurface(hijo), true, 'sin blindaje, cuelga de un pane y es superficie')
+  const off = surface.shield(nodo)
+  assert.equal(input.onSurface(hijo), false, 'blindado, lo que nace adentro no es superficie')
+  assert.equal(input.onSurface(nodo), false)
+  assert.equal(input.onSurface(map.getPane('rotulos')), true, 'y el pane que lo lleva sigue siéndolo')
+  pulsar()
+  assert.deepEqual(pulsaciones, [], 'la pulsación no llega al contenedor')
+
+  off()
+  assert.equal(input.onSurface(hijo), true, 'suelto, vuelve a ser superficie')
+  pulsar()
+  assert.deepEqual(pulsaciones, [hijo], 'y su pulsación llega')
+  assert.equal(nodo._leaflet_disable_click, undefined, 'sin la marca con que Leaflet ignora su click')
+  off()
+})
