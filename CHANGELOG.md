@@ -17,7 +17,8 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   quedan juntas en el apilado —sin etiquetas, HTML, calor ni editores entre ellas— dibujan cada una en
   su textura y se componen en un solo canvas por tramo, en un pane `cristae-tramo-<n>`. El modelo de 13
   capas del Geotáctico baja de 13 contextos en reposo a 1, lejos del techo de ~16 de la página.
-  Ocultar, atenuar o reordenar una capa no la hace dibujar: se resuelve al componer. Perder un contexto
+  Ocultar, atenuar o reordenar una capa dentro de su tramo no la hace dibujar: se resuelve al componer.
+  Un `setLayerZ` que la lleva al otro lado de un separador la muda de tramo y la rearma. Perder un contexto
   deja en blanco su tramo y no sólo una capa: vuelve en un canvas nuevo, la capa de mayor z primero y a
   lo sumo 8 ms por cuadro. `engine.surfaces()` conserva la forma de sus filas, y en el pane de cada capa
   queda un canvas sin contexto que guarda su lugar. Ver [`SPECS.md` §10.1](SPECS.md) y

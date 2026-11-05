@@ -27,7 +27,6 @@ export const createTramos = ({ host, Tramo = GlTramo, Slot = TramoSlot }) => {
   const homes    = new Map()       // slot → registro de su tramo
   const byId     = new Map()       // id del plan → registro
   const declared = new Map()       // pane separador declarado → cuántos lo declaran
-  const alone    = new WeakSet()   // slots que piden ir solos (antialias)
   const sticky   = new WeakSet()   // panes que recibieron hijos ajenos: separan para siempre
   const gone     = new WeakSet()   // marcadores de slots que se fueron: no cuentan aunque sigan en el DOM
   const ownPanes = new WeakSet()   // los panes de tramo: no entran al plan
@@ -144,7 +143,7 @@ export const createTramos = ({ host, Tramo = GlTramo, Slot = TramoSlot }) => {
       }
       for (const child of pane.children) {
         const slot = !gone.has(child) && markers.get(child)
-        slot && push(slot, apart || alone.has(slot), pane, zs[order[k]])
+        slot && push(slot, apart, pane, zs[order[k]])
       }
     }
     // Un marcador que no cuelga de un pane de la raíz (un DOM sin árbol) no tiene K: su miembro va solo, con un contexto
@@ -309,11 +308,7 @@ export const createTramos = ({ host, Tramo = GlTramo, Slot = TramoSlot }) => {
   const renderEach = rec => rec.tramo.renderAtView(viewZoom, viewCenter)
 
   return {
-    surface: opts => {
-      const slot = new Slot(opts, hooks)
-      opts.antialias === true && alone.add(slot)
-      return slot
-    },
+    surface: opts => new Slot(opts, hooks),
 
     separator(pane) {
       declared.set(pane, (declared.get(pane) ?? 0) + 1)

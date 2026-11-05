@@ -283,7 +283,8 @@ export interface MapClickDetail {
 export type SurfaceState = "live" | "lost" | "released" | "none";
 
 /** Una fila de `engine.surfaces()` y el `detail` de la señal `surfacechange`: la superficie WebGL de una
- *  capa, que es uno de los ~16 contextos que el navegador da a la página. */
+ *  capa, una fila por capa. Las capas GL contiguas comparten el contexto de un tramo (SPECS §10.1), y cada
+ *  contexto es uno de los ~16 que el navegador da a la página. */
 export interface SurfaceInfo {
   /** El id de la capa que la posee. Una capa interna del motor lleva el suyo, como `<host>:clusters`. */
   layerId    : string;
