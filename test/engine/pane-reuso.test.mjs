@@ -14,9 +14,13 @@ const PANE      = 'cristae-point-flota'
 const items     = [{ id: 1, lat: 0, lng: 0, size: 24 }]
 const accessors = { idOf: it => it.id, positionOf: it => ({ lat: it.lat, lng: it.lng }), sizeOf: it => it.size }
 
+// Un tramo que queda vacío suelta su pane al final de la microtarea (sin árbol DOM en el stub, cada capa va en un
+// tramo solo, que sostiene el pane de su capa).
+const microtarea = () => new Promise(r => setTimeout(r, 0))
+
 const montar = engine => engine.addPointLayer({ id: 'flota', accessors, iconSet: makeIconSet(), data: items })
 
-test('quitar una capa saca su pane del registro, y el alta siguiente estrena uno conectado', () => {
+test('quitar una capa saca su pane del registro, y el alta siguiente estrena uno conectado', async () => {
   const map    = makeMap()
   const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeLeaflet() }) })
 
@@ -25,6 +29,7 @@ test('quitar una capa saca su pane del registro, y el alta siguiente estrena uno
   assert.equal(primero.connected, true)
 
   engine.removeLayer('flota')
+  await microtarea()
   assert.equal(map.getPane(PANE), null, 'el registro no puede seguir devolviendo el pane desmontado')
 
   montar(engine)
@@ -33,7 +38,7 @@ test('quitar una capa saca su pane del registro, y el alta siguiente estrena uno
   assert.equal(segundo.connected, true, 'y el nuevo está en el documento')
 })
 
-test('un pane COMPARTIDO sobrevive mientras le quede una capa', () => {
+test('un pane COMPARTIDO sobrevive mientras le quede una capa', async () => {
   const map    = makeMap()
   const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeLeaflet() }) })
   const comun  = 'compartido'
@@ -47,6 +52,7 @@ test('un pane COMPARTIDO sobrevive mientras le quede una capa', () => {
   assert.equal(pane.connected, true)
 
   engine.removeLayer('b')
+  await microtarea()
   assert.equal(map.getPane(comun), null, 'sin capas, el pane se va del registro')
 })
 
@@ -77,7 +83,7 @@ test('las capas que cuelgan su propio nodo también sueltan su pane al quitarse'
 // Sin WebGL2 un sustrato GPU lanza al construirse, y el consumidor puede degradar a otro. Una capa que no
 // llegó a nacer no tiene registro ni `removeLayer`: no deja su pane sostenido ni a nadie oyendo la vista.
 // Lo mismo una capa de líneas que se pide mal.
-test('una capa que lanza al darse de alta no deja su pane ni oyentes', t => {
+test('una capa que lanza al darse de alta no deja su pane ni oyentes', async t => {
   t.after(conGlDeEdicion(() => null))
   const map     = makeMap()
   const host    = adoptLeafletHost(map, { leaflet: makeLeaflet() })
@@ -93,6 +99,7 @@ test('una capa que lanza al darse de alta no deja su pane ni oyentes', t => {
   assert.throws(() => engine.addLineLayer({ id: 'picadas', interactive: true, accessors: lineas }), /WebGL2/)
   assert.throws(() => engine.addLineLayer({ id: 'otras', backend: 'gpu', accessors: lineas }), /backend/)
 
+  await microtarea()
   const panes = ['cristae-edit-editor', 'cristae-polygon-zonas', 'cristae-line-rutas', 'cristae-line-picadas', 'cristae-line-otras']
   panes.forEach(pane => assert.equal(map.getPane(pane), null, `${pane} fuera del registro`))
   assert.equal(vista(), antes, 'y nadie quedó oyendo la vista')
@@ -102,7 +109,7 @@ test('una capa que lanza al darse de alta no deja su pane ni oyentes', t => {
 // Lo que valida la configuración —la Source, el iconSet— lanza antes de montar, y lo que lanza al
 // construir la capa —código del consumidor, como la rampa del calor— suelta el pane. Un alta que no nació
 // no deja nada sostenido: el reintento con el mismo id se va entero al quitarse.
-test('un alta mal configurada no deja su pane sostenido', () => {
+test('un alta mal configurada no deja su pane sostenido', async () => {
   const map    = makeMap()
   const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeLeaflet() }) })
   const rampa  = () => { throw new Error('rampa') }
@@ -124,6 +131,7 @@ test('un alta mal configurada no deja su pane sostenido', () => {
   engine.registerIconSet('sinRegistrar', makeIconSet())
   engine.addPointLayer({ id: 'flota', accessors, iconSet: 'sinRegistrar', data: items })
   engine.removeLayer('flota')
+  await microtarea()
   assert.equal(map.getPane('cristae-point-flota'), null, 'el reintento se va entero')
   engine.destroy()
 })

@@ -199,7 +199,10 @@ export const createTramos = ({ host, Tramo = GlTramo, Slot = TramoSlot }) => {
 
       // El pane del tramo va justo después del de su miembro de menor K, con su z. Dos tramos anclados al mismo pane
       // quedan en orden K.
-      let moved = false
+      // Un tramo solo cuyo canvas ya no sigue al marcador (un recambio movió el marcador) lo vuelve a poner detrás.
+      const canvas = rec.tramo.surface?.canvas
+      const marker = r.list[0].marker
+      let moved = rec.solo && !!canvas && !!marker?.parentNode && marker.nextSibling !== canvas
       if (!rec.solo) {
         const after = anchor === lastAnchor ? lastNode : anchor
         moved = rec.anchor !== null && (rec.anchor !== anchor || rec.z !== z || after.nextSibling !== rec.node)

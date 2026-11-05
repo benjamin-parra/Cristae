@@ -151,7 +151,8 @@ test('base grande (> splitThreshold): expand particiona en sub-grupos y el paylo
 
 // El fold monta un pane por pieza —las burbujas, las patas de la espiral y sus dos capas de puntos— y
 // ninguno sobrevive a su baja.
-test('dispose suelta los panes del fold, el de las patas incluido', () => {
+// Las capas GL del fold sueltan su pane con su tramo, al final de la microtarea.
+test('dispose suelta los panes del fold, el de las patas incluido', async () => {
   for (const bubble of [undefined, { kind: 'label' }]) {
     const { control, map, bubbles } = mount({ foldOpts: { bubble } })
     const foldId = control.bubbleLayerId.replace(':clusters', '')
@@ -161,6 +162,7 @@ test('dispose suelta los panes del fold, el de las patas incluido', () => {
     panes.forEach(pane => assert.ok(map.getPane(pane), `${pane} montado`))
 
     control.dispose()
+    await new Promise(r => setTimeout(r, 0))
     panes.forEach(pane => assert.equal(map.getPane(pane), null, `${pane} fuera del registro (burbuja ${bubble?.kind ?? 'point'})`))
   }
 })

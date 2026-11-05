@@ -1176,7 +1176,10 @@ export class MapEngine {
   // su contexto se devuelve antes de tomar el nuevo, y el canvas nuevo ocupa el lugar del viejo en el pane: el orden de
   // las capas que lo comparten no cambia con el recambio.
   #swapLayer(record, create) {
-    const vecino = record.layer.surface.canvas?.nextSibling
+    // El vecino es el nodo que sigue al marcador, sin el canvas de su tramo solo: ese se muda con el miembro nuevo.
+    const { canvas, tramo } = record.layer.surface
+    const sigue  = canvas?.nextSibling
+    const vecino = sigue && sigue === tramo?.surface.canvas ? sigue.nextSibling : sigue
     record.layer.destroy()
     record.layer = this.#watchSurface(this.#trackGl(create()))
     vecino?.before(record.layer.surface.canvas)

@@ -79,7 +79,8 @@ const mount = async ({ data = FLOTA(), interactive = false, where = null, zonas 
 const opacidad = (h, id) => h.map.getPane(h.engine.getLayer(id).paneName)?.style.opacity ?? ''
 const capa     = (h, id) => porGl.get(h.engine.getLayer(id).layer.surface.gl)
 const uDim     = rec => rec.uniformes.filter(u => u.name === 'uDim').map(u => u.v)
-const dibujos  = rec => rec.spy.draws.length
+const POINTS   = 0                                       // el de los dibujos de la capa: la composición del tramo dibuja triángulos
+const dibujos  = rec => rec.spy.draws.filter(d => d.mode === POINTS).length
 
 // Tamaño SIGNADO por id, leído de lo que la GPU va a leer: el espejo del ARRAY_BUFFER que mantiene el
 // doble (`bufferData` lo estrena, `bufferSubData` le parcha el rango). + pleno, − atenuado.
@@ -214,7 +215,7 @@ test('atenuado ≠ no interactivo: el pick sobre un atenuado sigue devolviendo s
   rec.spy.bajoElCursor = { obj: layer.pickObject, entrada: slot, local: slot }
   assert.deepEqual(layer.resolveClick({ x: 10, y: 10 }).map(p => p.id), [4],
     'la silueta del atenuado escribe en el pase igual que la de un pleno (el vértice le da `abs(size)`)')
-  const { first, count } = rec.spy.draws.at(-1)
+  const { first, count } = rec.spy.draws.findLast(d => d.mode === POINTS)
   assert.deepEqual({ first, count }, { first: 0, count: 6 }, 'y el pase dibuja los 6: atenuar no saca a nadie del batch')
   assert.ok(!POINT_PICKING_FRAGMENT.includes('vAlpha'), 'el fragment del pase no declara el alfa: el id no se atenúa')
   h.engine.destroy()

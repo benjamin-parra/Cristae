@@ -83,7 +83,9 @@ test('lo que el pane tiene además de canvases también queda en su lugar: el nu
   const pane = canvasDe(engine, 'a').parentNode
   const marca = document.createElement('div')
   pane.insertBefore(marca, canvasDe(engine, 'b'))                 // [a, marca, b, c]
+  // Con un nodo ajeno el pane es mixto y cada capa va en un tramo solo, cuyo canvas sigue a su marcador: no cuenta.
   const lugar = () => [...pane.children].map(el => (el === marca ? 'marca' : ['a', 'b', 'c'].find(id => canvasDe(engine, id) === el)))
+    .filter(Boolean)
   assert.deepEqual(lugar(), ['a', 'marca', 'b', 'c'])
 
   engine.attachSource('b', fuente())

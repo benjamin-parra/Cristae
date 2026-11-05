@@ -159,7 +159,11 @@ export class GlTramo {
     for (let i = 0; i < count; i++) w.push(nodes[i])
   }
 
-  touch() { this.#schedule() }
+  // El gestor movió el pane del tramo, o el marcador del miembro de un tramo solo: el canvas lo sigue y se compone.
+  touch() {
+    this.#solo && this.#place()
+    this.#schedule()
+  }
 
   // [0-alloc] La vista de un cuadro del zoom animado, con `center` en grados: se compone con ella hasta `zoomend` o el
   // siguiente `sync`.
@@ -396,7 +400,9 @@ export class TramoSlot {
   get gl()          { return this.built ? this.tramo?.gl ?? null : null }
   get canvas()      { return this.#marker }
   get attached()    { return this.everBuilt && !this.destroyed }
-  get contextLost() { return this.state === 'lost' }
+  // Como `EditSurface.contextLost`: la pérdida del tramo se sabe con el evento, no al leer el contexto; con el tramo vivo,
+  // el miembro que espera su tanda de la cola.
+  get contextLost() { return !!this.tramo && (this.tramo.surface.contextLost || this.tramo.surface.state === 'live' && this.state === 'lost') }
   get cssZoom()     { return this.#cssZoom }
   get z()           { return this.#surface.zOf(this.#pane) ?? 0 }
   get needed()      { return withContent(this) && !!this.#marker && this.#marker.ownerDocument?.defaultView !== null }
