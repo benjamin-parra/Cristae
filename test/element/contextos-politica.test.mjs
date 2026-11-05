@@ -27,7 +27,8 @@ import assert from 'node:assert/strict'
 import { JSDOM } from 'jsdom'
 
 // Escenarios de la política con un contexto por capa (techo de 16 con 13 capas y ajenos, rotaciones, una capa que cae sola).
-// Con tramos el modelo de 13 es un contexto y esos escenarios no existen; se rediseñan sobre tramos (PLAN-C-MINIMO §10).
+// Con tramos el modelo de 13 es un contexto y esos escenarios no existen; los que siguen siendo contrato
+// están reescritos sobre dos tramos en `tramos-recuperacion.test.mjs`.
 const POR_CAPA = 'un contexto por capa: se rediseña sobre tramos'
 
 /* ── Cuadros a mano ── */

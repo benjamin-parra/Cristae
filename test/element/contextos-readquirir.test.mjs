@@ -108,8 +108,9 @@ const porZ = (engine, ids) => {
 const vaciasDe = engine => engine.surfaces().filter(s => !s.hasContent).map(s => s.layerId)
 
 // Escenarios con un contexto por capa (techo con 13 capas, una capa que cae o se suelta sola, su canvas en su pane). Con
-// tramos el modelo de 13 es un contexto y esos escenarios no existen; se rediseñan sobre tramos (PLAN-C-MINIMO §10). Lo que
-// sigue valiendo sin cambios —`map.remove()` en cada momento de la recuperación, los gestos— corre.
+// tramos el modelo de 13 es un contexto y esos escenarios no existen; los que siguen siendo contrato están reescritos sobre
+// dos tramos en `tramos-recuperacion.test.mjs`. Lo que sigue valiendo sin cambios —`map.remove()` en cada momento de la
+// recuperación, los gestos— corre.
 const POR_CAPA = 'un contexto por capa: se rediseña sobre tramos'
 
 /* ── El modelo de 13 capas con contextos ajenos ── */
