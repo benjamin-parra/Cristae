@@ -7,26 +7,55 @@
 // validez de un compuesto y su reducción salen de los TIPOS (firmas), sin
 // special-casing por modificador.
 //
-// Este segmento es genérico sobre los KINDS y las firmas (un modificador nuevo
-// sólo agrega firma + apply, sin tocar el reductor) pero asume las convenciones de
-// custom-element de Cristae. NO importa engine/render/element (queda desacoplado
-// como `core`). Sólo conoce tag → { firma, apply }.
+// Cada elemento declara su ROL; cómo se reduce (combine, arity, reach, passThrough)
+// se deriva del rol al registrarlo y no se escribe en la firma. Este segmento es
+// genérico sobre los KINDS y las firmas (un modificador nuevo sólo agrega firma +
+// apply, sin tocar el reductor) pero asume las convenciones de custom-element de
+// Cristae. NO importa engine/render/element (queda desacoplado como `core`). Sólo
+// conoce tag → { firma, apply }.
 
 import { validateSignature } from './validate.js'
 
 /**
- * @typedef {'fold'|'map'|null} Combine
- * @typedef {'leaf'|'wrapper'} Arity
- * @typedef {Object} Signature
- * @property {string[]} consumes     kinds que transforma de sus hijos; [] ⇒ hoja
- * @property {string[]} produces     kinds que aporta hacia arriba (≥1)
- * @property {Combine}  combine       'fold' = un apply() sobre TODOS los targets; 'map' = uno por target; null = hoja
- * @property {Arity}    arity         'leaf' | 'wrapper'
- * @property {string=}  bindsTo       productores ligados (label/overlay): kind del host cuyo `suppressed` leen
- * @property {boolean=} passThrough   el wrapper re-emite hacia arriba los hijos consumidos (default true)
- * @property {'all'|'nearest'=} reach de dónde salen los targets: 'all' (default) = todo el subárbol;
- *                                    'nearest' = lo que produce como propio cada hijo directo (ver validate.js)
+ * @typedef {'leaf'|'transform'|'aggregate'|'decorate'} Role
+ * @typedef {Object} Signature   firma que declara el elemento
+ * @property {Role}      role
+ * @property {string[]=} consumes  kinds que toma de sus hijos; una hoja no consume
+ * @property {string[]}  produces  kinds que aporta hacia arriba (≥1)
+ *
+ * @typedef {Object} DerivedSignature  lo que leen reduce.js y validate.js; sale del rol
+ * @property {Role}     role
+ * @property {string[]} consumes
+ * @property {string[]} produces
+ * @property {'fold'|'map'|null} combine  'fold' = un apply() sobre TODOS los targets; 'map' = uno por target
+ * @property {'leaf'|'wrapper'}  arity
+ * @property {'all'|'nearest'}   reach    'all' = lo consumido que sube del subárbol; 'nearest' = lo que
+ *                                        produce como propio cada hijo directo (ver validate.js)
+ * @property {boolean}  passThrough       re-emite hacia arriba los hijos consumidos
  */
+
+// Rol → reducción. Un decorador toma el productor más cercano y ése es su host; transform y aggregate
+// toman todo el subárbol. Tabla constante de módulo, exhaustiva sobre los roles de validateSignature.
+const ROLES = {
+  leaf     : { combine: null,   arity: 'leaf',    reach: 'all' },
+  transform: { combine: 'map',  arity: 'wrapper', reach: 'all' },
+  aggregate: { combine: 'fold', arity: 'wrapper', reach: 'all' },
+  decorate : { combine: 'map',  arity: 'wrapper', reach: 'nearest' },
+}
+
+/**
+ * Firma completa a partir de la declarada. Un agregador re-emite lo consumido sólo si vuelve a producirlo
+ * (el cluster deja pasar los puntos sueltos); el resto lo re-emite siempre.
+ * @param {Signature} sig  ya validada
+ * @returns {DerivedSignature}
+ */
+const deriveSignature = ({ role, consumes = [], produces }) => ({
+  role,
+  consumes,
+  produces,
+  ...ROLES[role],
+  passThrough: role !== 'aggregate' || produces.some(k => consumes.includes(k)),
+})
 
 /**
  * Crea una instancia de gramática (universo de kinds + registro de firmas).
@@ -34,21 +63,20 @@ import { validateSignature } from './validate.js'
  */
 export function defineGrammar({ kinds, mode = 'throw' }) {
   const KINDS = new Set(kinds)
-  /** @type {Map<string, { signature: Signature, apply: Function|null }>} */
+  /** @type {Map<string, { signature: DerivedSignature, apply: Function|null }>} */
   const reg = new Map() // tag MAYÚSCULA → { signature, apply }
 
   const key = tag => (tag == null ? '' : String(tag).toUpperCase())
 
   /**
-   * Registra un elemento de la gramática.
+   * Registra un elemento de la gramática. La firma declarada no se muta: se guarda la derivada.
    * @param {string} tag        nombre del custom element (case-insensitive)
    * @param {Signature} signature
    * @param {{ apply?: Function }=} opts  apply(engine, targetUnits, config) → Unit[] (sólo wrappers)
    */
   function register(tag, signature, opts = {}) {
     validateSignature(tag, signature, KINDS) // R4 + forma de la firma
-    signature.passThrough ??= true
-    reg.set(key(tag), { signature, apply: opts.apply ?? null })
+    reg.set(key(tag), { signature: deriveSignature(signature), apply: opts.apply ?? null })
   }
 
   const signatureFor = tag => reg.get(key(tag))?.signature ?? null

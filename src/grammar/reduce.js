@@ -1,9 +1,11 @@
 // Reductor genérico de la gramática (intérprete dirigido por firmas, sin
 // special-casing por modificador). Recorrido post-orden: cada nodo aporta un
-// conjunto de RenderUnits hacia su padre. Un wrapper mezcla las units de sus hijos,
-// transforma las que matchean `consumes` (fold = un apply sobre todas; map = uno por
-// target) y pasa el resto. El intérprete hace el DISPATCH fold/map; cada modificador
-// sólo aporta un `apply(engine, targetUnits, config) → Unit[]`.
+// conjunto de RenderUnits hacia su padre. Un wrapper (transformador, agregador o
+// decorador) mezcla las units de sus hijos, transforma las que matchean `consumes`
+// (fold = un apply sobre todas; map = uno por target) y pasa el resto. Lee la firma
+// DERIVADA del rol (grammar.js): combine, reach y passThrough no los declara nadie.
+// El intérprete hace el DISPATCH fold/map; cada modificador sólo aporta un
+// `apply(engine, targetUnits, config) → Unit[]`.
 //
 // Asume las convenciones de custom-element de Cristae (duck-typing, sin imports de
 // element/engine): un hijo se monta con `child.cristaeMount(engine)` y expone sus
@@ -87,8 +89,8 @@ export function reduceModifier(el, engine, ctx) {
     for (let i = 0; i < us.length; i++) childUnits.push(us[i])
   }
 
-  // `reach: 'nearest'`: los targets son lo que cada hijo directo produce como propio (validate.js); con
-  // 'all', todo lo consumido que sube del subárbol.
+  // `reach: 'nearest'` (decorador): los targets son lo que cada hijo directo produce como propio
+  // (validate.js); con 'all', todo lo consumido que sube del subárbol.
   const consumed = new Set(sig.consumes)
   const targets  = []
   sig.reach === 'nearest'

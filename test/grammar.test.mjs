@@ -12,14 +12,14 @@ const eq = (a, b, m) => ok(JSON.stringify(a) === JSON.stringify(b), `${m} (got $
 
 // ── Gramática real (las 5 firmas) ──
 const g = defineGrammar({ kinds: ['point', 'label', 'polygon', 'bubble', 'overlay'] })
-g.register('CRISTAE-POINT-LAYER', { consumes: [], produces: ['point'], combine: null, arity: 'leaf' })
-g.register('CRISTAE-LABEL-LAYER', { consumes: [], produces: ['label'], combine: null, arity: 'leaf', bindsTo: 'point' })
-g.register('CRISTAE-POLYGON-LAYER', { consumes: [], produces: ['polygon'], combine: null, arity: 'leaf' })
+g.register('CRISTAE-POINT-LAYER', { role: 'leaf', produces: ['point'] })
+g.register('CRISTAE-LABEL-LAYER', { role: 'leaf', produces: ['label'] })
+g.register('CRISTAE-POLYGON-LAYER', { role: 'leaf', produces: ['polygon'] })
 g.register('CRISTAE-OVERLAY',
-  { consumes: ['point'], produces: ['overlay'], combine: 'map', arity: 'wrapper', bindsTo: 'point' },
+  { role: 'decorate', consumes: ['point', 'bubble'], produces: ['overlay'] },
   { apply: (engine, targets) => targets.map(t => engine.addOverlay(t)) })
 g.register('CRISTAE-CLUSTER',
-  { consumes: ['point'], produces: ['point', 'bubble'], combine: 'fold', arity: 'wrapper' },
+  { role: 'aggregate', consumes: ['point'], produces: ['point', 'bubble'] },
   { apply: (engine, targets) => { const b = engine.addClusterFold(targets); return b ? [b] : [] } })
 
 const ctx = { signatureFor: g.signatureFor, applyFor: g.applyFor, isRegistered: g.isRegistered }
@@ -35,8 +35,7 @@ function el(tag, ...children) {
   node.cristaeMount = (engine) => {
     if (node._handle) return
     node._engine = engine
-    const sig = g.signatureFor(node.tagName)
-    if (sig.arity === 'leaf') {
+    if (g.isLeaf(node.tagName)) {
       node._handle = { id: `${tag.toLowerCase()}-${++seq}`, source: { tag } }
     } else {
       node._units = reduceModifier(node, engine, ctx)
@@ -46,8 +45,7 @@ function el(tag, ...children) {
     }
   }
   node.cristaeUnits = () => {
-    const sig = g.signatureFor(node.tagName)
-    return sig.arity === 'leaf' ? leafUnits(node, node._engine, ctx) : (node._units ?? [])
+    return g.isLeaf(node.tagName) ? leafUnits(node, node._engine, ctx) : (node._units ?? [])
   }
   node.cristaeConfig = () => ({})
   return node
@@ -86,7 +84,7 @@ expectErr(() => validate(el('cristae-point-layer', P()), vctx), 'R1', 'Point(Poi
 expectErr(() => validate(Cl(L()), vctx), 'R2', 'Cluster(Label)')
 expectErr(() => validate(Cl(Poly()), vctx), 'R2', 'Cluster(Polygon)')
 expectErr(() => validate(Cl(), vctx), 'R3', 'Cluster() vacío')
-expectErr(() => g.register('X', { consumes: ['pont'], produces: ['point'], combine: 'fold', arity: 'wrapper' }), 'R4', 'kind desconocido')
+expectErr(() => g.register('X', { role: 'aggregate', consumes: ['pont'], produces: ['point'] }), 'R4', 'kind desconocido')
 // warn mode no lanza
 ok(validate(Cl(L()), { ...vctx, mode: 'warn' }) === false, 'mode warn → false sin lanzar')
 
