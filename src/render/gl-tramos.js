@@ -4,13 +4,18 @@
 // miembros: un pane declarado por el motor (etiquetas, HTML, calor, realce, editores), uno ajeno o nativo con hijos, y
 // lo que no es marcador dentro del pane de un miembro, que deja a ese miembro en un tramo solo.
 //
-// El plan es barato (n ≤ 30) y se rehace entero en cada alta, baja, separador o `replan`. La identidad de los tramos
-// la conserva `planTramos`: los tramos sólo se parten, nunca se funden. El hot path es `renderAtView`.
+// El plan es barato (n ≤ 30) y se rehace entero en cada alta, baja, separador o `replan`, y cuando el DOM de la raíz
+// cambia por fuera: un pane ajeno que aparece, uno vacío que recibe hijos, una z inline que cambia. Eso lo avisa un
+// `MutationObserver` por evento, sin tocar el cuadro. La identidad de los tramos la conserva `planTramos`: los tramos
+// sólo se parten, nunca se funden. El hot path es `renderAtView`.
 
 import { GlTramo, TramoSlot } from './GlTramo.js'
 import { SEPARATOR, orderByZ, planTramos } from './tramo-plan.js'
 
 const PANE_PREFIX = 'cristae-tramo-'
+const CHILDREN    = { childList: true }
+const STYLE       = { attributes: true, attributeFilter: ['style'] }
+const BOTH        = { ...CHILDREN, ...STYLE }
 
 // La z de un pane: la inline que le pone `host.surface`, o la de la hoja de estilo en los nativos de Leaflet, que no
 // tienen una inline. Sólo al planificar: leer el estilo computado fuerza un recálculo de estilos.
@@ -26,6 +31,7 @@ export const createTramos = ({ host, Tramo = GlTramo, Slot = TramoSlot }) => {
   const sticky   = new WeakSet()   // panes que recibieron hijos ajenos: separan para siempre
   const gone     = new WeakSet()   // marcadores de slots que se fueron: no cuentan aunque sigan en el DOM
   const ownPanes = new WeakSet()   // los panes de tramo: no entran al plan
+  const inlineZ  = new WeakMap()   // pane → su z inline al planificar: otra z replanifica
   const surface  = host.surface
 
   let vacant     = []              // registros sin miembros: se destruyen al final de la microtarea, salvo reuso
@@ -221,6 +227,17 @@ export const createTramos = ({ host, Tramo = GlTramo, Slot = TramoSlot }) => {
       rec.tramo.watch(rec.watch, rec.watch.length)
     })
 
+    // 6. Se vigila lo que el plan acaba de leer. Re-observar descarta los registros pendientes, que son los del plan
+    // mismo (mover y montar panes de tramo) o anteriores a lo que leyó.
+    if (observer) {
+      observer.disconnect()
+      if (root) {
+        observer.observe(root, CHILDREN)
+        panes.forEach(observeZ)
+        cands.forEach(node => observer.observe(node, BOTH))   // reemplaza las opciones de `observeZ`
+      }
+    }
+
     if (vacant.length && !sweepSet) {
       sweepSet = true
       queueMicrotask(sweep)
@@ -251,11 +268,28 @@ export const createTramos = ({ host, Tramo = GlTramo, Slot = TramoSlot }) => {
   }
 
   // Un pane vigilado recibió hijos al componer: separa para siempre (el renderer de Leaflet no se va nunca).
-  const onForeign = node => {
-    sticky.add(node)
+  const later = () => {
     if (replanSet) return
     replanSet = true
     queueMicrotask(replanLater)
+  }
+
+  const onForeign = node => {
+    sticky.add(node)
+    later()
+  }
+
+  // Un pane vacío vigilado que recibió hijos separa para siempre; un pane nuevo o que se fue de la raíz, o una z inline
+  // distinta de la planificada, replanifican. Un estilo que no toca la z (opacidad, visibilidad) no hace nada.
+  const onMutation = list => list.forEach(r =>
+    r.type === 'attributes' ? r.target.style.zIndex !== inlineZ.get(r.target) && later()
+      : r.target.firstChild && r.target !== rootOf() ? onForeign(r.target)
+      : later())
+
+  const observer = typeof MutationObserver === 'function' ? new MutationObserver(onMutation) : null
+  const observeZ = node => {
+    inlineZ.set(node, node.style.zIndex)
+    observer.observe(node, STYLE)
   }
 
   const hooks = {
@@ -307,6 +341,7 @@ export const createTramos = ({ host, Tramo = GlTramo, Slot = TramoSlot }) => {
 
     destroy() {
       destroyed = true
+      observer?.disconnect()
       byId.forEach(retire)
       vacant.forEach(retire)
       byId.clear()

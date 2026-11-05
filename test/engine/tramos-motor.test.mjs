@@ -186,3 +186,30 @@ test('D6 attachSource conserva la opacidad y la visibilidad de la capa en la com
   assert.equal(slot('b').opacity, 0.4, 'la atenuada sigue atenuada')
   assert.equal(tramoDe(engine, 'a'), tramoDe(engine, 'b'), 'y en el mismo tramo')
 })
+
+test('D7 un pane ajeno que aparece o se mueve entre dos miembros después del plan los separa, sin otra alta', async t => {
+  const { map } = await armarVacio()
+  t.after(() => map.remove())
+  const engine  = map.engine
+  const leaflet = engine.getLeafletMap()
+  engine.addPointLayer({ id: 'a', source: fuente(2), iconSet, z: 400 })
+  engine.addPointLayer({ id: 'c', source: fuente(2), iconSet, z: 420 })
+  await asentar(engine)
+  assert.equal(tramoDe(engine, 'a'), tramoDe(engine, 'c'), 'contiguas: un tramo')
+
+  const ajeno = leaflet.createPane('ajeno-medio')
+  ajeno.style.zIndex = '410'
+  ajeno.appendChild(document.createElement('div'))      // un popup, un tooltip: algo que se pinta entre las dos
+  await esperar(0)
+  assert.notEqual(tramoDe(engine, 'a'), tramoDe(engine, 'c'), 'el pane nuevo con hijos las separa')
+
+  const abajo = leaflet.createPane('ajeno-abajo')
+  abajo.style.zIndex = '300'
+  abajo.appendChild(document.createElement('div'))
+  ajeno.style.zIndex = '200'                             // el que separaba se va por debajo de las dos
+  await esperar(0)
+  assert.ok(tramoDe(engine, 'a') && tramoDe(engine, 'c'), 'ninguna queda sin tramo')
+  abajo.style.zIndex = '415'                             // y otro sube entre ellas
+  await esperar(0)
+  assert.notEqual(tramoDe(engine, 'a'), tramoDe(engine, 'c'), 'cambiar la z de un pane ajeno replanifica')
+})
