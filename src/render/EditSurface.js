@@ -85,8 +85,9 @@ export class EditSurface {
   get attached()    { return this.#attached }   // tomó un contexto alguna vez y no se destruyó
   get contextLost() { return this.#state === 'lost' }
   get cssZoom()     { return this.#cssZoom }
-  // La prioridad de la superficie: la z vigente de su pane. La de mayor z se recupera primero y la de menor z cae primero.
-  get z()           { return this.#surface.zOf(this.#paneName) ?? 0 }
+  // La prioridad de la superficie: la que dé su dueño (un tramo, la de su miembro más alto) o la z vigente de su pane. La
+  // de mayor z se recupera primero y la de menor z cae primero.
+  get z()           { return this.#owner?.z ?? this.#surface.zOf(this.#paneName) ?? 0 }
   // Si la política le debe un contexto: se ve (su pane no está oculto) y tiene algo que dibujar, o es un editor con un trazo
   // o un gesto vivo. Una que no avisa cuando recibe contenido (`acquire` al construirse) cuenta siempre con contenido. La
   // de un documento sin ventana —un popup que se cerró sin desmontar su mapa— no: nadie la ve.

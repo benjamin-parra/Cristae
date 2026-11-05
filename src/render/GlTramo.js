@@ -20,8 +20,11 @@ import { RebuildQueue } from './tramo-rebuild.js'
 
 const report = error => console.error('[cristae] una capa del tramo falló al armar o soltar su parte GL', error)
 
-// Si un miembro cuenta para que el tramo tenga algo que dibujar. De módulo: `some` no crea una clausura por lectura.
-const withContent = slot => slot.visible && (slot.wanted || !!slot.owner?.hasContent)
+// Si un miembro cuenta para que el tramo tenga algo que dibujar: se ve y su dueño tiene contenido, leído en vivo para que
+// una capa que se vació deje al tramo prescindible. Uno que avisó contenido al abrir y todavía no se armó cuenta aunque su
+// dueño no lo haya cargado aún (las líneas y los polígonos lo cargan después de abrir). De módulo: `some` no crea una
+// clausura por lectura.
+const withContent = slot => slot.visible && (!slot.lazy || !!slot.owner?.hasContent || slot.wanted && !slot.everBuilt)
 
 // La vista con que se pinta o se compone, en la forma de `readView`.
 const newView = () => ({ zoom: 0, center: { x: 0, y: 0 }, size: { x: 0, y: 0 } })
@@ -118,6 +121,15 @@ export class GlTramo {
   // Lo lee `EditSurface.needed`: algún miembro visible con algo que dibujar.
   get hasContent() { return this.#members.some(withContent) }
 
+  // La prioridad que lee la política (`EditSurface.z`): la z del miembro más alto. El pane del tramo tiene la del más
+  // bajo, y un tramo que llega hasta las capas de arriba no debe caer antes que uno solo intermedio.
+  get z() {
+    const list = this.#members
+    let z = -Infinity
+    for (let i = 0; i < list.length; i++) z = Math.max(z, list[i].z)
+    return list.length ? z : null
+  }
+
   // Los miembros en orden K ascendente; el diff es por identidad. El que sale suelta lo suyo si sigue siendo de acá; el
   // que entra se arma ya si el tramo vive y tiene contenido, o abre la superficie si todavía no se abrió. Un miembro que
   // llega armado en otro tramo lo suelta allá primero.
@@ -151,7 +163,8 @@ export class GlTramo {
       if (live) m.built || this.#arm(m, true)
       else wanted = true
     }
-    !surface.canvas && wanted && surface.open(true)
+    // Un tramo soltado o perdido no se entera solo de que un miembro con contenido entró: se le pide el contexto.
+    wanted && (surface.canvas ? surface.need() : surface.open(true))
     this.#solo && this.#place()
     this.#schedule()
   }
@@ -235,11 +248,11 @@ export class GlTramo {
 
   /* ── Lo que usa TramoSlot ── */
 
-  // Alta perezosa de un miembro. La primera abre la superficie (sin WebGL2 lanza, como siempre); con el tramo vivo y
-  // contenido se arma ya. Devuelve el contexto si quedó armado.
+  // Alta perezosa de un miembro. La primera abre la superficie (sin WebGL2 lanza, como siempre); con contenido, un tramo
+  // soltado o perdido lo pide a la política, y uno vivo lo arma ya. Devuelve el contexto si quedó armado.
   open(slot, content) {
     const surface = this.#surface
-    surface.canvas || surface.open(content)
+    surface.canvas ? content && surface.state !== 'live' && surface.need() : surface.open(content)
     content && !slot.built && !slot.released && surface.state === 'live' && this.#arm(slot, true)
     this.#solo && this.#place()
     return slot.built ? surface.gl : null

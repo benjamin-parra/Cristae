@@ -339,7 +339,7 @@ export class PolygonGpuLayer {
   // entregue algún ítem, tenga o no vértices que dibujar: un ítem sin anillos entra igual como un anillo vacío. Con las
   // tablas del lector, que traigan algún anillo.
   get surface()    { return this.#surface }
-  get hasContent() { return this.#store.ringCount > 0 }
+  get hasContent() { return this.#store?.ringCount > 0 }        // la política puede leerlo mientras la capa se construye
 
   // Mismos nombres que el alta: relleno y contorno se ajustan por separado.
   style(options = {}) {

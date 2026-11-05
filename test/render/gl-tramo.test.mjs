@@ -482,3 +482,44 @@ test('T6 un pane vigilado que recibe un hijo avisa onForeign una sola vez', asyn
   await drenar()
   assert.deepEqual(avisos, [vacio], 'con hijos avisa una vez')
 })
+
+/* ── T7 contenido vivo, alta en un tramo soltado y prioridad ── */
+
+test('T7 un miembro que se vació deja de contar: el tramo queda prescindible', async () => {
+  const { tramo, miembro } = montar()
+  const a = miembro('a')
+  a.slot.open(true)
+  assert.equal(tramo.hasContent, true)
+  a.hasContent = false                                  // la Source de la capa quedó vacía
+  assert.equal(tramo.hasContent, false, 'se lee el contenido vivo del dueño, no si alguna vez lo tuvo')
+  a.hasContent = true
+  a.slot.setVisible(false)
+  assert.equal(tramo.hasContent, false, 'oculto tampoco cuenta')
+})
+
+test('T7 una capa con contenido que entra a un tramo soltado lo pide a la política en esa tarea', async () => {
+  const { tramo, miembro } = montar()
+  miembro('a').slot.open(true)
+  tramo.surface.release()
+  assert.equal(tramo.surface.state, 'released')
+  const need = mock.method(tramo.surface, 'need')
+  const b = miembro('b')
+  b.hasContent = false                                  // como una línea: carga sus datos después de abrir
+  b.slot.open(true)
+  assert.equal(need.mock.callCount() > 0, true, 'el alta con contenido pide el contexto')
+  assert.equal(tramo.hasContent, true, 'y cuenta aunque su dueño todavía no haya cargado nada')
+})
+
+test('T7 la prioridad del tramo ante la política es la z de su miembro más alto', async () => {
+  const { host, tramo, miembro } = montar()
+  const a = miembro('a')
+  const b = miembro('b')
+  a.slot.open(true)
+  b.slot.open(true)
+  host.surface.mount('capa-a')
+  host.surface.mount('capa-b')
+  host.pane('capa-a').z = 400
+  host.pane('capa-b').z = 460
+  host.pane('cristae-tramo-0').z = 400
+  assert.equal(tramo.surface.z, 460)
+})
