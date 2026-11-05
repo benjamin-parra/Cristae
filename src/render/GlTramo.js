@@ -39,6 +39,7 @@ export class GlTramo {
   #now        = newView()           // la vista viva, leída al componer
   #view       = newView()           // la vista inyectada por el zoom animado
   #injected   = false
+  #anchored   = false               // un `sync` ya reasentó el canvas en esta tarea: la composición no lo repite
   #scheduled  = false
   #building   = false               // la primera tanda corre dentro de `acquire`, que avisa a todos al terminar
 
@@ -64,11 +65,13 @@ export class GlTramo {
   }
 
   // [0-alloc] Primero los panes vigilados: uno que recibió hijos deja de ser vacío y avisa una vez. Después reasienta el
-  // canvas (tamaño y ancla a la vista viva) y compone en orden K lo visible, armado, pintado y con opacidad. El tramo
-  // solo compone con opacidad 1: la del miembro la pone el CSS de su pane, que es también el del canvas. Lo oculto no
-  // se compone tampoco ahí: ocultarlo dos veces no cambia nada.
+  // canvas (tamaño y ancla a la vista viva), salvo que un `sync` ya lo hiciera en esta tarea, y compone en orden K lo
+  // visible, armado, pintado y con opacidad. El tramo solo compone con opacidad 1: la del miembro la pone el CSS de su
+  // pane, que es también el del canvas. Lo oculto no se compone tampoco ahí: ocultarlo dos veces no cambia nada.
   #compose = () => {
+    const anchored  = this.#anchored
     this.#scheduled = false
+    this.#anchored  = false
     const watched = this.#watched
     for (let i = 0; i < watched.length; i++) {
       const node = watched[i]
@@ -78,7 +81,7 @@ export class GlTramo {
     }
     if (!this.#compositor || this.#surface.state !== 'live') return 0
 
-    this.#surface.resetCanvasReference()
+    anchored || this.#surface.resetCanvasReference()
     const view    = this.#injected ? this.#view : readView(this.#camera, this.#now)
     const list    = this.#members
     const entries = this.#entries
@@ -287,10 +290,15 @@ export class GlTramo {
       : 'none'
   }
 
-  // [0-alloc] El `resetCanvasReference` de un miembro: reasienta el canvas del tramo, suelta la vista inyectada y compone.
-  sync() {
+  // [0-alloc] El `resetCanvasReference` de un miembro. La vista inyectada la sueltan `zoomend` y los miembros que el motor
+  // reproyecta por cuadro (`cssZoom: false`, los puntos); una línea que redibuja en pleno zoom animado no. Un miembro
+  // oculto o sin armar no reasienta ni compone: el canvas viaja con el pane. El que se ve reasienta el canvas antes de
+  // dibujar, porque su FBO toma el tamaño del drawing buffer, y la composición de esta tarea ya no lo repite.
+  sync(slot) {
+    slot.cssZoom || (this.#injected = false)
+    if (!slot.visible || !slot.built) return
     this.#surface.resetCanvasReference()
-    this.#injected = false
+    this.#anchored = true
     this.#schedule()
   }
 
@@ -429,7 +437,7 @@ export class TramoSlot {
 
   release()              { return !!this.tramo && this.tramo.release(this) }
   reconcile()            { return !!this.tramo && this.tramo.surface.reconcile() }
-  resetCanvasReference() { this.tramo?.sync() }
+  resetCanvasReference() { this.tramo?.sync(this) }
   begin()                { return this.tramo?.begin(this) ?? null }
   end(view)              { this.tramo?.end(this, view) }
 

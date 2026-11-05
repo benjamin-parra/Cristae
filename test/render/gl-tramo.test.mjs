@@ -212,7 +212,7 @@ const montar = ({ solo = false } = {}) => {
   // Un miembro nuevo, en su pane: K crece con el orden de alta.
   const miembro = (nombre, opciones) => {
     const capa = makeCapa(nombre, opciones)
-    capa.slot  = new TramoSlot({ host, pane: solo ? 'capa-0' : `capa-${nombre}`, owner: capa }, hooks)
+    capa.slot  = new TramoSlot({ host, pane: solo ? 'capa-0' : `capa-${nombre}`, owner: capa, cssZoom: opciones?.cssZoom }, hooks)
     return capa
   }
   const composiciones = () => log.filter(([m]) => m === 'compose')
@@ -401,10 +401,12 @@ test('T4 TramoSlot: open, need, acquire, state por miembro, onState a cada uno, 
 
 /* ── T5 reasentar y vista inyectada ── */
 
-test('T5 componer reasienta el canvas; renderAtView inyecta la vista hasta zoomend o el siguiente sync', async () => {
+test('T5 componer reasienta el canvas; renderAtView inyecta la vista hasta zoomend o el sync de unos puntos', async () => {
   const { host, tramo, miembro, composiciones, log } = montar()
-  const a = miembro('a')
+  const a = miembro('a', { cssZoom: false })
+  const l = miembro('l')
   a.slot.open(true)
+  l.slot.open(true)
   await drenar()
   log.length = 0
 
@@ -425,10 +427,41 @@ test('T5 componer reasienta el canvas; renderAtView inyecta la vista hasta zoome
   assert.equal(composiciones().at(-1)[2].zoom, 10, 'zoomend la suelta')
 
   tramo.renderAtView(13, { lat: 0, lng: 0 })
+  l.slot.resetCanvasReference()
+  l.dibujar()
+  await drenar()
+  assert.equal(composiciones().at(-1)[2].zoom, 13, 'una línea que redibuja en pleno zoom no la suelta')
   a.slot.resetCanvasReference()
   await drenar()
-  assert.equal(composiciones().at(-1)[2].zoom, 10, 'el sync de un miembro también')
-  assert.equal(composiciones().length, 5, 'una composición por tarea')
+  assert.equal(composiciones().at(-1)[2].zoom, 10, 'el sync de unos puntos sí')
+  assert.equal(composiciones().length, 6, 'una composición por tarea')
+})
+
+test('T5 un miembro oculto que reasienta no compone; varios que reasienten en una tarea, una composición sin reanclar de nuevo', async () => {
+  const { tramo, miembro, composiciones } = montar()
+  const a = miembro('a', { cssZoom: false })
+  const b = miembro('b', { cssZoom: false })
+  a.slot.open(true)
+  b.slot.open(true)
+  await drenar()
+  const veces = composiciones().length
+
+  a.slot.setVisible(false)
+  await drenar()
+  assert.equal(composiciones().length, veces + 1, 'ocultar compone una vez')
+  for (let i = 0; i < 5; i++) {
+    a.slot.resetCanvasReference()
+    await drenar()
+  }
+  assert.equal(composiciones().length, veces + 1, 'el oculto que reasienta en cada move no hace componer a su tramo')
+
+  const reset = mock.method(tramo.surface, 'resetCanvasReference')
+  a.slot.setVisible(true)
+  a.slot.resetCanvasReference()
+  b.slot.resetCanvasReference()
+  await drenar()
+  assert.equal(composiciones().length, veces + 2, 'una composición')
+  assert.equal(reset.mock.callCount(), 2, 'un reasiento por miembro que reasienta, ninguno al componer')
 })
 
 /* ── T6 pane vigilado ── */
