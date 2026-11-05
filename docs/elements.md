@@ -303,10 +303,11 @@ hereda de la base:
 | `pane` | string | atributo — pane propio (default `cristae-<kind>-<id>`). Se lee en el alta; con el mismo nombre, varias capas lo comparten ([SPECS §8](../SPECS.md)) |
 
 Sin `z`, el motor lo deriva del orden de declaración (`400 + orden·10`): las mismas capas montadas en
-otro orden apilan distinto. Las de `html` y `label`, el editor y el cluster van en un plano de encima:
-quedan sobre las demás aunque se declaren antes, y la puerta del puntero les da la pulsación por el mismo
-orden. La de `image` no: queda bajo las etiquetas y los marcadores HTML. Los rótulos de `<cristae-labeled>`
-van en un plano entre los dos, sobre todas las capas base y bajo lo de encima ([`labeled.md`](labeled.md)).
+otro orden apilan distinto. Las de `html` y `label`, el editor y el cluster van en un plano de encima
+(`2 000 400 + orden·10`): quedan sobre las demás aunque se declaren antes, y la puerta del puntero les da la
+pulsación por el mismo orden. La de `image` no: queda en el plano base, bajo las etiquetas y los marcadores
+HTML. Los rótulos de `<cristae-labeled>` van en un plano entre los dos (`1 000 400`), sobre todas las capas
+base y bajo lo de encima ([SPECS §19.3](../SPECS.md), [`labeled.md`](labeled.md)).
 
 ```html
 <cristae-line-layer z="378"></cristae-line-layer>   <!-- recorrido: debajo de los marcadores -->

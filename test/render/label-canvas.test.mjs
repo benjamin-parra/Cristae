@@ -222,6 +222,18 @@ test('el estado que deja un paint no pasa al miembro siguiente', async () => {
   done()
 })
 
+test('un paint recibe el contexto como en <cristae-label-layer>, aunque antes pinte un miembro de texto', async () => {
+  const { r, done } = mount()
+  const a = member({ id: 'a', items: [{ id: 1, text: 'texto', lat: 0, lng: 0 }] })
+  const b = member({ id: 'b', opts: { paint: drawLabel }, items: [{ id: 2, text: 'Planta', lat: 0, lng: 0 }] })
+  r.attach(a)
+  r.attach(b)
+  await repaint()
+  const pildora = ctx.log.find(e => e.op === 'fill' && e.text === 'Planta')
+  assert.equal(pildora.align, 'start', 'drawLabel escribe desde el borde izquierdo de la píldora')
+  done()
+})
+
 test('paint={drawLabel}: recibe el ancla, devuelve su caja y se pica por ella', async () => {
   const { r, done } = mount()
   const a = member({ opts: { paint: drawLabel }, items: [{ id: 'p', text: 'Pila', lat: 0, lng: 0 }] })
@@ -304,6 +316,7 @@ test('el marco corrido: la muestra se corre lo que viajó el pane desde la coloc
   const a = member({ items: [{ id: 1, text: 'uno', lat: 0, lng: 0 }] })
   r.attach(a)
   await repaint()
+  host.camera.fire('movestart')
   host.camera.origin.x = -30          // el mapa se arrastró 30 px a la derecha, sin asentar
   const out = [null]
   r.hitsAt(a, { x: 430, y: 300 }, out)

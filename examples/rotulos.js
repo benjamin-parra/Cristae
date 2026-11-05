@@ -1,7 +1,7 @@
 // Verificación a ojo de <cristae-labeled>: el texto sobre una geodésica que se alterna, la rosa de rumbos con
 // `orientation`, `repeat` en una ruta sinuosa, el cluster por dentro y por fuera, `placement` sobre puntos y
-// burbujas, `html` con un botón, la píldora con `paint={drawLabel}` y el click que abre la tarjeta del ítem.
-// Sin tiles.
+// burbujas, el centro de un polígono, `html` con un botón, la píldora con `paint={drawLabel}`, el cambio de
+// renderer en vivo y el click que abre la tarjeta del ítem. Sin tiles.
 
 import { drawLabel, shapePresetIconSet } from '../src/index.js'
 
@@ -24,7 +24,8 @@ const cerca = ([lat, lng], i, radio) => ({ lat: lat + radio * Math.sin(i * 2.399
 
 Object.assign($('vuelos'), {
   accessors : lineas,
-  data      : [{ id: 'SCL–SYD', nombre: 'LA 801 Santiago–Sídney', path: [[-33.39, -70.79], [-33.94, 151.18]] }],
+  // Sídney a −208,82 y no a 151,18: un tramo de más de media vuelta es el lado largo, y la geodésica no lo toca.
+  data      : [{ id: 'SCL–SYD', nombre: 'LA 801 Santiago–Sídney', path: [[-33.39, -70.79], [-33.94, 151.18 - 360]] }],
 })
 $('texto-vuelos').textOf = v => v.nombre
 
@@ -69,9 +70,9 @@ Object.assign($('pildoras'), {
   accessors : puntos('#16a34a'),
   data      : [{ id: 'planta', nombre: 'Planta', lat: -33.50, lng: -70.48 }],
 })
-Object.assign($('texto-pildoras'), { paint: drawLabel, textOf: x => x.nombre ?? x.id })
+Object.assign($('texto-pildoras'), { paint: drawLabel, textOf: p => p.nombre })
 
-document.querySelector('cristae-popup').contentOf = x => `<b>${x.nombre ?? x.patente}</b>`
+document.querySelector('cristae-popup').contentOf = x => `<b>${x.nombre ?? x.patente ?? x.id}</b>`
 
 // ── Panel ──
 const mapa   = document.querySelector('cristae-map')
@@ -90,6 +91,7 @@ document.querySelectorAll('input[name=orientacion]').forEach(input =>
   input.addEventListener('change', () => $('texto-rosa').orientation = input.value))
 $('geodesica').addEventListener('change', e => $('curva').enabled = e.target.checked)
 $('placement').addEventListener('change', e => ['texto-flota', 'texto-burbujas'].forEach(id => $(id).placement = e.target.value))
+$('renderer').addEventListener('change', e => ['texto-rutas', 'texto-flota', 'texto-predios'].forEach(id => $(id).renderer = e.target.value))
 $('visible').addEventListener('change', e => textos.forEach(t => t.visible = e.target.checked))
 // El contenedor de Leaflet vive en el shadow root del mapa y trae su propio fondo.
 $('oscuro').addEventListener('change', e =>

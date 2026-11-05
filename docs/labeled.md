@@ -105,10 +105,17 @@ nuevo en cada render no redibuja si los textos no cambiaron.
   cluster, sobre sus burbujas y bajo la espiral.
 - **`paint`** recibe `(ctx, point, label, hovered, style)`, la misma firma de `<cristae-label-layer>`.
   `point` es el ancla del ítem desplazada por `offset`. Sólo vale en `canvas` con `placement` `auto` o
-  `center`. Si devuelve su caja `{ x, y, w, h }`, el rótulo se pica; `drawLabel` la devuelve.
+  `center`, y con `paint` `auto` es `center` en todas las capas: el pintor ya pone el rótulo donde quiere
+  respecto del punto. Si devuelve su caja `{ x, y, w, h }`, el rótulo se pica; `drawLabel` la devuelve.
 - **`html`** pone un nodo por rótulo. `textOf` va por `textContent`, sin interpretar HTML. `htmlOf` acepta un
-  string, que va por `innerHTML`, o un `Node`. El nodo es estable por ítem: `htmlOf` se llama otra vez sólo
-  si el ítem cambió.
+  string, que va por `innerHTML`, o un `Node`; `null` o `''` dejan al ítem sin rótulo, como en `textOf`. El
+  nodo es estable por ítem: `htmlOf` se llama otra vez sólo si el ítem cambió. Una línea con varias partes
+  lleva un nodo por parte: el `Node` de `htmlOf` va tal cual en la primera y las demás llevan una copia
+  (`cloneNode(true)`), sin sus listeners. Con `textOf`, el halo es una `text-shadow` que imita el trazo de
+  `canvas`. Para CSS, el nodo de cada `<cristae-labeled>` lleva la clase `cristae-labels` y cada rótulo,
+  `cristae-label`.
+- **El orden de pintado** dentro del canvas compartido es el de alta de los rótulos, no el de su capa. Casi
+  siempre coinciden; un `labeled` que se monta tarde sobre una capa vieja pinta sobre los de capas nuevas.
 
 ## Click y hover
 
@@ -132,8 +139,9 @@ burbuja la expande. El hover del rótulo realza el ítem.
   por fuera.
 - **Foco.** Los rótulos se atenúan con su capa. Con `'label'` en los `kinds` del foco se atenúan aunque el
   kind de la capa no esté.
-- **Hover.** El rótulo del ítem bajo el puntero se pinta encima del resto.
+- **Hover.** Con la capa interactiva, el rótulo del ítem bajo el puntero se pinta encima del resto.
 - **Baja.** Los rótulos son estado de la capa y mueren con ella.
+- **Source.** Cambiar la Source de la capa con `attachSource` no los vuelve a ligar: siguen la de su alta.
 
 ## Burbujas
 
@@ -186,7 +194,8 @@ Un valor inválido lanza `TypeError` antes de tocar el motor, y en caliente no c
 ## Límites
 
 - **Sin colisión.** Los rótulos no se esquivan entre sí: dos `labeled` con el mismo `offset` se pisan.
-- **`along` en `canvas`** coloca letra a letra: pierde las ligaduras, el kerning y el orden RTL.
+- **`along` en `canvas`** coloca grafema a grafema: pierde las ligaduras, el kerning entre grafemas y el
+  orden RTL.
 - **Editores:** no se rotulan en esta versión.
 - **Formas con `along`:** no se admiten todavía.
 

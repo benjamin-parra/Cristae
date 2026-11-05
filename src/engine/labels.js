@@ -1,5 +1,6 @@
 import { mergeLabelOptions, resolvePlacement } from '../render/labelOptions.js'
 import { createLabelCanvas } from '../render/LabelCanvas.js'
+import { createLabelHtml } from '../render/LabelHtml.js'
 import { safe } from '../data/safe.js'
 
 // Los rótulos de `<cristae-labeled>` y de `addLabels` (DISENO-ROTULOS §1.3, §2.6 y §4.3). Son estado del
@@ -8,7 +9,7 @@ import { safe } from '../data/safe.js'
 // miembros de un host forman su grupo, `record.labels`, por donde el motor avisa y pica.
 
 /** Un renderer por nombre. `gl` se suma cuando exista, con la misma interfaz. */
-export const LABEL_RENDERERS = { canvas: createLabelCanvas }
+export const LABEL_RENDERERS = { canvas: createLabelCanvas, html: createLabelHtml }
 
 // Lo que cambia la colocación. `color`, `halo` y `paint` sólo repintan, y `visible` sólo muestra u oculta.
 const LAYOUT_KEYS = ['placement', 'repeat', 'offset', 'orientation', 'font', 'htmlOf', 'renderer', 'interactive']

@@ -1454,7 +1454,7 @@ terreno de la primera.
 ### 19.1 Imagen — `addImageLayer` / `<cristae-image-layer>`
 
 Un nodo DOM en un pane propio con una transformación CSS (`matrix3d`) que lleva la imagen a su lugar. Sin
-`z`, apila por orden de declaración **sin** el `+200` de las etiquetas: queda bajo ellas y bajo los
+`z`, apila por orden de declaración en el plano base (§19.3): queda bajo los rótulos, las etiquetas y los
 marcadores HTML.
 
 | Entrada | Tipo | Notas |
@@ -1536,18 +1536,27 @@ predio. Equivale a `polyline.setText` de Leaflet.TextPath sobre líneas. Reempla
   contexto fijado por miembro y cada `paint` entre `save` y `restore`; la medida se cachea por fuente y se
   rehace cuando resuelve `document.fonts.load(font)`. `html`: un nodo por rótulo, estable por id; `htmlOf` se
   llama otra vez sólo si cambia el hash del ítem; con `along` va en el punto medio, girado según la tangente.
-- **Z: tres planos.** Base (`BASE_Z + orden·10`), rótulos (el canvas compartido y encima los panes `html`) y
-  encima (capas HTML, editores, label-layer, burbujas y espiral). Los rótulos quedan sobre todas las capas
-  base y bajo lo de encima, sin importar el orden de declaración.
+- **Z: tres planos** de un millón cada uno, sin `z` explícito:
+
+  | Plano | z | Qué |
+  |---|---|---|
+  | base | `400 + orden·10` | puntos, líneas, polígonos, formas, círculos, calor e imagen; el badge de `addOverlay` a `+7` de su host |
+  | rótulos | `1 000 400`; un pane `html` en `1 000 400 + (orden + 1)·10` | el canvas compartido y, encima, el pane `html` de cada host |
+  | encima | `2 000 400 + orden·10` | capas HTML, editores y `<cristae-label-layer>` (`+0`); del cluster, patas `+4`, burbujas `+5`, rótulos de burbujas `+6`, espiral `+7` y sub-burbujas `+8` |
+
+  Los rótulos quedan sobre todas las capas base y bajo lo de encima, sin importar el orden de declaración.
+  Un orden que pasaría su plano queda en el techo (`plano + 1e6 − 10`), con un aviso por motor. `z` explícito
+  no se toca: cae donde lo pongan. Dentro del canvas compartido se pinta en el orden de alta de los rótulos.
 - **Picking.** El rótulo es parte de su ítem: el motor envuelve el resolver del host y suma las partes de
   sus rótulos, con el `layerId`, `kind`, `ref` e `id` del host, `distancePx: 0` y el `zIndex` del pane donde
   se dibuja (`resolveHits` usa `part.zIndex ?? entry.zIndex`, §10). Se pica contra lo colocado: una caja por
   grafema sobre el trazo, el rectángulo del texto en `center`, la caja que devuelve `paint` o la del nodo
-  `html`. Sin resolver del host no hay picking del rótulo. Con `interactive` en `html`, el nodo recibe el
-  puntero por `host.surface.shield(node)` y no aporta partes.
+  `html`. Sin resolver del host no hay picking del rótulo: el host no interactivo no se pica por su rótulo.
+  Con `interactive` en `html`, el nodo recibe el puntero por `host.surface.shield(node)` y no aporta partes.
 - **Siguen al host:** visibilidad (`visible` ∧ host visible ∧ host habilitado), supresión del cluster y
   `where`, foco por capa y por ítem (`'label'` en los `kinds` del foco por capa los atenúa aunque el kind del
-  host no esté) y hover, que se pinta al final.
+  host no esté; la composición es la del host, no un producto de los dos focos) y, con el host interactivo,
+  hover, que se pinta al final. `attachSource` no los vuelve a ligar: siguen la Source con que nacieron.
 - **Burbujas:** sobre la capa de burbujas de un cluster, `textOf` y `htmlOf` reciben `{ count, leaves }`;
   `leaves` se resuelve al leerse. El `textOf` por defecto es `String(count)`. Tocar el rótulo expande la
   burbuja.

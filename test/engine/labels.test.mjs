@@ -299,16 +299,8 @@ test('la espiral y las burbujas quedan sobre los rótulos canvas y html', () => 
     assert.ok(z(map, bubbleId.replace(':clusters', '-bubbles')) > zDeHtml[0], 'las burbujas, también')
     engine.destroy()
   } finally {
-    real ? LABEL_RENDERERS.html = real : delete LABEL_RENDERERS.html
+    LABEL_RENDERERS.html = real
   }
-})
-
-test('renderer html sin el renderer disponible lanza TypeError sin tocar nada', () => {
-  const { engine } = motor()
-  engine.addPointLayer({ id: 'p', accessors: puntos, iconSet: makeIconSet(), data: [] })
-  LABEL_RENDERERS.html ?? assert.throws(() => engine.addLabels({ hostId: 'p', htmlOf: () => '' }), TypeError)
-  assert.equal(engine.getLayer('p').labels, undefined)
-  engine.destroy()
 })
 
 test('foco por capa: con `label` en kinds se atenúan aunque el kind del host no esté; sin él, siguen al host', () => {
@@ -342,5 +334,13 @@ test('los rótulos nacen con el foco vigente', () => {
   engine.focus(['otra'])
   engine.addLabels({ hostId: 'p' })
   assert.equal(miembro(engine, 'p').alphaOf('a'), 0.3)
+  engine.destroy()
+})
+
+test('htmlOf monta el renderer html en un pane propio del host, sobre el canvas compartido', () => {
+  const { engine, map } = motor()
+  engine.addPointLayer({ id: 'p', accessors: puntos, iconSet: makeIconSet(), data: [{ id: 'a', lat: 0, lng: 0 }] })
+  assert.ok(engine.addLabels({ hostId: 'p', htmlOf: v => `<b>${v.id}</b>` }))
+  assert.ok(Number(map.getPane('cristae-labels-html-p').style.zIndex) > LABEL_PLANE)
   engine.destroy()
 })

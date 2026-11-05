@@ -173,8 +173,9 @@ resuelven sólo si algún participante reconoció el píxel.
   `host.input.suppressDoubleClickZoom` y el mapa no hace zoom.
 - **Fuera de la superficie** (`host.input.onSurface`), en la UI que el anfitrión pone en el contenedor,
   una pulsación no toma handles ni es un click, y el doble click no llega a nadie.
-- **Lo blindado** (`host.surface.shield(node)`, que devuelve con qué deshacerlo) tampoco es superficie, y la
-  pulsación que nace en el nodo no llega al arrastre del anfitrión. Lo usa
+- **Lo blindado** (`host.surface.shield(node)`, que devuelve con qué deshacerlo) tampoco es superficie: lo
+  que nace en el nodo no es una pulsación del mapa, y la pulsación y el doble click no siguen hacia el
+  contenedor, donde el anfitrión arrastra o hace zoom. Lo usa
   `<cristae-labeled renderer="html" interactive>`: un botón dentro del rótulo responde y arrastrar desde él
   no mueve el mapa. El hover del mapa no pasa por `onSurface`, así que el ítem se sigue realzando bajo el
   puntero.

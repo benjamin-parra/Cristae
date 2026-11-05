@@ -41,6 +41,15 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   vivo. No se pica. Ver [`docs/heat.md`](docs/heat.md).
   *Migración*: ninguna.
 
+### Cambiado
+- **El apilado sin `z` va en tres planos.** Las capas base siguen en `400 + orden·10`; los rótulos de
+  `<cristae-labeled>` van en un plano propio, desde `1 000 400`; y lo que antes sumaba `+200` a su orden
+  (capas HTML, editores, `<cristae-label-layer>`, burbujas y espiral del cluster) va desde `2 000 400`, con su
+  orden relativo de siempre. Así lo de encima queda sobre las capas base aunque haya más de veinte. Ver
+  [SPECS §19.3](SPECS.md).
+  *Migración*: un `z` explícito pensado para quedar sobre las capas HTML, los editores o el cluster tiene que
+  subir al plano de encima; uno que sólo ordena capas base no cambia.
+
 ### Deprecado
 - **`<cristae-label-layer>`, `<CristaeLabelLayer>`, `addLabelLayer` y la hija `slot="bubble"` de label del
   cluster.** Siguen funcionando y se retiran en 1.0; al montarse avisan una vez por página.

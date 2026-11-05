@@ -41,11 +41,12 @@ export const createLabelCanvas = ({ host, pane, zIndex }) => {
   const point   = { x: 0, y: 0 }
   const label   = { id: null, lat: 0, lng: 0, text: '' }
   const call    = { paint: null, ctx, point, label, hovered: false }
+  const origin  = { x: NaN, y: NaN }      // el del marco en el último pintado
   let frame     = 0
   let zooming   = false
+  let moved     = false                   // el marco se corrió desde que asentó la vista
   let alive     = true
   let width     = 0, height = 0, ratio = 0
-  let originX   = NaN, originY = NaN
 
   // Una fuente que termina de cargar cambia los anchos medidos con la de reemplazo: se olvidan y se
   // recolocan los miembros que la usan.
@@ -130,7 +131,9 @@ export const createLabelCanvas = ({ host, pane, zIndex }) => {
     }
   }
 
-  // El estado del contexto se fija al entrar a cada miembro: no hereda nada del anterior.
+  // El estado del contexto se fija al entrar a cada miembro: no hereda nada del anterior. Un `paint` lo
+  // recibe como se lo da `<cristae-label-layer>`: la fuente, la línea base al medio y la alineación al
+  // inicio, que es de la que parte `drawLabel`.
   const drawMember = (member, hovered) => {
     if (!member.visible) return
     const st = states.get(member)
@@ -140,11 +143,11 @@ export const createLabelCanvas = ({ host, pane, zIndex }) => {
     const opts = member.opts
     const dx   = st.ox - view.ox
     const dy   = st.oy - view.oy
+    ctx.font         = opts.font
+    ctx.textBaseline = 'middle'
+    ctx.textAlign    = opts.paint ? 'start' : 'center'
     if (opts.paint) return paintPass(member, st, hovered, dx, dy)
 
-    ctx.font         = opts.font
-    ctx.textAlign    = 'center'
-    ctx.textBaseline = 'middle'
     ctx.lineJoin     = 'round'
     ctx.lineWidth    = HALO
     ctx.strokeStyle  = opts.halo
@@ -160,10 +163,10 @@ export const createLabelCanvas = ({ host, pane, zIndex }) => {
     if (!alive || !camera.hasView()) return
     readLabelView(camera, view)
     const r = window.devicePixelRatio || 1
-    if (view.ox !== originX || view.oy !== originY) {
-      originX                = view.ox
-      originY                = view.oy
-      canvas.style.transform = frameTransform(originX, originY)
+    if (view.ox !== origin.x || view.oy !== origin.y) {
+      origin.x               = view.ox
+      origin.y               = view.oy
+      canvas.style.transform = frameTransform(origin.x, origin.y)
     }
     if (view.w !== width || view.h !== height || r !== ratio) {
       width               = view.w
@@ -198,9 +201,11 @@ export const createLabelCanvas = ({ host, pane, zIndex }) => {
     states.forEach(outdate)
     frame && cancelAnimationFrame(frame)
     paint()
+    moved = false
   }
 
   const offView = [
+    camera.on('movestart', () => (moved = true)),
     camera.on('zoomstart', () => {
       zooming                  = true
       canvas.style.visibility  = 'hidden'
@@ -237,12 +242,14 @@ export const createLabelCanvas = ({ host, pane, zIndex }) => {
     },
 
     // Suma a `out` las partes de los rótulos de `member` bajo `sample`. Las cajas están en px del marco de
-    // la colocación: la colocación descuenta lo que se movió el marco desde entonces. [0-alloc]
+    // la colocación: la colocación descuenta lo que se movió el marco desde entonces. En reposo el marco es
+    // el del último pintado, y la cámara, que arma un punto por lectura, sólo se pregunta mientras se mueve.
+    // [0-alloc]
     hitsAt(member, sample, out) {
       const st = alive && !zooming && member.visible ? states.get(member) : null
       if (!st) return out
       const from = out.length
-      st.layout.hitsAt(sample, camera.frameOrigin(), out)
+      st.layout.hitsAt(sample, moved ? camera.frameOrigin() : origin, out)
       for (let k = from; k < out.length; k++) out[k].zIndex = zIndex
       return out
     },
