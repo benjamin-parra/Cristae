@@ -7,7 +7,7 @@
 // miembro— y de lo que los miembros dibujan en sus FBO.
 //
 // El harness va PRIMERO: window, customElements y lo que Lit toca al evaluar.
-import { ACC, armar, armarVacio, asentar, esperar, iconSet, items } from '../../test-helpers/modelo-capas.mjs'
+import { ACC, armar, armarVacio, asentar, esperar, fuente, iconSet, items } from '../../test-helpers/modelo-capas.mjs'
 import { makeEditGl } from '../../test-helpers/engine-stub.mjs'
 import test, { after } from 'node:test'
 import assert from 'node:assert/strict'
@@ -166,4 +166,23 @@ test('D5 surfaces() conserva la forma de sus filas; perder un tramo avisa un sur
   const perdidas = avisos.filter(a => a.state === 'lost')
   assert.deepEqual(perdidas.map(a => a.layerId).sort(), miembros, 'una fila por miembro del tramo')
   perdidas.forEach(fila => assert.deepEqual(Object.keys(fila), CLAVES))
+})
+
+test('D6 attachSource conserva la opacidad y la visibilidad de la capa en la composición de su tramo', async t => {
+  const { map } = await armarVacio()
+  t.after(() => map.remove())
+  const engine = map.engine
+  engine.addPointLayer({ id: 'a', source: fuente(2), iconSet, z: 400 })
+  engine.addPointLayer({ id: 'b', source: fuente(2), iconSet, z: 410 })
+  await asentar(engine)
+  assert.equal(tramoDe(engine, 'a'), tramoDe(engine, 'b'), 'a y b comparten tramo')
+  engine.setLayerOpacity('b', 0.4)
+  engine.setLayerVisibility('a', false)
+
+  engine.attachSource('a', fuente(3))
+  engine.attachSource('b', fuente(3))
+  const slot = id => engine.getLayer(id).layer.surface
+  assert.equal(slot('a').visible, false, 'la oculta sigue oculta')
+  assert.equal(slot('b').opacity, 0.4, 'la atenuada sigue atenuada')
+  assert.equal(tramoDe(engine, 'a'), tramoDe(engine, 'b'), 'y en el mismo tramo')
 })

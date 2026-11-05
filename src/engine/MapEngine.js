@@ -1174,15 +1174,19 @@ export class MapEngine {
 
   // Reemplaza la capa de puntos de un record por la que arma `create`. La vieja se suelta antes de construir, así que
   // su contexto se devuelve antes de tomar el nuevo, y el canvas nuevo ocupa el lugar del viejo en el pane: el orden de
-  // las capas que lo comparten no cambia con el recambio.
+  // las capas que lo comparten no cambia con el recambio. Visibilidad y opacidad las aplica la superficie al componer (el
+  // CSS del pane ya no alcanza al canvas de un tramo): la nueva hereda las de la vieja.
   #swapLayer(record, create) {
     // El vecino es el nodo que sigue al marcador, sin el canvas de su tramo solo: ese se muda con el miembro nuevo.
-    const { canvas, tramo } = record.layer.surface
+    const { canvas, tramo, visible = true, opacity = 1 } = record.layer.surface
     const sigue  = canvas?.nextSibling
     const vecino = sigue && sigue === tramo?.surface.canvas ? sigue.nextSibling : sigue
     record.layer.destroy()
     record.layer = this.#watchSurface(this.#trackGl(create()))
-    vecino?.before(record.layer.surface.canvas)
+    const surface = record.layer.surface
+    surface.setVisible(visible)
+    surface.setOpacity(opacity)
+    vecino?.before(surface.canvas)
     this.#tramos.replan()                 // el marcador nuevo cambió de lugar en el pane: su tramo se recalcula
   }
 
