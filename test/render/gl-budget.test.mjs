@@ -552,6 +552,50 @@ test('una señal de cupo cancela el reintento agendado: si la saturación vuelve
   }
 })
 
+// Firefox no desaloja en la tarea del getContext que pasa el techo: `isContextLost()` sigue en falso y `webglcontextlost`
+// llega ≈ 2,5 s después, cuando el rato ocioso (tope de 1 s) ya corrió (remota B, Firefox 153 con techo 8). Acá el techo no
+// desaloja y el test desaloja después del rato ocioso, como Firefox.
+test('desalojo avisado después del rato ocioso (Firefox): la saturación sigue con dos reintentos, no con uno cada 5 s', () => {
+  mock.timers.enable({ apis: ['setTimeout', 'Date'] })
+  const warn = mock.method(console, 'warn', () => {})
+  try {
+    nuevoNavegador()
+    const a = superficie('a', { z: 10 })
+    const b = superficie('b', { z: 20 })
+    desalojar(b)
+    asentar()                                           // b vuelve: la política la tomó
+    desalojar(b)
+    asentar()                                           // otra vez antes de una señal de cupo: satura y suelta a la de menor z
+    assert.deepEqual(estados(a, b), ['released', 'live'])
+
+    // Cada reintento toma a `a`; el aviso de que eso desalojó a `b` llega después del rato ocioso. `b` vuelve, y el aviso de
+    // que eso desalojó a `a` también llega tarde: la saturación de nuevo.
+    const tomas = []
+    const ciclo = () => {
+      const creados = navegador.creados
+      asentar()
+      if (navegador.creados === creados) return
+      tomas.push(Date.now())
+      ocio()
+      desalojar(b)
+      asentar(3)
+      ocio()
+      a.state === 'live' && desalojar(a)
+      asentar(3)
+      ocio()
+    }
+    for (let t = 0; t < 120_000; t += 1000) {
+      mock.timers.tick(1000)
+      ciclo()
+    }
+    assert.deepEqual(tomas, [5000, 35_000], 'los dos de la escalera, a los 5 s y 30 s después, y nada más')
+    assert.deepEqual(estados(a, b), ['released', 'live'])
+  } finally {
+    warn.mock.restore()
+    mock.timers.reset()
+  }
+})
+
 /* ── Pérdida masiva ── */
 
 test('un reinicio de la GPU devuelve todas las necesarias de a una por cuadro, por z, y la prescindible no', () => {
