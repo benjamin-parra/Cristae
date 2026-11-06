@@ -260,13 +260,14 @@ export class GlTramo {
 
   // El miembro recibió contenido o se volvió a ver. Vivo, se arma en el acto; sin contexto, la política decide, y si lo
   // toma ya `buildGl` lo arma. Uno vacío que se vuelve a ver no pide nada: el contenido lo decide su dueño, como en
-  // `EditSurface.needed`. Devuelve si quedó armado por este aviso.
+  // `EditSurface.needed`. Un tramo que el plan creó con miembros todavía vacíos nunca abrió su superficie: el primer
+  // contenido la abre, como el alta de una capa con contenido. Devuelve si quedó armado por este aviso.
   need(slot) {
     if (!(slot.wanted ||= !slot.lazy || !!slot.owner?.hasContent)) return false
     slot.released = false
     const surface = this.#surface
     if (surface.state !== 'live') {
-      surface.need()
+      surface.canvas ? surface.need() : surface.open(true)
       return slot.built
     }
     const armed = !slot.built && this.#arm(slot, true)

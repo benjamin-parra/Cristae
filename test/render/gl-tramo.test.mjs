@@ -510,6 +510,19 @@ test('T7 una capa con contenido que entra a un tramo soltado lo pide a la polít
   assert.equal(tramo.hasContent, true, 'y cuenta aunque su dueño todavía no haya cargado nada')
 })
 
+test('T7 un tramo que el plan creó con un miembro vacío abre su superficie cuando el miembro recibe contenido', async () => {
+  const { host, miembro } = montar()
+  const a = miembro('a', { contenido: false })
+  a.slot.open(false)                                    // como una línea: abre vacía y carga sus datos después
+  const nuevo = new GlTramo({ host, pane: 'cristae-tramo-1', compositor: makeCompositor([]), queue: makeCola() })
+  tramos.push(nuevo)
+  nuevo.setMembers([a.slot], 1)                         // un separador lo partió: el tramo nuevo no abre nada
+  assert.deepEqual([nuevo.surface.canvas, a.slot.state], [null, 'none'])
+  a.hasContent = true
+  assert.equal(a.slot.need(), true, 'el primer contenido lo arma en esa tarea')
+  assert.deepEqual([nuevo.surface.state, a.slot.state, a.log[0][0]], ['live', 'live', 'buildGl'])
+})
+
 test('T7 la prioridad del tramo ante la política es la z de su miembro más alto', async () => {
   const { host, tramo, miembro } = montar()
   const a = miembro('a')
