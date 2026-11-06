@@ -124,8 +124,10 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   *Migración*: un `z` explícito pensado para quedar sobre las capas HTML, los editores o la espiral sube al
   plano de encima (`3 000 400` o más). Uno pensado relativo a los rótulos se ubica contra los planos nuevos:
   sobre los rótulos y bajo lo de encima, entre `2 000 400` y `3 000 400`; bajo los rótulos y sobre las
-  burbujas ya no hay lugar, porque los rótulos de las burbujas van pegados a ellas. Uno que sólo ordena
-  capas base no cambia.
+  burbujas, en lo alto del plano del cluster (por ejemplo `1 999 000`), donde queda también sobre los rótulos
+  de las burbujas: entre una burbuja y su rótulo no hay lugar. Uno pensado para quedar sobre las burbujas de
+  un cluster, que en la v0.37 iban a `+205` del lugar de su host, también sube a lo alto del plano del
+  cluster. Uno que sólo ordena capas base entre sí no cambia.
 - **`<cristae-label-layer>` y la burbuja de rótulo se traducen a su reemplazo.** `bind-to` pasa por
   `addLabels`, `source` propio por `addTextLayer`, y `bubble: { kind: 'label' }` (la hija `slot="bubble"`)
   es una capa de burbujas sin dibujo rotulada con la píldora, que ya no gasta contexto WebGL. El aspecto se

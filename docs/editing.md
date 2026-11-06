@@ -119,8 +119,9 @@ ni el `click` de una capa debajo—, se mueva o no. Su `pointerdown` y su `point
 burbuja; el `click` que el navegador despacha después sí, y Cristae no lo mira.
 
 - Una capa interactiva por encima del editor con una feature sobre el handle se queda con la pulsación:
-  es su click, y el mapa se arrastra con ella. Declararla después no alcanza, porque el editor se apila
-  200 sobre su lugar del orden ([apilado](./elements.md#apilado--z--pane)): la sube su `z`.
+  es su click, y el mapa se arrastra con ella. Declararla después no alcanza, porque el editor va en el
+  plano de encima, sobre las capas base, las burbujas y los rótulos ([apilado](./elements.md#apilado--z--pane)):
+  la sube un `z` sobre el del editor, desde `3 000 400`.
 - Un click en el vacío sigue siendo del mapa y sale como `map:click` / `cristae:mapclick`.
 - Lo que cae fuera de la superficie del mapa —el zoom, la atribución o la UI de una zona— es suyo
   aunque tape un handle: la pulsación no toma el handle ni es un click, y el doble click no lo borra.
