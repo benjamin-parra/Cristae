@@ -309,11 +309,13 @@ const microtareas = async () => {
 }
 
 // Dos pérdidas seguidas del tramo de arriba con un ajeno que llena el techo: la segunda es saturación, y la política
-// suelta por voluntad propia al de abajo, que tiene menos z, para devolverle el cupo al de arriba.
-const saturarAbajo = async ajenos => {
+// suelta por voluntad propia al de abajo, que tiene menos z, para devolverle el cupo al de arriba. `relojes` corre ya
+// montado el mapa, que espera con `setTimeout` reales.
+const saturarAbajo = async (ajenos, relojes = () => {}) => {
   const { engine, navegador } = await montar({ techo: 3 })
   medir(engine, 'a')
   await esperar(300)                                    // lo que Leaflet avisa del tamaño nuevo, antes de copiar
+  relojes()
   mock.method(console, 'warn', () => {})
   insistente(navegador, ajenos)
   cuadrosEnOrden(navegador, ajenos, 3)
@@ -354,4 +356,38 @@ test('K3 el tramo que la saturación suelta por voluntad propia queda con su ima
   assert.equal(still.isConnected, false)
   assert.ok(dibujos(contextoDe(navegador, engine, 'a')) > 0, 'y el tramo pinta')
   intactos(navegador)
+})
+
+test('saturación sobre tramos: dos reintentos, a los 5 s y a los 30 s, y nada más; la imagen fija sigue mientras tanto', async () => {
+  try {
+    const ajenos = []
+    const { engine, navegador } = await saturarAbajo(ajenos, () => mock.timers.enable({ apis: ['setTimeout'] }))
+    const abajo = tramoDe(engine, 'a')
+    const still = abajo.still
+    assert.ok(still)
+    insistente(navegador, ajenos)                       // otro widget toma el cupo que soltó el de abajo
+    cuadrosEnOrden(navegador, ajenos)
+    const propias = () => navegador.contextos.filter(c => !c.ajeno).length
+    const antes   = propias()
+    const despues = async ms => {
+      mock.timers.tick(ms)
+      cuadrosEnOrden(navegador, ajenos, 6)
+      await microtareas()
+      return propias()
+    }
+
+    assert.equal(await despues(4999), antes, 'nada antes de los 5 s')
+    // El reintento toma al de abajo, que desaloja al de arriba; ésa vuelve a ser saturación: suelta al de abajo y el de
+    // arriba vuelve. Dos contextos propios por reintento.
+    assert.equal(await despues(1), antes + 2, 'el de los 5 s')
+    assert.equal(await despues(29_999), antes + 2, 'nada hasta los 30 s siguientes')
+    assert.equal(await despues(1), antes + 4, 'el de los 30 s')
+    assert.equal(await despues(600_000), antes + 4, 'y no hay más')
+    assert.deepEqual([abajo.surface.state, tramoDe(engine, 'c').surface.state], ['released', 'live'])
+    assert.equal(abajo.still, still, 'la imagen de antes sigue: una vuelta que no llegó a componer no la reemplaza')
+    assert.equal(still.isConnected, true)
+    intactos(navegador)
+  } finally {
+    mock.timers.reset()
+  }
 })
