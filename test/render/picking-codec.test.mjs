@@ -46,6 +46,7 @@ const makeGl = fb => {
     DEPTH_COMPONENT16   : 0x81A5,
     COLOR_ATTACHMENT0   : 0x8CE0,
     DEPTH_ATTACHMENT    : 0x8D00,
+    isContextLost           : () => false,
     createRenderbuffer      : () => { state.renderbuffers++; return {} },
     createFramebuffer       : () => { state.framebuffers++; return {} },
     // Una LISTA, no el último: el destino declara dos storages y quedarse con uno deja pasar en verde

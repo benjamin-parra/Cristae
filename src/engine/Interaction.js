@@ -166,13 +166,23 @@ export class Interaction {
   join(participant, zIndex, order) {
     const entry = { participant, zIndex, order }
     const list  = this.#participants
-    const at    = list.findIndex(other => topFirst(entry, other) < 0)
-    list.splice(at < 0 ? list.length : at, 0, entry)
+    this.#place(entry)
     return () => {
       const i = list.indexOf(entry)
       i >= 0 && list.splice(i, 1)
       this.#press.owner === participant && (this.#press.owner = null)
     }
+  }
+
+  // El motor le corrió el z o el orden a un participante. La misma entrada sale y vuelve a entrar con la
+  // regla de `join`, así la baja que devolvió `join` la sigue encontrando. La pulsación en curso conserva
+  // su dueño: el lugar nuevo cuenta desde la próxima.
+  restack(participant, zIndex, order) {
+    const list = this.#participants
+    const i    = list.findIndex(entry => entry.participant === participant)
+    if (i < 0) return false
+    this.#place(Object.assign(list.splice(i, 1)[0], { zIndex, order }))
+    return true
   }
 
   // Devuelve el cursor que escribió: un motor nuevo sobre el mismo contenedor arranca de ''. Las
@@ -259,6 +269,13 @@ export class Interaction {
   #sampleOf(point) {
     const { lat, lng } = this.#camera.containerPointToLatLng(point)
     return Object.freeze({ lat, lng, x: point.x, y: point.y })
+  }
+
+  // Inserta un participante en su lugar top-first: con el mismo apilado, después de los que ya estaban.
+  #place(entry) {
+    const list = this.#participants
+    const at   = list.findIndex(other => topFirst(entry, other) < 0)
+    list.splice(at < 0 ? list.length : at, 0, entry)
   }
 
   // El dueño de la pulsación en `sample`: el primer participante que reconoce el píxel, salvo que el hit

@@ -8,6 +8,10 @@
 // vértice en arrastre, así que el arrastre tampoco escribe.
 //
 // Sin uniones: cada vértice lleva encima su handle (≥ 10 px), que tapa la cuña del codo.
+//
+// Lo GL es del contexto de la superficie: el programa compartido y el VAO se arman con `buildGl(gl)` y se olvidan con
+// `dropGl()` sin tocar el contexto. El estilo, el vecindario promovido y el trazo viven en CPU y sobreviven. `draw`
+// exige contexto: la capa que lo posee no lo llama sin uno.
 import { ROLE } from '../geometry/ChunkedPath.js'
 import { toRGBA } from './color.js'
 import { blendOver } from './EditSurface.js'
@@ -96,7 +100,8 @@ const strokeProgram = (gl, step) => sharedProgram(gl, `stroke:${step}`, () => {
 
 export class EditStrokeLayer {
 
-  #gl; #arena; #path; #project; #step; #perEntry
+  #arena; #path; #project; #step; #perEntry
+  #gl      = null
   #program = null
   #uniform = null
   #vao     = null
@@ -118,21 +123,33 @@ export class EditStrokeLayer {
   #box  = new Float64Array(4)              // salida de boxOfChunk, reusada [0-alloc]
   #xy   = new Float64Array(2)              // salida de project, reusada [0-alloc]
 
-  constructor({ gl, arena, path, project, width = 3, color = '#2563eb', step = 2 }) {
-    const shared   = strokeProgram(gl, step)
-    this.#gl       = gl
+  // Sin `gl` nace sin contexto, y lo GL llega con `buildGl`.
+  constructor({ gl = null, arena, path, project, width = 3, color = '#2563eb', step = 2 }) {
     this.#step     = step
     this.#perEntry = CORNERS / step
     this.#arena    = arena
     this.#path     = path
     this.#project  = project
-    this.#program  = shared.program
-    this.#uniform  = shared.uniform
-    this.#vao      = gl.createVertexArray()  // sin atributos: el VAO sólo aísla el estado de otra capa
     this.style({ width, color })
+    gl && this.buildGl(gl)
   }
 
   get promoted() { return this.#promoted }
+
+  // El programa es del contexto —`sharedProgram` lo enlaza una vez por contexto y paso— y el VAO es de la capa.
+  buildGl(gl) {
+    const shared  = strokeProgram(gl, this.#step)
+    this.#gl      = gl
+    this.#program = shared.program
+    this.#uniform = shared.uniform
+    this.#vao     = gl.createVertexArray()   // sin atributos: el VAO sólo aísla el estado de otra capa
+    return this
+  }
+
+  dropGl() {
+    this.#gl = this.#program = this.#uniform = this.#vao = null
+    return this
+  }
 
   style({ width = this.#width, color = this.#hex } = {}) {
     this.#width = width
@@ -206,11 +223,11 @@ export class EditStrokeLayer {
     return this
   }
 
-  // El VAO es de esta capa; el programa es del contexto y lo comparten todos los trazos.
+  // El VAO es de esta capa; el programa es del contexto y lo comparten todos los trazos. Sin contexto no hay
+  // nada que borrar.
   destroy() {
-    this.#gl.deleteVertexArray(this.#vao)
-    this.#vao = this.#program = null
-    return this
+    this.#gl?.deleteVertexArray(this.#vao)
+    return this.dropGl()
   }
 
   // Un draw por chunk visible: los segmentos cuyo otro extremo es contiguo en el run. El promovido abre

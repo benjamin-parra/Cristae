@@ -328,5 +328,10 @@ La superficie de edición **toma un contexto WebGL** de los ~16 que concede el n
 capa de puntos o de líneas GL. Es un editor por vez: no hay razón para montar varios, y montarlos
 gasta el presupuesto que necesitan las capas de dato. `destroy()` (o desmontar el elemento) lo libera.
 
+Si el navegador se lo quita, el editor lo vuelve a tomar en el cuadro siguiente ([SPECS §10](../SPECS.md)) y rehace
+la textura, los buffers y los programas desde el espejo de CPU de cada trazo; el gesto en curso sigue. Mientras no
+tiene contexto no dibuja ni toma handles —la pulsación sobre uno es del mapa—, pero el valor sigue siendo suyo:
+`setValue`, `setCurve`, los clicks del modo `draw` y el trazo a mano alzada se registran y salen al volver.
+
 El editor **dibuja la geometría entera** —relleno, trazo y handles—, así que no se le monta un display
 aparte encima: se vería superpuesto al que ya pinta él.

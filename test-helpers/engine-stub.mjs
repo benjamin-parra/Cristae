@@ -27,17 +27,25 @@ const nodoDom = () => {
   return () => { vivo && registro.muertes.push(serie); vivo = false }
 }
 
-// Elemento del `document` del shim: no-op salvo lo que las capas tocan, más su baja.
+// Elemento del `document` del shim: no-op salvo lo que las capas tocan, más su baja. El shim no arma árbol, así
+// que reemplazar un nodo es sólo darlo de baja (el canvas de una superficie que re-adquiere su contexto).
 const elemento = (base = {}) => Object.assign(base, {
   style:  base.style ?? {},
   remove: nodoDom(),
   setAttribute() {}, appendChild() {}, addEventListener() {}, removeEventListener() {},
   removeChild(hijo) { hijo?.remove?.() },
+  replaceWith() { this.remove() },
 })
 
 // Un contexto 2D que no dibuja: todo es no-op salvo `measureText`, que mide 0 como un texto vacío, para
-// que un painter de etiquetas pueda maquetar.
-const NOOP_CTX = new Proxy({ measureText: () => ({ width: 0 }) }, { get: (t, p) => t[p] ?? (() => {}), set: () => true })
+// que un painter de etiquetas pueda maquetar, y `getImageData`, que entrega los píxeles transparentes del
+// tamaño pedido: es lo que lee el IconSet al rasterizar un tile.
+export const NOOP_CTX = new Proxy({
+  measureText  : () => ({ width: 0 }),
+  getImageData : (_x, _y, w, h) => ({ data: new Uint8ClampedArray(w * h * 4) }),
+}, { get: (t, p) => t[p] ?? (() => {}), set: () => true })
+// El constructor con el que `sprite()` arma el canvas de un tile; sin datos propios, sólo guarda lo que recibe.
+globalThis.ImageData ??= class ImageData { constructor(data, width, height) { Object.assign(this, { data, width, height }) } }
 // Un canvas que pide `webgl2` recibe su propio doble de GL (el de una superficie: ver makeEditGl).
 const makeCanvas = () => ({ width: 0, height: 0, style: {}, getContext: kind => (kind === 'webgl2' ? makeEditGl() : NOOP_CTX) })
 
@@ -257,7 +265,7 @@ const vaoGl = spy => ({
 // `onLose`: spy de WEBGL_lose_context.loseContext() (para caracterizar el teardown de contexto GL).
 // getExtension('WEBGL_lose_context') → { loseContext: onLose }; cualquier otra extensión → {} (como
 // antes). El resto de métodos/constantes cae al no-op del Proxy.
-export const makeGl = (onLose, spy = makePickSpy(), canvas = makeSurface()) => new Proxy({ ...GL_CONSTS, ...enSuperficie(canvas), ...pickGl(spy), ...uploadGl(spy), ...vaoGl(spy), spy }, {
+export const makeGl = (onLose, spy = makePickSpy(), canvas = makeSurface()) => new Proxy({ ...GL_CONSTS, isContextLost: () => false, ...enSuperficie(canvas), ...pickGl(spy), ...uploadGl(spy), ...vaoGl(spy), spy }, {
   get: (t, p) => {
     if (p === 'getExtension') return (name) => (name === 'WEBGL_lose_context' ? { loseContext: onLose ?? (() => {}) } : {})
     return p in t ? t[p] : () => ({})
@@ -273,6 +281,18 @@ export const decorarElementos = decorar => {
   const crear = document.createElement
   document.createElement = tag => decorar(crear(tag), String(tag).toLowerCase())
   return () => { document.createElement = crear }
+}
+
+// Los eventos de un elemento del shim: `elemento()` los deja en no-op, y un canvas que tiene que oír
+// `webglcontextlost` necesita el reparto de un EventTarget real (oyentes que se suman y se quitan,
+// `defaultPrevented` observable, `dispatchEvent` que devuelve false si alguien canceló).
+export const conEventos = el => {
+  const destino = new EventTarget()
+  return Object.assign(el, {
+    addEventListener    : destino.addEventListener.bind(destino),
+    removeEventListener : destino.removeEventListener.bind(destino),
+    dispatchEvent       : destino.dispatchEvent.bind(destino),
+  })
 }
 
 // El contexto que abre `EditSurface`. `gl()` se lee por llamada: cada montaje estrena el suyo. Cualquier

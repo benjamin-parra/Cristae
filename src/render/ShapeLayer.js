@@ -13,6 +13,10 @@
 //
 // Un cambio del Source rehace las tablas enteras: el store sube su textura completa de todos modos, y el
 // perfil de la capa son magnitudes que cambian poco, no un feed por frame.
+//
+// La superficie es de la capa interna y puede quedarse sin contexto. Sin él, esta capa sigue armando registros, tablas
+// e índice del hit con cada cambio de la Source y de zoom; al volver a tenerlo, la interna sube su espejo y pinta. El
+// tope de textura que lee `#draw` es el último que midió esa capa, así que también vale sin contexto.
 
 import { MIN_SEGMENTS } from '../geometry/density.js'
 import { prepareRangeIndex, partsAtPoint } from '../geometry/polygon.js'
@@ -46,13 +50,15 @@ export class ShapeLayer {
     this.#interactive = interactive
     this.#circle      = circle
     this.#order       = circle ? ASCENDING : DESCENDING
-    // Nace vacía para leer el tope de textura de su contexto antes de armar la primera geometría.
+    // Nace vacía, sin contexto. Con formas lo toma ya, como toda capa con contenido al construirse, y lee el tope de
+    // textura de su contexto antes de armar la primera geometría; sin ellas lo toma la política en un momento ocioso.
     this.#layer = new PolygonGpuLayer({
       host, pane, ...style, geometry: EMPTY,
       idOf: k => this.#recs[k].id, styleOf: k => this.#recs[k].style,
     })
-    // El contexto ya está tomado: si la primera lectura lanza, se devuelve.
+    // Si la primera lectura lanza, el contexto se devuelve.
     try {
+      source.getSnapshot().length && this.#layer.surface.acquire()
       this.refresh()
     } catch (e) {
       this.destroy()
@@ -95,6 +101,10 @@ export class ShapeLayer {
       throw e
     }
   }
+
+  // Lo que el motor lee para `surfaces()`: la superficie GL de la capa interna y si hay algo que dibujarle.
+  get surface()    { return this.#layer?.surface }
+  get hasContent() { return !!this.#layer?.hasContent }
 
   setVisible(visible) { return this.#layer?.setVisible(visible) }
 

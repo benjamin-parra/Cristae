@@ -12,7 +12,10 @@ es uno por parte. Es una primitiva **sin dominio**: una línea es N vértices co
 "recorrido" ni una "ruta" — eso lo compone el consumidor.
 
 Cada capa toma UNO de los ~16 contextos WebGL de la página; una capa aguanta muchísimas líneas, así
-que no se hace una por línea.
+que no se hace una por línea. Si el navegador se lo quita, la capa lo vuelve a tomar en el cuadro
+siguiente ([SPECS §10](../SPECS.md)) y rehace el programa y las texturas desde los vértices que guarda
+en CPU. Mientras no lo tiene, lo que llega sigue registrándose, no dibuja, y el picking —que es de
+CPU— sigue respondiendo.
 
 ---
 

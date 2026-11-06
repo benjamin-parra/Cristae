@@ -1,9 +1,21 @@
 import Atlas from './Atlas.js'
 
-// IconSet — rasteriza variantes (string opaca) a canvas y las administra en un Atlas.
+// IconSet — rasteriza variantes (string opaca) a tiles de píxeles y las administra en un Atlas.
 // Declarativo (describe: variante → descriptor) + imperativo (renderers: forma → canvas).
 // Sin dominio: `variant` la compone el consumidor; el core no la interpreta.
 // El Atlas es el valor; el IconSet rasteriza y direcciona; la residencia GPU es del binding.
+//
+// PIPELINE (cada etapa tiene su entrada y su salida, y se puede medir sola):
+//   1 dibujar     variante → describe → renderer sobre UN canvas de trabajo, reusado por todas las variantes
+//   2 leer        canvas de trabajo → tile de píxeles RGBA (`Uint8ClampedArray` de tileSize²·4 bytes)
+//   3 direccionar tile → celda del Atlas (`resolve`): índice estable, `count` = celdas pedidas
+//   4 subir       celdas pedidas → textura (GpuAtlasBinding): una subida por tile, al adquirir y por variante nueva
+// 1–2 corren al PRIMER USO de cada variante (`resolve`) y, para las declaradas en `variants`, ADELANTADAS en
+// ranuras ociosas de unos ms: lo declarado no se rasteriza ni se sube entero, sólo lo que se usa; lo que ya
+// se adelantó espera en un depósito (`#prepared`) hasta que alguien lo pide y entonces sólo toma celda.
+// Declarar un espacio grande (199 buckets de cluster) no cuesta al definir, y re-adquirir sube sólo lo pedido. Los tiles
+// suben desde bytes: con muchos en uso, en Chromium cuesta más que desde canvases (los de un canvas acelerado ya están en
+// la GPU) y en Firefox menos (desde un canvas hay que leerlo). Ninguna forma gana en los dos (etapa3/ARREGLOS.md, R2).
 //
 // CONTRATO DEL ESPACIO DE DESCRIPTOR (responsabilidad del consumidor):
 //   `describe(variant)` DEBE ser TOTAL sobre el espacio de variantes: para CUALQUIER string que
@@ -20,8 +32,12 @@ import Atlas from './Atlas.js'
 //   footprint), default 1. Deja que una variante rinda un ícono MÁS grande que su `sizeOf` sin
 //   re-rasterizar ni tocar el accessor — p. ej. un realce dibujado alrededor que excede el ícono.
 
-const HEADROOM = 1.5
-const MIN_CAPACITY = 16
+const HEADROOM         = 1.5
+const MIN_CAPACITY     = 16
+const SLICE_MS         = 3      // tope de CPU de una ranura ociosa de adelanto: un par de tiles, nunca un cuadro entero
+const MIN_IDLE_MS      = 2      // una ranura con menos ocio que un tile no se usa, salvo que haya vencido
+const IDLE_TIMEOUT_MS  = 1000   // si la página nunca queda ociosa, igual avanza (un tile por ranura vencida)
+const IDLE_FALLBACK_MS = 50     // sin `requestIdleCallback` (Safari, node) se agenda por tiempo
 
 const capacityFor = count => Math.max(MIN_CAPACITY, Math.ceil((count || 1) * HEADROOM))
 
@@ -41,6 +57,14 @@ export class IconSet {
   #variants = []   // índice de tile → variante ya resuelta. Alineado con el atlas (índices estables
                    // ante grow) → permite re-rasterizar en bloque cuando cargan las fuentes (font-gate).
   #fontsPending = false      // hay una re-rasterización encolada a document.fonts.ready
+  #waiting                   // `prerender` no terminó: el adelanto espera, que dibujaría sin lo que el raster necesita
+  #ctx                       // contexto 2D de trabajo (tileSize², `willReadFrequently`): el mismo para toda variante
+  #prepared = new Map()      // variante → { tile, scale }: ya rasterizadas en una ranura ociosa, todavía sin celda
+  #sprites  = new Map()      // variante → canvas entregado por `sprite()` (sólo las que alguien pidió)
+  #declared                  // variantes declaradas, en orden: lo que el adelanto ocioso recorre
+  #next = 0                  // cursor de `#declared`
+  #idle = 0                  // ranura ociosa agendada (0 = ninguna)
+  #due  = 0                  // cuándo vence la espera de esa ranura: ceder el turno no la reinicia
   // Suscriptores a 'atlasrefreshed' (el motor fuerza re-subida/re-encode). NO necesita teardown propio:
   // el IconSet es long-lived (vive tanto como el binding GPU que muestrea su atlas), así que el Set no
   // sobrevive a sus suscriptores. La baja POR suscriptor ya existe —`onAtlasRefresh` devuelve su
@@ -58,9 +82,11 @@ export class IconSet {
     this.#describe   = describe
     this.#renderers  = renderers ?? {}
     this.#prerender  = prerender
+    this.#declared   = [...variants]
+    this.#waiting    = !!prerender
     this.#atlas      = new Atlas(capacityFor(variants.length), this.#tileSize)
-    this.#armFontGate()                          // ANTES de sembrar: capta el estado de las fuentes al nacer
-    this.ready       = this.#init(variants)
+    this.#armFontGate()                          // ANTES del primer raster: capta el estado de las fuentes al nacer
+    this.ready       = this.#init()
   }
 
   // El atlas vivo. Su identidad cambia en regrow → el binding re-sube y la capa re-encoda.
@@ -70,19 +96,25 @@ export class IconSet {
   // gl_PointSize: una variante puede rendir un sprite MÁS grande que su `sizeOf`, sin re-rasterizar.
   tileScale(i) { return this.#scales[i] ?? 1 }
 
-  // variante → índice. Nueva: rasteriza + append (red de seguridad, nunca invisible).
+  // variante → índice. Nueva: toma el tile que el adelanto ocioso ya dejó listo o lo rasteriza ahora, y le
+  // asigna celda (red de seguridad, nunca invisible). La variante está disponible en el mismo cuadro: la celda
+  // nueva sube en el próximo `sync` del binding, que es el del dibujo que la pidió.
   // Capacidad agotada → nueva generación (Atlas.grow); el caller detecta el regrow por identidad.
+  // El primer pedido arranca el adelanto de lo declarado: un IconSet que nadie usa no rasteriza nada.
   resolve(variant) {
     let i = this.#atlas.indexOf(variant)
     if (i !== -1) return i
-    const { bitmap, scale } = this.#rasterize(variant)
-    i = this.#atlas.append(variant, bitmap)
+    const ready = this.#prepared.get(variant)
+    ready && this.#prepared.delete(variant)
+    const { tile, scale } = ready ?? this.#rasterize(variant)
+    i = this.#atlas.append(variant, tile)
     if (i === -1) {
       this.#atlas = Atlas.grow(this.#atlas)
-      i = this.#atlas.append(variant, bitmap)
+      i = this.#atlas.append(variant, tile)
     }
     this.#scales[i] = scale
     this.#variants[i] = variant
+    this.#arm()
     return i
   }
 
@@ -99,29 +131,77 @@ export class IconSet {
   // Siembra manual idempotente (preloadIcons): adelanta variantes sin esperar a los datos.
   seed(variants) { for (let i = 0; i < variants.length; i++) this.resolve(variants[i]) }
 
-  // Canvas rasterizado de UNA variante (el MISMO tile que usa el atlas GPU) para reusar el icono FUERA del
-  // mapa: una celda de tabla, una leyenda, etc. Idéntico al marcador (mismo describe+render). Genérico, sin
-  // dominio. El consumidor lo cachea (p. ej. dataURL por variante) si lo pinta por fila. Si el iconSet
+  // Canvas de UNA variante (los MISMOS píxeles que usa el atlas GPU) para reusar el icono FUERA del mapa:
+  // una celda de tabla, una leyenda, etc. Idéntico al marcador (mismo describe+render). Genérico, sin
+  // dominio. Es el mismo canvas en cada llamada, armado al primer pedido (el atlas guarda píxeles, no canvases).
+  // El consumidor lo cachea (p. ej. dataURL por variante) si lo pinta por fila. Si el iconSet
   // rota (`rotates`), el consumidor aplica la rotación por headingOf al reusarlo (el tile va sin rotar).
   // El `scale` (footprint) TAMPOCO va en el tile: es tamaño en pantalla (gl_PointSize), no del bitmap →
   // el reuse fuera del mapa muestra el ícono a tamaño de tile nativo (sin el agrandado del on-map).
-  sprite(variant) { return this.#atlas.tileAt(this.resolve(variant)) }
+  sprite(variant) {
+    const i    = this.resolve(variant)           // antes de leer el atlas: un regrow lo reemplaza
+    const size = this.#tileSize
+    let canvas = this.#sprites.get(variant)
+    if (!canvas) {
+      canvas = Object.assign(document.createElement('canvas'), { width: size, height: size })
+      canvas.getContext('2d').putImageData(new ImageData(this.#atlas.tileAt(i), size, size), 0, 0)
+      this.#sprites.set(variant, canvas)
+    }
+    return canvas
+  }
 
-  async #init(variants) {
-    if (this.#prerender) await this.#prerender()
-    this.seed(variants)                          // preseed: 0 append en runtime para lo declarado
+  // `ready` espera lo que el raster necesita (fuentes, imágenes). Lo declarado NO se siembra acá: se
+  // rasteriza al usarlo y, adelantado, en ranuras ociosas (ver `#arm`), que no empiezan antes de esto.
+  async #init() {
+    if (this.#prerender) try {
+      await this.#prerender()
+    } finally {
+      this.#waiting = false                      // si rechaza, el adelanto dibuja lo mismo que el uso: no espera para siempre
+      this.#atlas.count && this.#arm()
+    }
     return this
   }
 
+  // Etapas 1 y 2 del pipeline: dibuja la variante sobre el canvas de trabajo y devuelve sus píxeles.
+  // Un solo canvas para todas (crear uno por tile era lo caro de rasterizar en Firefox); `reset()` deja el
+  // contexto como nuevo —sin el estado que el renderer anterior haya dejado, `globalAlpha` o una
+  // transformación—, y `willReadFrequently` lo mantiene en CPU: leerlo no es un viaje a la GPU.
   #rasterize(variant) {
     const d = this.#describe(variant)
     const render = this.#renderers[d.shape]
     if (!render) throw new Error(`[IconSet] sin renderer para shape '${d.shape}'`)
-    const canvas = document.createElement('canvas')
-    canvas.width = this.#tileSize
-    canvas.height = this.#tileSize
-    render(canvas.getContext('2d'), this.#tileSize, d)
-    return { bitmap: canvas, scale: footprintScale(d.scale) }
+    const size = this.#tileSize
+    const ctx  = this.#ctx ??= Object.assign(document.createElement('canvas'), { width: size, height: size })
+      .getContext('2d', { willReadFrequently: true })
+    ctx.reset ? ctx.reset() : (ctx.canvas.width = size)
+    render(ctx, size, d)
+    return { tile: ctx.getImageData(0, 0, size, size).data, scale: footprintScale(d.scale) }
+  }
+
+  // Adelanto ocioso de lo declarado: agenda UNA ranura (no corre mientras `prerender` no termina ni mientras las
+  // fuentes cargan: sus tiles saldrían en tofu) y `#advance` la gasta en rasterizar lo que todavía no tiene tile.
+  // Nada por cuadro.
+  #arm(due = performance.now() + IDLE_TIMEOUT_MS) {
+    if (this.#idle || this.#waiting || this.#fontsPending || this.#next >= this.#declared.length) return
+    this.#due  = due
+    this.#idle = typeof requestIdleCallback === 'function'
+      ? requestIdleCallback(this.#advance, { timeout: Math.max(1, due - performance.now()) })
+      : setTimeout(this.#advance, IDLE_FALLBACK_MS)
+    this.#idle.unref?.()                         // node: el adelanto no mantiene vivo el proceso
+  }
+
+  // Una ranura: los tiles que quepan en SLICE_MS y en lo que el navegador deja libre, y al menos uno si la
+  // espera venció. Una ranura con menos ocio que un tile cede el turno y conserva el vencimiento: una página
+  // siempre ocupada igual avanza, un tile por segundo.
+  #advance = deadline => {
+    this.#idle = 0
+    if (deadline && !deadline.didTimeout && deadline.timeRemaining() < MIN_IDLE_MS) return this.#arm(this.#due)
+    const t0 = performance.now()
+    do {
+      const variant = this.#declared[this.#next++]
+      this.#atlas.indexOf(variant) === -1 && !this.#prepared.has(variant) && this.#prepared.set(variant, this.#rasterize(variant))
+    } while (this.#next < this.#declared.length && performance.now() - t0 < SLICE_MS && (deadline?.timeRemaining?.() ?? SLICE_MS) > 1)
+    this.#arm()
   }
 
   // Font-gate (naturalización 3.4): #rasterize es SÍNCRONO, así que una variante con glifo de fuente web
@@ -139,18 +219,21 @@ export class IconSet {
 
   // Cargaron las fuentes: re-rasteriza en bloque las variantes ya resueltas. Se hornea una generación
   // NUEVA del atlas con la MISMA capacidad → los índices no se mueven (`#variants`/`#scales` siguen
-  // alineados) y sólo cambian los bitmaps. La identidad distinta es la señal que el binding GPU ya
+  // alineados) y sólo cambian los tiles. La identidad distinta es la señal que el binding GPU ya
   // entiende (re-sube todo en el próximo sync), sin agregar un canal de "tile sucio". Luego se emite
   // 'atlasrefreshed' para que el consumidor gatille ese sync. Idempotente: corre una sola vez.
+  // Los sprites entregados se arman de nuevo (eran del tile viejo) y lo declarado arranca el adelanto.
   #onFontsReady() {
     if (!this.#fontsPending) return
     this.#fontsPending = false
     const prev = this.#atlas
-    if (prev.count === 0) return                 // nada resuelto aún (p. ej. prerender siembra después)
+    this.#sprites.clear()
+    this.#arm()
+    if (prev.count === 0) return                 // nada resuelto aún: no hay generación que rehacer
     const next = new Atlas(prev.capacity, this.#tileSize, prev.generation + 1)
     this.#variants.slice(0, prev.count).forEach((variant, i) => {
-      const { bitmap, scale } = this.#rasterize(variant)
-      next.append(variant, bitmap)
+      const { tile, scale } = this.#rasterize(variant)
+      next.append(variant, tile)
       this.#scales[i] = scale
     })
     this.#atlas = next

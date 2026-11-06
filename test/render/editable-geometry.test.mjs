@@ -1608,13 +1608,19 @@ test('el gesto de una forma no promueve ni arrastra un vértice del anillo: el f
   esc.ed.destroy()
 })
 
-test('soltar una forma libera también el arena de su anillo', () => {
-  const sobrante = kind => {
-    const cuentas = {}
-    montar({ kind, value: kind === 'point' ? [0, 0] : { center: [0, 0], radius: 100000 }, zoom: 10, cuentas }).ed.destroy()
-    return [cuentas.createTexture - cuentas.deleteTexture, cuentas.createBuffer - (cuentas.deleteBuffer ?? 0)]
-  }
-  assert.deepEqual(sobrante('circle'), sobrante('point'))
+// Soltar un trazo con el contexto vivo —lo que hace `setCurve` al rehacer el stack— borra también el arena de su
+// contorno, que con curva es otro. `destroy` no: libera todo con el contexto (ver edit-readquirir.test.mjs).
+test('soltar un trazo libera también el arena de su contorno', () => {
+  const cuentas = {}
+  const vivos   = () => [cuentas.createTexture - (cuentas.deleteTexture ?? 0), cuentas.createBuffer - (cuentas.deleteBuffer ?? 0)]
+  const esc     = montar({ value: [[0, 0], [0, 1], [1, 1]], cuentas })
+  const recto   = vivos()
+  esc.ed.setCurve(byDefault)
+  const [texturas, buffers] = vivos()
+  assert.deepEqual([texturas - recto[0], buffers - recto[1]], [1, 1], 'el contorno curvo es un arena más')
+  esc.ed.setCurve(null)
+  assert.deepEqual(vivos(), recto, 'al volver a recto, el arena del contorno se borró con su trazo')
+  esc.ed.destroy()
 })
 
 // La proyección del arena en su fórmula cerrada: EPSG:3857 en world0, 256 unidades por vuelta.

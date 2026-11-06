@@ -1,5 +1,6 @@
 import L from 'leaflet'
 import { coordOf, hasPointShape } from '../data/path.js'
+import { safe } from '../data/safe.js'
 import { retainTileSnapshots } from './TileSnapshotRetention.js'
 import { TILE_FILTER } from './styles.js'
 
@@ -69,12 +70,18 @@ const latLngOf = (LatLng, point) => {
 // él. Quien se baja a mitad sale también de él —la baja apaga su entrada—, porque ya soltó lo que su
 // oyente toca. `on` toma uno o varios tipos separados por espacios, como en Leaflet, y devuelve una sola
 // baja.
+//
+// Cada oyente va aislado: el reparto corre dentro de un oyente de Leaflet, y una excepción que saliera
+// por ahí cortaría a los oyentes del mapa registrados después —los de la capa de tiles entre ellos— y en
+// `zoomanim` dejaría `_animatingZoom` prendido, con el zoom trabado y los tiles sin pedir hasta recargar.
+const reportListenerError = e => console.error('[cristae] un oyente de la vista lanzó', e)
+
 const emitter = types => {
   const lists = Object.fromEntries(types.map(type => [type, []]))
   return {
     fire(type, detail) {
       const list = lists[type]
-      for (let i = 0; i < list.length; i++) list[i].live && list[i].fn(detail)
+      for (let i = 0; i < list.length; i++) list[i].live && safe(list[i].fn, detail, reportListenerError)
     },
     on(names, fn) {
       const each  = names.split(' ')
@@ -276,6 +283,8 @@ const hostOf = (map, leaflet, ownsMap, zoomPolicy) => {
     setZ       : (name, z) => stylePane(name, 'zIndex', String(z)),
     setVisible : (name, visible) => stylePane(name, 'visibility', visible ? '' : 'hidden'),
     setOpacity : (name, alpha) => stylePane(name, 'opacity', alpha >= 1 ? '' : String(alpha)),
+    // El z-index vigente del pane, o null si no tiene uno.
+    zOf        : name => (z => z ? +z : null)(map.getPane(name)?.style.zIndex),
 
     // Que un nodo montado acompañe la transición del zoom animado: el transform que le da quien lo montó
     // al oír `zoomanim` se interpola con el del mapa, desde la esquina del nodo. Lo hace la clase de

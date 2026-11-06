@@ -23,6 +23,10 @@ import { POINT_VERTEX, POINT_PICKING_FRAGMENT } from './shaders.js'
 const PATCH = 6
 const HALF  = PATCH >> 1
 
+// Estados del fence, de la especificación: se comparan también sin contexto, cuando el vuelo murió con él.
+const TIMEOUT_EXPIRED = 0x911A
+const WAIT_FAILED     = 0x911D
+
 export const OBJ_BITS   = 14
 export const CHUNK_BITS = 6
 export const LOCAL_BITS = 12
@@ -120,21 +124,28 @@ export class Picking {
     return true
   }
 
-  // Sondea la lectura en vuelo (timeout 0 → no bloquea). null si aún no está lista.
+  // Sondea la lectura en vuelo (timeout 0 → no bloquea). null si aún no está lista. Un vuelo sin fence es el
+  // que `drop` dejó sin contexto, y se trata como uno cuyo fence falló.
   collect() {
     const gl = this.#gl
     const f  = this.#flight
-    if (!gl || !f.active) return null
-    const status = gl.clientWaitSync(f.fence, 0, 0)
-    if (status === gl.TIMEOUT_EXPIRED) return null
-    gl.deleteSync(f.fence)
+    if (!f.active) return null
+    const status = f.fence ? gl.clientWaitSync(f.fence, 0, 0) : WAIT_FAILED
+    if (status === TIMEOUT_EXPIRED) return null
+    f.fence && gl.deleteSync(f.fence)
     f.active = false
     f.fence  = null
-    const vigente = !f.stale && status !== gl.WAIT_FAILED
+    const stale = f.stale
     f.stale = false
+    // Un vuelo que murió con su contexto no tiene lectura, pero sí quien la espera: si nadie lo invalidó ni lo
+    // releva un encolado, sale vacío, y la sesión de hover que lo espera cierra en vez de esperarlo para siempre.
+    if (status === WAIT_FAILED && !stale && !this.#queued.active) {
+      this.#buf.fill(0)
+      return this.#deliver(f.metadata)
+    }
     // La copia cruza al proceso GPU y bloquea; `#issue` re-especifica el almacenamiento, así que la
     // que nadie va a mirar se descarta con él en vez de cobrarse.
-    if (!vigente) { this.#flush(); return null }
+    if (stale || status === WAIT_FAILED) { this.#flush(); return null }
     gl.bindBuffer(gl.PIXEL_PACK_BUFFER, this.#pbo)
     gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, this.#buf, 0, this.#buf.length)
     gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null)
@@ -143,10 +154,12 @@ export class Picking {
     return result
   }
 
-  // Pick síncrono (click): lectura bloqueante directa.
+  // Pick síncrono (click): lectura bloqueante directa. Con el contexto perdido no hay nada que leer:
+  // `readPixels` no hace nada y `#buf` conservaría el parche del click anterior, que saldría como un hit
+  // nuevo. La pérdida se ve en el acto con `isContextLost()`, antes de que llegue el evento.
   pickSync(cx, cy, batch, metadata) {
     const gl = this.#gl
-    if (!gl || !this.#program) return null
+    if (!gl || !this.#program || gl.isContextLost()) return null
     this.#begin(cx, cy, batch)
     gl.readPixels(0, 0, PATCH, PATCH, gl.RGBA, gl.UNSIGNED_BYTE, this.#buf)
     this.#restore()
@@ -162,6 +175,15 @@ export class Picking {
 
   // El destino mide PATCH×PATCH y no depende del tamaño del drawing buffer; la escala CSS→buffer, sí.
   syncSize() { this.#scaledAt = 0 }
+
+  // Olvida lo GL sin tocar el contexto, que se perdió o se va a soltar: `loseContext` libera de una vez lo que
+  // colgaba de él. El vuelo en curso queda sin fence y `collect` lo entrega vacío; el encolado no se dispara.
+  // `attach` lo vuelve a armar sobre otro contexto.
+  drop() {
+    this.#gl = this.#program = this.#target = this.#pbo = this.#flight.fence = null
+    this.#queued.active = false
+    this.#scaledAt      = 0
+  }
 
   detach() {
     const gl = this.#gl

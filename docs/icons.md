@@ -1,20 +1,20 @@
 # Iconos — rasterización de variantes al atlas
 
 > Pieza de [Cristae](../MODELO.md). Implementa [SPECS §4.1](../SPECS.md). Es el productor de
-> bitmaps que alimenta el [`Atlas`](./atlas.md): rasteriza cada **variante** a un canvas y la
-> administra dentro del atlas. La residencia GPU (`GpuAtlasBinding`, SPECS §4.2) es del binding
+> tiles que alimenta el [`Atlas`](./atlas.md): rasteriza cada **variante** a un tile de píxeles y
+> lo administra dentro del atlas. La residencia GPU (`GpuAtlasBinding`, SPECS §4.2) es del binding
 > y no se documenta acá, igual que [atlas.md](./atlas.md) la delega.
 
 El `IconSet` une dos mundos: una descripción **declarativa** (variante → descriptor) y un set
 **imperativo** de dibujantes (forma → canvas). Su trabajo es responder, para cualquier
 variante, **qué índice** ocupa en el atlas — rasterizándola la primera vez que se la pide y
-sembrándola por adelantado cuando se la declara. No conoce el dominio: la `variant` es una
+adelantando lo que se declara en ratos ociosos. No conoce el dominio: la `variant` es una
 string opaca que **arma el consumidor** (estado de flota, severidad, lo que sea); el core no la
 interpreta.
 
 ---
 
-## Por qué declarativo + imperativo + preseed
+## Por qué declarativo + imperativo + variantes declaradas
 
 - **Separar el "qué" del "cómo".** `describe(variant) → { shape, …props }` decide qué forma y
   con qué parámetros dibujar; `renderers[shape](ctx, size, descriptor)` solo sabe pintar esa
@@ -46,11 +46,14 @@ interpreta.
 > }
 > ```
 
-- **Preseed con headroom = cero regrow en runtime.** El regrow del atlas no corrompe nada (los
-  índices se preservan, ver [atlas.md](./atlas.md)), pero igual cuesta O(C) y obliga a re-subir
-  la textura y re-encodar la capa. Si el consumidor **declara** sus `variants`, el constructor
-  dimensiona el atlas con headroom (`HEADROOM = 1.5`, mínimo `MIN_CAPACITY = 16`) y las siembra
-  todas en `#init`. Resultado: **cero `append` en runtime** para lo declarado → cero regrow.
+- **Declarar el espacio = cero regrow en runtime, sin pagar por lo que no se usa.** El regrow del
+  atlas no corrompe nada (los índices se preservan, ver [atlas.md](./atlas.md)), pero igual cuesta
+  O(C) y obliga a re-subir la textura y re-encodar la capa. Si el consumidor **declara** sus
+  `variants`, el constructor dimensiona el atlas con headroom (`HEADROOM = 1.5`, mínimo
+  `MIN_CAPACITY = 16`): lo declarado nunca desborda → cero regrow. **Declarar no rasteriza ni sube
+  nada:** cada variante se dibuja al primer uso y la celda se le asigna entonces; las declaradas que
+  faltan se adelantan en ranuras ociosas (ver [Pipeline](#pipeline-de-una-variante)). Un espacio de
+  199 buckets cuesta lo que se usa, no 199 rasterizaciones ni 199 subidas.
 
 - **Red de seguridad para lo no declarado.** Si llega una variante que **no** se declaró,
   `resolve` la rasteriza y appendea igual; solo si desborda la capacidad dispara el regrow. La
@@ -71,7 +74,7 @@ describe: (v) => {
 renderers: { camion: dibujarCamion, grua: dibujarGrua },
 ```
 
-Preseed solo las combinaciones que existen (`variants: ['camion|activo', …]`); una combinación nueva se
+Declará solo las combinaciones que existen (`variants: ['camion|activo', …]`); una combinación nueva se
 rasteriza on-demand igual, nunca queda invisible. Conviene usar esto en vez de varios IconSets cuando un mismo punto
 varía en más de un eje a la vez.
 
@@ -84,25 +87,28 @@ Construcción vía la factory `defineIconSet(cfg)` (= `new IconSet(cfg)`):
 ```js
 defineIconSet({
   rotates,        // bool — ¿los iconos rotan según heading? (default false)
-  variants,       // string[] — variantes a presembrar (dimensiona el atlas)
+  variants,       // string[] — variantes declaradas (dimensiona el atlas; se adelantan en ratos ociosos)
   sizes,          // { default?: 32, canvas?: 128 } — tamaño lógico y de la celda raster
   describe,       // (variant) => ({ shape, ...props })  — DECLARATIVO
   renderers,      // { [shape]: (ctx, size, descriptor) => void }  — IMPERATIVO
-  prerender,      // async () => void  — precarga assets antes de sembrar (fuentes, imágenes)
+  prerender,      // async () => void  — precarga assets antes de rasterizar (fuentes, imágenes)
 })
 ```
 
 | Método / prop | Firma | Complejidad | Notas |
 |---|---|---|---|
-| `resolve(variant)` | `(string) → number` | O(1) (hit) / O(raster) (miss) | índice de la variante: `indexOf` → si falta, rasteriza + `append`; si el atlas está lleno, `Atlas.grow` + reintenta (red de seguridad, nunca invisible) |
-| `seed(variants)` | `(string[]) → void` | O(m·raster) | preseed idempotente: `resolve` cada una. `resolve` ya es idempotente, así que llamarlo de nuevo no duplica |
+| `resolve(variant)` | `(string) → number` | O(1) (hit) / O(raster) (miss) | índice de la variante: `indexOf` → si falta, toma el tile que el adelanto ocioso ya dejó listo o lo rasteriza, y lo `append`; si el atlas está lleno, `Atlas.grow` + reintenta (red de seguridad, nunca invisible). La celda nueva sube a la GPU en el `sync` del dibujo que la pidió |
+| `seed(variants)` | `(string[]) → void` | O(m·raster) | siembra manual idempotente: `resolve` cada una, ahora. `resolve` ya es idempotente, así que llamarlo de nuevo no duplica |
+| `sprite(variant)` | `(string) → HTMLCanvasElement` | O(1) (hit) / O(tile) | el canvas de UNA variante, con los mismos píxeles que el atlas GPU, para reusarlo fuera del mapa. El mismo objeto en cada llamada; se arma al primer pedido (el atlas guarda píxeles, no canvases) |
 | `atlas` (getter) | `→ Atlas` | O(1) | el atlas vivo. Su **identidad cambia** en regrow → el binding re-sube y la capa re-encoda |
-| `ready` (prop) | `→ Promise<IconSet>` | — | resuelve cuando terminó `prerender` + preseed; esperarla antes del primer render |
+| `ready` (prop) | `→ Promise<IconSet>` | — | resuelve cuando terminó `prerender` (fuentes, imágenes). Lo declarado **no** está rasterizado todavía: se rasteriza al usarlo |
 | `rotates` (prop) | `→ bool` | — | si las variantes rotan según `headingOf` |
 | `defaultSize` (prop) | `→ number` | — | tamaño lógico por defecto (`sizes.default ?? 32`) |
 
 Notas:
-- El canvas de raster es cuadrado de `sizes.canvas` (default 128) — es el `tileSize` del atlas.
+- El tile es cuadrado de `sizes.canvas` (default 128) — es el `tileSize` del atlas. Es un
+  `Uint8ClampedArray` de `tileSize²·4` bytes (RGBA, alfa recta) que sale de `getImageData` del canvas
+  de trabajo; el atlas lo guarda tal cual y la GPU lo recibe sin conversión.
 - `#rasterize` lanza si `describe` devuelve un `shape` sin renderer registrado
   (`[IconSet] sin renderer para shape '…'`). Es un error de configuración, no de runtime.
 - `resolve` es el punto de entrada del hot-path de la capa (la capa pide el índice por punto);
@@ -114,20 +120,54 @@ Notas:
 indexOf(variant) ──hit──► devuelve índice (O(1))
         │ miss
         ▼
-  rasterize(variant)  ──►  describe → renderer[shape] → canvas
+  depósito del adelanto ocioso ──tiene──► toma el tile (sin dibujar)
+        │ no
+        ▼
+  rasterize(variant)  ──►  describe → renderer[shape] → canvas de trabajo → getImageData → tile
         │
         ▼
-  atlas.append(variant, canvas)
+  atlas.append(variant, tile)
         │ -1 (lleno)
         ▼
   atlas = Atlas.grow(atlas)  ──►  append de nuevo  (red de seguridad)
 ```
 
+### Pipeline de una variante
+
+Cada etapa tiene su entrada y su salida, y se puede medir sola:
+
+| Etapa | Entrada → salida | Quién | Cuándo |
+|---|---|---|---|
+| 1 dibujar | variante → `describe` → renderer sobre el canvas de trabajo | `IconSet` | al primer uso; o adelantada en una ranura ociosa |
+| 2 leer | canvas de trabajo → tile `Uint8ClampedArray` | `IconSet` | junto con la 1 |
+| 3 direccionar | tile → celda del atlas (índice estable) | `IconSet` + `Atlas` | al primer uso (`resolve`) |
+| 4 subir | celdas pedidas → textura, un tile por llamada | `GpuAtlasBinding` | al adquirir un contexto, y por variante nueva |
+
+- **Un solo canvas de trabajo** por `IconSet` (`tileSize²`, `willReadFrequently`): crear un canvas por
+  variante era lo más caro de rasterizar en Firefox. Se le hace `reset()` antes de cada tile (sin
+  `reset()` nativo, se reasigna su ancho), así que el estado que deja un renderer —`globalAlpha`, una
+  transformación— no pasa al siguiente. Un renderer que dibuja con APIs de GPU (un `drawImage` de un
+  canvas WebGL) no cambia: el canvas de trabajo es un 2D normal.
+- **Adelanto ocioso.** El primer `resolve` agenda UNA ranura (`requestIdleCallback` con `timeout` de
+  1 s; sin él, un temporizador de 50 ms) que dibuja las declaradas que faltan, en orden, hasta
+  `SLICE_MS` (3 ms) o lo que el navegador deje libre: al menos un tile por ranura, nunca todos de una
+  vez. Los tiles adelantados esperan en un depósito **sin celda**: no cuentan en `atlas.count` ni
+  suben a la GPU hasta que alguien pide su variante, y entonces `resolve` sólo les da celda. No empieza
+  antes de que termine `prerender`, ni corre mientras `document.fonts` carga (saldrían en tofu), y un
+  `IconSet` que nadie usa no agenda nada. Lo declarado se termina rasterizando igual, en ratos ociosos: la
+  CPU total y la memoria de los tiles (`tileSize²·4` bytes por variante) son las de rasterizarlo todo; lo
+  que cambia es cuándo, y que la GPU recibe sólo lo pedido.
+- **Qué sube a la GPU.** Sólo las celdas pedidas ([`GpuAtlasBinding`](./atlas.md#qué-sube-el-binding)),
+  nunca las declaradas ni las adelantadas.
+
 ### `prerender` — precarga async
 
-Si la config trae `prerender`, `#init` lo **espera** antes del preseed. Sirve para cargar
-recursos que el raster necesita (web fonts, imágenes base) de modo que el primer dibujo ya los
-tenga. El consumidor espera `iconSet.ready` para saber que todo está sembrado.
+Si la config trae `prerender`, `ready` lo **espera**, y el adelanto ocioso también. Sirve para cargar
+recursos que el raster necesita (web fonts, imágenes base) de modo que el primer dibujo ya los tenga. El
+consumidor espera `iconSet.ready` para saber que esos recursos están listos; las variantes se rasterizan
+al usarlas. Una variante que se pide antes de `ready` se rasteriza en el acto, sin esos recursos, y queda
+así: lo resuelto sólo se vuelve a rasterizar al cargar las fuentes si al construir el `IconSet` ya había
+alguna cargando (`document.fonts.status`), y `prerenderFonts` empieza la carga después.
 
 **Patrón fuente web → glifo.** Para rasterizar glifos de una fuente de iconos (Unicons, Material) hay
 que **esperar la fuente** antes de dibujar al canvas; si no, el primer raster sale en blanco/tofu. Eso es
@@ -186,9 +226,10 @@ burbujas usa `expandedVariant`/`markedVariant` **sólo si existen** — un icon-
 atenúa ni resalta, pero no rompe.
 
 **Por qué buckets y no el conteo exacto.** Cada burbuja distinta es una variante = un tile del atlas.
-Un tile por conteo posible explotaría el atlas. Los buckets acotan las variantes. **No importa cuántos
-buckets** (el atlas es de texturas chicas, memoria trivial) → pueden ser finos; lo que importa es que
-el número mostrado sea **honesto**.
+Un tile por conteo posible explotaría el atlas. Los buckets acotan las variantes. **Pueden ser finos**:
+declarar 199 no rasteriza ni sube 199 tiles, sólo los que las burbujas en pantalla usan (el resto se
+adelanta en la CPU en ratos ociosos). Lo que importa es que el número mostrado sea **honesto**. La
+textura sí se reserva del tamaño de la grilla declarada (199 buckets → 18×17 celdas de 128 px, 2304×2176).
 
 **Los buckets son _thresholds_, no un rango de conteos.** El bucket más alto es un **"+"**: absorbe
 todo conteo mayor. Así la estructura interna (una LUT, ver abajo) queda acotada por el **threshold
@@ -235,13 +276,14 @@ delega en el `draw` provisto. Devuelve el `IconSet` con métodos extra:
 ## Invariantes
 
 1. **Sin dominio.** El `IconSet` no interpreta la variante; `describe` (del consumidor) decide
-   forma y parámetros. La misma variante string siempre rasteriza el mismo bitmap.
+   forma y parámetros. La misma variante string siempre rasteriza el mismo tile.
 2. **`resolve` idempotente.** Pedir dos veces la misma variante devuelve el **mismo índice**;
    no rasteriza ni appendea de nuevo (la segunda es un `indexOf` hit).
 3. **Nunca invisible.** Una variante no declarada se rasteriza y appendea bajo demanda; si
    desborda, `Atlas.grow` la acomoda. No hay camino que deje un punto sin icono.
-4. **Preseed = cero regrow.** Si todas las variantes usadas están en `variants`, el atlas se
-   dimensiona con headroom y no hay `append` ni regrow en runtime.
+4. **Declarar = cero regrow, no costo.** Si todas las variantes usadas están en `variants`, el atlas
+   se dimensiona con headroom y no hay regrow en runtime; la celda de cada una se asigna al primer
+   uso, sin repack. Lo declarado y no usado no se rasteriza en el camino de un gesto ni se sube.
 5. **`describe` total.** Responsabilidad del consumidor: devuelve un descriptor válido para
    cualquier variante posible (props derivadas de la variante misma, no de una lista cerrada). El
    core no valida; una prop faltante degrada en silencio al default del canvas, no a una
@@ -257,7 +299,7 @@ import { defineIconSet, defineClusterIconSet } from './src/atlas/IconSet.js'
 // IconSet de flota: variante = estado, declarativo (describe) + imperativo (renderers).
 const flota = defineIconSet({
   rotates: true,
-  variants: ['activo', 'detenido', 'alerta'],   // preseed → cero regrow en runtime
+  variants: ['activo', 'detenido', 'alerta'],   // declaradas → cero regrow en runtime
   sizes: { default: 32, canvas: 128 },
   describe: (variant) => ({
     shape: 'pin',
@@ -273,7 +315,7 @@ const flota = defineIconSet({
   },
 })
 
-await flota.ready                  // prerender + preseed listos
+await flota.ready                  // prerender listo (las variantes se rasterizan al usarlas)
 const idx = flota.resolve('activo')   // índice estable en el atlas (O(1))
 
 // Cluster icon set: variante = bucket de conteo.

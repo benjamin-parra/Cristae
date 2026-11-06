@@ -43,7 +43,9 @@ Hit = { layerId, kind: 'point'|'polygon'|'line'|'shape'|'html'|'circle', ref, id
 - `id` — id opcional provisto por el resolver; si está, es la clave estable de diffing de hover.
 - `distancePx` — distancia en píxeles del puntero al elemento (0 = dentro). Ausente cuenta como
   `+Infinity` (queda al fondo del desempate).
-- `zIndex` / `order` — z del pane y orden de declaración; definen el desempate top-first.
+- `zIndex` / `order` — z del pane y posición de declaración de la capa (en una que cuelga de un host,
+  como el badge o las burbujas, la de su host). Se actualizan en vivo cuando la capa se reapila y definen
+  el desempate top-first.
 
 Las **máscaras de canal** ([`events.js`](../src/events/events.js)) son el otro tipo público:
 

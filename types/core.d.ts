@@ -37,7 +37,7 @@ export interface CristaeReadSource<T = unknown> {
   subscribe(cb: () => void): () => void;
   /** Monótona: avanza en cada cambio observable (dirty-check de quien la observe). */
   version(): number;
-  /** Variantes preseed del atlas. */
+  /** Variantes declaradas del atlas. */
   variants?: string[];
   itemById?(id: string | number): T | undefined;
   /** Ids con cambio estructural de la ventana vigente → patch incremental O(k). */

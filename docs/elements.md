@@ -117,14 +117,22 @@ Acceso (getters/métodos): `el.engine`, `el.camera` (ver *Cámara* abajo), `el.r
 [layerId], cb)`, `el.getLayer(id)`, `el.invalidateCanvas()`. `el.engine` es la **escotilla de bajo
 nivel** para lo no declarativo (`createIcon`, `registerIconSet`, etc.). Compartir una Source es
 declarativo (prop `.source` de la capa); `engine.attachSource` es el interno que ese setter usa,
-no API de consumidor.
+no API de consumidor. Asignar la `source` que la capa ya tiene no hace nada. Una distinta reemplaza la capa, que
+conserva su pane y su lugar en él, la supresión del cluster, el foco por ítem, la visibilidad y el gate de habilitación; y
+lo que cuelga del host pasa a la fuente nueva: los overlays y labels ligados (el overlay conserva sus accessors, su
+`where`, su foco y su visibilidad), el realce de interacción, y el cluster que lo envuelve, que re-indexa sobre los ids
+nuevos y recalcula la supresión. Nada sigue oyendo a la fuente vieja. Lo único que no la sigue es el seguimiento de la
+cámara (`camera.followPoint`), que queda en la fuente con que empezó: se reanuda pidiéndolo de nuevo.
 
 > **`invalidateCanvas()`:** reposiciona y redibuja todas las capas de puntos del mapa. Para `<cristae-map>`
 > **rara vez hace falta**: el `ResizeObserver` interno llama `syncSize()` (que ahora redibuja), así que
 > tanto el resize simétrico (cambia el alto, maximizar columna) como el show tras `display:none` (un tab
 > panel que se activa, un modal con el mapa ya montado — el tamaño salta de 0 a N y dispara el observer)
 > se **auto-curan**. `invalidateCanvas()` es el escape hatch manual para el motor headless (`MapEngine`
-> sin elemento, sin observer) o el raro caso de volver a visible sin cambiar de tamaño. **Multi-mapa:**
+> sin elemento, sin observer) o el raro caso de volver a visible sin cambiar de tamaño. Es también una
+> **señal de cupo** de contextos WebGL: si la página se saturó y una capa quedó sin superficie
+> (`surfacechange` con `state: 'released'`), llamarlo al cerrar el widget que tomaba contextos (un panorama,
+> otro visor) hace que el mapa lo intente de nuevo ([SPECS §10](../SPECS.md)). **Multi-mapa:**
 > destruir un `<cristae-map>` no afecta a los demás de la página: el consumer no necesita hacer nada.
 
 `el.engine`/`el.camera` son **`null` hasta montar** y getters **vivos**: no deben cachearse en una variable
@@ -143,6 +151,7 @@ instancia** (resuelve al primer montaje, con su propio tiempo si hay varios mapa
 | `cristae:pointermove` | la muestra del puntero, `{ lat, lng, x, y }`: su posición y su píxel del contenedor. Llega congelada ([SPECS §10](../SPECS.md)) |
 | `cristae:viewportchange` | `{ center: { lat, lng }, zoom, bounds: { south, west, north, east } }` |
 | `cristae:interactionstart` / `cristae:interactionend` | `{}` |
+| `cristae:surfacechange` | `{ layerId, kind, pane, z, cssZoom, state, hasContent, visible }` — la fila de `engine.surfaces()` de la capa cuya superficie WebGL cambió de estado: cuando la capa toma el contexto (`live`, también la primera vez si lo difirió por nacer vacía), cuando el navegador se lo quita (`lost`) y cuando lo suelta o la política la deja sin él (`released`) ([SPECS §10](../SPECS.md)) |
 
 Ningún `detail` lleva valores de Leaflet: posiciones, píxeles y cajas son objetos planos. Una caja se
 agranda, se consulta y se centra con las funciones de [`cristae/geometry`](./geometry.md#cajas).
@@ -301,9 +310,18 @@ Toda capa hoja (`point` / `line` / `polygon` / `shape` / `html` / `label`) los h
 | `z` | number | atributo — z-index del pane. Reactivo |
 | `pane` | string | atributo — pane propio (default `cristae-<kind>-<id>`). Se lee en el alta; con el mismo nombre, varias capas lo comparten ([SPECS §8](../SPECS.md)) |
 
-Sin `z`, el motor lo deriva del orden de declaración (`400 + orden·10`): las mismas capas montadas en
-otro orden apilan distinto. Las de `html` y `label` y el editor suman `200`: quedan sobre las demás
-aunque se declaren antes, y la puerta del puntero les da la pulsación por el mismo orden.
+Sin `z`, el motor lo deriva del orden del documento dentro de `<cristae-map>` (`400 + posición·10`), que
+con React es el del árbol. Una capa que monta tarde —sus datos llegan después, o es un hijo condicional—
+cae donde se declaró, y remontarla no la sube; moverla en el DOM la reapila en su lugar nuevo. Las de
+`html` y `label` y el editor suman `200`: quedan sobre las demás aunque se declaren antes, y la puerta
+del puntero les da la pulsación por el mismo orden.
+
+El derivado es una posición, no un valor: su número cambia cuando monta o se desmonta una capa declarada
+antes, y sólo se garantiza el orden entre derivadas. Un `z` explícito gana, no se mueve y ocupa lugar en
+el orden. Si cae entre los derivados de su plano, su lugar frente a ellos depende de lo que esté montado
+debajo: para fijar el orden contra un derivado se fijan los dos, o el explícito va fuera de ese tramo.
+Quitar `z` vuelve al derivado, aunque la capa haya montado con uno. Varias capas con el mismo `pane`: el
+pane toma el z de la declarada más arriba.
 
 ```html
 <cristae-line-layer z="378"></cristae-line-layer>   <!-- recorrido: debajo de los marcadores -->
@@ -384,8 +402,8 @@ kinds })` · `engine.unfocus(ids)` · `engine.unfocusAll()`.
 |---|---|---|
 | `id` | string | atributo (= id de capa) |
 | `interactive` | boolean | atributo |
-| `visible` | boolean (default `true`) | atributo — pintado puro: oculta los sprites sin sacar la capa de la composición (un cluster que la envuelva sigue contándola) |
-| `enabled` | boolean (default `true`) | atributo — membresía de la **entidad** en la composición, ortogonal a `visible`: deshabilitada aporta ∅ a los modificadores que la consumen (un cluster re-indexa sin sus puntos y recomputa las burbujas), oculta pane + picking, arrastra a sus ligados (labels `bind-to`, overlays) y su pipeline deja de reaccionar a la Source (cero CPU/GPU por emit). Handle: `setEnabled` / `engine.setLayerEnabled` |
+| `visible` | boolean (default `true`) | atributo — pintado puro: oculta los sprites sin sacar la capa de la composición (un cluster que la envuelva sigue contándola). Oculta no dibuja, ni siquiera al mover el mapa; mostrarla pinta en el acto si algo cambió mientras estaba oculta (la vista, un dato, el foco), y si no, la imagen que tenía sigue valiendo |
+| `enabled` | boolean (default `true`) | atributo — membresía de la **entidad** en la composición, ortogonal a `visible`: deshabilitada aporta ∅ a los modificadores que la consumen (un cluster re-indexa sin sus puntos y recomputa las burbujas), oculta pane + picking y deja de dibujar, arrastra a sus ligados (labels `bind-to`, overlays) y su pipeline deja de reaccionar a la Source (cero CPU/GPU por emit). Handle: `setEnabled` / `engine.setLayerEnabled` |
 | `auto-fit` | `"once"` | atributo — encuadra la capa al llegar los **primeros** puntos (una vez), vía `camera.fitToLayer` |
 | `icon-set` | string (nombre registrado) \| objeto IconSet | atributo (string) o prop `iconSet` (objeto) |
 | `data` | `Item[]` (ruta A) | **prop** |

@@ -165,7 +165,7 @@ const source = createSource({
 // iconSet → objeto. Dibujas el ícono UNA vez por variante; se cachea en el atlas (no por punto).
 fleet.iconSet = defineIconSet({
   rotates: true,
-  variants: ['activo', 'detenido', 'alerta'],            // preseed → cero regrow en runtime
+  variants: ['activo', 'detenido', 'alerta'],            // declaradas → cero regrow en runtime
   sizes: { default: 18 },
   describe: v => ({ shape: 'pin', color: v === 'alerta' ? '#e11' : v === 'detenido' ? '#888' : '#1a8' }),
   renderers: { pin: (ctx, s, d) => { ctx.fillStyle = d.color; ctx.beginPath(); ctx.arc(s/2, s/2, s*0.4, 0, 7); ctx.fill() } },

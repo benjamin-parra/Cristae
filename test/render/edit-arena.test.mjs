@@ -13,6 +13,7 @@
 import { makeGl } from '../../test-helpers/engine-stub.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { isDeepStrictEqual } from 'node:util'
 import { ChunkedPath, ROLE } from '../../src/geometry/ChunkedPath.js'
 import { EditArena } from '../../src/render/EditArena.js'
 
@@ -584,4 +585,101 @@ test('destroy libera la textura y el buffer, y es idempotente', () => {
   assert.equal(arena.texture, null)
   arena.destroy()
   assert.deepEqual(borrado, { texturas: 1, buffers: 1 }, 'un segundo destroy no vuelve a pedirlo')
+})
+
+/* ── 10. Contexto: buildGl y dropGl ── */
+
+// Un doble de GL que cuenta cada llamada: lo que no debe tocar el contexto se mide en llamadas.
+const contando = gl => {
+  const cuenta = { llamadas: 0 }
+  return [new Proxy(gl, { get: (t, p) => (typeof t[p] === 'function' ? (...args) => (cuenta.llamadas++, t[p](...args)) : t[p]) }), cuenta]
+}
+
+// Las ediciones que el arena espeja: una inserción, un vértice movido, un borrado y un crecimiento.
+const editar = (path, arena) => {
+  const v = refs(path)
+  path.insertAfter(v[3], -33.45, -70.6)
+  arena.syncStructure()
+  path.moveVertex(v[5], -33.4, -70.5)
+  arena.writeEntry(v[5])
+  path.remove(v[8])
+  arena.syncStructure()
+  for (let i = 0; i < 40; i++) path.insertAfter(path.lastVertex, -33.3 - i * 0.001, -70.4)
+  arena.syncStructure()
+}
+
+test('sin contexto el arena mantiene sus espejos, y buildGl sube lo mismo que habría subido editado con contexto', () => {
+  const sin = new ChunkedPath({ points: puntos(23), localBits: BITS })
+  const con = new ChunkedPath({ points: puntos(23), localBits: BITS })
+  const arenaSin = new EditArena({ path: sin, project })
+  const arenaCon = new EditArena({ gl: makeGl(), path: con, project })
+  assert.deepEqual([arenaSin.texture, arenaSin.vbo], [null, null], 'sin contexto no hay recursos')
+  editar(sin, arenaSin)
+  editar(con, arenaCon)
+  assert.deepEqual([arenaSin.relX(0), arenaSin.relY(0), arenaSin.capacity], [arenaCon.relX(0), arenaCon.relY(0), arenaCon.capacity])
+
+  // El que editó con contexto se rehace del espejo en otro, como el que editó sin él.
+  arenaCon.dropGl()
+  const glSin = makeGl(), glCon = makeGl()
+  arenaSin.buildGl(glSin)
+  arenaCon.buildGl(glCon)
+  assert.notEqual(arenaSin.texture, null)
+  assert.notEqual(arenaSin.vbo, null)
+  assert.deepEqual(glSin.spy.texImages, glCon.spy.texImages)
+  // Texturas y buffers enteros: `deepEqual` armaría un diff de miles de números al fallar.
+  assert.ok(isDeepStrictEqual(glSin.spy.texels.map(t => [...t]), glCon.spy.texels.map(t => [...t])), 'la misma textura de posiciones')
+  assert.ok(isDeepStrictEqual([...glSin.spy.array.datos], [...glCon.spy.array.datos]), 'y el mismo VBO')
+  assert.equal(glSin.spy.bufferDatas.length, 1, 'una sola subida de cada uno, entera')
+})
+
+test('dropGl olvida lo GL sin tocar el contexto: las ediciones siguientes son de CPU, y destroy no borra', () => {
+  const [gl, cuenta] = contando(makeGl())
+  const path  = new ChunkedPath({ points: puntos(23), localBits: BITS })
+  const arena = new EditArena({ gl, path, project })
+  const antes = cuenta.llamadas
+  assert.equal(arena.dropGl(), arena)
+  assert.deepEqual([arena.texture, arena.vbo], [null, null])
+
+  editar(path, arena)
+  arena.reset()
+  arena.writeRange(0, 0, 3)
+  arena.destroy()
+  assert.equal(cuenta.llamadas, antes, 'ni una llamada: el contexto está perdido')
+})
+
+test('buildGl en otro contexto crea texturas y buffers propios, sin tocar el anterior', () => {
+  const [viejo, cuenta] = contando(makeGl())
+  const path  = new ChunkedPath({ points: puntos(23), localBits: BITS })
+  const arena = new EditArena({ gl: viejo, path, project })
+  const texturaVieja = arena.texture
+  arena.dropGl()
+  const antes = cuenta.llamadas
+
+  const nuevo = makeGl()
+  arena.buildGl(nuevo)
+  assert.notEqual(arena.texture, texturaVieja)
+  assert.equal(nuevo.spy.texImages.length, 1)
+  arena.writeEntry(refs(path)[2])
+  assert.equal(nuevo.spy.texSubImages.length, 1, 'y las ediciones siguientes suben al contexto nuevo')
+  assert.equal(cuenta.llamadas, antes)
+})
+
+// Los tamaños de los handles van en px del buffer: el contexto nuevo puede venir con otra escala, y el espejo del VBO
+// se escribe de nuevo con ella.
+test('buildGl con otros canales reescribe el tamaño de cada entrada en el espejo y lo sube', () => {
+  const path     = new ChunkedPath({ points: puntos(23), localBits: BITS })
+  const arena    = new EditArena({ gl: makeGl(), path, project })
+  const tamanios = gl => [gl.spy.array.datos[6], gl.spy.array.datos[FLOATS + 6]]     // el primer vértice y su midpoint
+
+  arena.dropGl()
+  const mismo = makeGl()
+  arena.buildGl(mismo)
+  assert.deepEqual(tamanios(mismo), [12, 10], 'los canales de siempre')
+
+  arena.dropGl()
+  const otro = makeGl()
+  arena.buildGl(otro, undefined, [20, 24, 20])
+  assert.deepEqual(tamanios(otro), [24, 20], 'el vértice y su midpoint, a la escala nueva')
+  assert.equal(otro.spy.array.datos[0], mismo.spy.array.datos[0], 'y la posición no se movió')
+  assert.equal(otro.spy.texImages.length, 1)
 })

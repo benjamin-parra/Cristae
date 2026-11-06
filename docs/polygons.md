@@ -35,7 +35,9 @@ document.querySelector('#geocercas').source = geocercas
 El costo que hay que tener en la cabeza no es el de dibujo sino el de **contexto**: cada capa abre el
 suyo, y el navegador da unos ~16 en total; pasado el techo empieza a evictar los viejos. Con varias
 capas de polígonos en la misma página conviene juntarlas en una, con un `styleOf` que las distinga.
-No hay sustrato que elegir: `addPolygonLayer` rechaza un `backend`, y el elemento no tiene el atributo.
+La capa que pierde el suyo lo vuelve a tomar en el cuadro siguiente, si hay cupo, y rehace su textura desde
+los anillos que guarda en CPU; mientras no lo tiene sigue armando su geometría y no dibuja. No hay
+sustrato que elegir: `addPolygonLayer` rechaza un `backend`, y el elemento no tiene el atributo.
 
 ## Estilo
 

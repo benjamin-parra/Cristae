@@ -67,7 +67,7 @@ export function createHighlightOverlay({ source, project, ctx, clear, drawHighli
     if (tocaResaltado(highlighted, source.moveDirtyIds?.()) ||
         tocaResaltado(highlighted, source.dirtyIds?.())) invalidar()
   }
-  const unsub = source.subscribe(alNotificar)
+  let unsub = source.subscribe(alNotificar)
 
   return {
     // Quién está resaltado y con qué clave (Map<id, key>). El consumidor lo deriva de selectedIds/focus.
@@ -78,6 +78,13 @@ export function createHighlightOverlay({ source, project, ctx, clear, drawHighli
     redraw: redibujar,
     // Redibujo síncrono a una vista arbitraria (un frame del zoom animado).
     renderAtView(proyectar) { dibujarCon(proyectar) },
+    // La capa cambió de fuente: se oye a la nueva, y lo resaltado se redibuja con lo que ella trae.
+    setSource(next) {
+      unsub?.()
+      source = next
+      unsub  = source.subscribe(alNotificar)
+      highlighted.size && invalidar()
+    },
     destroy() { unsub?.() },
   }
 }

@@ -13,6 +13,11 @@ import { projX0, projY0, readView } from './project.js'
 // El layout es el de los sprites (point-program.js): r=tile, g=ángulo, b,a=índice local de picking.
 // Las posiciones van proyectadas a world0 y RELATIVAS AL ANCLA, que cada rebuild fija en el centro de la
 // vista: float32 alcanza a z18 y la traslación absoluta vive en la matriz.
+//
+// La superficie puede quedarse sin contexto (el navegador lo desaloja, o se suelta) y volver a tenerlo en otro.
+// El espejo y lo demás de CPU no dependen de él: sin contexto se codifica igual y la subida queda pendiente,
+// entera, para `buildGl`, que rehace lo GL y sube todo. Sin contexto `#gl` es null, y es lo que miran los caminos
+// que tocan GL.
 
 const DEFAULT_VARIANT = 'default'
 const NORM            = 1 / 360
@@ -27,7 +32,8 @@ const PICK_CAP  = (1 << CHUNK_BITS) * LOCAL_CAP
 
 export class PointLayer {
 
-  #camera; #surface; #gl; #source; #iconSet
+  #camera; #surface; #source; #iconSet
+  #gl          = null
   #accessors   = null   // accessors de RENDER (override de los de la Source: variantOf/sizeOf/headingOf)
   #where       = null   // predicado de membresía por-capa (overlay): omite ítems que no matchean
   #program     = null
@@ -41,6 +47,7 @@ export class PointLayer {
   #view        = { zoom: 0, center: { x: 0, y: 0 }, size: { x: 0, y: 0 } }
   #injected    = false  // `#view` es un cuadro del zoom animado: rige hasta que el motor reasienta la capa
   #frame       = 0      // rAF del repintado agendado; 0 = ninguno
+  #stale       = true   // el canvas quedó atrás: nunca dibujó, o se pidió un dibujo que no pudo hacerse (oculta, sin contexto)
   #scale       = 1      // px del drawing buffer por px CSS: la unidad de `gl_PointSize`
   #scaledAt    = 0      // ancho del buffer con el que se midió `#scale`
   #hoverPick   = { hits: [], sample: null }   // cache del último pick de hover, atado a su muestra
@@ -60,12 +67,16 @@ export class PointLayer {
   #idBySlot   = []          // slot → id (traduce hits de picking)
   #slot       = new Map()   // id → slot
   #count      = 0
+  #fed        = false       // la Source le entrega algún ítem a esta capa (pasado el `where`), se dibuje o no
   #snapLen    = -1          // tamaño del snapshot del último rebuild (detecta alta/baja)
   #suppressed = null        // ids a omitir del buffer (p. ej. clusterizados); null = ninguno
   // Deshabilitada como ENTIDAD (setLayerEnabled): la suscripción a la Source no procesa nada —
   // cero CPU/GPU por emit del WS mientras el pane está oculto (mismo patrón que LabelLayer).
   // refresh() sigue operativo (es el catch-up explícito al re-habilitar).
   #enabled = true
+  // Oculta (visible ∧ habilitada, que compone el motor): su pane no se ve y no dibuja. El buffer sigue al
+  // día con la Source, así que mostrarla es un draw si algo cambió mientras tanto, y nada si no.
+  #visible = true
 
   // Eje focus: el alfa por ítem viaja en el SIGNO del `size` del vértice; `ids` null = sin foco.
   #focus      = { ids: null, dim: 0.3 }
@@ -81,27 +92,29 @@ export class PointLayer {
   //
   // La superficie lleva profundidad para el orden por banda del foco, y no sigue la transición del zoom:
   // el motor reproyecta la capa por cuadro (`renderAtView`).
-  constructor({ host, pane, source, iconSet, interactive = false, accessors = null, where = null }) {
-    this.#camera    = host.camera
-    this.#source    = source
-    this.#accessors = accessors ?? source.accessors
-    this.#where     = where
-    this.#iconSet   = iconSet
-    this.#surface   = new EditSurface({ host, pane, depth: true, cssZoom: false })
-    const gl = this.#gl = this.#surface.attach()
-    // La superficie ya tomó uno de los ~16 contextos: lo que siga puede tirar y nadie devuelve uno solo.
+  //
+  // `visible`, `suppressed` y `focus` son el estado con que nace: el motor los pasa al dar de alta una capa
+  // oculta y al intercambiar su fuente, para que la nueva herede lo de la vieja sin un primer cuadro con los
+  // puntos clusterizados, sin atenuar o dibujando en un pane que no se ve. `focus` es `{ ids, dim }`, el de
+  // `applyFocus`, y se copia.
+  constructor({
+    host, pane, source, iconSet, interactive = false, accessors = null, where = null,
+    visible = true, suppressed = null, focus = null,
+  }) {
+    this.#camera     = host.camera
+    this.#source     = source
+    this.#accessors  = accessors ?? source.accessors
+    this.#where      = where
+    this.#visible    = visible
+    this.#suppressed = suppressed
+    this.#iconSet    = iconSet
+    this.#picking    = interactive ? new Picking() : null
+    this.#surface    = new EditSurface({ host, pane, depth: true, cssZoom: false, owner: this })
+    focus && Object.assign(this.#focus, focus)
+    // Tomar el contexto ocupa uno de los ~16, y lo que siga puede tirar: nadie lo devuelve solo. Una capa que nace
+    // vacía deja su marcador en el pane y la política le da el contexto en un rato ocioso, o en la tarea del primer dato.
     try {
-      this.#vbo = gl.createBuffer()
-      ;({ program: this.#program, vao: this.#vao } = linkPointProgram(gl, this.#vbo))
-      this.#uMatrix = gl.getUniformLocation(this.#program, 'matrix')
-      this.#uDim    = gl.getUniformLocation(this.#program, 'uDim')
-      this.#binding = new GpuAtlasBinding(gl).register(this.#program)
-      gl.depthFunc(gl.LEQUAL)     // banda igual → gana el último: la precedencia de slot queda intacta
-      if (interactive) {
-        this.#picking = new Picking()
-        this.#binding.register(this.#picking.attach(gl, this.#program, true))
-      }
-      this.#rescale()
+      this.#surface.open(this.#feeds(source.getSnapshot()))   // → buildGl(gl): todavía sin datos
       this.#unsub = source.subscribe(() => this.#onChange())
       this.#onChange()
     } catch (e) {
@@ -116,6 +129,19 @@ export class PointLayer {
 
   idForSlot(slot) { return this.#idBySlot[slot] }
 
+  // Lo que el motor lee para `surfaces()`: la superficie GL de la capa y si tiene contenido. Lo tiene si la Source
+  // le entrega algún ítem —pasado el `where` y ANTES de la supresión del cluster—, no si queda algo que dibujar: un
+  // host entero bajo burbujas no está vacío, y el zoom que las deshace le pide el contexto en pleno gesto.
+  get surface()    { return this.#surface }
+  get hasContent() { return this.#fed }
+
+  // Si la Source le entrega algún ítem a esta capa, pasado el `where`: es lo que decide si nace con contexto.
+  #feeds(snap) { return this.#where ? snap.some(item => this.#where(item)) : snap.length > 0 }
+
+  // El foco aplicado: `{ ids, dim }`, con `ids` null si no hay. El motor lo lee para pasárselo a la capa que
+  // releva a ésta al intercambiar la fuente. Es el estado vivo, no una copia.
+  get focus() { return this.#focus }
+
   /* ── Picking (la capa de interacción orquesta; la capa resuelve hits) ── */
 
   // Identidad de OBJETO de la capa dentro del pase de picking: la asigna el motor al darla de alta y la
@@ -125,7 +151,7 @@ export class PointLayer {
 
   // Encola un pick GPU para la muestra del puntero, en su píxel del contenedor.
   requestHoverHit(sample) {
-    return !!this.#picking && this.#picking.request(sample.x, sample.y, this.#pickBatch(), sample)
+    return !!(this.#gl && this.#picking) && this.#picking.request(sample.x, sample.y, this.#pickBatch(), sample)
   }
 
   // Recoge el pick encolado (no bloqueante). Cachea los hits + la muestra para resolveHover.
@@ -144,7 +170,7 @@ export class PointLayer {
 
   // resolveClick hace un pick síncrono (un tiro) en el punto del evento, con el mismo batch.
   resolveClick(sample) {
-    const pick = this.#picking?.pickSync(sample.x, sample.y, this.#pickBatch(), sample)
+    const pick = this.#gl && this.#picking?.pickSync(sample.x, sample.y, this.#pickBatch(), sample)
     return pick ? this.#partsFrom(pick.hits, this.#clickParts) : []
   }
 
@@ -197,17 +223,73 @@ export class PointLayer {
 
   /* ── Lifecycle ── */
 
-  // Repinta en el próximo cuadro; los pedidos del mismo cuadro son un solo dibujo.
-  redraw() { this.#frame ||= requestAnimationFrame(this.#paint) }
+  // La parte GL de la capa sobre el contexto que le da su superficie, al construirse y cada vez que lo vuelve a
+  // tomar: programas, VAO, VBO, la textura del atlas (un binding nuevo, que la sube entera en el primer dibujo),
+  // el picking y la profundidad. Si ya tenía datos sube el espejo entero —recodificado, si el buffer nuevo tiene
+  // otra escala— y pinta en el acto: el contexto nace en blanco. Al construirse todavía no los tiene, y los sube
+  // el primer rebuild.
+  buildGl(gl) {
+    this.#gl  = gl
+    this.#vbo = gl.createBuffer()
+    ;({ program: this.#program, vao: this.#vao } = linkPointProgram(gl, this.#vbo))
+    this.#uMatrix = gl.getUniformLocation(this.#program, 'matrix')
+    this.#uDim    = gl.getUniformLocation(this.#program, 'uDim')
+    this.#binding = new GpuAtlasBinding(gl).register(this.#program)
+    gl.depthFunc(gl.LEQUAL)     // banda igual → gana el último: la precedencia de slot queda intacta
+    this.#picking && this.#binding.register(this.#picking.attach(gl, this.#program, true))
+    if (this.#snapLen < 0) return this.#rescale()
+    if (this.#rescale()) {
+      this.refresh()                     // recodifica los tamaños con la escala nueva y sube el espejo; agenda un cuadro
+      cancelAnimationFrame(this.#frame)  // que sobra: el contexto nace en blanco y se pinta en esta tarea
+      this.#frame = 0
+    } else this.#upload()
+    return this.#draw(this.#injected ? this.#view : readView(this.#camera, this.#view))
+  }
+
+  // Olvida lo GL sin tocar el contexto, que se perdió o que la superficie va a soltar con `loseContext`, que
+  // libera todo de una vez: los handles, el repintado agendado, el pick en vuelo y los draws del pase, que
+  // apuntan a la textura de antes. La escala se vuelve a medir sobre el buffer que venga.
+  dropGl() {
+    cancelAnimationFrame(this.#frame)
+    this.#frame    = 0
+    this.#injected = false
+    this.#scaledAt = 0
+    this.#picking?.drop()
+    this.#draws.length = 0
+    this.#gl = this.#vbo = this.#program = this.#vao = this.#uMatrix = this.#uDim = this.#binding = null
+  }
+
+  // Repinta en el próximo cuadro; los pedidos del mismo cuadro son un solo dibujo. Oculta o sin contexto no
+  // agenda nada, pero deja anotado que el canvas quedó atrás: al mostrarla se pinta en el acto, y al volver a
+  // tener contexto también.
+  redraw() {
+    const dibujable = this.#visible && !!this.#gl
+    this.#stale ||= !dibujable
+    return dibujable && (this.#frame ||= requestAnimationFrame(this.#paint))
+  }
+
+  // Oculta no dibuja —ni al reasentar, ni en un cuadro del zoom, ni en un repintado—, pero reasienta el
+  // canvas y mantiene el buffer al día. Mostrarla pinta en la misma tarea la vista que se ve ahora, la
+  // inyectada si hay un zoom animado en curso, y devuelve si pintó. Sólo pinta si algo pidió un dibujo
+  // mientras estaba oculta (la vista, un dato, el foco, el contexto): si no, la imagen del canvas sigue
+  // valiendo y no cuesta nada. Repetir el mismo estado tampoco.
+  setVisible(visible = true) {
+    const mostrada = visible && !this.#visible
+    this.#visible  = visible
+    return mostrada && this.#stale && this.#draw(this.#injected ? this.#view : readView(this.#camera, this.#view))
+  }
   syncPickingSize() { this.#picking?.syncSize() }
 
   // Reasienta el canvas a la vista viva y la dibuja en el acto; el motor la invoca en move/moveend/zoomend.
   // Un cambio de escala (la ventana pasó a otro monitor) re-codifica los tamaños, que van en px del buffer.
+  // Corre por capa en cada `invalidateCanvas` y cada reencuadre: el contexto se lee una vez y se pasa.
   resetCanvasReference() {
     this.#injected = false
+    const gl = this.#gl
+    if (!gl) return
     this.#surface.resetCanvasReference()
-    this.#rescale() && this.refresh()
-    this.#draw(readView(this.#camera, this.#view))
+    const view = readView(this.#camera, this.#view)
+    this.#rescale(gl) ? (this.refresh(), this.#draw(view)) : this.#draw(view, gl)
   }
 
   // Reproyección por-frame a una vista (zoom, center) ARBITRARIA — el corazón del zoom ANIMADO. Los
@@ -216,6 +298,8 @@ export class PointLayer {
   // frame). La vista va INYECTADA en vez de la de la cámara, que durante la animación sigue en el zoom de
   // partida. El motor la llama por frame, interpolando (zoom, center) con el easing del tile.
   renderAtView(zoom, center) {
+    const gl = this.#gl
+    if (!gl) return
     const view = this.#view
     const size = this.#camera.size()
     view.zoom     = zoom
@@ -225,7 +309,7 @@ export class PointLayer {
     view.size.y   = size.y
 
     this.#injected = true
-    this.#draw(view)
+    this.#draw(view, gl)
   }
 
   // Un repintado agendado durante el zoom animado (un flush de la Source, un foco) dibuja el cuadro que
@@ -236,9 +320,13 @@ export class PointLayer {
   }
 
   // El orden por banda limpia y prueba profundidad en cada draw: el pase de picking la apaga al salir.
-  #draw(view) {
-    if (this.#surface.contextLost) return
-    const gl = this.#gl
+  // Devuelve si dibujó: oculta, o sin contexto, no, y el canvas queda anotado como atrasado. Un contexto que el
+  // navegador ya quitó y todavía no avisó ignora el dibujo. `gl` es el de la capa, ya leído por quien lo tiene.
+  #draw(view, gl = this.#gl) {
+    if (!gl || !this.#visible) {
+      this.#stale = true
+      return false
+    }
     this.#binding.sync(this.#iconSet.atlas)
     gl.useProgram(this.#program)
     gl.uniformMatrix4fv(this.#uMatrix, false, anchorMatrix(this.#matrix, this.#ax, this.#ay, view.zoom, view.center, view.size))
@@ -249,14 +337,18 @@ export class PointLayer {
     gl.bindVertexArray(this.#vao)
     gl.drawArrays(gl.POINTS, 0, this.#count)
     gl.bindVertexArray(null)
+    this.#stale = false
+    return true
   }
 
   // Px del drawing buffer por px CSS. Se remide sólo si cambió el ancho del buffer: `clientWidth` fuerza
-  // layout, y esto corre por cuadro de paneo. Devuelve si la escala cambió.
-  #rescale() {
-    const gl = this.#gl
-    if (gl.drawingBufferWidth === this.#scaledAt) return false
-    this.#scaledAt = gl.drawingBufferWidth
+  // layout, y esto corre por cuadro de paneo. Un buffer sin ancho —el de un contexto perdido, o el de un
+  // contenedor oculto— no tiene escala observable: rige la última medida, y los tamaños que ya están en el
+  // espejo no se recodifican. Devuelve si la escala cambió.
+  #rescale(gl = this.#gl) {
+    const w = gl.drawingBufferWidth
+    if (!w || w === this.#scaledAt) return false
+    this.#scaledAt = w
     const scale = pixelScaleOf(gl)
     if (scale === this.#scale) return false
     this.#scale = scale
@@ -277,11 +369,10 @@ export class PointLayer {
   // Re-habilitar exige refresh() para ponerse al día (lo hace setLayerEnabled).
   set enabled(v) { this.#enabled = v ?? true }
 
-  // Soltar el contexto libera de una vez buffer, VAO, programas y textura.
+  // Soltar el contexto libera de una vez buffer, VAO, programas, textura y picking.
   destroy() {
     this.#unsub?.()
-    cancelAnimationFrame(this.#frame)
-    this.#picking?.detach()
+    this.dropGl()
     this.#surface.destroy()
   }
 
@@ -313,7 +404,7 @@ export class PointLayer {
       this.#slot.forEach((s, id) => foco.has(id) || flip(s))
     }
     const gl = this.#gl
-    if (n) {
+    if (n && gl) {
       const rango = hi - lo + 1
       const base  = lo * POINT_FLOATS
       gl.bindBuffer(gl.ARRAY_BUFFER, this.#vbo)
@@ -341,7 +432,7 @@ export class PointLayer {
     const v      = this.#verts
     const gl     = this.#gl
     const atlas0 = this.#iconSet.atlas
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.#vbo)
+    gl?.bindBuffer(gl.ARRAY_BUFFER, this.#vbo)          // sin contexto, el espejo se escribe igual
 
     const moves = this.#source.moveDirtyIds?.()        // solo posición → 2 floats
     if (moves?.size) {
@@ -355,7 +446,7 @@ export class PointLayer {
         const base = s * POINT_FLOATS
         v[base]     = projX0(pos.lng) - this.#ax
         v[base + 1] = projY0(pos.lat) - this.#ay
-        gl.bufferSubData(gl.ARRAY_BUFFER, base * 4, v, base, 2)
+        gl?.bufferSubData(gl.ARRAY_BUFFER, base * 4, v, base, 2)
       }
       // No se limpia acá: el Source acumula por ventana y limpia al abrir la siguiente
       // (así un 2º suscriptor —p.ej. una label-layer— ve el mismo set en este flush).
@@ -373,7 +464,7 @@ export class PointLayer {
         const { lat, lng } = a.positionOf(item)   // copia inmediata: los accessors de abajo pueden reusar el objeto
         this.#encode(s, item, id, lat, lng)
         if (this.#iconSet.atlas !== atlas0) return this.#rebuild(snap)   // regrow → re-encode todo
-        gl.bufferSubData(gl.ARRAY_BUFFER, s * POINT_FLOATS * 4, v, s * POINT_FLOATS, POINT_FLOATS)
+        gl?.bufferSubData(gl.ARRAY_BUFFER, s * POINT_FLOATS * 4, v, s * POINT_FLOATS, POINT_FLOATS)
       }
     }
 
@@ -406,11 +497,13 @@ export class PointLayer {
   /* ── Política de membresía del buffer (punto único: rebuild e incremental la comparten) ── */
 
   // Un ítem NO entra al buffer si es ajeno a esta capa (`where`), si el cluster lo suprime o si su
-  // posición no es finita (§15.2). Devuelve la posición a renderizar, o null si se omite.
+  // posición no es finita (§15.2). Devuelve la posición a renderizar, null si se omite, o undefined si es
+  // ajeno: lo demás está entregado (la supresión sólo decide si se dibuja), y quien llama anota `#fed` una vez,
+  // no un campo privado por ítem.
   // Se consulta en CADA lectura (nunca se cachea la decisión): el ítem que recupera posición o sale
   // del cluster vuelve solo, sin depender de qué clase de omisión lo dejó afuera.
   #renderablePos(item, id) {
-    if (this.#where && !this.#where(item)) return null
+    if (this.#where && !this.#where(item)) return undefined
     if (this.#suppressed?.has(id)) return null
     const pos = this.#accessors.positionOf(item)
     return pos && Number.isFinite(pos.lat) && Number.isFinite(pos.lng) ? pos : null
@@ -421,7 +514,10 @@ export class PointLayer {
   // el cluster suprime al set: cada move de un punto clusterizado dispararía un rebuild O(n).
   // El duplicado (§15.2) no es caso de ausencia: su id SÍ tiene slot, nunca llega hasta acá.
   #absentByPolicy(id, item) {
-    return item != null && this.#renderablePos(item, id) === null
+    if (item == null) return false
+    const pos = this.#renderablePos(item, id)
+    pos === undefined || (this.#fed = true)
+    return pos == null                                // ajena (undefined) u omitida (null)
   }
 
   /* ── Rebuild (O(n), reusa el espejo salvo crecimiento del set) ── */
@@ -437,26 +533,46 @@ export class PointLayer {
     if (this.#verts.length < snap.length * POINT_FLOATS)
       this.#verts = new Float32Array(Math.max(snap.length, 2 * this.#verts.length / POINT_FLOATS) * POINT_FLOATS)
     this.#slot.clear()
-    let n = 0
+    if (!this.#gl && snap.length) this.#claim(snap)
+    let n   = 0
+    let fed = false
     for (let i = 0; i < snap.length; i++) {
       const item = snap[i]
       const id   = a.idOf(item)
       if (this.#slot.has(id)) continue                                 // §15.2 duplicado → gana el primero
       const pos = this.#renderablePos(item, id)
+      fed ||= pos !== undefined
       if (!pos) continue
       const { lat, lng } = pos     // copia inmediata: el objeto de `positionOf` puede ser scratch reusado
       this.#encode(n, item, id, lat, lng)
       this.#idBySlot[n] = id
       this.#slot.set(id, n++)
     }
+    this.#fed = fed
     if (this.#iconSet.atlas !== atlas0) return this.#rebuild(snap)
 
     this.#idBySlot.length = n
     this.#count           = n
     this.#snapLen         = snap.length
-    const gl = this.#gl
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.#vbo)
-    gl.bufferData(gl.ARRAY_BUFFER, this.#verts.subarray(0, n * POINT_FLOATS), gl.DYNAMIC_DRAW)
+    this.#upload()
     this.redraw()
+    this.#gl && this.#surface.need()      // viva: si pasó a necesaria con estos datos, se rehace el orden de desalojo
+  }
+
+  // Con datos y sin contexto lo pide antes de codificar, en esta tarea: el contexto da la escala del buffer en que se
+  // codifican los tamaños, y pedirlo después obligaría a recodificar todo. `buildGl` sólo mide la escala mientras no
+  // haya nada subido (`#snapLen < 0`), y el cierre del rebuild sube y pinta.
+  #claim(snap) {
+    this.#fed     = this.#feeds(snap)
+    this.#snapLen = -1
+    this.#surface.need()
+  }
+
+  // El espejo entero al VBO, lo que ocupa el set: el rebuild, y el contexto nuevo que todavía no tiene nada.
+  #upload() {
+    const gl = this.#gl
+    if (!gl) return
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.#vbo)
+    gl.bufferData(gl.ARRAY_BUFFER, this.#verts.subarray(0, this.#count * POINT_FLOATS), gl.DYNAMIC_DRAW)
   }
 }

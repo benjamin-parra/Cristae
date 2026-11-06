@@ -40,7 +40,8 @@ export interface IconDescriptor {
 
 export interface IconSetConfig {
   rotates?   : boolean;
-  /** Variantes preseed (cero regrow en runtime). */
+  /** Variantes declaradas: dimensionan el atlas (cero regrow en runtime). Declararlas no las rasteriza ni las sube:
+   *  cada una se dibuja al primer uso y el resto se adelanta en ratos ociosos. */
   variants?  : string[];
   sizes?     : { default?: number; canvas?: number };
   /** Debe ser TOTAL: cualquier string (o null/undefined) → descriptor completo. */
@@ -155,7 +156,8 @@ export interface HitBase {
   ref            : string | number;
   /** Distancia en px del puntero al elemento (0 = dentro); sin geometría, `+Infinity`. */
   distancePx     : number;
-  /** z del pane y orden de declaración: definen el desempate top-first. */
+  /** z del pane y posición de declaración de la capa (en una que cuelga de un host, la de su host). Vivos:
+   *  siguen a la capa cuando se reapila, y definen el desempate top-first. */
   zIndex         : number;
   order          : number;
   /** Posición con la que un overlay presentó el hit (la hoja del spider, ya desplegada). */
@@ -271,6 +273,39 @@ export interface ViewportChangeDetail {
 export interface MapClickDetail {
   latlng : LatLng;
 }
+
+/** Cómo está la superficie WebGL de una capa. `live`: tiene su contexto. `lost`: el navegador se lo quitó, y
+ *  la capa lo vuelve a tomar en un cuadro siguiente, de a una por cuadro, la de mayor z primero y nunca en pleno
+ *  gesto; un dato nuevo no la adelanta. `released`: no lo tiene por decisión propia: lo soltó a mano, o la política la
+ *  soltó por prescindible (vacía u oculta) bajo presión de cupo, o la dejó sin superficie por saturación, o volver a
+ *  tomarlo falló; mostrarla o darle contenido lo vuelve a tomar en esa tarea si es la primera toma por un aviso desde el
+ *  último cuadro, y si no en los siguientes (SPECS §10). `none`: todavía no lo tomó, como una capa que nació vacía y lo
+ *  toma en un rato ocioso o con su primer dato. */
+export type SurfaceState = "live" | "lost" | "released" | "none";
+
+/** Una fila de `engine.surfaces()` y el `detail` de la señal `surfacechange`: la superficie WebGL de una
+ *  capa, que es uno de los ~16 contextos que el navegador da a la página. */
+export interface SurfaceInfo {
+  /** El id de la capa que la posee. Una capa interna del motor lleva el suyo, como `<host>:clusters`. */
+  layerId    : string;
+  /** La clase de capa, como el `kind` de un hit; más `editable` (el editor) y `overlay` (la ligada a un host). */
+  kind       : "point" | "line" | "polygon" | "shape" | "circle" | "editable" | "overlay";
+  /** El pane donde cuelga su canvas. */
+  pane       : string;
+  /** El z-index vigente del pane, o `null` si no tiene uno. */
+  z          : number | null;
+  /** Si el canvas sigue la transición del zoom animado; `false` en la capa que el motor reproyecta por cuadro. */
+  cssZoom    : boolean;
+  /** Se lee del contexto: vale `lost` apenas el navegador lo quita, sin esperar al evento `webglcontextlost`. */
+  state      : SurfaceState;
+  /** Si su fuente le entrega algún ítem —pasado el `where` de la capa y antes de la supresión del cluster—, haya o
+   *  no algo que dibujar ahora: un host entero bajo burbujas tiene contenido. En un editor, que su valor tenga
+   *  vértices o esté trazando. */
+  hasContent : boolean;
+  /** La visibilidad efectiva de la capa: la propia, su habilitación y la de su host si va ligada. */
+  visible    : boolean;
+}
+
 export interface EngineSignals {
   'ready'            : (detail: Record<string, never>) => void;
   'viewportchange'   : (detail: ViewportChangeDetail) => void;
@@ -286,6 +321,11 @@ export interface EngineSignals {
   'drawingstart'     : (detail: Record<string, never>) => void;
   /** El último editor que la tomaba dejó de hacerlo, o se quitó: el mapa salió del estado. No sale en `destroy()`. */
   'drawingend'       : (detail: Record<string, never>) => void;
+  /** La superficie WebGL de una capa cambió de estado, y el detail es su fila de `surfaces()`: sale cuando
+   *  la capa toma el contexto (`live`, también la primera vez si lo difirió), cuando el navegador se lo quita
+   *  (`lost`) y cuando lo suelta o la política la deja sin él (`released`). No sale al dar de alta la capa, ni en
+   *  `destroy()` ni al quitarla (SPECS §10). */
+  'surfacechange'    : (detail: SurfaceInfo) => void;
 }
 
 // ── Marcadores HTML (addHtmlLayer / <cristae-html-layer>) ───────────────────
@@ -792,10 +832,10 @@ export interface MapEngineOptions {
   maxBoundsViscosity? : number | null;
 }
 
-// Orquestador headless: monta sobre un mapa propio o adoptado, deriva panes por orden de declaración (el
-// consumidor no toca z) y cablea registry + bus + Interaction (picking) + Camera. La superficie de
-// INSTANCIA de las capas (props por ref del custom element, sesión de cluster) sigue siendo rica; el
-// consumidor la castea según el eje que use (ver docs/ y SKILL.md).
+// Orquestador headless: monta sobre un mapa propio o adoptado, deriva el z de los panes del orden de
+// declaración y no de la historia de altas (el consumidor no toca z), y cablea registry + bus + Interaction
+// (picking) + Camera. La superficie de INSTANCIA de las capas (props por ref del custom element, sesión de
+// cluster) sigue siendo rica; el consumidor la castea según el eje que use (ver docs/ y SKILL.md).
 export class MapEngine {
   constructor(options: MapEngineOptions);
   readonly ready  : Promise<MapEngine>;
@@ -821,6 +861,11 @@ export class MapEngine {
    *  una capa de polígonos tipada y no interactiva, que no retiene sus tablas. Qué hace la baja: SPECS §8.6. */
   addGeodesic(config: { hostId: string }): (() => void) | null;
 
+  /** Cambia la fuente de una capa de puntos. La que ya tiene no es un cambio y no hace nada; una distinta
+   *  reconstruye la capa, que conserva su pane y su lugar en él, la supresión del cluster, el foco por ítem, la
+   *  visibilidad y el gate de habilitación. Lo que cuelga del host pasa a la fuente nueva: sus overlays y labels
+   *  ligados, el realce de interacción y el cluster que lo envuelve, que re-indexa sobre los ids nuevos. Nada sigue
+   *  oyendo a la vieja, salvo el seguimiento de la cámara (`followPoint`), que se reanuda pidiéndolo de nuevo. */
   attachSource(id: string, source: CristaeSource): this;
   getLayer(id: string): unknown;
   /** Capa dueña de un objeto del pase de picking: el decodificador entrega (obj, chunk, local) y esto
@@ -844,7 +889,8 @@ export class MapEngine {
    *  retira del eje. Varias capas pueden declararlo a la vez (cross-layer). */
   setLayerFocus(layerId: string, ids?: Iterable<string | number> | null | false): this;
 
-  /** Reapila una capa montada (z-index de su pane). `z` nulo vuelve al derivado en el alta. */
+  /** Reapila una capa montada (z-index de su pane). `z` nulo borra el z explícito y la capa vuelve a su lugar
+   *  por orden de declaración. */
   setLayerZ(layerId: string, z?: number | null): this;
 
   /** Suscripción a un canal del bus o a una señal del motor (no es un CustomEvent del DOM: el payload
@@ -870,7 +916,13 @@ export class MapEngine {
   /** @deprecated Fuera de contrato: el mapa de Leaflet es un detalle del anfitrión. Se retira en 1.0 (SPECS §6). */
   getLeafletMap(): unknown;
   syncSize(): void;
+  /** Reposiciona y redibuja las capas de puntos. Es también una señal de cupo: lo que la saturación de contextos dejó
+   *  sin superficie se intenta de nuevo (la app la da al cerrar un widget que tomaba contextos; SPECS §10). */
   invalidateCanvas(): void;
+  /** Una fila por superficie WebGL del motor, en el orden de alta de sus capas: las de puntos, líneas,
+   *  polígonos y formas, sus overlays y los editores. Las capas de calor, etiquetas y HTML no tienen. Se
+   *  arma al pedirla: es para diagnosticar cuántos contextos toma el mapa y cuáles siguen vivos (SPECS §6). */
+  surfaces(): SurfaceInfo[];
   /** Encuadra VARIAS capas a la vez (o todas las de datos si se omite `ids`) — multi-capa de camera.fitToLayer. */
   fitToLayers(ids?: Iterable<string> | null, options?: { insets?: Insets; maxZoom?: number }): this;
   destroy(): void;

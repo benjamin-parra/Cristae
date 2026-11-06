@@ -1,4 +1,5 @@
 import { EditSurface } from './EditSurface.js'
+import { glBudget } from './gl-budget.js'
 import { LineStore } from './LineStore.js'
 import { StrokePass, ownDash } from './StrokePass.js'
 import { projX0, projY0, readView } from './project.js'
@@ -27,6 +28,12 @@ import { growBoxOfRange } from '../geometry/bbox.js'
 //
 // Con curva, cada tramo se parte sobre la geodésica de su modelo en `#pack`, y de esa única densificación
 // salen el dibujo, el índice de picking y la caja: lo que se pica es lo que se ve.
+//
+// La superficie puede quedarse sin contexto (el navegador lo quita, o se suelta) y volver a tenerlo en otro. Los
+// vértices, los estilos y el índice de picking son de CPU y no dependen de él: sin contexto la capa codifica igual y
+// la subida queda pendiente, entera, para `buildGl`, que rehace el pase y las texturas del store y pinta. Sin
+// contexto `#gl` es null, y es lo que miran los caminos que tocan GL. El picking es de CPU, así que no cambia. Vacía al
+// construirse no toma contexto: lo toma la política en un momento ocioso, o al llegar el primer dato.
 
 const HIT_TOL_PX    = 8
 const OPAQUE        = '#ffffff'
@@ -47,7 +54,8 @@ const countCut = ctx => {
 
 export class LineGpuLayer {
 
-  #camera; #surface; #gl; #stroke; #source; #styleOf; #pathOf; #idOf; #scalarOf; #ramp; #base
+  #camera; #surface; #stroke; #source; #styleOf; #pathOf; #idOf; #scalarOf; #ramp; #base
+  #gl        = null                   // null sin contexto: lo único que miran los caminos que tocan GL
   #store     = null
   #curve     = null                   // el modelo sobre cuya geodésica se curvan los tramos; null, rectas
   #recs      = new Map()              // id → rec
@@ -76,14 +84,19 @@ export class LineGpuLayer {
     this.#ramp     = a.colorRamp
     this.#rgba     = new Uint8Array(this.#scalarOf ? 128 : 0)
     this.#base     = { ...DEFAULT_STYLE, ...(color && { color }), ...(weight != null && { weight }), ...(opacity != null && { opacity }) }
-    this.#surface  = new EditSurface({ host, pane })
-    this.#gl       = this.#surface.attach()
-    // La superficie ya tomó uno de los ~16 contextos: lo que siga puede tirar y nadie devuelve uno solo.
+    this.#stroke   = new StrokePass({ closed: false, gradient: !!this.#scalarOf })
+    this.#surface  = new EditSurface({ host, pane, owner: this })
+    // Tomar el contexto ocupa uno de los ~16, y lo que siga puede tirar: nadie lo devuelve solo.
     try {
-      this.#stroke = new StrokePass({ gl: this.#gl, closed: false, gradient: !!this.#scalarOf })
-      this.#rebuild(source.getSnapshot())
+      const snap = source.getSnapshot()
+      this.#surface.open(snap.length > 0)     // → buildGl(gl): todavía sin datos
+      this.#rebuild(snap)
       this.#offView = host.camera.on('moveend zoomend resize zoomframe', () => this.redraw())
-      this.#unsub   = source.subscribe(() => { this.#sync(); this.redraw() })
+      this.#unsub   = source.subscribe(() => {
+        this.#sync()
+        this.#surface.need() || this.redraw()   // el dato se avisa: sin contexto lo pide, y buildGl sube y pinta
+      })
+      this.redraw()     // pinta ya lo que la Source trae: no espera a un evento de cámara que quizá no llegue
     } catch (e) {
       this.destroy()
       throw e
@@ -92,9 +105,34 @@ export class LineGpuLayer {
 
   get count() { return this.#recs.size }
 
+  // Lo que el motor lee para `surfaces()`: la superficie GL de la capa y si tiene contenido: que la Source le
+  // entregue algún ítem, tenga o no tramos que dibujar.
+  get surface()    { return this.#surface }
+  get hasContent() { return this.#recs.size > 0 }
+
+  // La parte GL de la capa sobre el contexto que le da su superficie, al construirse y cada vez que lo vuelve a tomar:
+  // el programa y el VAO del trazo, y las texturas del store, que suben enteras desde el espejo. Si ya tenía datos
+  // pinta en el acto: el contexto nace en blanco. Al construirse todavía no los tiene, y pinta el constructor.
+  buildGl(gl) {
+    this.#gl = gl
+    this.#stroke.buildGl(gl)
+    if (!this.#store) return false
+    this.#store.buildGl(gl)
+    return this.redraw()
+  }
+
+  // Olvida lo GL sin tocar el contexto, que se perdió o que la superficie va a soltar con `loseContext`, que libera
+  // todo de una vez. No hay cuadro agendado ni pick en vuelo: la capa pinta en el acto y pica en CPU.
+  dropGl() {
+    this.#stroke.dropGl()
+    this.#store?.dropGl()
+    this.#gl = null
+  }
+
+  // Sin contexto no dibuja ni mide el canvas: al volver a tenerlo se pinta en el acto, desde `buildGl`.
   redraw() {
-    if (!this.#visible || this.#surface.contextLost) return false
     const gl = this.#gl
+    if (!gl || !this.#visible) return false
     this.#surface.resetCanvasReference()
     gl.clearColor(0, 0, 0, 0)
     gl.clear(gl.COLOR_BUFFER_BIT | gl.STENCIL_BUFFER_BIT)
@@ -244,8 +282,9 @@ export class LineGpuLayer {
       maxWeight = Math.max(maxWeight, rec.style.width)
       recs.set(id, rec)
     }
+    // Sin contexto el store se arma igual, en CPU, contra el último tope de textura que midió el anterior.
     this.#store?.destroy()
-    this.#store     = new LineStore({ gl: this.#gl, gradient: !!this.#scalarOf })
+    this.#store     = new LineStore({ gl: this.#gl, gradient: !!this.#scalarOf, limit: this.#store?.limit ?? glBudget.maxTexture ?? Infinity })
     this.#recs      = recs
     this.#snapLen   = snap.length
     this.#index     = null
@@ -425,8 +464,7 @@ export class LineGpuLayer {
   destroy() {
     this.#unsub?.()
     this.#offView?.()
-    this.#stroke?.destroy()
-    this.#store?.destroy()
+    this.dropGl()
     this.#surface.destroy()
     this.#recs.clear()
   }

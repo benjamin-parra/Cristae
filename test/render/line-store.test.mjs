@@ -129,3 +129,107 @@ test('sin gradiente no hay textura de colores', () => {
   assert.equal(store.colorTexture, null)
   assert.ok(!spy.texels.some(t => t instanceof Uint8Array))
 })
+
+/* ── Sin contexto, y contexto nuevo ── */
+
+// Un contexto que anota las texturas que le piden borrar y, con `tope`, contesta su lado máximo de textura.
+const MAX_TEXTURE_SIZE = 0x0D33
+const conSpy = (spy, { tope = null, borradas = [] } = {}) => new Proxy(makeGl(null, spy), {
+  get: (t, p) => (p === 'deleteTexture' ? textura => borradas.push(textura)
+    : tope !== null && p === 'MAX_TEXTURE_SIZE' ? MAX_TEXTURE_SIZE
+    : tope !== null && p === 'getParameter' ? q => (q === MAX_TEXTURE_SIZE ? tope : undefined)
+    : t[p]),
+})
+
+// La textura de posiciones tal como la deja la GPU: la imagen entera y las filas que se le subieron después.
+const contenido = spy => {
+  const datos = Array.from(spy.texels.at(-1))
+  spy.texSubTexels.forEach((fila, k) => datos.splice(spy.texSubImages[k].srcOffset, fila.length, ...fila))
+  return datos
+}
+
+test('sin contexto las partes se escriben igual y no se sube nada; buildGl sube el espejo entero de una vez', () => {
+  const sin = new LineStore({})
+  const a = sin.add(recta(10), 10)
+  const b = sin.add(recta(5, 20), 5)
+  sin.rewrite(a, recta(8, 100), 8)
+  sin.append(b, Float64Array.of(30, 0), 1)
+  assert.deepEqual([sin.firstOf(a), sin.countOf(a), sin.firstOf(b), sin.countOf(b)], [0, 8, 15, 6], 'la segunda se mudó al final: no cabía')
+  assert.deepEqual([sin.texture, sin.arcTexture, sin.colorTexture], [null, null, null], 'ni texturas, ni siquiera la de arcos')
+
+  const nuevo = makePickSpy()
+  sin.buildGl(conSpy(nuevo))
+  assert.deepEqual([nuevo.texImages.length, nuevo.texSubImages.length], [1, 0], 'una imagen entera y ninguna fila')
+  assert.ok(sin.texture)
+
+  const viva = makePickSpy()
+  const con  = new LineStore({ gl: conSpy(viva) })
+  const x = con.add(recta(10), 10)
+  const y = con.add(recta(5, 20), 5)
+  con.rewrite(x, recta(8, 100), 8)
+  con.append(y, Float64Array.of(30, 0), 1)
+  assert.deepEqual(contenido(nuevo), contenido(viva), 'la misma textura que dejaron las subidas incrementales')
+})
+
+test('dropGl olvida las texturas sin borrarlas; lo que se escribe después no sube, y destroy no toca el contexto', () => {
+  const spy      = makePickSpy()
+  const borradas = []
+  const store    = new LineStore({ gl: conSpy(spy, { borradas }), gradient: true })
+  const a = store.add(recta(4), 4, new Uint8Array(16))
+  assert.ok(store.arcTexture)
+  const subidas = spy.texImages.length + spy.texSubImages.length
+
+  assert.equal(store.dropGl(), store)
+  assert.deepEqual([store.texture, store.arcTexture, store.colorTexture], [null, null, null])
+  store.append(a, Float64Array.of(9, 0), 1, new Uint8Array(4))
+  store.add(recta(300), 300, new Uint8Array(1200))                      // crece: rehace las dimensiones
+  assert.equal(spy.texImages.length + spy.texSubImages.length, subidas, 'sin contexto no sube nada')
+  store.destroy()
+  assert.equal(borradas.length, 0, 'y no borra lo de un contexto que ya no está')
+})
+
+test('buildGl en un contexto nuevo crea las texturas ahí, con todo lo que tenía el espejo', () => {
+  const primero = makePickSpy()
+  const store   = new LineStore({ gl: conSpy(primero), gradient: true })
+  store.add(recta(6), 6, Uint8Array.from({ length: 24 }, (_, i) => i))
+  const vieja = store.texture
+  const subidas = primero.texImages.length
+  store.dropGl()
+
+  const segundo = makePickSpy()
+  store.buildGl(conSpy(segundo))
+  assert.notEqual(store.texture, vieja, 'una textura del contexto nuevo')
+  assert.ok(store.colorTexture)
+  assert.deepEqual(segundo.texImages.map(({ width, height }) => width * height), [256, 256], 'posiciones y colores')
+  assert.deepEqual([...segundo.texels[1].subarray(0, 24)], Array.from({ length: 24 }, (_, i) => i), 'los colores de cada vértice')
+  assert.equal(primero.texImages.length, subidas, 'el contexto viejo no recibe más')
+})
+
+test('con el contexto vivo, destroy devuelve las tres texturas', () => {
+  const borradas = []
+  const store    = new LineStore({ gl: conSpy(makePickSpy(), { borradas }), gradient: true })
+  store.add(recta(4), 4, new Uint8Array(16))
+  store.arcTexture
+  store.destroy()
+  assert.equal(borradas.length, 3)
+  assert.deepEqual([store.texture, store.arcTexture, store.colorTexture], [null, null, null], 'y no quedan a la vista')
+})
+
+test('el tope de textura del contexto lo hereda el store que releva, también sin contexto', () => {
+  const con = new LineStore({ gl: conSpy(makePickSpy(), { tope: 1 }) })
+  assert.equal(con.limit, 1)
+  assert.throws(() => con.add(recta(3000), 3000), /4096 vértices no entran en una textura de 1×1/)
+  assert.doesNotThrow(() => new LineStore({}).add(recta(3000), 3000), 'sin tope conocido no hay con qué comparar')
+  const sin = new LineStore({ limit: con.limit })
+  assert.throws(() => sin.add(recta(3000), 3000), /4096 vértices no entran en una textura de 1×1/)
+})
+
+test('buildGl vuelve a medir el tope: lo que ya no cabe en el contexto nuevo lanza antes de crear nada', () => {
+  const store = new LineStore({})
+  store.add(recta(3000), 3000)
+  const spy = makePickSpy()
+  assert.throws(() => store.buildGl(conSpy(spy, { tope: 1 })), /no entran en una textura de 1×1/)
+  assert.equal(store.texture, null)
+  assert.equal(spy.texImages.length, 0)
+  assert.equal(store.limit, 1)
+})

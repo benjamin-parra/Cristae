@@ -3,6 +3,14 @@
 //   regrow  → identidad de objeto distinta (this.#atlas !== atlas)
 //   append  → uploaded < atlas.count
 // Por eso un 2º/3er mapa montado tarde arranca en cursor 0 y converge solo (multi-mapa gratis). (SPECS §4.2.)
+//
+// Etapa 4 del pipeline del atlas (ver IconSet): lo que se sube son las celdas PEDIDAS (`count`), nunca el espacio
+// declarado, y los tiles son píxeles RGBA contiguos, así que cada subida es una copia de memoria sin conversión:
+//   adquirir / regrow  → una reserva (`texImage2D` sin datos) + una `texSubImage2D` por celda pedida
+//   variante nueva     → UNA `texSubImage2D` de su tile, en el `sync` del dibujo que la pidió
+// Medido: desde canvases sueltos cada subida cuesta ~2 ms en Firefox (199 → ~440 ms); desde el tile de píxeles, 0,3–0,6 ms.
+// Juntar los tiles en una banda por fila, o en la hoja entera, y subirla de una vez no gana de forma consistente en ningún
+// navegador y exige un buffer y una copia más: por eso un tile, una llamada.
 
 const setF = (gl, program, name, v) => gl.uniform1f(gl.getUniformLocation(program, name), v)
 
@@ -39,9 +47,9 @@ export class GpuAtlasBinding {
     gl.activeTexture(gl.TEXTURE0)
     gl.bindTexture(gl.TEXTURE_2D, this.#texture)
 
-    if (this.#atlas !== atlas) {                 // regrow / primera generación → re-sube todo
+    if (this.#atlas !== atlas) {                 // regrow / primera generación → re-sube lo pedido
       this.#allocate(atlas)
-      for (let i = 0; i < atlas.count; i++) this.#upload(atlas, i)
+      for (let i = 0; i < atlas.count; i++) this.#upload(atlas, i)   // sólo las celdas pedidas
       this.#atlas    = atlas
       this.#uploaded = atlas.count
       this.#programs.forEach(p => this.#applyDims(p, atlas))   // dims → uniforms, sin recompilar
@@ -60,7 +68,7 @@ export class GpuAtlasBinding {
     this.#atlas    = null
   }
 
-  // Textura del tamaño de la grilla, vacía; los tiles entran por texSubImage2D.
+  // Textura del tamaño de la grilla, vacía; los tiles entran por texSubImage2D (sólo los pedidos).
   #allocate(atlas) {
     const gl = this.#gl
     const w = atlas.cols * atlas.tileSize
@@ -72,7 +80,7 @@ export class GpuAtlasBinding {
     const gl = this.#gl
     const t = atlas.tileSize
     const cell = atlas.cellOf(index)             // scratch [0-alloc]
-    gl.texSubImage2D(gl.TEXTURE_2D, 0, cell.col * t, cell.row * t, gl.RGBA, gl.UNSIGNED_BYTE, atlas.tileAt(index))
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, cell.col * t, cell.row * t, t, t, gl.RGBA, gl.UNSIGNED_BYTE, atlas.tileAt(index))
   }
 
   // Setea las dims en un programa. Deja ese programa activo: cada draw fija el suyo antes de dibujar.

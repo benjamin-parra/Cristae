@@ -228,9 +228,16 @@ const strokeProgram = gl => sharedProgram(gl, 'stroke', () => {
   return { program, uniform: Object.fromEntries(UNIFORMS.map(n => [n, gl.getUniformLocation(program, n)])) }
 })
 
+// Lo GL del pase —el programa del contexto y su VAO— se arma con `buildGl(gl)` y se olvida con `dropGl()`, sin
+// tocar el contexto: la capa lo llama cuando su superficie toma uno o lo pierde. El estilo es de CPU y sobrevive.
+// Sin `gl` en el constructor el pase nace sin contexto; `draw` lo exige, así que la capa no lo llama sin uno.
 export class StrokePass {
 
-  #gl; #program; #uniform; #vao; #closed; #gradient
+  #closed; #gradient
+  #gl         = null
+  #program    = null
+  #uniform    = null
+  #vao        = null
   #width      = 3
   #opacity    = 1
   #hex        = null
@@ -241,15 +248,26 @@ export class StrokePass {
   #dashCount  = 0
   #period     = 1
 
-  constructor({ gl, color = '#3388ff', width = 3, opacity = 1, closed = true, dash = null, cap = 'butt', gradient = false }) {
+  constructor({ gl = null, color = '#3388ff', width = 3, opacity = 1, closed = true, dash = null, cap = 'butt', gradient = false }) {
+    this.#closed   = closed
+    this.#gradient = gradient
+    this.style({ color, width, opacity, dash, cap })
+    gl && this.buildGl(gl)
+  }
+
+  // El programa es del contexto (`sharedProgram`), y la caché es por contexto: en uno nuevo se enlaza otra vez.
+  buildGl(gl) {
     const { program, uniform } = strokeProgram(gl)
     this.#gl      = gl
     this.#program = program
     this.#uniform = uniform
     this.#vao     = gl.createVertexArray()
-    this.#closed   = closed
-    this.#gradient = gradient
-    this.style({ color, width, opacity, dash, cap })
+    return this
+  }
+
+  dropGl() {
+    this.#gl = this.#program = this.#uniform = this.#vao = null
+    return this
   }
 
   // `dash` es el patrón `[trazo, hueco, …]` en píxeles de pantalla, o `null` para continuo. Uno que no
@@ -331,7 +349,8 @@ export class StrokePass {
     return true
   }
 
+  // Sin contexto no hay nada que borrar.
   destroy() {
-    this.#gl.deleteVertexArray(this.#vao)
+    this.#gl?.deleteVertexArray(this.#vao)
   }
 }

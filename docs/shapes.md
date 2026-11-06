@@ -108,7 +108,8 @@ Las que pasan de ±85,05° sin alcanzar el polo se dibujan aplastadas contra el 
 ## Costo
 
 - **Contexto WebGL.** Uno por capa, del techo de ~16 del navegador: círculos, elipses y sectores van en
-  la misma.
+  la misma. Si el navegador se lo quita, la capa lo vuelve a tomar en el cuadro siguiente, si hay cupo; sin
+  él sigue armando sus anillos y su índice de hit, y no dibuja.
 - **Cambio de la Source.** Rehace todos los anillos y sube la textura entera, una vez: la emisión no
   rehace lo que un encuadre ya dibujó. Una `defineSource` sin `version` propia compartida entre capas
   avanza su versión una vez por capa, así que el primer encuadre tras el aviso puede rehacer una vez más.

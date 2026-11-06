@@ -66,11 +66,6 @@ function createResizeSync(target, sync) {
 
 export class CristaeMap extends LitElement {
 
-  // El motor necesita el contenedor que pinta el primer render, así que nace en `firstUpdated`, y lo que
-  // el elemento muestra de él —el zoom, la atribución— pide un segundo render. Es el diseño y no una
-  // cascada: Lit no avisa de eso en modo desarrollo (la API no existe en producción).
-  static { this.disableWarning?.('change-in-update') }
-
   static properties = {
     tile               : { type: Object },
     worldCopies        : { type: Boolean, attribute: 'world-copies' },
@@ -422,6 +417,9 @@ export class CristaeMap extends LitElement {
     // que viewportchange: siempre activo, baja frecuencia y sin coste de picking (es el click crudo del
     // mapa, no los hits de features de `cristae:click`). El motor emite `map:click` con `{ latlng }`.
     e.on('map:click', d => this.#emit('mapclick', d))
+    // El estado de la superficie GL de una capa cambió (hoy, el navegador le quitó el contexto): baja
+    // frecuencia y sin coste de dibujo, como `viewportchange`. El detail es la fila de `engine.surfaces()`.
+    e.on('surfacechange', d => this.#emit('surfacechange', d))
     // Bajo demanda: re-cablear los tipos que ya tienen listeners DOM (agregados antes de montar, o
     // tras un re-mount). Los listeners futuros los cabla addEventListener.
     this.#demandCount.forEach((count, type) =>
@@ -451,3 +449,9 @@ export class CristaeMap extends LitElement {
     this.dispatchEvent(new CustomEvent(`cristae:${type}`, { detail, bubbles: true, composed: true }))
   }
 }
+
+// El motor necesita el contenedor que pinta el primer render, así que nace en `firstUpdated`, y lo que
+// el elemento muestra de él —el zoom, la atribución— pide un segundo render. Es el diseño y no una
+// cascada: Lit no avisa de eso en modo desarrollo (la API no existe en producción). Va fuera de la clase
+// y no en un bloque `static {}` porque ese bloque sube el mínimo de Safari a 16.4 (README, navegadores).
+CristaeMap.disableWarning?.('change-in-update')

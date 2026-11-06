@@ -1,4 +1,5 @@
 import { Cluster } from './Cluster.js'
+import { STACK } from '../engine/stack.js'
 
 // ClusterFold — orquestación del fold de cluster (SPECS §8.3): clusteriza el conjunto UNIÓN de varios
 // hosts en UN solo supercluster y reparte el MISMO set `suppressed` (ref estable, mutado in place) a
@@ -7,10 +8,13 @@ import { Cluster } from './Cluster.js'
 // por el `bridge` acotado que le pasa `MapEngine.addClusterFold`. La API que expone (el objeto
 // `control` + el descriptor de retorno) es idéntica a la que devolvía el motor.
 //
-// El bridge expone: `camera` (la faceta del anfitrión), `layerOf(id)`, `nextOrder()`,
-// `overlayZ(order, extra)` (z de las capas del fold, sobre los labels), `subAccent` (acento default de
-// la traza), `makeBubbleSink`, `subClusterIconSet`, `addPointLayer`, `addLineLayer(cfg, order)`,
-// `removeLayer`, `resyncBound`, `focus`, `unfocusAll`, `emit`, `busOn`, `destroying()`.
+// El bridge expone: `camera` (la faceta del anfitrión), `layerOf(id)`, `seq()` (para nombres),
+// `above(anchorId, lift)` (dónde se apila una capa del fold: sobre los labels, en el rango de su host, +lift),
+// `subAccent` (acento default de la traza), `makeBubbleSink`, `subClusterIconSet`, `addPointLayer`,
+// `addLineLayer`, `removeLayer`, `resyncBound`, `focus`, `unfocusAll`, `emit`, `busOn`, `destroying()`.
+//
+// Las capas del fold no ocupan lugar en el orden de declaración: dependen del host base y lo siguen cuando cambia
+// de rango. Adentro quedan patas +4 < burbujas +5 < espiral +7 < sub-espiral +8.
 
 // Ventana de coalescido del re-index del cluster ante moves de POSICIÓN (no estructurales).
 // `cluster.index` (Supercluster.load) es O(n log n) + ~4 allocs/punto y resetea la firma → fuerza
@@ -62,7 +66,7 @@ export function createClusterFold(bridge, targets, { radius, maxZoom, minPoints,
   const hosts = []
   for (const t of targets) {
     const rec = bridge.layerOf(t.id)
-    if (rec && rec.kind === 'point') hosts.push({ id: t.id, rec })
+    if (rec && rec.kind === 'point') hosts.push({ id: t.id, rec, source: null, off: null })
   }
   if (!hosts.length) return null
 
@@ -79,14 +83,13 @@ export function createClusterFold(bridge, targets, { radius, maxZoom, minPoints,
     lineColor,                               // color de la TRAZA que une los elementos (el consumidor lo deriva) o null
   }
   const cluster = new Cluster({ radius, maxZoom, minPoints, enabled })
-  const base = hosts[0].rec
-  const { idOf, positionOf } = base.source.accessors   // ids deben ser únicos entre hosts (precondición)
+  const { id: baseId, rec: base } = hosts[0]
 
-  const foldId = `cluster-${bridge.nextOrder()}`
+  const foldId = `cluster-${bridge.seq()}`
   const bubblePane = `${foldId}-bubbles`
   // La burbuja se registra SIEMPRE como interactiva (no condicionada a expandable): así habilitar
   // expandable en runtime no exige recablear el picking. El gate real vive en el handler de click.
-  const sink = bridge.makeBubbleSink(bubble, bubblePane, base.order, foldId, true)
+  const sink = bridge.makeBubbleSink(bubble, bubblePane, baseId, foldId, true)
   const bubbleId = `${foldId}:clusters`
 
   // Resuelve un id de dato desclusterizado a su host → { layerId, item }. Recorre los hosts (un
@@ -108,8 +111,7 @@ export function createClusterFold(bridge, targets, { radius, maxZoom, minPoints,
   // Las hojas expandidas QUEDAN suprimidas en el host; acá se renderizan en posiciones espirales
   // (markercluster-style) REUSANDO el iconSet del host (mismo sprite que el vehículo real) con líneas
   // desde el centro. Una sola sesión spider por fold: id + pane ESTABLES (reusados open/close) → sin
-  // leak de panes ni crecimiento de #order. La capa va por la API PÚBLICA addPointLayer (no privados), y
-  // su pane se va con ella.
+  // leak de panes. La capa va por la API PÚBLICA addPointLayer (no privados), y su pane se va con ella.
   const spiderId = `${foldId}:spider`
   // Hoja desplegada = dato del host en el overlay → se PRESENTA como su capa host (mismo id de dato, en
   // su posición desplegada); aplica a TODO canal (lo usa resolveHits). presentedFrom deja que el
@@ -134,7 +136,7 @@ export function createClusterFold(bridge, targets, { radius, maxZoom, minPoints,
   if (ha.sizeOf)    spiderAccessors.sizeOf    = s => ha.sizeOf(s.orig)
   const spiderHandle = base.iconSet ? bridge.addPointLayer({
     id: spiderId, data: [], accessors: spiderAccessors, iconSet: base.iconSet,
-    interactive: true, z: bridge.overlayZ(base.order, 7), presentAs: presentLeaf,   // hoja: sobre labels(+200), burbuja(+5) y líneas(+4)
+    interactive: true, [STACK]: bridge.above(baseId, 7), presentAs: presentLeaf,   // hoja: sobre burbuja(+5) y líneas(+4)
   }) : null
   // Capa de SUB-CLUSTERS de la espiral (jerarquía): burbujas de conteo con el MISMO iconSet de
   // conteo que las burbujas base. Slots {kind:'subcluster'} van acá; los {kind:'leaf'} a `spiderHandle`.
@@ -148,7 +150,7 @@ export function createClusterFold(bridge, targets, { radius, maxZoom, minPoints,
       variantOf : s => (subIconSet.variantForCount?.(s.count) ?? String(s.count)),
       hashOf    : s => `${s.count}:${s.lat}:${s.lng}`,   // re-encode al cambiar conteo/posición
     },
-    iconSet: subIconSet, interactive: true, z: bridge.overlayZ(base.order, 8), capture: true,   // sobre labels(+200); ocluye lo de abajo
+    iconSet: subIconSet, interactive: true, [STACK]: bridge.above(baseId, 8), capture: true,   // ocluye lo de abajo
   })
   // Patas y trazas en UNA capa de líneas, creada con la primera expansión: un pliegue que nunca se abre
   // no paga el contexto WebGL. Van DETRÁS de la burbuja (+5) y de los marcadores (+7): look canónico
@@ -159,9 +161,9 @@ export function createClusterFold(bridge, targets, { radius, maxZoom, minPoints,
   let legSeq = 0   // un id nuevo por trazo y por ensamblado: se recalculan enteros, y la Source compara por id
   const setLegs = legs => {
     if (legs.length) legsHandle ??= bridge.addLineLayer({
-      id: legsId, z: bridge.overlayZ(base.order, 4),   // sobre labels(+200)
+      id: legsId, [STACK]: bridge.above(baseId, 4),
       accessors: { idOf: s => s.id, pathOf: s => s.pts, styleOf: s => s },
-    }, base.order)
+    })
     legsHandle?.set(legs)
   }
   // Recalcula espiral (px del contenedor → latlng) + marcadores + líneas desde cluster.expandedGroups.
@@ -339,7 +341,14 @@ export function createClusterFold(bridge, targets, { radius, maxZoom, minPoints,
       }
     }
   }
-  const doIndex = () => { cluster.index(snapshot(), idOf, positionOf); if (cluster.recluster(bridge.camera.zoom())) apply() }
+  // Los accessors son los del primer host (los ids deben ser únicos entre hosts: precondición) y se leen al indexar,
+  // no al montar: attachSource le cambia la fuente a un host, y con ella pueden cambiar los ids.
+  const doIndex = () => {
+    follow()
+    const { idOf, positionOf } = base.source.accessors
+    cluster.index(snapshot(), idOf, positionOf)
+    if (cluster.recluster(bridge.camera.zoom())) apply()
+  }
   // ¿hubo cambio ESTRUCTURAL (alta/baja/patch del set) en algún host esta ventana? Un move de
   // posición NO marca dirtyIds (sólo moveDirtyIds) → se trata como deriva, no como cambio de set.
   // Si un host no expone dirtyIds (ruta B sin la señal) caemos al comportamiento previo (inmediato)
@@ -360,7 +369,14 @@ export function createClusterFold(bridge, targets, { radius, maxZoom, minPoints,
     }
   }
   const onZoom = () => cluster.recluster(bridge.camera.zoom()) && apply()
-  const unsubs = hosts.map(({ rec }) => rec.source.subscribe(onData))
+  // Cada host se oye en la fuente que tiene AHORA. attachSource se la cambia al host y llama a `reindex`, que pasa por
+  // acá: suelta la suscripción a la vieja, oye a la nueva y re-indexa sobre sus ids, con la supresión recalculada.
+  const follow = () => hosts.forEach(h => {
+    if (h.source === h.rec.source) return
+    h.off?.()
+    h.source = h.rec.source
+    h.off    = h.source.subscribe(onData)
+  })
   const offZoom = bridge.camera.on('zoomend', onZoom)
   doIndex()                                        // primer index inmediato (no esperar la ventana)
 
@@ -482,7 +498,7 @@ export function createClusterFold(bridge, targets, { radius, maxZoom, minPoints,
       offBubbleClick?.()
       offSubClick?.()
       if (reindexTimer != null) { clearTimeout(reindexTimer); reindexTimer = null }   // cancela re-index diferido pendiente
-      unsubs.forEach(u => u()); offZoom(); offZoomStart(); sink.dispose()
+      hosts.forEach(h => h.off?.()); offZoom(); offZoomStart(); sink.dispose()
       // Sesión spider: cada capa se lleva su pane.
       bridge.removeLayer(spiderId)
       bridge.removeLayer(spiderSubId)

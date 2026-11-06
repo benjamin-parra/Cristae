@@ -1,5 +1,6 @@
 node_modules/
 dist/
+test/navegador/salida/
 *.log
 .DS_Store
 Thumbs.db

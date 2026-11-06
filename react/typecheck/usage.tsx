@@ -24,6 +24,7 @@ import {
   type CristaePointLayerElement,
   type CristaePopupElement,
   type CristaeShapeLayerElement,
+  type CristaeSurfaceInfo,
   type CristaeTableElement,
   type CristaeViewportChangeDetail,
 } from '@cristae/react'
@@ -75,6 +76,7 @@ export const ViaData = () => (
     onClick={(e) => { void e.detail.hits[0]?.layerId; void e.detail.originalEvent.button }}
     onMapClick={(e) => { void e.detail.latlng.lng }}
     onPointerMove={(e) => { void e.detail.lat; void e.detail.x }}
+    onSurfaceChange={(e) => { const fila: CristaeSurfaceInfo = e.detail; void fila.layerId; void fila.state }}
     // Canales del bus (no hay CustomEvent): hits directos, sin `detail`; el hover trae la muestra.
     onHoverStart={(hits, muestra) => { void hits[0]?.id; void muestra.y }}
     onHoverEnd={(hits, muestra) => { void muestra?.lat }}
@@ -253,6 +255,8 @@ export const ViaRef = () => {
     engine.on('move', () => {})
     engine.on('map:click', ({ latlng }) => { void latlng.lng })
     engine.on('interactionstart', () => {})
+    engine.on('surfacechange', (fila) => { void fila.state })
+    engine.surfaces().forEach(fila => { void fila.layerId; void fila.z })
   })
 
   return (

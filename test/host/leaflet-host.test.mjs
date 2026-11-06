@@ -69,6 +69,32 @@ test('el ciclo de vista tiene un solo emisor', () => {
   host.destroy()
 })
 
+// El reparto corre dentro de un oyente de Leaflet: una excepción que saliera por ahí cortaría a los
+// oyentes del mapa registrados después —los de la capa de tiles entre ellos—, y en `zoomanim` dejaría el
+// zoom trabado con `_animatingZoom` para siempre. Un oyente que lanza se reporta y el resto oye igual.
+test('un oyente de vista que lanza no corta a los demás ni a los oyentes de Leaflet', async t => {
+  const reportes = []
+  t.mock.method(console, 'error', (...args) => reportes.push(args))
+  const { host, camera } = montar('on')
+  const oido  = []
+  const lanza = () => { throw new Error('oyente roto') }
+  camera.on('moveend zoomanim', lanza)
+  camera.on('moveend zoomanim', () => oido.push('cristae'))
+  host.map.on('moveend zoomanim', ({ type }) => oido.push(`leaflet ${type}`))
+
+  assert.doesNotThrow(() => camera.setView([-33.1, -70.1], 10, { animate: false }))
+  assert.deepEqual(oido, ['cristae', 'leaflet moveend'])
+
+  oido.length = 0
+  camera.setZoom(11)
+  await asiente(camera)
+  assert.deepEqual(oido, ['cristae', 'leaflet zoomanim', 'cristae', 'leaflet moveend'])
+  assert.equal(host.map._animatingZoom, false, 'el zoom se asienta')
+  assert.equal(camera.zoom(), 11)
+  assert.equal(reportes.length, 3, 'cada excepción se reporta')
+  host.destroy()
+})
+
 // Como en Leaflet: quien se baja a mitad de un reparto ya soltó lo que su oyente toca, y quien se
 // suscribe a mitad espera al siguiente.
 test('un reparto no llama a quien se bajó ni a quien se suscribió a mitad de él', () => {
@@ -248,7 +274,9 @@ test('flyTo vuela si la política anima el zoom de destino, y si no es un setVie
 
 // El vuelo de Leaflet no pasa por los topes: sin los del anfitrión, la vista queda más allá de
 // `max-zoom` hasta el zoom siguiente. La caja la repone Leaflet en el `moveend` del vuelo, y desde tan
-// lejos sin animar.
+// lejos sin animar. El `zoomend` se espera desde antes del vuelo: Leaflet calcula el primer cuadro en la
+// misma llamada, y si ya pasó la duración —una pausa de 50 ms con la máquina cargada— el vuelo se asienta
+// adentro de `flyTo`, y quien se suscribe después espera para siempre.
 test('flyTo llega a un zoom entre los topes, y la caja lo trae de vuelta', async () => {
   const caja = { south: -34, west: -71, north: -32, east: -69 }
   const host = createLeafletHost({
@@ -259,8 +287,9 @@ test('flyTo llega a un zoom entre los topes, y la caja lo trae de vuelta', async
   const { camera } = host
   camera.zoomPolicy = 'on'
   const vuela = (latlng, zoom) => {
+    const asentado = asiente(camera)
     camera.flyTo(latlng, zoom, { duration: 0.05 })
-    return asiente(camera).then(() => camera.zoom())
+    return asentado.then(() => camera.zoom())
   }
   assert.equal(await vuela({ lat: -33.2, lng: -70.2 }, 14), 11, 'el tope de arriba')
   assert.equal(await vuela({ lat: -33, lng: -70 }, 3), 8, 'el de abajo')

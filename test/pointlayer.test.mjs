@@ -294,6 +294,311 @@ test('marco — el tamaño va en px del buffer, y se recodifica cuando cambia la
   h.layer.destroy()
 })
 
+test('escala — sin buffer (contexto perdido) no hay escala observable: los tamaños no se anulan, y al volver se recodifican', () => {
+  const superficie = makeSurface({ dpr: 2 })
+  const h = mount([{ id: 1, pos: { lat: 0, lng: 0 } }], { idOf, positionOf }, {}, superficie)
+  assert.equal(h.verts()[6], 48)
+
+  superficie.width = 0                               // `drawingBufferWidth` de un contexto perdido
+  h.layer.resetCanvasReference()
+  h.layer.resetCanvasReference()
+  assert.equal(h.rebuilds(), 1, 'sin escala no hay nada que recodificar')
+  assert.equal(h.verts()[6], 48, 'el espejo conserva el tamaño del sprite, no 0')
+
+  superficie.width       = 1600                      // el mismo buffer de antes: la misma escala
+  h.layer.resetCanvasReference()
+  assert.equal(h.rebuilds(), 1)
+  assert.equal(h.verts()[6], 48)
+
+  superficie.width       = 800                       // y uno con otra resolución se remide
+  superficie.clientWidth = 800
+  h.layer.resetCanvasReference()
+  assert.equal(h.verts()[6], 24)
+  h.layer.destroy()
+})
+
+test('escala — una capa que nace sobre un buffer sin tamaño vale 1 y no divide por 0', () => {
+  const superficie = makeSurface({ dpr: 2 })
+  superficie.width = 0
+  const h = mount([{ id: 1, pos: { lat: 0, lng: 0 } }], { idOf, positionOf }, {}, superficie)
+  assert.equal(h.verts()[6], 24, 'sin escala observable rige 1')
+  h.layer.destroy()
+})
+
+/* ── Visibilidad: una capa oculta no dibuja ── */
+
+// El motor la oculta con el pane y la apaga con `setVisible`. Oculta, ni el reasentado de la vista, ni un cuadro
+// del zoom animado, ni un repintado agendado llegan a la GPU; el espejo en CPU y el buffer siguen al día.
+
+test('visibilidad — oculta no dibuja: ni al reasentar, ni en un cuadro del zoom, ni en un repintado agendado', async () => {
+  const h = mount([{ id: 1, pos: { lat: 0, lng: 0 } }], { idOf, positionOf })
+  await flushRaf()
+  h.layer.setVisible(false)
+  h.spy.draws.length = 0
+
+  h.layer.resetCanvasReference()
+  h.layer.renderAtView(7.25, { lat: 10, lng: 20 })
+  h.layer.redraw()
+  await flushRaf()
+  assert.equal(h.spy.draws.length, 0, 'ningún drawArrays')
+  h.layer.destroy()
+})
+
+test('visibilidad — mostrarla pinta en la misma tarea, con la vista viva', async () => {
+  const h = mount([{ id: 1, pos: { lat: 0, lng: 0 } }], { idOf, positionOf })
+  await flushRaf()
+  h.layer.setVisible(false)
+  h.map.setZoomForTest(8)
+  h.layer.resetCanvasReference()                     // el mapa se movió mientras estaba oculta
+  h.spy.draws.length = 0
+  h.log.matrices.length = 0
+
+  assert.equal(h.layer.setVisible(true), true, 'devuelve si pintó')
+  assert.equal(h.spy.draws.length, 1, 'un draw, sin esperar al cuadro siguiente')
+  assert.equal(h.log.matrices.length, 1)
+  const viva = h.log.matrices.at(-1)
+  h.layer.resetCanvasReference()
+  assert.deepEqual(h.log.matrices.at(-1), viva, 'es la matriz de la vista de ahora')
+  h.layer.destroy()
+})
+
+test('visibilidad — mostrarla en pleno zoom animado pinta el cuadro que se ve', async () => {
+  const h = mount([{ id: 1, pos: { lat: 0, lng: 0 } }], { idOf, positionOf })
+  await flushRaf()
+  h.layer.setVisible(false)
+  h.layer.renderAtView(7.25, { lat: 10, lng: 20 })   // el motor sigue reproyectando por cuadro, la capa lo anota
+  h.log.matrices.length = 0
+
+  h.layer.setVisible(true)
+  const cuadro = h.log.matrices.at(-1)
+  h.layer.renderAtView(7.25, { lat: 10, lng: 20 })
+  assert.deepEqual(h.log.matrices.at(-1), cuadro, 'la misma vista inyectada, no la de partida de la cámara')
+  h.layer.destroy()
+})
+
+test('visibilidad — los datos que llegan mientras está oculta quedan en el buffer y no cuestan un draw', async () => {
+  const items = [{ id: 1, pos: { lat: 0, lng: 0 } }]
+  const h = mount(items, { idOf, positionOf })
+  await flushRaf()
+  h.layer.setVisible(false)
+  h.spy.draws.length = 0
+
+  items.push({ id: 2, pos: { lat: 1, lng: 1 } })
+  h.source.emitDirty(2)
+  await flushRaf()
+  assert.equal(h.layer.count, 2, 'el espejo sigue al día')
+  assert.equal(h.spy.draws.length, 0)
+
+  h.layer.setVisible(true)
+  assert.deepEqual(h.spy.draws.map(d => d.count), [2], 'y al mostrarla se pinta lo que hay')
+  h.layer.destroy()
+})
+
+test('visibilidad — `visible: false` en el constructor: nace oculta y nunca dibuja hasta mostrarla', async () => {
+  const h = mount([{ id: 1, pos: { lat: 0, lng: 0 } }], { idOf, positionOf }, { visible: false })
+  h.layer.resetCanvasReference()
+  await flushRaf()
+  assert.equal(h.spy.draws.length, 0)
+
+  h.layer.setVisible(true)
+  assert.equal(h.spy.draws.length, 1)
+  h.layer.destroy()
+})
+
+// El rAF agendado de una capa oculta no dibujaría —`#draw` lo frena—, así que contar draws no distingue agendarlo de
+// no agendarlo. Lo que cuesta es el cuadro pedido: se cuenta lo que la capa le pide al navegador.
+const cuadrosPedidos = fn => {
+  const original = globalThis.requestAnimationFrame
+  let pedidos = 0
+  globalThis.requestAnimationFrame = callback => { pedidos++; return original(callback) }
+  try { fn() } finally { globalThis.requestAnimationFrame = original }
+  return pedidos
+}
+
+test('visibilidad — repetir el estado no cuesta nada: mostrar la que ya se ve no repinta, ni ocultar la oculta', async () => {
+  const h = mount([{ id: 1, pos: { lat: 0, lng: 0 } }], { idOf, positionOf })
+  await flushRaf()
+  h.spy.draws.length = 0
+
+  assert.equal(h.layer.setVisible(true), false, 'ya se veía: no pintó')
+  assert.equal(h.layer.setVisible(true), false)
+  assert.equal(h.spy.draws.length, 0)
+
+  h.layer.setVisible(false)
+  assert.equal(h.layer.setVisible(false), false)
+  h.layer.setVisible(true)
+  assert.equal(h.spy.draws.length, 0, 'ocultar y mostrar la repetida tampoco: la vista y los datos son los mismos')
+  h.layer.destroy()
+})
+
+// La imagen del canvas vale mientras la vista, los datos, el foco y el contexto sean los del último dibujo. Mostrar una
+// capa a la que no le pasó nada es gratis: ni un draw, ni un cuadro pedido, ni una subida.
+test('visibilidad — mostrarla sin que nada haya cambiado no dibuja: la imagen del canvas sigue valiendo', async () => {
+  const h = mount([{ id: 1, pos: { lat: 0, lng: 0 } }], { idOf, positionOf })
+  await flushRaf()
+  h.spy.draws.length = 0
+  h.log.matrices.length = 0
+  const subidas = h.spy.bufferDatas.length
+
+  h.layer.setVisible(false)
+  assert.equal(cuadrosPedidos(() => assert.equal(h.layer.setVisible(true), false, 'devuelve que no pintó')), 0, 'ni agenda uno')
+  await flushRaf()
+  assert.equal(h.spy.draws.length, 0, 'ningún drawArrays')
+  assert.equal(h.log.matrices.length, 0, 'ni una matriz')
+  assert.equal(h.spy.bufferDatas.length, subidas, 'ni una subida')
+
+  for (let i = 0; i < 3; i++) {                      // y las veces que se repita
+    h.layer.setVisible(false)
+    h.layer.setVisible(true)
+  }
+  assert.equal(h.spy.draws.length, 0)
+  h.layer.destroy()
+})
+
+// Cada cosa que cambia la imagen —y que llega mientras está oculta— hace que mostrarla pinte, una vez y en la misma tarea.
+const CAMBIOS = {
+  'la vista que se movió'         : h => { h.map.setZoomForTest(8); h.layer.resetCanvasReference() },
+  'un cuadro del zoom animado'    : h => h.layer.renderAtView(7.25, { lat: 10, lng: 20 }),
+  'un repintado pedido'           : h => h.layer.redraw(),
+  'un punto que se mueve'         : h => { h.items[0].pos = { lat: 3, lng: 3 }; h.source.emitMove(1) },
+  'un punto que cambia de dato'   : h => h.source.emitDirty(1),
+  'un punto que entra'            : h => { h.items.push({ id: 2, pos: { lat: 1, lng: 1 } }); h.source.emitDirty(2) },
+  'un refresh del buffer'         : h => h.layer.refresh(),
+  'un foco que atenúa al ítem'    : h => h.layer.applyFocus(new Set([99])),
+}
+
+for (const [cambio, hacer] of Object.entries(CAMBIOS)) {
+  test(`visibilidad — mostrarla tras ${cambio} mientras estaba oculta pinta una vez, en la misma tarea`, async () => {
+    const items = [{ id: 1, pos: { lat: 0, lng: 0 } }]
+    const h = { ...mount(items, { idOf, positionOf }), items }
+    await flushRaf()
+    h.layer.setVisible(false)
+    hacer(h)
+    await flushRaf()
+    h.spy.draws.length = 0
+
+    assert.equal(cuadrosPedidos(() => assert.equal(h.layer.setVisible(true), true, 'pintó')), 0, 'sin agendar un cuadro')
+    assert.equal(h.spy.draws.length, 1, 'un draw en la misma tarea')
+    h.layer.setVisible(false)
+    h.layer.setVisible(true)
+    assert.equal(h.spy.draws.length, 1, 'y una vez pintada, volver a mostrarla ya no cuesta')
+    h.layer.destroy()
+  })
+}
+
+// Mover sólo la atenuación del foco no toca el buffer —es un uniform—, pero cambia la imagen.
+test('visibilidad — mostrarla tras mover sólo la atenuación del foco mientras estaba oculta pinta', async () => {
+  const h = mount([{ id: 1, pos: { lat: 0, lng: 0 } }], { idOf, positionOf })
+  h.layer.applyFocus(new Set([99]))
+  await flushRaf()
+  h.layer.setVisible(false)
+  h.layer.applyFocus(new Set([99]), 0.6)
+  h.spy.draws.length = 0
+
+  assert.equal(h.layer.setVisible(true), true)
+  assert.equal(h.spy.draws.length, 1)
+  h.layer.destroy()
+})
+
+// Un repintado ya agendado cuando se oculta y se vuelve a mostrar en la misma tarea no se duplica: lo dibuja su cuadro.
+test('visibilidad — oculta y mostrada con un repintado agendado, lo pinta ese cuadro y no uno de más', async () => {
+  const h = mount([{ id: 1, pos: { lat: 0, lng: 0 } }], { idOf, positionOf })
+  await flushRaf()
+  h.spy.draws.length = 0
+
+  h.layer.redraw()
+  h.layer.setVisible(false)
+  assert.equal(h.layer.setVisible(true), false, 'su cuadro sigue en pie')
+  assert.equal(h.spy.draws.length, 0)
+  await flushRaf()
+  assert.equal(h.spy.draws.length, 1, 'el repintado agendado, una vez')
+  h.layer.destroy()
+})
+
+// El cuadro agendado que llega con la capa oculta no dibuja, y por eso mostrarla sí tiene que hacerlo.
+test('visibilidad — el repintado agendado que llega con la capa oculta no se pierde: mostrarla lo pinta', async () => {
+  const h = mount([{ id: 1, pos: { lat: 0, lng: 0 } }], { idOf, positionOf })
+  await flushRaf()
+  h.layer.redraw()
+  h.layer.setVisible(false)
+  await flushRaf()
+  h.spy.draws.length = 0
+
+  assert.equal(h.layer.setVisible(true), true)
+  assert.equal(h.spy.draws.length, 1)
+  h.layer.destroy()
+})
+
+test('visibilidad — oculta no agenda cuadros: ni un repintado, ni un dato que llega, ni un foco', async () => {
+  const items = [{ id: 1, pos: { lat: 0, lng: 0 } }]
+  const h = mount(items, { idOf, positionOf })
+  await flushRaf()
+  h.layer.setVisible(false)
+
+  const pedidos = cuadrosPedidos(() => {
+    h.layer.redraw()
+    h.layer.refresh()
+    h.layer.applyFocus(new Set([1]))
+    items.push({ id: 2, pos: { lat: 1, lng: 1 } })
+    h.source.emitDirty(2)
+  })
+  assert.equal(pedidos, 0, 'ningún requestAnimationFrame')
+  assert.equal(h.layer.count, 2, 'el buffer sí siguió al día')
+
+  assert.equal(cuadrosPedidos(() => h.layer.setVisible(true)), 0, 'mostrarla pinta en el acto, no agenda')
+  assert.equal(cuadrosPedidos(() => h.layer.redraw()), 1, 'y visible, un repintado sí agenda su cuadro')
+  h.layer.destroy()
+})
+
+/* ── Contenido: lo que la Source le entrega, no lo que queda por dibujar ── */
+
+// `hasContent` es lo que el motor publica en `surfaces()` y lo que decide si una capa vale un contexto. Una capa bajo
+// burbujas no está vacía: tiene datos que el zoom deja a la vista.
+
+test('contenido — con ítems de la Source tiene contenido, y sin ítems no', async () => {
+  const items = []
+  const h = mount(items, { idOf, positionOf })
+  assert.equal(h.layer.hasContent, false, 'vacía')
+
+  items.push({ id: 1, pos: { lat: 0, lng: 0 } })
+  h.source.emitDirty(1)
+  await flushRaf()
+  assert.equal(h.layer.hasContent, true)
+
+  items.length = 0
+  h.source.emitDirty()
+  await flushRaf()
+  assert.equal(h.layer.hasContent, false, 'y al vaciarla, deja de tenerlo')
+  h.layer.destroy()
+})
+
+test('contenido — todo suprimido por el cluster sigue siendo contenido: no hay nada en el buffer, pero la Source entrega', () => {
+  const items = [1, 2, 3].map(id => ({ id, pos: { lat: 0, lng: id * 1e-4 } }))
+  const h = mount(items, { idOf, positionOf }, { suppressed: new Set([1, 2, 3]) })
+  assert.equal(h.layer.count, 0, 'nada que dibujar')
+  assert.equal(h.layer.hasContent, true, 'pero la Source le entrega tres ítems')
+
+  h.layer.suppressed = null
+  h.layer.refresh()
+  assert.equal(h.layer.hasContent, true)
+  h.layer.destroy()
+})
+
+test('contenido — cuenta lo que pasa el `where` de la capa: si lo rechaza todo, está vacía', () => {
+  const items = [{ id: 1, pos: { lat: 0, lng: 0 }, ok: false }, { id: 2, pos: { lat: 1, lng: 1 }, ok: false }]
+  const h = mount(items, { idOf, positionOf }, { where: it => it.ok })
+  assert.equal(h.layer.hasContent, false, 'dos ítems en la Source, ninguno para esta capa')
+
+  items[1].ok = true
+  h.layer.refresh()
+  assert.equal(h.layer.hasContent, true)
+
+  h.layer.where = it => it.id > 9
+  h.layer.refresh()
+  assert.equal(h.layer.hasContent, false)
+  h.layer.destroy()
+})
+
 /* ── La superficie ── */
 
 test('superficie — pide profundidad para el orden por banda y no sigue la transición del zoom', () => {

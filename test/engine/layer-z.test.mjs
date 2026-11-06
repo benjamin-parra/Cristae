@@ -15,7 +15,7 @@ const newEngine = (map = makeMap()) =>
   ({ map, engine: new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeLeaflet() }) }) })
 const zDe = (map, paneName) => map.getPane(paneName)?.style.zIndex
 
-const conCapa = async (cfg) => {
+const conCapa = async cfg => {
   const { engine, map } = newEngine()
   const handle = engine.addPointLayer({ id: 'flota', accessors, iconSet: makeIconSet(), data: items, ...cfg })
   await flushRaf()
@@ -42,12 +42,12 @@ test('setLayerZ reapila la capa YA montada, sin recrearla', async () => {
   assert.equal(handle.id, 'flota', 'y el handle del consumidor sigue vivo')
 })
 
-test('setLayerZ con `z` nulo vuelve al derivado en el alta', async () => {
+test('setLayerZ con `z` nulo borra el explícito y vuelve al derivado, no al z del alta', async () => {
   const { engine, map } = await conCapa({ z: 378 })
 
   engine.setLayerZ('flota', 620)
   engine.setLayerZ('flota', null)
-  assert.equal(zDe(map, 'cristae-point-flota'), '378', 'restaura el z con que se dio de alta')
+  assert.equal(zDe(map, 'cristae-point-flota'), '400', 'la única capa: el derivado del primer rango')
 })
 
 test('setLayerZ sobre una capa inexistente no rompe', () => {
