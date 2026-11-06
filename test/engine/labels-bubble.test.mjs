@@ -126,7 +126,8 @@ test('los rótulos de las burbujas van sobre ellas y bajo la espiral, en un canv
   assert.equal(map.getPane(`${bubbleId}-labels-canvas`), null, 'y se va con el cluster')
 })
 
-test('con slot="bubble" de rótulo, las burbujas no se rotulan y se avisa una vez', () => {
+// Avisan dos claves: el retiro de la burbuja de rótulo, al montarla, y que no se rotula, al pedírselo.
+test('con slot="bubble" de rótulo, las burbujas no se rotulan y cada aviso sale una vez', () => {
   const avisos = []
   const warn   = console.warn
   console.warn = (...args) => avisos.push(args.join(' '))
@@ -134,8 +135,9 @@ test('con slot="bubble" de rótulo, las burbujas no se rotulan y se avisa una ve
     const { engine, bubbleId } = mount({ bubble: { kind: 'label' } })
     assert.equal(engine.addLabels({ hostId: bubbleId }), null)
     assert.equal(engine.addLabels({ hostId: bubbleId }), null)
-    assert.equal(avisos.length, 1)
-    assert.match(avisos[0], /<cristae-labeled> por fuera del cluster/)
+    assert.equal(avisos.length, 2)
+    assert.match(avisos[0], /bubble: \{ kind: 'label' \}\) se retira en v0\.40\.0: .*<cristae-labeled> por fuera del cluster/)
+    assert.match(avisos[1], /no se rotulan: se retiran en v0\.40\.0/)
     engine.destroy()
   } finally {
     console.warn = warn

@@ -1,14 +1,13 @@
 import { CristaeLayerElement } from './base.js'
 import { makeAutoId } from './autoId.js'
-
-// Se retira en 1.0: se avisa una vez por página, al montarse como capa.
-let retirementWarned = false
+import { deprecated } from '../engine/deprecated.js'
 
 // <cristae-label-layer> — etiquetas canvas. Standalone (con `source`) o attachment
 // (`bind-to="<id>"`: deriva posiciones + textOf del host, resuelto por nombre, orden-indep).
 // `paint`/`style`/`textOf`/`accessors`/`source` son props. Como hija slot="bubble" de un
 // cluster NO se auto-monta: el cluster la lee como configuración de burbuja.
-// Se retira en 1.0: la reemplaza <cristae-labeled> sobre la capa de puntos (docs/labeled.md).
+/** @deprecated Se retira en v0.40.0: con `bind-to` la reemplaza `<cristae-labeled>` sobre la capa de puntos
+ *  (docs/labeled.md); con `source` propio, `<cristae-text-layer>`. */
 export class CristaeLabelLayer extends CristaeLayerElement {
 
   // Gramática de composición: hoja que produce `label`. El ligado a un host lo da el atributo `bind-to`, no
@@ -36,9 +35,8 @@ export class CristaeLabelLayer extends CristaeLayerElement {
   mountReady() { return !!(this.bindTo || this.source) }
 
   mountLayer(engine) {
-    retirementWarned || console.warn('[cristae-label-layer] se retira en 1.0: la reemplaza <cristae-labeled> sobre la ' +
-      'capa de puntos (docs/labeled.md).')
-    retirementWarned = true
+    deprecated('label-layer', '[cristae-label-layer] se retira en v0.40.0: con bind-to la reemplaza <cristae-labeled> ' +
+      'sobre la capa de puntos (docs/labeled.md); con source propio, <cristae-text-layer>.')
     const handle = engine.addLabelLayer({
       id:        this.layerId(),
       ...this._placement,

@@ -1,4 +1,5 @@
-// `getLeafletMap()` está fuera de contrato: devuelve el mapa y avisa por consola una sola vez por motor.
+// `getLeafletMap()` está fuera de contrato y se retira en v0.40.0: devuelve el mapa y avisa por consola una sola
+// vez por página, aunque la llamen varios motores.
 // Corre con: node --test test/engine/leaflet-map-aviso.test.mjs
 import '../../test-helpers/engine-stub.mjs'
 import { makeMap, makeLeaflet } from '../../test-helpers/engine-stub.mjs'
@@ -9,24 +10,17 @@ import { adoptLeafletHost } from '../../src/host/LeafletHost.js'
 
 const nuevo = map => new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeLeaflet() }) })
 
-test('devuelve el mapa y avisa una vez, aunque se llame de nuevo', t => {
+test('devuelve el mapa de cada motor y avisa una vez por página', t => {
   const aviso = t.mock.method(console, 'warn', () => {})
-  const map   = makeMap()
-  const motor = nuevo(map)
+  const mapA  = makeMap()
+  const mapB  = makeMap()
+  const a     = nuevo(mapA)
+  const b     = nuevo(mapB)
 
-  assert.equal(motor.getLeafletMap(), map)
-  assert.equal(motor.getLeafletMap(), map)
+  assert.equal(aviso.mock.callCount(), 0, 'un motor que no la llama no avisa')
+  assert.equal(a.getLeafletMap(), mapA)
+  assert.equal(a.getLeafletMap(), mapA)
+  assert.equal(b.getLeafletMap(), mapB)
   assert.equal(aviso.mock.callCount(), 1)
-  assert.match(aviso.mock.calls[0].arguments[0], /getLeafletMap\(\) está fuera de contrato/)
-})
-
-test('cada motor avisa por su cuenta, y uno que nunca la llama no avisa', t => {
-  const aviso = t.mock.method(console, 'warn', () => {})
-  const a     = nuevo(makeMap())
-  const b     = nuevo(makeMap())
-  nuevo(makeMap())
-
-  a.getLeafletMap()
-  b.getLeafletMap()
-  assert.equal(aviso.mock.callCount(), 2)
+  assert.match(aviso.mock.calls[0].arguments[0], /getLeafletMap\(\) se retira en v0\.40\.0: .*fuera de contrato/)
 })

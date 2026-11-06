@@ -16,6 +16,7 @@ import { createHighlightOverlay } from '../render/HighlightOverlay.js'
 import { frameTransform } from '../render/frame.js'
 import { createClusterFold } from '../cluster/ClusterFold.js'
 import { createLabels } from './labels.js'
+import { deprecated } from './deprecated.js'
 import { defineClusterIconSet } from '../atlas/IconSet.js'
 import { createSource } from '../data/index.js'
 import { createLeafletHost } from '../host/LeafletHost.js'
@@ -125,7 +126,6 @@ export class MapEngine {
   #focusKinds         = null           // kinds de capa que el enfoque por capa atenúa (null = todas)
   #itemFocus          = new Map()      // enfoque por ÍTEM: layerId → Set(id) declarado (vacío = todo atenuado)
   #model              = null           // el modelo de la Tierra con que dibujan y pican las formas y las geodésicas
-  #leafletWarned      = false          // getLeafletMap() ya avisó en este motor
   #planeWarned        = false          // un z derivado ya llegó al techo de su plano
   #labels                              // los rótulos de `addLabels` (engine/labels.js)
 
@@ -292,8 +292,10 @@ export class MapEngine {
     }
   }
 
-  /** @deprecated Una sola puerta: `addPolygonLayer({ geometry })`. Se retira en 1.0. */
+  /** @deprecated Se retira en v0.40.0: la reemplaza `addPolygonLayer({ geometry })`. */
   addPolygonGpuLayer({ id, pane, interactive = false, ...cfg }) {
+    deprecated('addPolygonGpuLayer',
+      '[cristae] addPolygonGpuLayer() se retira en v0.40.0: la reemplaza addPolygonLayer({ geometry }).')
     return this.addPolygonLayer({ ...cfg, id, interactive, pane: pane ?? `cristae-polygon-gpu-${id}` })
   }
 
@@ -405,7 +407,11 @@ export class MapEngine {
 
   // El alias se queda en la esfera por defecto aunque el mapa traiga otro modelo, sin estilo de capa y con su
   // pane, su kind y su handle: quien no lo migra conserva su anillo y su costo.
+  /** @deprecated Se retira en v0.40.0: la reemplaza `addShapeLayer`, con `radiusOf` en vez de `radiusMetersOf`,
+   *  o `<cristae-shape-layer>` (docs/shapes.md). */
   addCircleLayer({ id, data, accessors, source, interactive, pane, z, visible }) {
+    deprecated('addCircleLayer', '[cristae] addCircleLayer() se retira en v0.40.0: la reemplaza addShapeLayer, con ' +
+      'radiusOf en vez de radiusMetersOf, o <cristae-shape-layer> (docs/shapes.md).')
     return this.#addShape({ id, data, accessors, source, interactive, pane, z, visible }, true)
   }
 
@@ -550,7 +556,14 @@ export class MapEngine {
 
   /* ── Capas de labels (canvas; standalone o bind-to un host) ── */
 
+  // El aviso comparte clave con el de <cristae-label-layer>, que monta por acá: se ve uno solo, el de la puerta
+  // que se usó primero.
+  /** @deprecated Se retira en v0.40.0: con `bindTo` la reemplaza `addLabels({ hostId })` o `<cristae-labeled>`
+   *  sobre la capa de puntos (docs/labeled.md); con `source` propio, `addTextLayer` o `<cristae-text-layer>`. */
   addLabelLayer(cfg) {
+    deprecated('label-layer', '[cristae] addLabelLayer() se retira en v0.40.0: con bindTo la reemplaza ' +
+      'addLabels({ hostId }) o <cristae-labeled> sobre la capa de puntos (docs/labeled.md); con source propio, ' +
+      'addTextLayer o <cristae-text-layer>.')
     const { id, bindTo, pane, z, paint, style, textOf, accessors } = cfg
     const order      = this.#order++
     const paneName   = pane ?? `cristae-label-${id}`
@@ -926,12 +939,12 @@ export class MapEngine {
   }
 
   // Fuera de contrato: el mapa de Leaflet es un detalle del anfitrión y lo que se haga con él no lo cubre
-  // ninguna garantía. Devuelve el mapa y avisa una vez por motor; se retira en 1.0.
+  // ninguna garantía. Devuelve el mapa y avisa una vez por página.
+  /** @deprecated Se retira en v0.40.0: el mapa de Leaflet es un detalle interno y queda fuera de contrato. La
+   *  cámara, los tiles y el cursor se piden al motor (docs/elements.md). */
   getLeafletMap() {
-    this.#leafletWarned || console.warn(
-      '[cristae] getLeafletMap() está fuera de contrato y se retira en 1.0: el mapa de Leaflet es un ' +
-      'detalle interno. La cámara, los tiles y el cursor se piden al motor (docs/elements.md).')
-    this.#leafletWarned = true
+    deprecated('getLeafletMap', '[cristae] getLeafletMap() se retira en v0.40.0: el mapa de Leaflet es un detalle ' +
+      'interno y queda fuera de contrato. La cámara, los tiles y el cursor se piden al motor (docs/elements.md).')
     return this.#host.map
   }
 
@@ -1315,7 +1328,11 @@ export class MapEngine {
     const zIndex    = this.#zOf(TOP_PLANE, order) + 5   // burbujas sobre los rótulos
     const spec      = bubble ?? { kind: 'point' }
 
+    // La de rótulo comparte el aviso con la hija `slot="bubble"` de <cristae-cluster>, que llega por acá.
     if (spec.kind === 'label') {
+      deprecated('bubble-label', "[cristae] la burbuja de rótulo (bubble: { kind: 'label' }) se retira en v0.40.0: " +
+        'la reemplazan la burbuja de puntos y addLabels({ hostId }) sobre la capa de burbujas, o un <cristae-labeled> ' +
+        'por fuera del cluster (docs/labeled.md).')
       const layer  = this.#build(bubblePane, zIndex, () =>
         new LabelLayer({ host: this.#host, pane: bubblePane, paint: spec.paint, style: spec.style }))
       const textOf = spec.textOf ?? (count => String(count))
