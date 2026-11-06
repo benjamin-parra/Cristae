@@ -1,6 +1,6 @@
 // Lo que se retira en v0.40.0 avisa por consola una vez por página, con el reemplazo (DEPRECADOS-0.40). Acá van
-// las puertas del motor que antes no avisaban y la clave que comparten <cristae-label-layer> y `addLabelLayer`:
-// el elemento monta por el método, y quien usa uno no ve también el aviso del otro.
+// las puertas del motor que antes no avisaban y la clave que comparten <cristae-label-layer> y `addLabelLayer`,
+// que son el mismo retiro: quien usa uno no ve también el aviso del otro.
 // Corre con: node --test test/engine/retiro-avisos.test.mjs
 import '../../test-helpers/element-stub.mjs'
 import { conGlDeEdicion, makeEditGl, makeLeaflet, makeMap, makePickSpy } from '../../test-helpers/engine-stub.mjs'
@@ -51,6 +51,6 @@ test('addLabelLayer y <cristae-label-layer> comparten un solo aviso por página'
     capa.mountLayer(engine)
     engine.addLabelLayer({ id })
   })
-  assert.equal(vistos.length, 1, 'el elemento monta por addLabelLayer y no se avisa dos veces')
+  assert.equal(vistos.length, 1, 'el elemento y el método son el mismo retiro y no se avisa dos veces')
   assert.match(vistos[0], /^\[cristae-label-layer\] se retira en v0\.40\.0: con bind-to .*<cristae-labeled>.*<cristae-text-layer>/)
 })

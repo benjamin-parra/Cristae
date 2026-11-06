@@ -457,8 +457,9 @@ están en [`shapes.md`](shapes.md).
 
 ### `<cristae-label-layer>` — etiquetas canvas
 
-Se retira en 1.0: la reemplaza [`<cristae-labeled>`](#cristae-labeled--rótulos) sobre la capa de puntos, y
-al montarse avisa una vez en consola. La equivalencia está en [`labels.md`](labels.md#retiro-en-10).
+Se retira en v0.40.0: la reemplaza [`<cristae-labeled>`](#cristae-labeled--rótulos) sobre la capa de puntos, y
+con `source` propio [`<cristae-text-layer>`](text-layer.md). Al montarse avisa una vez por página en consola, y
+ya se traduce por dentro a su reemplazo, con `pane` y `z` sin efecto. La equivalencia está en [`labels.md`](labels.md#retiro-en-v0400).
 
 Standalone (con `source`/`accessors`) o **attachment** (`bind-to="<idHost>"`: deriva posiciones del
 host, resuelto por nombre, orden-independiente).
@@ -472,6 +473,12 @@ host, resuelto por nombre, orden-independiente).
 | `accessors` | `{ idOf, positionOf }` | **prop** |
 | `textOf` | `(item) => string` | **prop** |
 | `paint` / `style` | función / objeto | **prop** |
+
+### `<cristae-text-layer>` — texto suelto
+
+Capa base de texto con datos propios (`data`, `source`, `accessors`), con las opciones de
+[`<cristae-labeled>`](#cristae-labeled--rótulos) que valen sin trazo y sin contexto WebGL. Detalle en
+[`text-layer.md`](text-layer.md).
 
 ### `<cristae-image-layer>` — imagen georreferenciada
 
@@ -530,8 +537,8 @@ Se llama `geometryStyle` y no `style` porque una propiedad `style` pisaría `HTM
 
 Agregador de la gramática ([SPECS §8.10](../SPECS.md)): envuelve la capa **host** (hijo sin slot) y,
 opcional, una capa hija `slot="bubble"` de puntos que define cómo se ven las burbujas. Sin bubble →
-icon-set de cluster por defecto. La hija `slot="bubble"` de label se retira en 1.0 y avisa una vez en
-consola: el rótulo de las burbujas lo da un `<cristae-labeled>` por fuera del cluster
+icon-set de cluster por defecto. La hija `slot="bubble"` de label se retira en v0.40.0 y avisa una vez por
+página en consola: el rótulo de las burbujas lo da un `<cristae-labeled>` por fuera del cluster
 ([`labeled.md`](labeled.md#burbujas)).
 
 | Miembro | Tipo | Atributo |
@@ -783,7 +790,8 @@ Regla: si existe una prop declarativa para lo que se busca, conviene usarla; `co
 | point | `{ id, source, layer, set, patch, move, remove, addFilter, removeFilter, preloadIcons, refresh, setVisible }` |
 | polygon | `{ id, source, set, setVisible, redraw, style }` |
 | shape | `{ id, source, set, setVisible, style }` |
-| label | `{ id, setLabels, setHovered, setVisible }` |
+| label | `{ id, setHovered, setVisible }` |
+| text | `{ id, source, set, update, setVisible }` |
 | image | `{ id, setUrl, setImage, setBounds, setCorners, setOpacity, setVisible }` |
 | heat | `{ id, source, set, setVisible, setRadius, setBlur, setIntensity, setColorRamp }` |
 | editable | `{ id, setValue, setMode, setStyle, getValue, handleMapClick, destroy }` |

@@ -6,5 +6,5 @@
 import { defineGrammar } from '../grammar/index.js'
 
 export const grammar = defineGrammar({
-  kinds: ['point', 'label', 'polygon', 'shape', 'line', 'html', 'bubble', 'overlay', 'geodesic', 'edit', 'image', 'heat'],
+  kinds: ['point', 'label', 'polygon', 'shape', 'line', 'html', 'bubble', 'overlay', 'geodesic', 'edit', 'image', 'heat', 'text'],
 })

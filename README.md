@@ -70,7 +70,7 @@ la *Migración* de cada API. La política de retiro está en
 | `engine.getLeafletMap()` | La cámara ([SPECS §9](SPECS.md)), `setTileProvider`, `setCursor` y las señales del motor. Dibujar sobre el mapa de Leaflet crudo no tiene reemplazo |
 | `<cristae-label-layer bind-to>`, `<CristaeLabelLayer>`, `engine.addLabelLayer` | `<cristae-labeled>`, `<CristaeLabeled>`, `engine.addLabels`, que envuelven la capa ([rótulos](docs/labeled.md)) |
 | `CristaeLabelLayerProps`, `CristaeLabelLayerElement` | `CristaeLabeledProps`, `CristaeLabeledElement` |
-| `<cristae-label-layer>` con `source` propio | `<cristae-text-layer>`, una capa base de texto, que sale antes del retiro |
+| `<cristae-label-layer>` con `source` propio | `<cristae-text-layer>`, `<CristaeTextLayer>`, `engine.addTextLayer`: una capa base de texto ([texto suelto](docs/text-layer.md)) |
 | `<cristae-label-layer slot="bubble">` dentro de `<cristae-cluster>` | Un `<cristae-labeled>` por fuera del cluster, con `textOf` sobre `{ count, leaves }` |
 
 ## Documentación

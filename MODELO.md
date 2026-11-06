@@ -378,7 +378,7 @@ const fleetIcons = defineIconSet({
 Hit = {
   layerId: string,
   kind: 'point' | 'polygon' | 'line' | 'shape' | 'html' | 'circle', // tipo de capa, NO backend de render
-  // 'circle' sólo lo emite addCircleLayer, deprecada; se retira en 1.0
+  // 'circle' sólo lo emite addCircleLayer, deprecada; se retira en v0.40.0
   ref: any,                                                          // el item del Source (o {ring,id} de polígono)
   id: string | number,
   distancePx: number,                                                // 0 para polígono

@@ -37,6 +37,9 @@ import type {
   LabelStyle,
   LabelPaint,
   LabelProps,
+  TextAccessors,
+  TextHandle,
+  TextProps,
   CristaeLabeled as CristaeLabeledClass,
   ImageLayerNode,
   ImageLayerBox,
@@ -62,6 +65,7 @@ import type {
   CircleHit,
   LineHit,
   ImageHit,
+  TextHit,
   Hit,
   ClusterEntity,
   ClusterGroup,
@@ -119,10 +123,11 @@ export type CristaePointHit   = PointHit
 export type CristaePolygonHit = PolygonHit
 export type CristaeShapeHit   = ShapeHit
 export type CristaeHtmlHit    = HtmlHit
-/** @deprecated Se retira en 1.0: `CristaeShapeHit`. */
+/** @deprecated Se retira en v0.40.0: la reemplaza `CristaeShapeHit`. */
 export type CristaeCircleHit  = CircleHit
 export type CristaeLineHit    = LineHit
 export type CristaeImageHit   = ImageHit
+export type CristaeTextHit    = TextHit
 export type CristaeHit        = Hit
 
 // ── Detalles de los CustomEvent cristae:* (los emite el <cristae-map>) ───────
@@ -300,8 +305,8 @@ export interface CristaeLineLayerElement<T = unknown> extends HTMLElement { read
 export interface CristaePolygonLayerElement<T = unknown> extends HTMLElement { readonly controls: PolygonHandle<T> | null }
 export interface CristaeShapeLayerElement<T = unknown> extends HTMLElement { readonly controls: ShapeHandle<T> | null }
 export interface CristaeHtmlLayerElement<T = unknown> extends HTMLElement { readonly controls: HtmlHandle<T> | null }
-/** @deprecated Se retira en 1.0: la reemplaza `CristaeLabeled` sobre la capa de puntos (docs/labeled.md). */
-export interface CristaeLabelLayerElement extends HTMLElement { readonly controls: LabelHandle | null }
+/** @deprecated Se retira en v0.40.0 con `<cristae-label-layer>`: la reemplaza `CristaeLabeledElement`. */
+export interface CristaeLabelLayerElement extends HTMLElement { readonly controls: Omit<LabelHandle, "setLabels"> | null }
 
 export interface CristaePointLayerProps<T = unknown> extends CristaeDataLayerProps {
   data?        : T[];
@@ -393,7 +398,7 @@ export type CristaeLabel      = Label
 export type CristaeLabelStyle = LabelStyle
 export type CristaeLabelPaint = LabelPaint
 
-/** @deprecated Se retira en 1.0: la reemplaza `CristaeLabeled` sobre la capa de puntos (docs/labeled.md). */
+/** @deprecated Se retira en v0.40.0 con `<CristaeLabelLayer>`: la reemplaza `CristaeLabeledProps`. */
 export interface CristaeLabelLayerProps<T = unknown> extends CristaeLeafLayerProps {
   /** Id de la capa host cuyos ítems etiqueta (attachment); o standalone con `source`+`accessors`. */
   bindTo?    : string;
@@ -404,9 +409,25 @@ export interface CristaeLabelLayerProps<T = unknown> extends CristaeLeafLayerPro
   style?     : CristaeLabelStyle;
   visible?   : boolean;
 }
-/** @deprecated Se retira en 1.0: la reemplaza `CristaeLabeled` sobre la capa de puntos (docs/labeled.md). */
+/** @deprecated Se retira en v0.40.0: con `bindTo` la reemplaza `<CristaeLabeled>` sobre la capa de puntos
+ *  (docs/labeled.md); con `source` propio, `<CristaeTextLayer>`. */
 export declare function CristaeLabelLayer<T = unknown>(
   props: CristaeLabelLayerProps<T> & RefAttributes<CristaeLabelLayerElement>,
+): ReactElement | null;
+
+// ── Texto suelto (docs/text-layer.md) ────────────────────────────────────────
+export interface CristaeTextLayerElement<T = unknown> extends HTMLElement { readonly controls: TextHandle<T> | null }
+
+/** Capa base de texto con datos propios, con las opciones de `<CristaeLabeled>` que valen sin trazo. */
+export interface CristaeTextLayerProps<T = unknown> extends CristaeDataLayerProps, TextProps<T> {
+  data?        : T[];
+  source?      : CristaeReadSource<T>;
+  accessors?   : TextAccessors<T>;
+  interactive? : boolean;
+  visible?     : boolean;
+}
+export declare function CristaeTextLayer<T = unknown>(
+  props: CristaeTextLayerProps<T> & RefAttributes<CristaeTextLayerElement<T>>,
 ): ReactElement | null;
 
 // ── Imagen georreferenciada (docs/image-layer.md) ───────────────────────────

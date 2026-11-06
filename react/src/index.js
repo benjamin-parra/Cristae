@@ -33,6 +33,7 @@ const BUS = {
   'cristae-shape-layer':   LAYER_BUS,
   'cristae-html-layer':    LAYER_BUS,
   'cristae-image-layer':   LAYER_BUS,
+  'cristae-text-layer':    LAYER_BUS,
   'cristae-cluster': {
     scoped: false,
     channels: {
@@ -110,8 +111,11 @@ export const CristaeLineLayer = wrap('cristae-line-layer')
 export const CristaePolygonLayer = wrap('cristae-polygon-layer')
 export const CristaeShapeLayer = wrap('cristae-shape-layer')
 export const CristaeHtmlLayer = wrap('cristae-html-layer')
+/** @deprecated Se retira en v0.40.0: con `bindTo` la reemplaza `<CristaeLabeled>` sobre la capa de puntos
+ *  (docs/labeled.md); con `source` propio, `<CristaeTextLayer>`. */
 export const CristaeLabelLayer = wrap('cristae-label-layer')
 export const CristaeImageLayer = wrap('cristae-image-layer')
+export const CristaeTextLayer = wrap('cristae-text-layer')
 export const CristaeHeatLayer = wrap('cristae-heat-layer')
 export const CristaeEditablePolygon = wrap('cristae-editable-polygon')
 export const CristaeEditablePolyline = wrap('cristae-editable-polyline')

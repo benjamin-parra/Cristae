@@ -586,8 +586,8 @@ export class MapEngine {
 
   /* ── Capas de labels (canvas; standalone o bind-to un host) ── */
 
-  // El aviso comparte clave con el de <cristae-label-layer>, que monta por acá: se ve uno solo, el de la puerta
-  // que se usó primero.
+  // El aviso comparte clave con el de <cristae-label-layer>, que es el mismo retiro: se ve uno solo, el de la
+  // puerta que se usó primero.
   /** @deprecated Se retira en v0.40.0: con `bindTo` la reemplaza `addLabels({ hostId })` o `<cristae-labeled>`
    *  sobre la capa de puntos (docs/labeled.md); con `source` propio, `addTextLayer` o `<cristae-text-layer>`. */
   addLabelLayer(cfg) {

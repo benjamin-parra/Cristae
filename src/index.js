@@ -11,6 +11,7 @@ import { CristaeShapeLayer } from './element/CristaeShapeLayer.js'
 import { CristaeLineLayer } from './element/CristaeLineLayer.js'
 import { CristaeHtmlLayer } from './element/CristaeHtmlLayer.js'
 import { CristaeLabelLayer } from './element/CristaeLabelLayer.js'
+import { CristaeTextLayer } from './element/CristaeTextLayer.js'
 import { CristaeImageLayer } from './element/CristaeImageLayer.js'
 import { CristaeHeatLayer } from './element/CristaeHeatLayer.js'
 import { CristaeEditablePolygon } from './element/CristaeEditablePolygon.js'
@@ -37,6 +38,7 @@ grammar.register('cristae-shape-layer', CristaeShapeLayer.cristaeSignature)
 grammar.register('cristae-line-layer', CristaeLineLayer.cristaeSignature)
 grammar.register('cristae-html-layer', CristaeHtmlLayer.cristaeSignature)
 grammar.register('cristae-label-layer', CristaeLabelLayer.cristaeSignature)
+grammar.register('cristae-text-layer', CristaeTextLayer.cristaeSignature)
 grammar.register('cristae-image-layer', CristaeImageLayer.cristaeSignature)
 grammar.register('cristae-heat-layer', CristaeHeatLayer.cristaeSignature)
 grammar.register('cristae-editable-polygon', CristaeEditablePolygon.cristaeSignature)
@@ -60,6 +62,7 @@ define('cristae-shape-layer', CristaeShapeLayer)
 define('cristae-line-layer', CristaeLineLayer)
 define('cristae-html-layer', CristaeHtmlLayer)
 define('cristae-label-layer', CristaeLabelLayer)
+define('cristae-text-layer', CristaeTextLayer)
 define('cristae-image-layer', CristaeImageLayer)
 define('cristae-heat-layer', CristaeHeatLayer)
 define('cristae-editable-polygon', CristaeEditablePolygon)
@@ -95,6 +98,6 @@ export { toParts, sampleAlong } from './geometry/polyline.js'
 export { arc } from './geometry/shape.js'
 export { tilePresets } from './tiles/presets.js'
 export { CristaeMap, CristaePointLayer, CristaePolygonLayer, CristaeShapeLayer, CristaeLineLayer, CristaeHtmlLayer, CristaeLabelLayer, CristaeCluster, CristaeOverlay, CristaeGeodesic, CristaeToolbar, CristaePopup }
-export { CristaeLabeled, CristaeImageLayer, CristaeHeatLayer, CristaeScale }
+export { CristaeLabeled, CristaeTextLayer, CristaeImageLayer, CristaeHeatLayer, CristaeScale }
 export { CristaeEditablePolygon, CristaeEditablePolyline, CristaeEditablePoint, CristaeEditableRectangle }
 export { CristaeEditableCircle, CristaeEditableEllipse, CristaeEditableSector }

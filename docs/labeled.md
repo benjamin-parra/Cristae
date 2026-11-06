@@ -95,7 +95,7 @@ nuevo en cada render no redibuja si los textos no cambiaron.
 | --- | --- | --- |
 | Cantidad | miles con `center`; del orden de mil trazos con `along` | cientos |
 | Curvado | sí, letra a letra | no: con `along` va en el punto medio, girado según el trazo |
-| Fuentes | cualquier fuente CSS; se remide cuando carga | cualquier CSS, clases incluidas |
+| Fuentes | cualquier fuente CSS; se remide cuando carga | cualquier CSS que llegue al shadow root del mapa |
 | Ligaduras, RTL y kerning | bien con `center`; se pierden con `along` | bien siempre |
 
 `renderer="gl"` está pendiente y hoy lanza un `TypeError` que lo dice.
@@ -113,7 +113,8 @@ nuevo en cada render no redibuja si los textos no cambiaron.
   lleva un nodo por parte: el `Node` de `htmlOf` va tal cual en la primera y las demás llevan una copia
   (`cloneNode(true)`), sin sus listeners. Con `textOf`, el halo es una `text-shadow` que imita el trazo de
   `canvas`. Para CSS, el nodo de cada `<cristae-labeled>` lleva la clase `cristae-labels` y cada rótulo,
-  `cristae-label`.
+  `cristae-label`. Esos nodos viven en el shadow root de `<cristae-map>`, adonde no llega el CSS del
+  documento: el estilo va en línea o en un `<style>` del propio contenido.
 - **El orden de pintado** dentro del canvas compartido es el de alta de los rótulos, no el de su capa. Casi
   siempre coinciden; un `labeled` que se monta tarde sobre una capa vieja pinta sobre los de capas nuevas.
 
@@ -202,6 +203,7 @@ Un valor inválido lanza `TypeError` antes de tocar el motor, y en caliente no c
 
 ## Desde `<cristae-label-layer>`
 
-`<cristae-label-layer>` se retira en 1.0, y su reemplazo es `<cristae-labeled>` sobre la capa de puntos. La
-equivalencia prop por prop está en [`labels.md`](labels.md#retiro-en-10). `<cristae-line-label-layer>` no
+`<cristae-label-layer>` se retira en v0.40.0, y su reemplazo es `<cristae-labeled>` sobre la capa de puntos; con
+`source` propio, [`<cristae-text-layer>`](text-layer.md). La
+equivalencia prop por prop está en [`labels.md`](labels.md#retiro-en-v0400). `<cristae-line-label-layer>` no
 llegó a publicarse: su reemplazo es `<cristae-labeled>` sobre la capa de líneas.

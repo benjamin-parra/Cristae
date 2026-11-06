@@ -16,6 +16,7 @@ import {
   CristaeShapeLayer,
   CristaeLabelLayer,
   CristaeLabeled,
+  CristaeTextLayer,
   CristaeImageLayer,
   CristaeHeatLayer,
   CristaeToolbar,
@@ -27,6 +28,7 @@ import {
   type CristaeDrawingIndicator,
   type CristaeLabelPaint,
   type CristaeLabeledElement,
+  type CristaeTextLayerElement,
   type CristaeMapElement,
   type CristaePointLayerElement,
   type CristaePopupElement,
@@ -416,6 +418,24 @@ export const BadLabeled = () => <CristaeLabeled orientation="left"><CristaeLineL
 
 // @ts-expect-error `gl` no está entre los renderers
 export const BadRenderer = () => <CristaeLabeled renderer="gl"><CristaeLineLayer id="rutas" /></CristaeLabeled>
+
+// Texto suelto con datos propios: el genérico sale de los accessors y el handle es el de la capa de texto.
+interface Ciudad { id: string; nombre: string; lat: number; lng: number }
+export const TextoSuelto = () => {
+  const capa = useRef<CristaeTextLayerElement<Ciudad>>(null)
+  const sube = () => capa.current?.controls?.update({ placement: 'above', textOf: null })
+  return (
+    <CristaeMap>
+      <CristaeTextLayer<Ciudad> ref={capa} id="ciudades" data={[]} accessors={{ idOf: (c) => c.id, positionOf: (c) => c }}
+        textOf={(c) => c.nombre} placement="center" interactive
+        onClick={(hits) => hits[0]?.kind === 'text' && void hits[0].id} />
+      <button onClick={sube} />
+    </CristaeMap>
+  )
+}
+
+// @ts-expect-error la capa de texto no tiene trazo: `repeat` no existe
+export const BadTextRepeat = () => <CristaeTextLayer id="ciudades" repeat={200} />
 
 // @ts-expect-error sin hijo no hay qué rotular
 export const BadLabeledSinHijo = () => <CristaeLabeled textOf={() => 'x'} />

@@ -1,6 +1,6 @@
 // Contrato de validateSignature — la puerta de entrada del registro (R4). Congela LAS SIETE
 // ramas de rechazo, el orden en que se evalúan (una firma que viola dos reglas reporta
-// siempre la primera) y la forma del error, más el golden de las 19 firmas reales. Una firma
+// siempre la primera) y la forma del error, más el golden de las 20 firmas reales. Una firma
 // declara { role, consumes?, produces }; lo demás sale del rol (test/grammar-roles.test.mjs).
 // Corre con: node --test test/grammar-signature.test.mjs
 import test from 'node:test'
@@ -9,7 +9,7 @@ import { readFileSync } from 'node:fs'
 import { defineGrammar, validateSignature, GrammarError } from '../src/grammar/index.js'
 
 /* ── Universo de kinds del entry `map` (src/element/composite.js) ── */
-const KINDS = new Set(['point', 'label', 'polygon', 'shape', 'line', 'html', 'bubble', 'overlay', 'geodesic', 'edit', 'image', 'heat'])
+const KINDS = new Set(['point', 'label', 'polygon', 'shape', 'line', 'html', 'bubble', 'overlay', 'geodesic', 'edit', 'image', 'heat', 'text'])
 
 // Todo rechazo de firma es R4, sin nodo (la firma no cuelga de ningún elemento).
 // `rama` discrimina QUÉ chequeo disparó: sin eso cualquier throw pasaría el test.
@@ -143,7 +143,7 @@ test('transformador, agregador y decorador sin consumes se rechazan, y el mensaj
     }
 })
 
-/* ════════════════ Golden · las 19 firmas reales del entry `map` ════════════════ */
+/* ════════════════ Golden · las 20 firmas reales del entry `map` ════════════════ */
 
 // El golden se LEE de la fuente, no se copia a mano: importar las clases arrastraría lit +
 // leaflet + un DOM, así que se parsea el texto de src/index.js (qué tag registra qué clase) y
@@ -168,7 +168,7 @@ const firmasDeclaradas = () => {
     })
 }
 
-test('las 19 firmas del entry map son EXACTAMENTE las esperadas (golden leído de la fuente)', () => {
+test('las 20 firmas del entry map son EXACTAMENTE las esperadas (golden leído de la fuente)', () => {
   const FIRMAS = [
     ['cristae-point-layer', { role: 'leaf', produces: ['point'] }],
     ['cristae-polygon-layer', { role: 'leaf', produces: ['polygon'] }],
@@ -176,6 +176,7 @@ test('las 19 firmas del entry map son EXACTAMENTE las esperadas (golden leído d
     ['cristae-line-layer', { role: 'leaf', produces: ['line'] }],
     ['cristae-html-layer', { role: 'leaf', produces: ['html'] }],
     ['cristae-label-layer', { role: 'leaf', produces: ['label'] }],
+    ['cristae-text-layer', { role: 'leaf', produces: ['text'] }],
     ['cristae-image-layer', { role: 'leaf', produces: ['image'] }],
     ['cristae-heat-layer', { role: 'leaf', produces: ['heat'] }],
     ['cristae-editable-polygon', { role: 'leaf', produces: ['polygon'] }],
@@ -198,9 +199,9 @@ test('el universo de kinds del entry map es el que declara composite.js', () => 
   assert.deepEqual(kinds, [...KINDS])
 })
 
-test('las 19 firmas reales pasan la validación y entran al registro como hoja o modificador', () => {
+test('las 20 firmas reales pasan la validación y entran al registro como hoja o modificador', () => {
   const FIRMAS = firmasDeclaradas()
-  assert.equal(FIRMAS.length, 19)
+  assert.equal(FIRMAS.length, 20)
   for (const [tag, sig] of FIRMAS) acepta(sig, tag)
 
   // El montaje (enclosingModifier) y el reductor dependen de esto.

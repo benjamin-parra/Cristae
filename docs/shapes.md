@@ -168,7 +168,7 @@ capa de líneas no re-tesela por zoom, así que el arco lleva los vértices de l
 
 ## Migrar desde `addCircleLayer`
 
-`addCircleLayer` sigue funcionando, como alias de la capa de formas, y se retira en 1.0. Se migra cambiando
+`addCircleLayer` sigue funcionando, como alias de la capa de formas, y se retira en v0.40.0. Se migra cambiando
 el nombre del accessor del radio:
 
 ```js

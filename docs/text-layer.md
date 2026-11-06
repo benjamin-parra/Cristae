@@ -90,9 +90,10 @@ Un valor inválido lanza `TypeError` antes de registrar la capa, y en `update` n
 
 Una `<cristae-label-layer>` con `source` propio pasa a `<cristae-text-layer>` con la misma Source; su
 `textOf` va tal cual. La píldora de antes se pide con `paint={drawLabel}`. La equivalencia completa está en
-[`labels.md`](labels.md#retiro-en-10).
+[`labels.md`](labels.md#retiro-en-v0400).
 
 ## Límites
 
 - **Sin colisión.** Los textos no se esquivan entre sí.
-- **`html`** rinde cientos de textos; `canvas`, miles.
+- **`html`** rinde cientos de textos; `canvas`, miles. Sus nodos viven en el shadow root del mapa: el CSS del
+  documento no les llega, y el estilo va en línea ([`labeled.md`](labeled.md#cómo-se-dibuja)).

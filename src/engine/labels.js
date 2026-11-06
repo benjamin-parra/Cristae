@@ -2,7 +2,6 @@ import { mergeLabelOptions, resolvePlacement } from '../render/labelOptions.js'
 import { createLabelCanvas } from '../render/LabelCanvas.js'
 import { createLabelHtml } from '../render/LabelHtml.js'
 import { safe } from '../data/safe.js'
-import { deprecated } from './deprecated.js'
 
 // Los rótulos de `<cristae-labeled>` y de `addLabels` (DISENO-ROTULOS §1.3, §2.6 y §4.3). Son estado del
 // host: cada par (rótulos, capa) es un MIEMBRO que lee en vivo la Source, la supresión, la membresía, la
@@ -37,16 +36,10 @@ export const createLabels = bridge => {
   const slots = new Map()            // key → { renderer, count, key }
 
   // Qué se rotula de un registro, o null. Un editor, el calor y la imagen no tienen ítems; un polígono con
-  // `geometry` tipada no tiene Source; la burbuja de un cluster con `slot="bubble"` de rótulo tampoco. La capa
-  // de texto (`addTextLayer`) es host de sus propios rótulos.
+  // `geometry` tipada no tiene Source. Toda burbuja de cluster tiene la suya, también la de rótulo. La capa de
+  // texto (`addTextLayer`) es host de sus propios rótulos.
   const kindOf = record => {
-    if (record?.fold) {
-      if (record.source) return 'bubble'
-      deprecated('bubble-label-unlabeled', '[cristae] las burbujas de rótulo (slot="bubble" o bubble: { kind: ' +
-        "'label' }) no se rotulan: se retiran en v0.40.0, y el rótulo lo da un <cristae-labeled> por fuera del " +
-        'cluster (docs/labeled.md).')
-      return null
-    }
+    if (record?.fold) return 'bubble'
     switch (record?.kind) {
       case 'point'   : return 'point'
       case 'html'    : return 'html'
