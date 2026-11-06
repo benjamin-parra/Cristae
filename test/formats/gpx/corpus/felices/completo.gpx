@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- gpx.xsd (GPX 1.1): gpxType con metadata, wptType (lat y lon atributos, ele, name, desc, link,
+     time, extensions), rteType con rtept y trkType con dos trksegType (DISENO-INTEROP §3.2, D-15). -->
+<gpx version="1.1" creator="prueba" xmlns="http://www.topografix.com/GPX/1/1">
+  <metadata><name>Salida</name><time>2026-11-03T10:00:00Z</time></metadata>
+  <wpt lat="-37.25" lon="-72.5">
+    <ele>310.5</ele>
+    <time>2026-11-03T10:00:00Z</time>
+    <name>Mirador &amp; torre</name>
+    <cmt>c</cmt>
+    <desc><![CDATA[<i>alto</i>]]></desc>
+    <src>GPS</src>
+    <link href="https://ejemplo.invalid/a?x=1&amp;y=2"><text>ficha</text></link>
+    <link href="https://ejemplo.invalid/b"/>
+    <sym>Flag</sym>
+    <type>torre</type>
+    <extensions><x>1</x></extensions>
+  </wpt>
+  <wpt lat="0" lon="0"/>
+  <rte>
+    <name>Ruta 5</name>
+    <number>5</number>
+    <rtept lat="1" lon="2"><ele>3</ele><name>a</name></rtept>
+    <rtept lat="4" lon="5"/>
+  </rte>
+  <trk>
+    <name>Huella</name>
+    <trkseg>
+      <trkpt lat="10" lon="20"><ele>1</ele><time>2026-11-03T10:00:00Z</time></trkpt>
+      <trkpt lat="11" lon="21"><ele>2</ele></trkpt>
+    </trkseg>
+    <trkseg>
+      <trkpt lat="12" lon="22"/>
+    </trkseg>
+    <extensions/>
+  </trk>
+</gpx>

@@ -1,0 +1,2 @@
+<!-- SPECS §17.9: una estructura que empezó y no cerró es truncado. -->
+<kml><Placemark><Point><coordinates>1,2</coordinates></Point>

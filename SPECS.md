@@ -1641,3 +1641,425 @@ por referencia. No se pica.
 | rótulo sobre un editor | no en esta versión: `addLabels` devuelve `null` y el elemento avisa una vez por editor |
 | `renderer="gl"` | pendiente: lanza `TypeError` |
 | escala bajo 1 m | sigue en decimales |
+
+## 20. Lectores por especificación — `cristae/formats`
+
+> Segmento como §17: se contrata entero acá y no depende de §0-§11. Guía de uso en
+> [`docs/formats.md`](./docs/formats.md). Las citas de sección de las especificaciones externas (OGC
+> 07-147r2 y 06-103r4, `gpx.xsd`, topojson-specification 1.0, ArcGIS REST, ESRI 1998, `header.fbs` y
+> `feature.fbs`, APPNOTE, XML 1.0, RFC 8259 y RFC 1951) están verificadas contra los documentos
+> publicados el 04-11; el detalle, con su fuente, está en `notas/adaptador/tramos-3-4/CITAS-VERIFICADAS.md`.
+> Lo que sigue marcado `[inf.]` es inferencia, no cita.
+
+Ocho formatos leídos desde los bytes a las tablas de §17.1, sin grafo intermedio, sin DOM y sin
+dependencias: KML/KMZ, GPX, WKT/EWKT, WKB/EWKB, TopoJSON, EsriJSON, Shapefile con su `.dbf`, y
+FlatGeobuf. Sólo lectura: los escritores son otro tramo.
+
+| API | Firma | Notas |
+|---|---|---|
+| `readKml` | `(input, options?) → FormatRead` | KML 2.2 |
+| `readKmz` | `(bytes, options?) → Promise<FormatRead>` | el zip y su `doc.kml` |
+| `readGpx` | `(input, options?) → FormatRead` | GPX 1.1 y 1.0 |
+| `readWkt` | `(input, options?) → FormatRead` | una o más geometrías |
+| `readWkb` | `(bytes \| hex, options?) → FormatRead` | una geometría |
+| `readTopoJson` | `(input, options?) → FormatRead` | `options.object` lee un miembro |
+| `readEsriJson` | `(input, options?) → FormatRead` | FeatureSet, feature o geometría |
+| `readShapefile` | `({ shp, dbf?, prj?, cpg? }, options?) → FormatRead` | `options.encoding` |
+| `readShapefileZip` | `(bytes, options?) → Promise<FormatRead>` | `options.layer` |
+| `readFlatGeobuf` | `(bytes, options?) → FormatRead` | secuencial, el índice se salta |
+| `detectFormat` | `(input) → FormatName \| null` | nunca lanza |
+| `FormatError` | clase | `format`, `code`, `at`, `hint` |
+
+### 20.1 Contrato común
+
+Cada lector devuelve un `FormatRead`: el `GeoJson` de §17.1, con la misma semántica y los mismos
+métodos, más cuatro campos.
+
+- `format`: el lector que leyó (`'kml'`, `'kmz'`, `'gpx'`, `'wkt'`, `'wkb'`, `'topojson'`,
+  `'esrijson'`, `'shapefile'`, `'flatgeobuf'`).
+- `crs`: el CRS de la fuente (`'EPSG:32719'`…) o el de `options.crs`; nunca `null`. Sin ninguno, y en
+  KML y GPX siempre, es `'EPSG:4326'` (§20.5).
+- `layerOf` y `layers`: la capa de cada feature, y las capas con nombre y padre. Los formatos sin
+  contenedores tienen una sola, `{ name: null, parent: -1 }`.
+- `warnings`: avisos no fatales `{ code, detail }`, en el orden en que salieron; vacío si no hubo. Lo
+  que no impide leer pero cambia cómo se leyó: el consumidor decide si lo muestra. `code` usa los
+  nombres de `FormatError`: `'codificacion'`, un `.cpg` que no sirve (§20.15-7), y `'crs'`, una
+  fuente sin CRS declarado ni pedido fuera de ±180/±90 (§20.5).
+  `detail` es lo leído, para diagnosticar.
+
+`xy` sale siempre en grados WGS84 `[lng, lat]`, y `areasOf` sirve sin cambios. `propertiesOf(f)` e
+`idOf(f)` decodifican a demanda sobre rangos de byte, con un decodificador por formato; uno que lanza
+sale como `FormatError('properties')`, salvo un `FormatError` propio, que se propaga con su código.
+
+Opciones comunes:
+
+| Opción | Default | Qué hace |
+|---|---|---|
+| `bounds`, `capacityHint` | como §17.2 | |
+| `maxDepth` | 512 | tope de anidamiento, también en WKB y FlatGeobuf; pasarlo es `'profundidad'` |
+| `maxBytes` | 256 MiB | tope de lo que la entrada hace crecer (inflado, expansión de arcos); pasarlo es `'tope'` |
+| `crs` | — | CRS de la fuente que no declara uno: EPSG (`32719`, `'EPSG:32719'`) o WKT1 |
+
+`crs` es una sola regla en los ocho lectores: si la fuente declara un CRS, gana la fuente y la opción
+no se mira. Un valor que no es número ni texto es `'entrada'`; uno que no se soporta, `'crs'`.
+
+### 20.2 Errores y números
+
+Todo error es `FormatError { format, code, at, hint }`. Los códigos son los once de §17.2 más siete:
+
+| Código | Cuándo |
+|---|---|
+| `crs` | CRS declarado o pedido sin soporte (§20.5), o dos CRS en una lectura |
+| `compresion` | método de zip distinto de 0 y 8, cifrado, CRC distinto, deflate corrupto, inflado distinto del tamaño declarado |
+| `tope` | lo que la entrada hace crecer pasa de `maxBytes` |
+| `entorno` | no hay `DecompressionStream('deflate-raw')` |
+| `version` | zip64 o multidisco, FlatGeobuf de otra versión mayor, `.shp` o `.dbf` de versión desconocida |
+| `codificacion` | XML que no es UTF-8, ASCII, ISO-8859-1 ni windows-1252; texto inválido en su codificación, también un nombre de campo del `.dbf` al abrir y un valor al pedirlo |
+| `dtd` | un `<!DOCTYPE` en KML o GPX |
+
+- `at` es un offset de byte en lo que se publica en `bytes`: en KMZ, del KML inflado; en Shapefile, del
+  archivo que falló (`.shp` o `.dbf`). `-1` si no aplica, como el `'crs'` de `options.crs` y el
+  `'tope'` de TopoJSON, que se detecta sobre las tablas.
+- `hint` dice a qué formato se parece la entrada, o `null`.
+- Lo leído que no sirve (el CRS que no se soporta, las capas de un zip) va al final del mensaje, para
+  diagnosticar, y no a un campo.
+- Ninguna excepción cruda escapa de un lector, tampoco de los asíncronos: la promesa rechaza con
+  `FormatError`.
+
+Los números de KML, GPX, WKT, TopoJSON y EsriJSON tienen paridad bit a bit con `Number(texto)`, con el
+mismo autómata de §17.5 (`src/formats/core/number.js`, del que también importa `src/geojson/`). La
+gramática es la de JSON en los dos lectores JSON y la decimal de `xsd:double` en los demás. `NaN`, `INF`
+y todo valor no finito son `'numero'`, también en los binarios, salvo el punto vacío de Esri y de WKB.
+
+### 20.3 Contadores
+
+`FormatStats` son los diez de §17.4bis más tres:
+
+- `skippedGeometries`: geometrías fuera del subconjunto (curvas, `MultiPatch`, `Model`, `gx:Track`). El
+  feature sale sin ellas.
+- `deletedRecords`: registros del `.dbf` marcados borrados, que se emiten igual.
+- `orphanHoles`: hoyos sin exterior que los contenga (§20.4).
+
+Dos de los diez cambian de sentido:
+
+- `extraOrdinates` cuenta las posiciones con ordenadas descartadas, la M incluida.
+- `reversedRings` se mide contra la convención del formato. En Shapefile y EsriJSON vale lo mismo que
+  `orphanHoles`.
+
+### 20.4 Polígonos sin agrupar (Shapefile, EsriJSON)
+
+- Cada anillo horario abre una parte, en el orden del archivo.
+- Cada antihorario va al exterior más chico que lo contiene. La prueba es la caja y, después,
+  punto-en-anillo con el primer vértice que no cae sobre el borde. Si todos caen sobre el borde, se da
+  por contenido.
+- Un hoyo sin dueño sale como exterior y suma `orphanHoles`.
+- Un anillo de área 0 es exterior.
+
+### 20.5 CRS
+
+Soportados:
+
+- geográfico WGS84, y SIRGAS sobre GRS80 como nulo;
+- Mercator esférico: 3857, 900913, 102100 y 102113;
+- transversa de Mercator sobre WGS84 o GRS80: UTM 326zz y 327zz, o un `.prj` con
+  `Transverse_Mercator` y `latitude_of_origin` 0.
+
+Los nombres aceptados por código son el número, `'EPSG:n'`, `'urn:ogc:def:crs:EPSG::n'`, `'ESRI:n'` y
+`'OGC:CRS84'`. La inversa de TM es la de Krüger de orden 6, y la latitud sale por punto fijo sobre la
+latitud isométrica. Es `'crs'`:
+
+- todo lo demás, también NAD83 y ETRS89 y las UTM de SIRGAS por código;
+- un datum con desplazamiento (`TOWGS84` distinto de cero);
+- un `PRIMEM` distinto de Greenwich;
+- una unidad angular distinta del grado;
+- ejes invertidos o reflejados.
+
+KML y GPX son WGS84 por especificación: `crs` es `'EPSG:4326'` y el rango no se valida. Con
+`options.crs` (la regla común de §20.1) `crs` es el pedido.
+
+Sin CRS de la fuente ni de la opción (Shapefile sin `.prj`, FlatGeobuf sin CRS en la cabecera,
+EsriJSON sin `spatialReference`, WKT y WKB sin SRID, TopoJSON, que no lo fija) se suponen grados
+WGS84 y `crs` es `'EPSG:4326'`, quepan o no. Una coordenada fuera de ±180/±90 no es `'crs'`, porque
+el CRS es una suposición del lector: la lectura sigue y queda en `warnings` un `{ code: 'crs' }` cuyo
+`detail` nombra el primer vértice fuera de rango, dice que no parecen grados y pide declarar
+`options.crs`. Un `options.crs` inválido o un CRS de la fuente sin soporte siguen siendo `'crs'`. La
+inversa se aplica al sellar, sobre `xy` en sitio y antes de `bounds`.
+
+### 20.6 Zip
+
+- Se lee por el directorio central. El EOCD se busca hacia atrás, y gana la firma cuyo comentario
+  llega justo al final.
+- El comienzo de los datos sale del encabezado local.
+- Se aceptan los métodos 0 y 8. El método y el cifrado se rechazan sólo en la entrada que se infla: un
+  KMZ con una imagen en un método raro sigue sirviendo su `doc.kml`.
+- Zip64 o multidisco es `'version'`.
+- El tamaño declarado sobre `maxBytes` es `'tope'`, antes de inflar.
+- Sin `DecompressionStream('deflate-raw')` es `'entorno'`.
+
+### 20.7 Detección
+
+`detectFormat(input)` mira los bytes mágicos y el primer token, y devuelve `'geojson'`, `'kml'`,
+`'kmz'`, `'gpx'`, `'wkt'`, `'wkb'`, `'topojson'`, `'esrijson'`, `'shapefile'`, `'shapefile-zip'`,
+`'flatgeobuf'`, `'zip'` o `null`. Nunca lanza, y ningún lector la llama: leer no adivina.
+
+### 20.8 XML seguro (interno)
+
+Tokenizador pull sobre bytes: eventos de inicio, fin y texto con rangos, sin nodos. Los nombres se
+comparan por nombre local.
+
+- No resuelve DTD: un `<!DOCTYPE` es `'dtd'`.
+- Resuelve sólo `&lt; &gt; &amp; &apos; &quot;` y las referencias numéricas a un `Char`. Lo demás es
+  `'sintaxis'`, igual que un atributo repetido, un cierre que no coincide, dos raíces o texto fuera de
+  la raíz. Lo que empieza y no cierra es `'truncado'`.
+- `maxDepth` corta el anidamiento sin recursión.
+- Acepta UTF-8 y US-ASCII, más ISO-8859-1 y windows-1252 si el prólogo las declara. UTF-16 y las demás
+  son `'codificacion'`, igual que una secuencia inválida al materializar texto.
+- Las coordenadas de un solo tramo se leen en sitio. Las partidas por comentarios, CDATA o referencias
+  se copian a un buffer de bytes que se reusa, sin crear strings; su error de número reporta el offset
+  del comienzo del contenido.
+
+### 20.9 KML 2.2 y KMZ — `readKml`, `readKmz`
+
+**Mapeo.** `Point`, `LineString` y `Polygon` a sus tipos; un `LinearRing` suelto es `LineString`;
+`MultiGeometry` se aplana. `Document` y `Folder` son capas, y un `Placemark` fuera de todo contenedor va
+a una capa raíz `{ name: null, parent: -1 }`, que se crea al encontrarlo. Varias geometrías en un
+`Placemark` son geometrías del mismo feature, en orden.
+
+**Atributos.** `propertiesOf(f)` devuelve `name`, `description`, `styleUrl` y los `Data` y `SimpleData`
+del `ExtendedData`, los que estén; `idOf(f)` es el `id` del `Placemark`. Sólo los hijos directos de
+`Placemark` son atributos. Los estilos no se leen.
+
+1. Un hijo que no es atributo ni geometría suma `foreignMembers`, una vez por subárbol. `NetworkLink`,
+   los overlays, `Style` y lo que cuelga de `Document` sin ser contenedor, `Placemark` ni `name`,
+   también.
+2. `Model`, `Track` y `MultiTrack` suman `skippedGeometries`.
+3. `<coordinates>` vacío o ausente da 0 partes. Un `LinearRing` de polígono sin posiciones es 1 anillo
+   de 0 vértices, y `<Polygon/>` sale con 0 partes.
+4. `'estructura'`: un segundo `<coordinates>` en la misma geometría; un `innerBoundaryIs` antes del
+   `outerBoundaryIs`, o dos `outerBoundaryIs`; un `outerBoundaryIs` con más de un `LinearRing`, o un
+   borde sin `LinearRing`; un elemento dentro de `<coordinates>`. Varios `LinearRing` en un
+   `innerBoundaryIs` son varios hoyos.
+5. `'posicion'`: un espacio dentro de una tupla (`1, 2`), una tupla de menos de dos ordenadas o un
+   `Point` con más de una tupla. `'numero'`: un token fuera de la gramática decimal, un no finito, o
+   una referencia en coordenadas que no vale espacio ni un carácter numérico.
+
+**KMZ.** `doc.kml` exacto en la raíz, sin distinguir mayúsculas; si no está, la primera entrada que
+termina en `.kml` en el orden del directorio central; sin ninguna, `'formato'`. La lectura y los
+errores del KML llevan `format: 'kmz'`, como `detectFormat`, y `at` es un offset en el KML inflado. `maxBytes` se valida sólo en `readKmz`: `readKml` no
+expande nada.
+
+### 20.10 GPX 1.1 — `readGpx`
+
+Cada `wpt` es un `Point`, cada `rte` un `LineString` y cada `trk` un `MultiLineString` con una parte
+por `trkseg`. `ele` va a `z`. Una sola capa, `idOf` siempre `null`.
+
+1. Son atributos los hijos directos `name`, `cmt`, `desc`, `src`, `link`, `type` y `number` de `wpt`,
+   `rte` y `trk`; `link` es el `href` del primero y `number` sale como número (si no lo es, el
+   decodificador lanza y sale `'properties'`). Todo otro hijo, de los features o de los puntos, suma
+   `foreignMembers`, igual que `metadata` y `extensions` de la raíz.
+2. `lat` y `lon` admiten espacios al principio y al final. Falta uno, es `'posicion'`; un valor que no es
+   número, o un `ele` vacío, es `'numero'`.
+3. `rte` sin `rtept` y `trk` sin `trkseg` salen con 0 partes; un `trkseg` vacío es una parte con un
+   anillo de 0 vértices.
+
+### 20.11 WKT y EWKT — `readWkt`
+
+**Entrada.** `string` o sus bytes UTF-8, con el BOM saltado. Una o más geometrías separadas por blanco
+o `;`: cada una es un feature y `stats.roots` las cuenta.
+
+**Subconjunto.** `POINT`, `LINESTRING`, `POLYGON`, `MULTIPOINT` (con y sin paréntesis por punto),
+`MULTILINESTRING`, `MULTIPOLYGON` y `GEOMETRYCOLLECTION`, más `TRIANGLE` como `Polygon` y `TIN` y
+`POLYHEDRALSURFACE` como `MultiPolygon`. Palabras clave sin distinguir mayúsculas.
+
+**Dimensión.**
+
+| Modificador | Ordenadas | `z` | Suma `extraOrdinates` |
+|---|---|---|---|
+| `Z` | 3 | la tercera | no |
+| `M` | 3 | NaN | sí |
+| `ZM` | 4 | la tercera | sí |
+| ninguno | la fija la primera posición: 2, 3 (Z de PostGIS) o 4 (ZM) | según el caso | con 4 |
+
+El modificador va separado (`POINT Z`) o pegado (`POINTM`, `POINTZ`, `POINTZM`). Un hijo de
+`GEOMETRYCOLLECTION` sin modificador hereda el de la colección; con uno distinto es `'posicion'`.
+
+**Vacíos.** `X EMPTY` es una geometría de 0 partes. Por debajo del tope ocupa su ranura:
+`POLYGON (EMPTY)` es 1 parte con 1 anillo de 0 vértices. Un punto vacío dentro de un `MULTIPOINT` no
+aporta vértice.
+
+**CRS.** `SRID=n;` declara el CRS y debe ser el mismo en todas las geometrías; una que declara y otra
+que no también es `'crs'`. `SRID=0` equivale a no declararlo.
+
+**Errores.** Vacío o sólo blanco es `'sintaxis'` en 0. Una primera geometría que no empieza con palabra
+es `'formato'`, con `hint: 'wkb'` si el primer byte es 0, 1 o `'0'`. Paréntesis sin cerrar es
+`'truncado'`; un token fuera de lugar o `1.2.3`, `'sintaxis'`; menos de 2 o más de 4 ordenadas, o
+distinta de la fijada, `'posicion'`; un no finito, `'numero'`; una palabra fuera del subconjunto,
+curvas incluidas, `'tipo'`. `maxDepth` cuenta niveles de geometría (la raíz es 1 y cada colección suma
+uno) y las colecciones se recorren con una pila propia.
+
+### 20.12 WKB y EWKB — `readWkb`
+
+**Entrada.** Bytes, o un `string` con su hexadecimal. Un hex de largo impar o con un carácter que no es
+hex es `'entrada'`. `bytes` retiene el binario, y `at` es un offset en él. Una entrada es una geometría
+y un feature.
+
+**Lectura.** Cada sub-geometría trae su byte de orden y se respeta. Tipos ISO 1-7, 15 y 16 (como
+`MultiPolygon`) y 17 (como `Polygon`), con los miles de ISO y las banderas de EWKB (`0x80000000` Z,
+`0x40000000` M, `0x20000000` SRID) aceptados juntos. Un SRID puede venir en cualquier nivel y debe ser
+uno solo. `POINT EMPTY` (x e y en NaN) y un `LineString` o `Polygon` de 0 elementos son geometrías de 0
+partes.
+
+**Errores.** Cada conteo se compara con lo que queda antes de usarlo: `numPoints` por el tamaño de la
+posición, `numRings` por 4 y `numGeometries` por 9. Lo que no cabe es `'truncado'`. Un byte de orden
+distinto de 0 y 1 en la raíz es `'formato'` (con `hint: 'wkt'` si es una letra), y en un hijo
+`'estructura'`, como un hijo de `Multi*` del tipo equivocado o bytes de más. Curvas, `Geometry` (0) y
+tipos desconocidos son `'tipo'`.
+
+### 20.13 TopoJSON 1.0 — `readTopoJson`
+
+**Dos fases.** El orden de los miembros no importa, y `arcs` puede llegar después de `objects`.
+
+1. La primera fase recorre el documento una vez. Decodifica `arcs` a tablas propias y anota un
+   programa de emisión con los índices de arco de cada geometría.
+2. La segunda suma lo que va a emitir: si `16 · posiciones` pasa de `maxBytes`, es `'tope'` antes de
+   reservar. Después reproduce el programa sobre el constructor.
+
+El `arcs` o `coordinates` de cada geometría se recorre dos veces, porque `type` puede llegar después;
+el costo lo acota el tamaño de esos índices, no la tabla de arcos.
+
+**Decodificación.** Con `transform`, cada arco es delta desde su primera posición, por `scale`, más
+`translate`; `Point` y `MultiPoint` se cuantizan sin delta. La tercera ordenada va a `z` sin
+transformar, y desde la cuarta suman `extraOrdinates`, una vez por posición del documento. `~i` recorre
+el arco `i` al revés, y al unir arcos se omite la primera posición de cada uno salvo el primero.
+
+**Mapeo.** Cada miembro de `objects` es una capa. Si es `GeometryCollection`, cada hijo es un feature y
+lo de más adentro se aplana en él; si no, el objeto es el feature. `propertiesOf` e `idOf` hacen
+`JSON.parse` de `properties` e `id` del objeto que es feature. `type: null` es un feature sin
+geometrías.
+
+**Errores.** Índice de arco fuera de rango, no entero o no número; `transform` incompleto; hoja con
+`geometries`, colección sin `geometries`, hoja sin `arcs` o sin `coordinates`; un nombre repetido en
+`objects`: `'estructura'`. Sin `type` o con uno que no es de geometría: `'tipo'`. Raíz que no es
+objeto o `type` distinto de `Topology`: `'formato'`, con `hint` `'geojson'` o `'esrijson'` cuando
+corresponde. `options.object` que no está: `'formato'`.
+
+### 20.14 EsriJSON — `readEsriJson`
+
+**La raíz se resuelve al cerrarla.** Con `features` es un FeatureSet; con `geometry` o `attributes`, un
+feature; con miembros de geometría, una geometría suelta. Dos roles a la vez es `'estructura'`.
+Ninguno, o un `type` de GeoJSON o de TopoJSON, es `'formato'` con `hint`.
+
+**Dos fases.** `hasZ` y `hasM` pueden llegar después de las coordenadas. La primera fase guarda hasta
+cuatro ordenadas por posición y la segunda decide: la tercera es Z con `hasZ: true` o sin ninguna
+bandera; con `hasM` sin `hasZ`, o con `hasZ: false`, se descarta. Lo descartado suma
+`extraOrdinates`. El Point no depende de las banderas: `z` y `m` son miembros con nombre.
+
+| Geometría | Tipo |
+|---|---|
+| `{x, y, z?, m?}` | Point; `x: null` o `"NaN"` es Point de 0 partes |
+| `points` | MultiPoint |
+| `paths` | LineString con 0 o 1 path, MultiLineString con más |
+| `rings` | §20.4, convención horaria |
+| Envelope | Polygon horario de 5 vértices; vacío si algún borde lo es |
+| `curvePaths`, `curveRings` | `skippedGeometries`, feature sin geometría |
+| `geometry: null` o `{}` | feature sin geometría |
+
+`propAt` es el valor de `attributes`, e `idOf` es `null`: `objectIdFieldName` puede llegar después de
+los features. `spatialReference` va en la raíz o en la geometría, se resuelve con `latestWkid`, `wkid` y
+`wkt` en ese orden, y dos CRS distintos en una lectura son `'crs'`. `bboxSkipped` queda en 0.
+
+### 20.15 Shapefile y dBase — `readShapefile`, `readShapefileZip`
+
+1. **Cabecera.** Código 9994 big-endian, si no `'formato'`; versión 1000, si no `'version'`; tipo de la
+   tabla (0, 1, 3, 5, 8, 11, 13, 15, 18, 21, 23, 25, 28, 31), si no `'tipo'`. El largo declarado es el
+   fin del archivo: menor que 100 es `'estructura'`, mayor que la entrada es `'truncado'`, y lo que
+   sigue después no se lee.
+2. **Registros.** Largo de contenido menor que 4 es `'estructura'`; que pasa del archivo, `'truncado'`.
+   Un tipo distinto del de la cabecera y de Null es `'estructura'`. Null es un feature sin geometría y
+   MultiPatch suma `skippedGeometries`.
+3. **Largo exacto.** El contenido mide lo que su tipo exige, con Z obligatoria en la variante Z y la M
+   opcional en las variantes Z y M. Menos es `'truncado'`; otro largo, `'estructura'`. Con M,
+   `extraOrdinates` suma los puntos del registro.
+4. **Conteos.** `NumParts` y `NumPoints` negativos son `'estructura'`, y los que no caben en el registro,
+   `'truncado'`, antes de leer. `Parts[]` abre en 0, no decrece y queda bajo `NumPoints`.
+5. **Mapeo.** Point → Point; MultiPoint → MultiPoint; PolyLine → LineString con una parte y
+   MultiLineString con varias; Polygon → §20.4.
+6. **`.dbf`.** Versiones 0x03, 0x30-0x32, 0x43, 0x63, 0x83, 0x8B, 0xCB, 0xF5 y 0xFB; otra es
+   `'version'`. Sin terminador 0x0D o con largo de registro distinto de 1 + Σ largos es
+   `'estructura'`. Un conteo de registros distinto del `.shp` es `'estructura'`.
+7. **Codificación.** `options.encoding`, si no el `.cpg`, si no el language driver del byte 29, si no
+   windows-1252. No se adivina por el contenido. Las etiquetas se comparan sin mayúsculas, espacios,
+   `_` ni `-`, y salen con el nombre canónico de `TextDecoder`:
+
+   | Se escribe | Se lee como |
+   |---|---|
+   | `UTF-8`, `UTF8`, `65001` | UTF-8 |
+   | `125x`, `ANSI 125x`, `CP125x`, `windows-125x` | windows-125x |
+   | `8859x`, `8859-x`, `ISO-8859-x`, `ISO8859x`, `2859x`, `2860x` (13 a 16) | ISO-8859-x |
+   | `874`, `866`, `932`, `936`, `949`, `950`, `20866`, `21866`, `20932`, `54936`, `10000` | windows-874, IBM866, Shift_JIS, GBK, EUC-KR, Big5, KOI8-R, KOI8-U, EUC-JP, GB18030, macintosh |
+   | otro nombre (`LATIN1`, `Shift_JIS`, `EUC-KR`, `Big5`…) | el que `TextDecoder` reconozca |
+
+   WHATWG Encoding lee ISO-8859-1 como windows-1252, que la contiene, e ISO-8859-9 y -11 como
+   windows-1254 y windows-874.
+
+   Un `.cpg` que no se reconoce, o que `TextDecoder` no trae (437 y 850, por ejemplo), no frena la
+   lectura: deja `{ code: 'codificacion', detail: '.cpg "<etiqueta>"' }` en `warnings` y la
+   codificación sigue la cadena como si no hubiera `.cpg`. Un `.cpg` vacío no avisa. Un
+   `options.encoding` que no se reconoce, o que no es texto, es `'entrada'`: lo pidió el consumidor.
+   Decodificar es estricto: un byte inválido en la codificación elegida es `'codificacion'`.
+   windows-1252 asigna los 256 bytes, así que el default no falla nunca.
+8. **Valores, a demanda.** `C` texto recortado; `N` y `F` número, o `null` en blanco (otro texto lanza y
+   sale `'properties'`); `L` booleano o `null`; `D` texto `YYYY-MM-DD`. Memo y tipos fuera de la tabla
+   salen `null` y suman `foreignMembers`. Los registros borrados se emiten y suman `deletedRecords`.
+9. **CRS.** El `.prj` (WKT1) manda; sin él, `options.crs`; sin ninguno, grados con aviso fuera de
+   rango (§20.5).
+10. **Zip.** Un solo `.shp`, o el que nombra `options.layer` por su ruta sin extensión; si no,
+    `'formato'` con las capas en el mensaje. `.dbf`, `.prj` y `.cpg` se emparejan por nombre base, y lo
+    inflado se descuenta de `maxBytes` entrada por entrada.
+
+### 20.16 FlatGeobuf — `readFlatGeobuf`
+
+1. **Mágico.** `fgb` en 0-2 y 4-6, si no `'formato'`; byte 3 distinto de 3 es `'version'`.
+2. **FlatBuffers.** Toda lectura se valida contra el buffer en curso; un offset fuera es
+   `'estructura'`. Un string que no es UTF-8 es `'codificacion'`.
+3. **Índice.** Se salta. `index_node_size` vale 16 si no está; con `features_count` 0 o
+   `index_node_size` 0 no hay índice, y 1 es `'estructura'`.
+4. **Features.** Con conteo se leen exactamente esos y lo que sobra es `'estructura'`; sin conteo,
+   hasta el final.
+5. **Mapeo.** El tipo de la cabecera manda; si es Unknown, el de cada feature. `GeometryCollection` se
+   aplana y las partes de un `MultiPolygon` son sus polígonos. Los tipos 8-17 suman
+   `skippedGeometries`.
+6. **Amplificación.** Por feature, los vértices emitidos no pasan de `largo / 16` y las visitas a tablas
+   `Geometry` no pasan de `largo / 4`; pasarlo es `'estructura'`. Cada nivel de `parts` cuenta contra
+   `maxDepth`.
+7. **Propiedades.** Pares `(columna, valor)` según `Header.columns`; los enteros de 64 bits que no caben
+   exactos en un `number` salen como `bigint`.
+8. **CRS.** `org` + `code`, `OGC:CRS84` o el WKT de la cabecera, en ese orden. Una tabla `crs` sin
+   código ni WKT cuenta como no declarada.
+
+### 20.17 Test
+
+Cada formato tiene su carpeta en `test/formats/<formato>/`, al nivel de §17.8:
+
+- corpus a mano con la cita de cada fixture, en `felices/`, `especificacion/`, `degenerados/` y
+  `adversarios/`; los binarios, en hex comentado campo por campo;
+- un oráculo independiente del lector: `JSON.parse` para TopoJSON y EsriJSON, el `DOMParser` de jsdom
+  para KML y GPX, un descenso recursivo para WKT y generadores de bytes para WKB, Shapefile y
+  FlatGeobuf. Cada oráculo se prueba contra tablas escritas a mano;
+- `test/formats/equivalencia.test.mjs`: la misma geometría en los ocho formatos da las mismas tablas,
+  salvo las diferencias declaradas;
+- números exactos, las cuatro formas de entrada, `areasOf` y fuzz de mutación: sólo `FormatError`,
+  ninguna lectura fuera de rango y ningún camino sin terminación;
+- 100 mil niveles de anidamiento dan `'profundidad'`, no un `RangeError`.
+
+### 20.18 Invariantes del segmento
+
+1. **Sin grafo.** Ningún lector materializa objetos por vértice ni por posición (§17.10-1).
+2. **Cero dominio.** Los términos son los de cada especificación.
+3. **Todo error es `FormatError` con `code` y offset**, también en los asíncronos.
+4. **Leer no adivina.** Ni el formato (eso es `detectFormat`, aparte), ni la codificación de un `.dbf`,
+   ni un CRS que no está declarado ni pedido.
+5. **Lo que la entrada hace crecer tiene tope.** Inflado y expansión de arcos van contra `maxBytes`, y
+   cada conteo se compara con los bytes que quedan antes de reservar.
+6. **El entry no importa `cristae/geojson`.** La dependencia va al revés: `src/geojson/` importa los
+   números de `src/formats/core/number.js`.

@@ -1,0 +1,2 @@
+<!-- XML 1.0 §2.2 y §4.1: &#0; no es Char. -->
+<kml><Placemark><name>a&#0;b</name></Placemark></kml>

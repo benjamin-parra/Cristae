@@ -43,6 +43,41 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   `radius`, `blur`, `intensity` y `visible` como atributos. Todo salvo `source` y `accessors` se aplica en
   vivo. No se pica. Ver [`docs/heat.md`](docs/heat.md).
   *Migración*: ninguna.
+- **`cristae/formats`: lectores por especificación a las tablas de `readGeoJson`.** Entry nuevo, sin DOM,
+  Leaflet ni dependencias, como `cristae/geojson`, con global UMD `CristaeFormats`. Cada lector deja la
+  geometría en los arrays tipados de §17.1, sin grafo intermedio, y suma `format`, `crs` y capas
+  (`layers`, `layerOf`); `propertiesOf` decodifica a demanda y `areasOf` sirve sin cambios. La salida
+  siempre está en grados WGS84: UTM, Web Mercator y los `.prj` de transversa de Mercator se pasan a
+  grados, y `read.crs` dice en qué venía la fuente. Ver [`docs/formats.md`](docs/formats.md) y SPECS §20.
+  - `readKml`, `readKmz` y `readGpx`: KML 2.2, KMZ y GPX 1.1, sin DOM y sin resolver DTD. KMZ se infla
+    con `DecompressionStream`.
+  - `readWkt` (WKT y EWKT, varias geometrías por entrada) y `readWkb` (WKB y EWKB, binario o hex).
+  - `readTopoJson`: TopoJSON 1.0 con `transform`, arcos compartidos e invertidos, una capa por miembro
+    de `objects` y tope de expansión de arcos (`maxBytes`). Sin `crs` asume lon/lat WGS84 y lo declara
+    (`'EPSG:4326'`); una topología proyectada se lee con `{ crs }`.
+  - `readEsriJson`: FeatureSet, feature o geometría de ArcGIS REST, con anillos agrupados por
+    orientación y contención, `hasZ`/`hasM` y CRS desde `spatialReference`.
+  - `readShapefile` y `readShapefileZip`: Shapefile con su `.dbf`, `.prj` y `.cpg`, sueltos o en un zip.
+    Polígonos agrupados por orientación y contención, Z a `z`, M descartada y contada, y atributos de
+    dBase decodificados a demanda con la codificación del `.cpg`, del language driver o windows-1252.
+    El `.cpg` se entiende en sus escrituras habituales (`UTF-8`, `65001`, `ANSI 1252`, `88591`,
+    `ISO-8859-1`, `936`…); uno que no se reconoce avisa en `warnings` y no frena la lectura.
+  - `readFlatGeobuf`: FlatGeobuf 3 en lectura secuencial (el índice se salta), con los siete tipos de
+    geometría, colecciones aplanadas, z, las quince clases de columna y el CRS de la cabecera.
+  - `FormatError`, el error común, con `format`, `code`, `at` y `hint`, y siete códigos más que
+    `GeoJsonError`: `crs`, `compresion`, `tope`, `entorno`, `version`, `codificacion` y `dtd`.
+  - `warnings` en cada lectura: avisos no fatales `{ code, detail }`, vacío si no hubo: `'codificacion'`
+    (un `.cpg` que no sirve) y `'crs'` (fuente sin CRS fuera de rango).
+  - Sin CRS de la fuente ni `options.crs` se suponen grados y `read.crs` es `'EPSG:4326'`, que nunca
+    es `null`: si las coordenadas no caben, la lectura sigue y avisa `'crs'` en `warnings` pidiendo
+    `{ crs }`, en vez de fallar.
+    Vale para Shapefile sin `.prj`, FlatGeobuf sin CRS, EsriJSON sin `spatialReference`, WKT y WKB sin
+    SRID y TopoJSON. Un `crs` inválido o un CRS de la fuente sin soporte siguen siendo error.
+  - `detectFormat`, que reconoce el formato por los bytes mágicos y el primer token, sin lanzar.
+  - Opciones comunes `maxBytes`, el tope de lo que la entrada hace crecer, y `crs`, el CRS de una fuente
+    que no declara el suyo (un Shapefile sin `.prj`, el WKT de `ST_AsText`).
+
+  *Migración*: ninguna.
 
 ### Cambiado
 - **El build emite `es2022`** (antes `es2020`): los campos y métodos privados y los campos de clase
@@ -101,6 +136,8 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   una hoja es `'leaf'`; un `'fold'`, `'aggregate'`; un `'map'` con `bindsTo`, `'decorate'`, y el resto de
   los `'map'`, `'transform'`. Los demás campos se quitan; `bindsTo` también en una hoja. Quien leía
   `combine` o `arity` de `signatureFor` lee `role`, o `isLeaf` / `isWrapper`.
+- `cristae/geojson` toma la división exacta de números largos del núcleo de `cristae/formats`, que la
+  comparte con los lectores de texto. El resultado no cambia, bit a bit.
 
 ### Deprecado
 - **El retiro de lo deprecado se adelanta de la 1.0 a la v0.40.0.** Lo que se anunció «se retira en 1.0»

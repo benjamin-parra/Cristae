@@ -1,0 +1,7 @@
+<?xml version="1.0"?>
+<!-- DISENO-INTEROP §3.2: un GPX 1.0 se lee igual por nombre local; `url` de 1.0 no es atributo de
+     1.1 y se cuenta como ajeno. -->
+<gpx version="1.0" xmlns="http://www.topografix.com/GPX/1/0">
+  <wpt lat="5" lon="6"><name>uno</name><url>http://ejemplo.invalid</url></wpt>
+  <trk><trkseg><trkpt lat="1" lon="1"/><trkpt lat="2" lon="2"/></trkseg></trk>
+</gpx>

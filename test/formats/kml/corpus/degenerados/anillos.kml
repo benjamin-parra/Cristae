@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- DISENO-INTEROP §3.1, bordes que se cuentan y no se corrigen (SPECS §17.3-5): exterior horario
+     (reversedRings), anillo abierto (openRings), anillo de 3 posiciones (shortRings), anillo de área
+     0 (degenerateRings) y un LinearRing suelto, que es LineString con `closed` según §17.3-13. -->
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Placemark><Polygon><outerBoundaryIs><LinearRing><coordinates>0,0 0,1 1,1 1,0 0,0</coordinates></LinearRing></outerBoundaryIs></Polygon></Placemark>
+  <Placemark><Polygon><outerBoundaryIs><LinearRing><coordinates>0,0 1,0 1,1 0,1</coordinates></LinearRing></outerBoundaryIs></Polygon></Placemark>
+  <Placemark><Polygon><outerBoundaryIs><LinearRing><coordinates>0,0 1,0 0,0</coordinates></LinearRing></outerBoundaryIs></Polygon></Placemark>
+  <Placemark><Polygon><outerBoundaryIs><LinearRing><coordinates>0,0 1,1 2,2 0,0</coordinates></LinearRing></outerBoundaryIs></Polygon></Placemark>
+  <Placemark><LinearRing><coordinates>0,0 1,0 1,1 0,0</coordinates></LinearRing></Placemark>
+</kml>

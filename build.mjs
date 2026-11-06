@@ -22,13 +22,14 @@ const projectRoot = process.cwd()
 const outDir = resolve(projectRoot, 'dist/cristae')
 
 // Entry → archivo. `map` re-exporta el núcleo; `table` no arrastra Leaflet; `core` es solo datos;
-// `geojson` y `geometry` no importan a ninguno de los tres y sirven sueltos en un worker.
+// `geojson`, `geometry` y `formats` no importan a ninguno de los tres y sirven sueltos en un worker.
 const ENTRIES = {
   core:     resolve(srcDir, 'src/data/index.js'),
   table:    resolve(srcDir, 'src/table/index.js'),
   map:      resolve(srcDir, 'src/index.js'),
   geojson:  resolve(srcDir, 'src/geojson/index.js'),
   geometry: resolve(srcDir, 'src/geometry/index.js'),
+  formats:  resolve(srcDir, 'src/formats/index.js'),
 }
 const UMD_GLOBALS = {
   core:     'CristaeCore',
@@ -36,6 +37,7 @@ const UMD_GLOBALS = {
   map:      'CristaeMap',
   geojson:  'CristaeGeoJson',
   geometry: 'CristaeGeometry',
+  formats:  'CristaeFormats',
 }
 
 // Config común: sin cargar el vite.config de la app (nada de React/Tailwind/aliases), __DEBUG__ fijo en
@@ -210,9 +212,10 @@ async function generateLlmsTxt() {
     ...docFiles.map(f => `- [${f.replace('.md', '')}](${base}/docs/${f})`),
     '',
     '## Builds (self-contained, sin CDN)',
-    '- ESM: `esm/map.js`, `esm/table.js`, `esm/core.js`, `esm/geojson.js`, `esm/geometry.js`',
+    '- ESM: `esm/map.js`, `esm/table.js`, `esm/core.js`, `esm/geojson.js`, `esm/geometry.js`,',
+    '  `esm/formats.js`',
     '- UMD: `umd/map.js` (global `CristaeMap`), `umd/table.js`, `umd/core.js`, `umd/geojson.js`,',
-    '  `umd/geometry.js`',
+    '  `umd/geometry.js`, `umd/formats.js`',
     '- Importar el módulo (o cargar el UMD) registra los custom elements `<cristae-*>` por efecto.',
     '',
     '## Reglas e invariantes al usar (no violarlas)',

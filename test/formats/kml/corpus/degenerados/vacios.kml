@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SPECS §17.3-14 y §17.9: geometrías sin posiciones salen con 0 partes; un LinearRing de polígono
+     sin coordenadas es 1 parte, 1 anillo, 0 vértices; un Placemark sin geometría es un feature sin
+     geometrías. -->
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <Placemark><Point/></Placemark>
+    <Placemark><LineString><coordinates>   </coordinates></LineString></Placemark>
+    <Placemark><Polygon/></Placemark>
+    <Placemark><name>sin geometría</name></Placemark>
+    <Placemark><MultiGeometry/></Placemark>
+    <Placemark><Polygon><outerBoundaryIs><LinearRing><coordinates/></LinearRing></outerBoundaryIs></Polygon></Placemark>
+    <Placemark/>
+  </Document>
+</kml>

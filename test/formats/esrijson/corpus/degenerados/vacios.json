@@ -1,0 +1,9 @@
+{ "features": [
+  { "geometry": { "points": [] } },
+  { "geometry": { "paths": [] } },
+  { "geometry": { "rings": [] } },
+  { "geometry": null },
+  { "geometry": {} },
+  { "attributes": { "solo": "atributos" } },
+  { "geometry": { "paths": [[]] } }
+] }

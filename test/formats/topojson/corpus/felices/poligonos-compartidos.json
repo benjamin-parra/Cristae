@@ -1,0 +1,18 @@
+{
+  "type": "Topology",
+  "transform": { "scale": [0.5, 2], "translate": [10, 20] },
+  "objects": {
+    "parcelas": {
+      "type": "GeometryCollection",
+      "geometries": [
+        { "type": "Polygon", "id": "izq", "properties": { "n": 1 }, "arcs": [[0, 1]] },
+        { "type": "Polygon", "id": "der", "properties": { "n": 2 }, "arcs": [[2, -1]] }
+      ]
+    }
+  },
+  "arcs": [
+    [[2, 0], [0, 2]],
+    [[2, 2], [-2, 0], [0, -2], [2, 0]],
+    [[2, 0], [2, 0], [0, 2], [-2, 0]]
+  ]
+}

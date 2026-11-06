@@ -52,6 +52,7 @@ import { createSource, defineIconSet } from 'cristae/map'
 | `cristae/core`     | solo el núcleo de datos (sin DOM)                           | —                  |
 | `cristae/geojson`  | lector de GeoJSON a arrays tipados                          | —                  |
 | `cristae/geometry` | distancias, áreas, formas, geodésica, terreno, cajas y path | —                  |
+| `cristae/formats`  | KML, GPX, WKT/WKB, TopoJSON, EsriJSON, Shapefile y FGB      | —                  |
 
 `table` y `map` nunca se importan entre sí: una tabla no baja Leaflet.
 

@@ -1,0 +1,5 @@
+{ "features": [
+  { "geometry": { "x": null, "y": null }, "attributes": { "k": 1 } },
+  { "geometry": { "x": "NaN", "y": "NaN" }, "attributes": { "k": 2 } },
+  { "geometry": { "xmin": "NaN", "ymin": "NaN", "xmax": "NaN", "ymax": "NaN" }, "attributes": { "k": 3 } }
+] }

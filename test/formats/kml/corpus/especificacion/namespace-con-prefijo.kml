@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- DISENO-INTEROP §2.6 y §3.1: los nombres se comparan por nombre local, así que un prefijo de
+     namespace o el namespace de KML 2.1 se leen igual. -->
+<k:kml xmlns:k="http://earth.google.com/kml/2.1">
+  <k:Document>
+    <k:name>Prefijada</k:name>
+    <k:Placemark k:id="x"><k:LineString><k:coordinates>1,2 3,4</k:coordinates></k:LineString></k:Placemark>
+  </k:Document>
+</k:kml>

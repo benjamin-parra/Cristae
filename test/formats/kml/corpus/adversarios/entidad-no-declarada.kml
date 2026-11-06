@@ -1,0 +1,2 @@
+<!-- XML 1.0 §4.1, WFC: Entity Declared: sin DTD no hay dónde declarar &foo;. -->
+<kml><Placemark><name>&foo;</name></Placemark></kml>

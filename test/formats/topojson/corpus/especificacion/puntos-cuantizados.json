@@ -1,0 +1,9 @@
+{
+  "type": "Topology",
+  "transform": { "scale": [0.25, 0.5], "translate": [-71, -34] },
+  "objects": {
+    "p": { "type": "MultiPoint", "coordinates": [[4, 2], [4, 2], [0, 0]] },
+    "q": { "type": "Point", "coordinates": [8, 6] }
+  },
+  "arcs": [[[1, 1], [1, 1]]]
+}

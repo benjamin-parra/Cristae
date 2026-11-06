@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- DISENO-INTEROP §1.3 y §3.1: posiciones 2D y 3D mezcladas (z con NaN donde era 2D, SPECS
+     §17.3-4) y una cuarta ordenada o más, que se descarta y suma extraOrdinates. -->
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Placemark><LineString><coordinates>0,0 1,1,10 2,2,20,99 3,3,30,1,2</coordinates></LineString></Placemark>
+</kml>

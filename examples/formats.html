@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Cristae · Formatos: detectar, leer y dibujar</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #0b1020; color: #e5e7eb;
+    font: 13px/1.5 ui-sans-serif, system-ui, -apple-system, sans-serif; overflow: hidden; }
+  #map { position: fixed; inset: 0; z-index: 0; background: #0b1020; }
+  .leaflet-container { background: #0b1020; }
+  #panel { position: fixed; top: 14px; left: 14px; z-index: 1000; width: 360px;
+    max-height: calc(100vh - 28px); overflow: auto; background: rgba(15,20,33,.94);
+    border: 1px solid #263043; border-radius: 12px; padding: 12px 14px; }
+  h1 { font-size: 13px; margin: 0 0 2px; letter-spacing: .02em; }
+  .sub { color: #94a3b8; font-size: 11px; margin-bottom: 10px; }
+  .card { border-top: 1px solid #263043; padding: 9px 0 7px; }
+  .card h2 { font-size: 11.5px; margin: 0 0 6px; color: #cbd5e1;
+    text-transform: uppercase; letter-spacing: .04em; }
+  .exp { color: #64748b; font-size: 10.5px; margin: 0 0 7px; line-height: 1.4; }
+  #zona { border: 1px dashed #374151; border-radius: 10px; padding: 14px 10px; text-align: center;
+    color: #94a3b8; font-size: 11.5px; cursor: pointer; }
+  #zona.sobre { border-color: #22d3ee; color: #e5e7eb; background: rgba(34,211,238,.06); }
+  #muestras { display: grid; grid-template-columns: auto 1fr 1fr; gap: 4px 6px; align-items: center; }
+  #muestras span { color: #cbd5e1; font-size: 11px; }
+  button { background: #1f2937; color: #e5e7eb; border: 1px solid #374151; border-radius: 8px;
+    padding: 3px 8px; font: inherit; font-size: 11px; cursor: pointer; }
+  button:hover { border-color: #22d3ee; }
+  button.mala:hover { border-color: #f87171; }
+  b { color: #f1f5f9; font-variant-numeric: tabular-nums; }
+  .meta { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; font-size: 11px; color: #94a3b8; }
+  #error { display: none; margin-top: 6px; padding: 6px 8px; border-radius: 8px; font-size: 11px;
+    background: rgba(248,113,113,.1); border: 1px solid #7f1d1d; color: #fecaca; }
+  #error code { color: #fca5a5; }
+  #log { margin: 0; font: 10.5px/1.4 ui-monospace, monospace; color: #94a3b8; white-space: pre-wrap; max-height: 140px; overflow: auto; }
+  .swatch { display: inline-block; width: 9px; height: 9px; border-radius: 2px; vertical-align: -1px; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+
+<div id="panel">
+  <h1>Formatos · <code>cristae/formats</code></h1>
+  <p class="sub"><code>detectFormat</code> mira los bytes, el lector que toca arma las tablas y las capas
+    de siempre las dibujan: áreas con <code>areasOf</code>, líneas y puntos con sus accessors.</p>
+
+  <div class="card">
+    <h2>Archivo</h2>
+    <p class="exp">Un archivo, o los de un Shapefile suelto (<code>.shp</code>, <code>.dbf</code>,
+      <code>.prj</code>, <code>.cpg</code>) juntos. El formato sale del contenido, no de la extensión.</p>
+    <label id="zona">Arrastrá acá o hacé clic para elegir
+      <input id="archivo" type="file" multiple hidden>
+    </label>
+  </div>
+
+  <div class="card">
+    <h2>Muestras</h2>
+    <p class="exp">Del corpus de <code>test/formats/</code>; los binarios salen de los escritores de
+      prueba. La corrupta debe terminar en un <code>FormatError</code> con su código.</p>
+    <div id="muestras"></div>
+  </div>
+
+  <div class="card">
+    <h2>Lectura</h2>
+    <div class="meta">
+      <span>origen</span><b id="origen">—</b>
+      <span>formato detectado</span><b id="formato">—</b>
+      <span>CRS de la fuente</span><b id="crs">—</b>
+      <span>features</span><b id="nFeatures">—</b>
+      <span>geometrías</span><b id="nGeometrias">—</b>
+      <span>partes</span><b id="nPartes">—</b>
+      <span>anillos</span><b id="nAnillos">—</b>
+      <span>vértices</span><b id="nVertices">—</b>
+      <span><span class="swatch" style="background:#22d3ee"></span> áreas · líneas · puntos</span><b id="dibujado">—</b>
+      <span>capas</span><b id="capas">—</b>
+      <span>ms de lectura</span><b id="ms">—</b>
+    </div>
+    <div id="error"></div>
+  </div>
+
+  <div class="card">
+    <h2>Detalle</h2>
+    <pre id="log"></pre>
+  </div>
+</div>
+
+<script type="module" src="./formats.js"></script>
+</body>
+</html>

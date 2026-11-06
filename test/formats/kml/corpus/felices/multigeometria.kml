@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 07-147r2: kml:MultiGeometry se aplana en profundidad y en orden de documento, como la
+     GeometryCollection de SPECS §17.1; una MultiGeometry anidada también. -->
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Placemark>
+    <MultiGeometry>
+      <Point><coordinates>1,1</coordinates></Point>
+      <MultiGeometry>
+        <LineString><coordinates>0,0 1,1</coordinates></LineString>
+        <Point><coordinates>2,2,5</coordinates></Point>
+      </MultiGeometry>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>0,0 1,0 1,1 0,0</coordinates></LinearRing></outerBoundaryIs></Polygon>
+    </MultiGeometry>
+  </Placemark>
+</kml>

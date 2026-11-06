@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- DISENO-INTEROP §3.1 y D-6: Model y gx:Track suman skippedGeometries; Style, NetworkLink,
+     GroundOverlay, extrude y altitudeMode se atraviesan sin interpretar y suman foreignMembers. -->
+<kml xmlns="http://www.opengis.net/kml/2.2" xmlns:gx="http://www.google.com/kml/ext/2.2">
+  <Document>
+    <Style id="rojo"><LineStyle><color>ff0000ff</color></LineStyle></Style>
+    <NetworkLink><Link><href>http://ejemplo.invalid/x.kml</href></Link></NetworkLink>
+    <GroundOverlay><Icon><href>a.png</href></Icon></GroundOverlay>
+    <Placemark>
+      <visibility>1</visibility>
+      <Model><Location><longitude>1</longitude><latitude>2</latitude></Location></Model>
+    </Placemark>
+    <Placemark>
+      <gx:Track><when>2010-05-28T02:02:09Z</when><gx:coord>1 2 3</gx:coord></gx:Track>
+      <Point><extrude>1</extrude><altitudeMode>absolute</altitudeMode><coordinates>5,6,7</coordinates></Point>
+    </Placemark>
+  </Document>
+</kml>

@@ -1,0 +1,38 @@
+// Tipos de los lectores de Shapefile y su `.dbf` (`cristae/formats`). Contrato en SPECS.md §20;
+// mantener sincronizado con src/formats/shapefile.js y src/formats/dbf.js.
+import type { FormatOptions, FormatRead } from './core'
+
+export type ShapefileBytes = Uint8Array | ArrayBuffer | ArrayBufferView
+
+/** Los archivos de una capa. Sin `.shx`: el `.shp` se recorre en orden. */
+export interface ShapefileFiles {
+  shp  : ShapefileBytes;
+  /** Atributos: un registro por registro del `.shp`, en el mismo orden. Sin él, `propertiesOf` es `null`. */
+  dbf? : ShapefileBytes | null;
+  /** WKT1 del CRS. Sin él manda `options.crs`, y sin ella se suponen grados (aviso `'crs'` si no caben). */
+  prj? : ShapefileBytes | string | null;
+  /** Codificación del `.dbf`: una etiqueta o una página de códigos (`UTF-8`, `1252`, `ANSI 1252`, `88591`).
+   *  Una que no se reconoce no frena: deja un aviso `'codificacion'` en `warnings` y se lee como sin `.cpg`. */
+  cpg? : ShapefileBytes | string | null;
+}
+
+export interface ShapefileOptions extends FormatOptions {
+  /** Codificación del `.dbf`, con las mismas formas que el `.cpg`. Gana al `.cpg`, al language driver y
+   *  al default windows-1252; una que no se reconoce es `'entrada'`. */
+  encoding? : string;
+  /** En un zip con varios `.shp`, el nombre del que se lee: su ruta en el zip, sin extensión. */
+  layer?    : string;
+}
+
+/**
+ * Síncrono. `propertiesOf(f)` devuelve `{ campo: valor }`: `C` texto recortado a la derecha, `N` y `F`
+ * número o `null` en blanco, `L` booleano o `null`, `D` texto `YYYY-MM-DD`; memo y tipos fuera de la
+ * tabla, `null`. `bytes` es el `.dbf`. Los polígonos se agrupan por orientación y contención.
+ * `FormatError.at` es un offset del archivo que falló (`.shp` o `.dbf`). Un byte inválido en la
+ * codificación elegida es `'codificacion'`; windows-1252, el default, no falla nunca.
+ */
+export declare function readShapefile(files: ShapefileFiles, options?: ShapefileOptions): FormatRead
+
+/** Asíncrono por el inflado. Empareja `.dbf`, `.prj` y `.cpg` con el `.shp` por nombre base, sin
+ *  distinguir mayúsculas en la extensión; lo inflado suma contra `maxBytes`. */
+export declare function readShapefileZip(input: ShapefileBytes, options?: ShapefileOptions): Promise<FormatRead>

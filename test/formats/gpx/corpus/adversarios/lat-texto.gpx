@@ -1,0 +1,2 @@
+<!-- gpx.xsd: latitudeType es xsd:decimal. -->
+<gpx><wpt lat="norte" lon="1"/></gpx>

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- DISENO-INTEROP §2.6: el texto de coordenadas es contenido XML. Un comentario, un CDATA o una
+     referencia (&#32;, &#44;) pueden partirlo; los números siguen la gramática decimal de §2.2
+     (+, .5, 5., exponente). -->
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Placemark>
+    <LineString><coordinates>
+      +1.5,-.5<!-- un comentario entre tuplas -->&#10;2.,3e1&#32;<![CDATA[4,5]]>&#9;6&#44;7
+      1<!-- partido dentro de un número -->0,20
+    </coordinates></LineString>
+  </Placemark>
+</kml>

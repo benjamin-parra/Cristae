@@ -1,0 +1,1 @@
+{"features":[{"attributes":{"id":1},"geometry":{"paths":[[[1,1,10],[2,2,20]]]}},{"attributes":{"id":2},"geometry":{"paths":[[[0,0,5],[1,0]],[[3,3,7],[4,4,8]]]}}],"hasZ":true,"geometryType":"esriGeometryPolyline","spatialReference":{"wkid":4326}}
