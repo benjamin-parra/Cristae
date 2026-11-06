@@ -17,8 +17,9 @@ const frame = () => new Promise(resolve => setTimeout(resolve, 5))
 // Lo que pinta el canvas de los rótulos, en orden. Los demás 2D (el calor) caen al mismo espía.
 const fills = []
 const ctx2d = new Proxy({
-  measureText : text => ({ width: 7 * [...text].length }),
-  fillText    : text => fills.push(text),
+  measureText  : text => ({ width: 7 * [...text].length }),
+  getImageData : (_x, _y, w, h) => ({ data: new Uint8ClampedArray(w * h * 4) }),   // el atlas rasteriza al primer uso
+  fillText     : text => fills.push(text),
 }, { get: (t, p) => t[p] ?? (() => {}), set: () => true })
 after(decorarElementos((el, tag) => {
   if (tag === 'canvas') el.getContext = kind => (kind === '2d' ? ctx2d : makeEditGl())
@@ -323,6 +324,25 @@ test('la espiral y las burbujas quedan sobre los rótulos canvas y html', () => 
   } finally {
     LABEL_RENDERERS.html = real
   }
+})
+
+test('los panes de rótulos siguen el rango de su host: el html de la capa y el del pliegue', async () => {
+  const z = (map, name) => Number(map.getPane(name).style.zIndex)
+  const { engine, map } = motor()
+  engine.addPointLayer({ id: 'antes', accessors: puntos, iconSet: makeIconSet(), data: [] })
+  engine.addPointLayer({ id: 'flota', accessors: puntos, iconSet: makeIconSet(), data: FLOTA })
+  engine.addLabels({ hostId: 'flota', htmlOf: v => `<b>${v.id}</b>` })
+  const bubbleId = engine.addClusterFold([{ id: 'flota' }], { radius: 80, maxZoom: 18, minPoints: 2 }).handle.control.bubbleLayerId
+  engine.addLabels({ hostId: bubbleId })
+  const html     = 'cristae-labels-html-flota'
+  const pliegue  = `${bubbleId}-labels-canvas`
+  assert.deepEqual([z(map, html), z(map, pliegue)], [LABEL_PLANE + 20, TOP_PLANE + 16], 'rango 1: html en +1, pliegue en +6')
+
+  engine.removeLayer('antes')
+  await Promise.resolve()                            // el hueco se compacta en una microtarea
+  assert.deepEqual([z(map, html), z(map, pliegue)], [LABEL_PLANE + 10, TOP_PLANE + 6], 'rango 0: los dos bajan con su host')
+  assert.equal(engine.getLayer(bubbleId).zIndex, TOP_PLANE + 5, 'bajo la espiral y sobre las burbujas, que bajan igual')
+  engine.destroy()
 })
 
 test('foco por capa: con `label` en kinds se atenúan aunque el kind del host no esté; sin él, siguen al host', () => {

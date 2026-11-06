@@ -155,10 +155,10 @@ test('el pliegue abierto conserva su apilado interno sobre el rango de su host',
   const ids          = ['legs', 'clusters', 'spider', 'spider-sub'].map(sufijo => burbujas.replace(':clusters', `:${sufijo}`))
   const apilado      = () => ids.map(z)
 
-  assert.deepEqual(apilado(), [604, 605, 607, 608], 'patas < burbujas < espiral < sub-espiral, sobre los labels')
+  assert.deepEqual(apilado(), [2000404, 2000405, 2000407, 2000408], 'patas < burbujas < espiral < sub-espiral, en el plano de encima')
   punto('antes', antes)
   assert.equal(z('flota'), 410)
-  assert.deepEqual(apilado(), [614, 615, 617, 618], 'y siguen al host cuando cambia de rango')
+  assert.deepEqual(apilado(), [2000414, 2000415, 2000417, 2000418], 'y siguen al host cuando cambia de rango')
   engine.destroy()
 })
 
@@ -174,12 +174,12 @@ test('el picking y la puerta del puntero siguen al reasiento y a setLayerZ', () 
     const [a, b, e] = nodos(3)
     punto('b', b)
     engine.addEditableLayer({ id: 'editor', kind: 'polygon', [STACK]: e })
-    assert.equal(z('editor'), 610)
+    assert.equal(z('editor'), 2000410)
 
     punto('a', a)
     assert.deepEqual(arriba(), ['b', 'a'], 'el registro tiene el z nuevo de `b`')
-    assert.equal(z('editor'), 620)
-    assert.deepEqual(corridos.at(-1), [620, 2], 'la puerta reubica al participante con su z y su rango')
+    assert.equal(z('editor'), 2000420)
+    assert.deepEqual(corridos.at(-1), [2000420, 2], 'la puerta reubica al participante con su z y su rango')
 
     engine.setLayerZ('a', 900)
     assert.deepEqual(arriba(), ['a', 'b'], 'setLayerZ también llega al picking')

@@ -24,9 +24,10 @@ const { CristaeLabelLayer }       = await import('../../src/element/CristaeLabel
 // el de WebGL es el doble del harness.
 const trazo = { fills: [], arcos: 0 }
 const ctx2d = new Proxy({
-  measureText : text => ({ width: 7 * [...text].length }),
-  fillText    : text => trazo.fills.push(text),
-  arcTo       : () => trazo.arcos++,
+  measureText  : text => ({ width: 7 * [...text].length }),
+  getImageData : (_x, _y, w, h) => ({ data: new Uint8ClampedArray(w * h * 4) }),   // el atlas rasteriza al primer uso
+  fillText     : text => trazo.fills.push(text),
+  arcTo        : () => trazo.arcos++,
 }, { get: (t, p) => t[p] ?? (() => {}), set: () => true })
 window.HTMLCanvasElement.prototype.getContext = kind => (kind === 'webgl2' ? makeEditGl() : ctx2d)
 

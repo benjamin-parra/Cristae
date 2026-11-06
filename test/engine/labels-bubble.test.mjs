@@ -12,8 +12,9 @@ const frame = () => new Promise(resolve => setTimeout(resolve, 5))
 
 const fills = []
 const ctx2d = new Proxy({
-  measureText : text => ({ width: 7 * [...text].length }),
-  fillText    : text => fills.push(text),
+  measureText  : text => ({ width: 7 * [...text].length }),
+  getImageData : (_x, _y, w, h) => ({ data: new Uint8ClampedArray(w * h * 4) }),   // el atlas rasteriza al primer uso
+  fillText     : text => fills.push(text),
 }, { get: (t, p) => t[p] ?? (() => {}), set: () => true })
 after(decorarElementos((el, tag) => {
   if (tag === 'canvas') el.getContext = kind => (kind === '2d' ? ctx2d : makeEditGl())

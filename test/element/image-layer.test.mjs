@@ -7,6 +7,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { defaultConverter } from 'lit'
 import { CristaeImageLayer } from '../../src/element/CristaeImageLayer.js'
+import { STACK } from '../../src/engine/stack.js'
 
 const CAJA = { south: -34, west: -72, north: -32, east: -70 }
 
@@ -62,7 +63,8 @@ test('el alta lleva lo declarado; image y corners mandan sobre url y bounds', ()
   const corners = [[0, 0], [0, 1], [-1, 1], [-1, 0]]
   const { el }  = capa({ url: 'x.png', image: lienzo, bounds: CAJA, corners, opacity: 0.7, interactive: true, crossOrigin: 'anonymous', alt: 'radar', z: 3 })
   el.mountLayer(engine)
-  const { onLoad, onError, ...cfg } = engine.cfg
+  const { onLoad, onError, [STACK]: lugar, ...cfg } = engine.cfg
+  assert.equal(lugar, el, 'el alta lleva el elemento para apilar por su lugar en el documento')
   assert.deepEqual(cfg, {
     id: 'radar', pane: undefined, z: 3, url: undefined, image: lienzo, bounds: undefined, corners,
     opacity: 0.7, interactive: true, visible: true, crossOrigin: 'anonymous', alt: 'radar',

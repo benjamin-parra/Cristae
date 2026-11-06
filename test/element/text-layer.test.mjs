@@ -5,6 +5,7 @@ import '../../test-helpers/element-stub.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { CristaeTextLayer } from '../../src/element/CristaeTextLayer.js'
+import { STACK } from '../../src/engine/stack.js'
 import { defineGrammar } from '../../src/grammar/index.js'
 import { grammar } from '../../src/element/composite.js'
 
@@ -53,7 +54,9 @@ test('el alta lleva lo declarado; visible="false" llega apagado', () => {
   const textOf = c => c.nombre
   const el     = capa({ accessors: puntos, data: [], textOf, placement: 'above', offset: 2, renderer: 'canvas', interactive: true, visible: 'false' })
   el.mountLayer(engine)
-  assert.deepEqual(engine.cfg, {
+  const { [STACK]: lugar, ...cfg } = engine.cfg
+  assert.equal(lugar, el, 'el alta lleva el elemento para apilar por su lugar en el documento')
+  assert.deepEqual(cfg, {
     id: 'ciudades', source: undefined, data: [], accessors: puntos, interactive: true, visible: false,
     textOf, htmlOf: undefined, renderer: 'canvas', placement: 'above', offset: 2,
     font: undefined, color: undefined, halo: undefined, paint: undefined,
