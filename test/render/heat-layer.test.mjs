@@ -245,3 +245,34 @@ test('redibuja ante cambios del Source y props en vivo sin throwear', () => {
   layer.destroy()
   spy.restore()
 })
+
+// Oculta, la capa no colorea: el pane oculto no frena el `getImageData` de cada flush, la capa sí. Al
+// volver repinta con el snapshot que llegó mientras tanto.
+test('setVisible(false) corta el colorizado ante flushes y eventos de mapa; al volver repinta', async () => {
+  const rafQ    = []
+  const origRaf = globalThis.requestAnimationFrame
+  globalThis.requestAnimationFrame = cb => rafQ.push(cb)
+  try {
+    const { spy, layer, source, map } = mount(onScreen)
+    await new Promise(r => setTimeout(r, 5))
+    layer.setVisible(false)
+    spy.calls.getImageData = 0
+    spy.calls.drawImage    = 0
+
+    source.set([...onScreen, { id: 9, pos: { lat: 1, lng: 2 }, w: 1 }])
+    await new Promise(r => setTimeout(r, 5))
+    map.fire('moveend')
+    rafQ.splice(0).forEach(cb => cb(0))
+    layer.redraw()
+    assert.equal(spy.calls.getImageData, 0, 'oculta no lee el framebuffer')
+    assert.equal(spy.calls.drawImage, 0, 'oculta no estampa')
+
+    layer.setVisible(true)
+    assert.equal(spy.calls.getImageData, 1, 'al volver colorea una vez, en el acto')
+    assert.equal(spy.calls.drawImage, onScreen.length + 1, 'con el punto que llegó oculta')
+    layer.destroy()
+    spy.restore()
+  } finally {
+    globalThis.requestAnimationFrame = origRaf
+  }
+})

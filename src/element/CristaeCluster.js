@@ -1,5 +1,6 @@
 import { CristaeModifierElement } from './base.js'
 import { makeAutoId } from './autoId.js'
+import { deprecated } from '../engine/deprecated.js'
 
 // circle-threshold: un número (umbral círculo→espiral) o "auto"/vacío → null (el motor usa su default).
 const parseCircleThreshold = v => {
@@ -35,7 +36,7 @@ function ensureCenterCss() {
   document.head.appendChild(st)
 }
 
-// <cristae-cluster> — MODIFICADOR de la gramática de composición (combine: 'fold').
+// <cristae-cluster> — AGREGADOR de la gramática de composición: un solo `apply` sobre todos los puntos.
 // Clusteriza el/los hijo(s) de puntos: los agrupa en UN supercluster (si hay varios, sobre
 // la unión) y los suprime, emitiendo burbujas. Como modificador, compone con `<cristae-overlay>`
 // en CUALQUIER orden de anidación — el orden declarativo es la semántica, sin métodos de control:
@@ -44,15 +45,17 @@ function ensureCenterCss() {
 //     <cristae-overlay><cristae-point-layer id="fleet"/></cristae-overlay>   <!-- badges se ocultan al clusterizar -->
 //   </cristae-cluster>
 //
-// Hija opcional `slot="bubble"` (point o label) = cómo se ven las burbujas. Sin ella → default.
+// Hija opcional `slot="bubble"` (point o label) = cómo se ven las burbujas. Sin ella → default. La de
+// label se retira en v0.40.0, y avisa una vez por página con la misma clave que `bubble: { kind: 'label' }`
+// del motor: el rótulo de las burbujas lo da un <cristae-labeled> por fuera del cluster.
 //
 // expandable (default true): click en una burbuja la expande (los puntos del cluster aparecen
 // individualmente); click fuera la colapsa. Desactivar con expandable="false" si el proyecto
 // necesita manejar la interacción a mano.
 export class CristaeCluster extends CristaeModifierElement {
 
-  // Modificador `fold`: consume `point`, produce `point` (pass-through, suprimido) + `bubble`.
-  static cristaeSignature = { consumes: ['point'], produces: ['point', 'bubble'], combine: 'fold', arity: 'wrapper' }
+  // Agregador: consume `point` y produce `bubble`; re-emite los `point` (suprimidos los clusterizados).
+  static cristaeSignature = { role: 'aggregate', consumes: ['point'], produces: ['point', 'bubble'] }
 
   // apply del reductor: fold → clusteriza TODOS los targets juntos; devuelve la unit de burbuja.
   static cristaeApply(engine, targets, cfg) {
@@ -309,10 +312,10 @@ export class CristaeCluster extends CristaeModifierElement {
 
   #bubbleConfig() {
     const b = [...this.children].find(el => el.getAttribute?.('slot') === 'bubble')
-    return !b
-      ? undefined
-      : b.tagName === 'CRISTAE-LABEL-LAYER'
-        ? { kind: 'label', textOf: b.textOf, paint: b.paint, style: b.style }
-        : { kind: 'point', iconSet: b.iconSet, sizeOf: b.sizeOf }
+    if (b?.tagName !== 'CRISTAE-LABEL-LAYER') return b && { kind: 'point', iconSet: b.iconSet, sizeOf: b.sizeOf }
+
+    deprecated('bubble-label', '[cristae-cluster] <cristae-label-layer slot="bubble"> se retira en v0.40.0: la ' +
+      'reemplaza un <cristae-labeled> por fuera del cluster (docs/labeled.md).')
+    return { kind: 'label', textOf: b.textOf, paint: b.paint, style: b.style }
   }
 }

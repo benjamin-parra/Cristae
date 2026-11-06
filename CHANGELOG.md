@@ -7,6 +7,43 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
 
 ## [Sin publicar]
 
+### Agregado
+- **Capa de texto suelto.** `engine.addTextLayer`, `<cristae-text-layer>` y `<CristaeTextLayer>` ponen texto
+  con datos propios (`data`, `source`, `accessors`), con el vocabulario y los renderers de
+  `<cristae-labeled>` que valen sin trazo, sin contexto WebGL. `auto` es `center`; `along`, `gl` y `repeat`
+  con colocación explícita lanzan `TypeError`. `interactive` la pica como a cualquier capa base, con
+  `TextHit` (`kind: 'text'`). Tipos `TextLayerConfig`, `TextHandle`, `TextProps` y `TextAccessors`. Ver
+  [`docs/text-layer.md`](docs/text-layer.md).
+  *Migración*: ninguna.
+- **Capa de imagen georreferenciada.** `engine.addImageLayer`, `<cristae-image-layer>` y `<CristaeImageLayer>`
+  ponen una imagen (por `url`, o un nodo propio: `<img>`, `<canvas>`, `<video>` o `<svg>`) sobre una caja
+  o sobre cuatro esquinas, con opacidad, apilado y click opcional (`ImageHit`, `{ kind: 'image' }`). Es un
+  nodo DOM, sin contexto WebGL, y sigue la paridad con `L.imageOverlay`. `ImageLayerConfig` e
+  `ImageLayerHandle` tipan el conjunto. Ver [`docs/image-layer.md`](docs/image-layer.md).
+  *Migración*: ninguna.
+- **Escala gráfica.** `<cristae-scale>` y `<CristaeScale>` muestran una barra métrica y/o imperial
+  (`units="metric imperial"`, `max-width`) con la distancia en el centro de la vista, como
+  `L.control.scale`: va en una zona del overlay por `slot`, mide con el `model` del mapa y sigue el paneo.
+  Bajo 1 m sigue en decimales en vez de subir a 1 m como Leaflet. Ver [`docs/scale.md`](docs/scale.md).
+  *Migración*: ninguna.
+- **Rótulos.** `<cristae-labeled>`, `<CristaeLabeled>` y `engine.addLabels` ponen un texto sobre cada ítem
+  de la capa que envuelven: debajo de un punto, a lo largo de una ruta (también siguiendo la curva de
+  `<cristae-geodesic>`) o en el centro de un polígono. Es un decorador: rotula lo que produce su hijo
+  directo, así que por fuera de un `<cristae-cluster>` rotula las burbujas, con `textOf` sobre
+  `{ count, leaves }`. Sigue la visibilidad, el foco y el cluster de su capa y muere con ella; tocar el rótulo
+  es tocar el ítem, así que `<cristae-popup for>` no cambia. Se dibuja en `canvas` (un canvas por mapa) o en
+  `html` (`htmlOf`, con `interactive` para que el nodo reciba el puntero). Equivale a `polyline.setText` de
+  Leaflet.TextPath. Ver [`docs/labeled.md`](docs/labeled.md).
+  *Migración*: ninguna.
+- **`drawLabel` devuelve su caja** `{ x, y, w, h }`, y `LabelPaint` admite devolverla: el rótulo de un pintor
+  que la devuelve se pica.
+  *Migración*: ninguna; un pintor que no devuelve nada sigue dibujando.
+- **Elemento y componente React de la capa de calor.** `<cristae-heat-layer>` y `<CristaeHeatLayer>`
+  declaran la capa de `engine.addHeatLayer`: `data`, `source`, `accessors` y `colorRamp` como props;
+  `radius`, `blur`, `intensity` y `visible` como atributos. Todo salvo `source` y `accessors` se aplica en
+  vivo. No se pica. Ver [`docs/heat.md`](docs/heat.md).
+  *Migración*: ninguna.
+
 ### Cambiado
 - **El build emite `es2022`** (antes `es2020`): los campos y métodos privados y los campos de clase
   quedan nativos en `dist/`, sin el `WeakMap` con que se bajaban. Sube el mínimo de Safari de 15.4
@@ -34,6 +71,63 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   *Migración*: quien fijaba `z` o dejaba capas vacías montadas sólo para conservar el apilado puede
   quitarlo. Quien anotaba como constante un z derivado (por ejemplo, el de las burbujas de un cluster) deja
   de hacerlo, y quien fijaba un explícito entre derivados revisa que no dependa de lo montado debajo.
+- **El apilado sin `z` va en tres planos.** Las capas base siguen en `400 + posición·10`, con la posición
+  del orden de declaración de la entrada anterior; los rótulos de `<cristae-labeled>` van en un plano propio,
+  desde `1 000 400`; y lo que antes sumaba `+200` (capas HTML, editores, `<cristae-label-layer>`, burbujas y
+  espiral del cluster) va desde `2 000 400`, con su orden relativo de siempre. Así lo de encima queda sobre
+  las capas base aunque haya más de veinte. Los rótulos de las burbujas de un cluster van a `+6`, entre las
+  burbujas y la espiral, y siguen al host base como ellas. Ver [SPECS §19.3](SPECS.md).
+  *Migración*: un `z` explícito pensado para quedar sobre las capas HTML, los editores o el cluster tiene que
+  subir al plano de encima; uno que sólo ordena capas base no cambia.
+- **`<cristae-label-layer>` y la burbuja de rótulo se traducen a su reemplazo.** `bind-to` pasa por
+  `addLabels`, `source` propio por `addTextLayer`, y `bubble: { kind: 'label' }` (la hija `slot="bubble"`)
+  es una capa de burbujas sin dibujo rotulada con la píldora, que ya no gasta contexto WebGL. El aspecto se
+  conserva; cambian el plano —los rótulos quedan bajo las capas HTML y las burbujas, y `pane` y `z` no tienen
+  efecto—, `textOf`, `paint` y `style` en caliente, el texto vacío sin rótulo y `controls` sin `setLabels`.
+  Un `<cristae-labeled>` por fuera del cluster ahora rotula también la burbuja de rótulo. La lista está en
+  [`docs/labels.md`](docs/labels.md#lo-que-ya-cambia-en-cristae-label-layer). `engine.addLabelLayer` no cambia.
+  *Migración*: ninguna, salvo quien dependía de `pane`/`z` o de `setLabels` en la label-layer.
+- **La gramática declara el rol de cada elemento.** La firma es `{ role, consumes?, produces }`, con `role`
+  entre `'leaf'`, `'transform'`, `'aggregate'` y `'decorate'`, y la gramática deriva el resto: `combine`,
+  `arity`, `bindsTo` y `passThrough` dejan de escribirse en las firmas y de ser contrato. Los errores de
+  validación nombran el rol («`<cristae-labeled>` es un decorador y no envuelve ninguna capa que
+  produzca…»); `GrammarError` y sus códigos no cambian. `signatureFor` devuelve sólo
+  `{ role, consumes, produces }`, y `GrammarSignature` es una unión por `role`: una hoja que consume no
+  compila. Salen los tipos `GrammarCombine` y `GrammarArity` de `cristae/grammar`.
+  `<cristae-overlay>` pasa a decorador: toma el productor más cercano en vez de todo su subárbol, y el
+  resultado no cambia: dentro o por fuera de un cluster el badge va sobre los mismos puntos que antes. Ver
+  [SPECS §8.10](SPECS.md).
+  *Migración*: una firma propia registrada con `defineGrammar` declara `role` en vez de `combine` y `arity`:
+  una hoja es `'leaf'`; un `'fold'`, `'aggregate'`; un `'map'` con `bindsTo`, `'decorate'`, y el resto de
+  los `'map'`, `'transform'`. Los demás campos se quitan; `bindsTo` también en una hoja. Quien leía
+  `combine` o `arity` de `signatureFor` lee `role`, o `isLeaf` / `isWrapper`.
+
+### Deprecado
+- **El retiro de lo deprecado se adelanta de la 1.0 a la v0.40.0.** Lo que se anunció «se retira en 1.0»
+  —`addPolygonGpuLayer`, `addCircleLayer` con sus tipos de círculo y `getLeafletMap()`— y lo que depreca
+  esta versión se retiran en la v0.40.0. Así deja de valer lo que dijo la 0.36.0, que lo deprecado seguía
+  funcionando hasta el salto a la 1.0: funciona hasta la última versión antes de la v0.40.0. El motivo es
+  que cambió el modelo general, con capas por rol y un contexto WebGL compartido, y lo deprecado se sostiene
+  con caminos aparte. La política nueva está en
+  [`docs/versionado.md`](docs/versionado.md#deprecación-y-retiro): al menos una versión de aviso y el retiro
+  en una versión menor marcada. La tabla de cada API con su reemplazo está en el
+  [README](README.md#deprecado-se-retira-en-v0400).
+  *Migración*: ninguna en esta versión. Antes de la v0.40.0, cambiar cada API por su reemplazo.
+- **`<cristae-label-layer>`, `<CristaeLabelLayer>`, `addLabelLayer` y la hija `slot="bubble"` de label del
+  cluster.** Siguen funcionando y se retiran en la v0.40.0; avisan una vez por página, el elemento y el
+  método con un solo aviso y la hija con la burbuja del motor. `addPolygonGpuLayer` y `addCircleLayer` también
+  avisan ahora, y `getLeafletMap()` pasa de avisar una vez por motor a una vez por página.
+  *Migración*: envolver la capa en `<cristae-labeled>` en vez de `bind-to`; la píldora se pide con
+  `paint={drawLabel}`, porque el aspecto por defecto pasa a texto con halo; el rótulo de las burbujas va en un
+  `<cristae-labeled>` por fuera del cluster; con `source` propio, `<cristae-text-layer>`. La equivalencia está en
+  [`docs/labels.md`](docs/labels.md#retiro-en-v0400).
+
+### Corregido
+- **La capa de calor oculta ya no pinta.** Ocultarla sólo ocultaba su pane, y cada cambio de la Source
+  seguía leyendo y escribiendo el framebuffer entero. Ahora no dibuja mientras está oculta y repinta al
+  volver. Vale también para `addHeatLayer({ visible: false })`, que antes coloreaba hasta el primer
+  `setVisible`.
+  *Migración*: ninguna.
 
 ## [0.37.0] - 2026-10-08
 

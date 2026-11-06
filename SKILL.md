@@ -107,11 +107,11 @@ Toda la estructura y los escalares viven acá. Clustering, etiquetas y toolbar s
 <cristae-map initial-center="-35.5,-71.5" initial-zoom="6" hover-throttle="30"
              style="width:100%; height:100%">
 
-  <!-- capa de puntos. id = id de capa; `interactive` habilita click/hover -->
-  <cristae-point-layer id="fleet" interactive></cristae-point-layer>
-
-  <!-- etiquetas atadas a la capa: derivan su posición del host por nombre, orden-independiente -->
-  <cristae-label-layer bind-to="fleet"></cristae-label-layer>
+  <!-- capa de puntos. id = id de capa; `interactive` habilita click/hover. El rótulo la envuelve:
+       va debajo de cada punto y sigue su visibilidad, su foco y su cluster -->
+  <cristae-labeled>
+    <cristae-point-layer id="fleet" interactive></cristae-point-layer>
+  </cristae-labeled>
 
   <!-- dock de acciones anclado a una zona del overlay -->
   <cristae-toolbar slot="bottom-center" orientation="horizontal"></cristae-toolbar>
@@ -206,7 +206,7 @@ con los hits de **todas** las capas visibles, **ordenados top-first**:
 
 ```js
 // Hit = { layerId, kind: 'point'|'polygon'|'line'|'shape'|'html'|'circle', ref, id, distancePx, zIndex, order }
-// 'circle' sólo lo emite addCircleLayer, deprecada; se retira en 1.0
+// 'circle' sólo lo emite addCircleLayer, deprecada; se retira en v0.40.0
 map.addEventListener('cristae:click', (e) => {
   const top = e.detail.hits[0]
   if (top?.layerId === 'fleet') abrirDetalle(source.itemById(top.id))
@@ -313,7 +313,11 @@ const latlng   = map.camera.containerPointToLatLng([x, y])
 | `map.setMinZoom/setMaxZoom/setMaxBounds` · `maxBoundsViscosity` | `min-zoom` / `max-zoom` / `max-bounds` / `max-bounds-viscosity` en el mapa (SPECS §9) |
 | `map.latLngToContainerPoint` para un overlay | `map.camera.latLngToContainerPoint(latlng)` |
 | popup/tarjeta al click sobre un punto | `<cristae-popup for="fleet">` + `contentOf(item)` (HTML en light DOM) |
-| labels/tooltips a mano | `<cristae-label-layer bind-to="fleet">` |
+| labels/tooltips a mano | `<cristae-labeled>` envolviendo la capa (`<cristae-label-layer>` se retira en v0.40.0) ([`docs/labeled.md`](./docs/labeled.md)) |
+| `L.imageOverlay`, `VideoOverlay`, `SVGOverlay` | `<cristae-image-layer url bounds>` o con `image` y `corners` para rotarla ([`docs/image-layer.md`](./docs/image-layer.md)) |
+| `L.control.scale()` | `<cristae-scale slot="bottom-left">` ([`docs/scale.md`](./docs/scale.md)) |
+| `polyline.setText` (Leaflet.TextPath) | `<cristae-labeled repeat="200">` envolviendo la capa de líneas ([`docs/labeled.md`](./docs/labeled.md)) |
+| `L.heatLayer` (`leaflet.heat`) | `<cristae-heat-layer>` + `accessors:{ idOf, positionOf, weightOf? }` ([`docs/heat.md`](./docs/heat.md)) |
 | clustering manual | `<cristae-cluster>` envolviendo la capa |
 | `L.icon`/`divIcon` puntual | `map.engine.createIcon({ size, draw })` |
 

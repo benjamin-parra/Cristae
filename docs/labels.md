@@ -3,6 +3,12 @@
 > Pieza de [Cristae](../MODELO.md). Implementa [SPECS §8.3](../SPECS.md) (label-layer). Capa de
 > presentación pura: posiciona etiquetas sobre el mapa; no resuelve hits ni conoce el dominio.
 
+> **`<cristae-label-layer>` y `addLabelLayer` se retiran en v0.40.0.** Los reemplaza
+> [`<cristae-labeled>`](labeled.md) sobre la capa de puntos, y con `source` propio
+> [`<cristae-text-layer>`](text-layer.md). Hasta entonces funcionan, y avisan una vez por página en consola.
+> El elemento ya no tiene implementación propia: se traduce a su reemplazo. La equivalencia está en
+> [Retiro en v0.40.0](#retiro-en-v0400). `LabelLayer` y `drawLabel` se quedan.
+
 `LabelLayer` dibuja etiquetas de texto (píldoras) sobre un canvas montado en la superficie del mapa,
 ancladas a coordenadas geográficas. Una sola capa genérica: el **glifo** lo pinta una función
 inyectable (`paint`), así que el estilo (vehículo, lugar, lo que sea) es del consumidor, no de la capa.
@@ -125,3 +131,45 @@ recluster por **zoom** no cambia los datos (la suscripción a la fuente no dispa
 explícitamente la sincronización de toda label ligada al host cuando la supresión cambia. Al quitar el
 cluster, la supresión se vacía y las labels vuelven a mostrarse completas. Es coordinación del motor:
 la `LabelLayer` sigue siendo presentación pura y no conoce clusters.
+
+---
+
+## Retiro en v0.40.0
+
+`<cristae-labeled>` envuelve la capa en vez de ligarse por nombre, y sigue su visibilidad, su foco y su
+cluster sin que se declare ([`labeled.md`](labeled.md)).
+
+| Antes | Después |
+| --- | --- |
+| `bind-to="x"` | envolver `x` |
+| `textOf` | `textOf` |
+| `paint` | `paint`, misma firma |
+| píldora por defecto | texto con halo; la píldora con `paint={drawLabel}` (cambio visible) |
+| `<cristae-label-layer slot="bubble">` en el cluster | `<cristae-labeled>` por fuera del cluster; `textOf` recibe `{ count, leaves }` en vez de `count` |
+| `setHovered` | implícito |
+| `visible` | `visible`, que además sigue a la capa |
+| `{cond && <CristaeLabelLayer/>}` | `visible={cond}`; no envolver condicionalmente |
+| `source` + `accessors` propios | [`<cristae-text-layer>`](text-layer.md) con la misma Source; la píldora con `paint={drawLabel}` |
+
+### Lo que ya cambia en `<cristae-label-layer>`
+
+El elemento se traduce por dentro: `bind-to` pasa por `addLabels`, `source` propio por `addTextLayer`, y la
+hija `slot="bubble"` es una capa de burbujas sin dibujo rotulada con la píldora. Se ve igual —la píldora, su
+`style` y el hover de `setHovered`—, con estas diferencias:
+
+- Los rótulos van al plano de rótulos: quedan bajo las capas HTML y las burbujas, y `pane` y `z` no tienen
+  efecto.
+- `textOf`, `paint` y `style` se aplican en caliente, sin remontar.
+- Un texto vacío o `null` no pinta rótulo.
+- Si el host de `bind-to` todavía no existe, se reintenta cuadro a cuadro mientras la capa siga montada. Un
+  host que se quita y vuelve con el mismo id no se vuelve a ligar: hay que remontar la capa.
+- `controls` es `{ id, setVisible, setHovered }`: ya no tiene `setLabels`.
+- Una píldora puede correrse un píxel: se coloca en la posición exacta y no en la entera de Leaflet. En la
+  verificación a ojo pasó con la burbuja del cluster; las de la flota quedaron idénticas.
+- La burbuja de rótulo no gasta contexto WebGL, y un `<cristae-labeled>` por fuera del cluster la rotula
+  encima de la píldora.
+
+`engine.addLabelLayer`, el imperativo, conserva su implementación hasta el retiro.
+
+`drawLabel` devuelve la caja de la píldora `{ x, y, w, h }`, sobre un objeto que reusa. Un pintor propio que
+la devuelve deja picar su rótulo en `<cristae-labeled>`; uno que no devuelve nada dibuja igual.

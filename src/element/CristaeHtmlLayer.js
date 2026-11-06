@@ -8,7 +8,7 @@ import { makeAutoId } from './autoId.js'
 // reemplaza.
 export class CristaeHtmlLayer extends CristaeLayerElement {
 
-  static cristaeSignature = { consumes: [], produces: ['html'], combine: null, arity: 'leaf' }
+  static cristaeSignature = { role: 'leaf', produces: ['html'] }
 
   static properties = {
     data       : { type: Array },

@@ -4,22 +4,20 @@
 // engine/render/element. Mantener sincronizado con src/grammar/.
 
 // ── Firmas (src/grammar/grammar.js) ─────────────────────────────────────────
-/** `'fold'` = un apply sobre TODOS los targets; `'map'` = uno por target; `null` = hoja. */
-export type GrammarCombine = "fold" | "map" | null
-export type GrammarArity   = "leaf" | "wrapper"
+/** Rol del elemento en la composición; de él sale cómo se reduce.
+ *  `'leaf'`: capa que renderiza, no envuelve hijos. `'transform'`: una transformación por capa
+ *  consumida del subárbol. `'aggregate'`: una sola transformación sobre todo lo consumido del subárbol;
+ *  re-emite lo consumido sólo si vuelve a producirlo. `'decorate'`: una transformación por productor más
+ *  cercano (lo que produce como propio cada hijo directo; un modificador sin kinds propios consumidos es
+ *  transparente y se mira por dentro), que queda como su host. */
+export type GrammarRole = "leaf" | "transform" | "aggregate" | "decorate"
 
-export interface GrammarSignature {
-  /** Kinds que el nodo transforma de sus hijos; `[]` (u omitido) ⇒ hoja. */
-  consumes?    : string[];
-  /** Kinds que aporta hacia arriba (≥1). */
-  produces     : string[];
-  combine?     : GrammarCombine;
-  arity        : GrammarArity;
-  /** Productores ligados (label/overlay): kind del host cuyo `suppressed` leen. */
-  bindsTo?     : string;
-  /** El wrapper re-emite hacia arriba los hijos consumidos (default `true`). */
-  passThrough? : boolean;
-}
+/** Firma de un elemento, discriminada por `role`: una hoja no consume (`consumes` omitido o vacío) y un
+ *  modificador declara `consumes` con ≥1 kind. `produces` lista los kinds que aporta hacia arriba (≥1).
+ *  `signatureFor` devuelve sólo estos tres campos; cómo se reduce cada rol es interno. */
+export type GrammarSignature =
+  | { role: "leaf"; consumes?: []; produces: string[] }
+  | { role: Exclude<GrammarRole, "leaf">; consumes: string[]; produces: string[] }
 
 // ── Units (src/grammar/reduce.js) ───────────────────────────────────────────
 /** Lo que un nodo aporta a su padre en el recorrido post-orden. */
@@ -43,7 +41,8 @@ export type GrammarApply = (
 
 // ── Registro (src/grammar/grammar.js) ───────────────────────────────────────
 /** Instancia de gramática: universo de kinds + registro de firmas. Los tags son
- *  case-insensitive. Los lectores devuelven `null` para un tag no registrado. */
+ *  case-insensitive. Los lectores devuelven `null` para un tag no registrado. `isWrapper` es
+ *  todo rol que no sea `'leaf'`. */
 export interface Grammar {
   readonly kinds : Set<string>;
   readonly mode  : "throw" | "warn";
@@ -65,9 +64,9 @@ export function defineGrammar(config: {
 }): Grammar;
 
 // ── Validación (src/grammar/validate.js) ────────────────────────────────────
-/** R1 hoja con hijos · R2 wrapper sin hijo que produzca lo que consume · R3 wrapper
- *  sin hijos · R4 firma incoherente o kind fuera del universo · R5 hijo de un wrapper que no es de
- *  la gramática ni configuración. */
+/** R1 hoja con hijos · R2 modificador sin hijo que produzca lo que consume · R3 modificador
+ *  sin hijos · R4 firma incoherente (rol, campo ajeno, consumes según el rol) o kind fuera del universo ·
+ *  R5 hijo de un modificador que no es de la gramática ni configuración. Los mensajes nombran el rol. */
 export type GrammarErrorCode = "R1" | "R2" | "R3" | "R4" | "R5"
 
 export class GrammarError extends Error {
@@ -77,7 +76,8 @@ export class GrammarError extends Error {
   readonly node: Element | null;
 }
 
-/** R4 + coherencia de la firma, al registrarla. Lanza `GrammarError`. */
+/** R4 + coherencia de la firma, al registrarla. Lanza `GrammarError`. Una firma sólo lleva
+ *  `role`, `consumes` y `produces`. */
 export function validateSignature(
   tag: string,
   signature: GrammarSignature,
@@ -110,8 +110,8 @@ export function leafUnits(
   ctx: { signatureFor: (tag: string) => GrammarSignature | null },
 ): GrammarUnit[];
 
-/** Reduce un WRAPPER: monta sus hijos de gramática, junta sus units, separa
- *  targets/pass-through por `consumes` y aplica `combine`. */
+/** Reduce un modificador: monta sus hijos de gramática, junta sus units, separa
+ *  targets/pass-through por `consumes` y aplica el `apply` según su rol. */
 export function reduceModifier(
   el: Element,
   engine: unknown,

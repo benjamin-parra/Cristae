@@ -36,6 +36,18 @@ import type {
   Label,
   LabelStyle,
   LabelPaint,
+  LabelProps,
+  TextAccessors,
+  TextHandle,
+  TextProps,
+  CristaeLabeled as CristaeLabeledClass,
+  ImageLayerNode,
+  ImageLayerBox,
+  ImageLayerHandle,
+  HeatAccessors,
+  HeatHandle,
+  LatLngPath,
+  LatLngPoint,
   EditableStyle,
   EditableHandle,
   EditablePolygonValue,
@@ -52,6 +64,8 @@ import type {
   HtmlHit,
   CircleHit,
   LineHit,
+  ImageHit,
+  TextHit,
   Hit,
   ClusterEntity,
   ClusterGroup,
@@ -110,9 +124,11 @@ export type CristaePointHit   = PointHit
 export type CristaePolygonHit = PolygonHit
 export type CristaeShapeHit   = ShapeHit
 export type CristaeHtmlHit    = HtmlHit
-/** @deprecated Se retira en 1.0: `CristaeShapeHit`. */
+/** @deprecated Se retira en v0.40.0: la reemplaza `CristaeShapeHit`. */
 export type CristaeCircleHit  = CircleHit
 export type CristaeLineHit    = LineHit
+export type CristaeImageHit   = ImageHit
+export type CristaeTextHit    = TextHit
 export type CristaeHit        = Hit
 
 // ── Detalles de los CustomEvent cristae:* (los emite el <cristae-map>) ───────
@@ -294,7 +310,8 @@ export interface CristaeLineLayerElement<T = unknown> extends HTMLElement { read
 export interface CristaePolygonLayerElement<T = unknown> extends HTMLElement { readonly controls: PolygonHandle<T> | null }
 export interface CristaeShapeLayerElement<T = unknown> extends HTMLElement { readonly controls: ShapeHandle<T> | null }
 export interface CristaeHtmlLayerElement<T = unknown> extends HTMLElement { readonly controls: HtmlHandle<T> | null }
-export interface CristaeLabelLayerElement extends HTMLElement { readonly controls: LabelHandle | null }
+/** @deprecated Se retira en v0.40.0 con `<cristae-label-layer>`: la reemplaza `CristaeLabeledElement`. */
+export interface CristaeLabelLayerElement extends HTMLElement { readonly controls: Omit<LabelHandle, "setLabels"> | null }
 
 export interface CristaePointLayerProps<T = unknown> extends CristaeDataLayerProps {
   data?        : T[];
@@ -386,6 +403,7 @@ export type CristaeLabel      = Label
 export type CristaeLabelStyle = LabelStyle
 export type CristaeLabelPaint = LabelPaint
 
+/** @deprecated Se retira en v0.40.0 con `<CristaeLabelLayer>`: la reemplaza `CristaeLabeledProps`. */
 export interface CristaeLabelLayerProps<T = unknown> extends CristaeLeafLayerProps {
   /** Id de la capa host cuyos ítems etiqueta (attachment); o standalone con `source`+`accessors`. */
   bindTo?    : string;
@@ -396,8 +414,63 @@ export interface CristaeLabelLayerProps<T = unknown> extends CristaeLeafLayerPro
   style?     : CristaeLabelStyle;
   visible?   : boolean;
 }
+/** @deprecated Se retira en v0.40.0: con `bindTo` la reemplaza `<CristaeLabeled>` sobre la capa de puntos
+ *  (docs/labeled.md); con `source` propio, `<CristaeTextLayer>`. */
 export declare function CristaeLabelLayer<T = unknown>(
   props: CristaeLabelLayerProps<T> & RefAttributes<CristaeLabelLayerElement>,
+): ReactElement | null;
+
+// ── Texto suelto (docs/text-layer.md) ────────────────────────────────────────
+export interface CristaeTextLayerElement<T = unknown> extends HTMLElement { readonly controls: TextHandle<T> | null }
+
+/** Capa base de texto con datos propios, con las opciones de `<CristaeLabeled>` que valen sin trazo. */
+export interface CristaeTextLayerProps<T = unknown> extends CristaeDataLayerProps, TextProps<T> {
+  data?        : T[];
+  source?      : CristaeReadSource<T>;
+  accessors?   : TextAccessors<T>;
+  interactive? : boolean;
+  visible?     : boolean;
+}
+export declare function CristaeTextLayer<T = unknown>(
+  props: CristaeTextLayerProps<T> & RefAttributes<CristaeTextLayerElement<T>>,
+): ReactElement | null;
+
+// ── Imagen georreferenciada (docs/image-layer.md) ───────────────────────────
+export interface CristaeImageLayerElement extends HTMLElement { readonly controls: ImageLayerHandle | null }
+
+/** Fuente: `url` o `image`; lugar: `bounds` o `corners`. El click llega por el bus sólo con `interactive`. */
+export interface CristaeImageLayerProps extends CristaeDataLayerProps {
+  url?         : string;
+  image?       : ImageLayerNode;
+  bounds?      : ImageLayerBox;
+  corners?     : [LatLngPoint, LatLngPoint, LatLngPoint, LatLngPoint];
+  opacity?     : number;
+  interactive? : boolean;
+  visible?     : boolean;
+  crossOrigin? : string;
+  alt?         : string;
+  onLoad?      : CristaeEventHandler<{ url: string }>;
+  onError?     : CristaeEventHandler<{ url: string }>;
+}
+export declare const CristaeImageLayer: ForwardRefExoticComponent<CristaeImageLayerProps & RefAttributes<CristaeImageLayerElement>>;
+
+// ── Campo de calor (docs/heat.md) ───────────────────────────────────────────
+export interface CristaeHeatLayerElement<T = unknown> extends HTMLElement { readonly controls: HeatHandle<T> | null }
+
+/** No se pica: extiende las props de hoja, sin canales de click ni hover. */
+export interface CristaeHeatLayerProps<T = unknown> extends CristaeLeafLayerProps {
+  data?      : T[];
+  source?    : CristaeReadSource<T>;
+  accessors? : HeatAccessors<T>;
+  visible?   : boolean;
+  radius?    : number;
+  blur?      : number;
+  intensity? : number;
+  /** Se compara por referencia: una función nueva por render re-muestrea la paleta (256 llamadas). */
+  colorRamp? : (t: number) => string | [number, number, number, number];
+}
+export declare function CristaeHeatLayer<T = unknown>(
+  props: CristaeHeatLayerProps<T> & RefAttributes<CristaeHeatLayerElement<T>>,
 ): ReactElement | null;
 
 // ── Edición de geometría (docs/editing.md) ──────────────────────────────────
@@ -555,6 +628,20 @@ export interface CristaeGeodesicProps extends CristaeLayerProps {
 }
 export declare function CristaeGeodesic(props: CristaeGeodesicProps): ReactElement | null;
 
+/** El `<cristae-labeled>` vivo, por `ref`. Es un MODIFICADOR: no expone `controls`; sus props se reasignan
+ *  en caliente. */
+export type CristaeLabeledElement<T = unknown> = CristaeLabeledClass<T>
+
+/** `<CristaeLabeled>` rotula lo que produce su hijo directo: las capas que envuelve, o las burbujas de un
+ *  `<CristaeCluster>` (`textOf` recibe `{ count, leaves }`). Para encender y apagar los rótulos va
+ *  `visible`: envolver condicionalmente cambia el padre del host y React lo remonta. */
+export interface CristaeLabeledProps<T = unknown> extends CristaeLayerProps, LabelProps<T> {
+  children : ReactNode;
+}
+export declare function CristaeLabeled<T = unknown>(
+  props: CristaeLabeledProps<T> & RefAttributes<CristaeLabeledElement<T>>,
+): ReactElement | null;
+
 // ── <CristaePopup> ───────────────────────────────────────────────────────────
 
 /** El `<cristae-popup>` vivo, por `ref`: abrir una tarjeta desde una fila de tabla, cerrar una por id
@@ -608,6 +695,14 @@ export interface CristaeToolbarProps extends CristaeBaseProps {
   orientation? : 'vertical' | 'horizontal';
 }
 export declare const CristaeToolbar: ForwardRefExoticComponent<CristaeToolbarProps & RefAttributes<HTMLElement>>;
+
+// ── <CristaeScale> ───────────────────────────────────────────────────────────
+export interface CristaeScaleProps extends CristaeBaseProps {
+  /** Tokens separados por espacio: `metric` (default), `imperial`. */
+  units?    : string;
+  maxWidth? : number;
+}
+export declare const CristaeScale: ForwardRefExoticComponent<CristaeScaleProps & RefAttributes<HTMLElement>>;
 
 // ── <CristaeTable> ───────────────────────────────────────────────────────────
 // El OTRO entry de la lib (`import 'cristae/table'` registra el elemento — no lo arrastra `cristae/map`).

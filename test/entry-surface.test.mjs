@@ -105,6 +105,15 @@ test('cristae/grammar expone exactamente las 10 piezas del segmento', () => {
   assert.deepEqual(firma(grammar), GRAMMAR)
 })
 
+test('cristae/grammar no filtra el alcance del decorador ni la firma derivada', () => {
+  for (const nombre of ['eachNearest', 'reachedKinds']) {
+    assert.equal(typeof gValidate[nombre], 'function')
+    assert.equal(nombre in grammar, false)
+  }
+  assert.equal(typeof gGrammar.deriveSignature, 'function')
+  assert.equal('deriveSignature' in grammar, false)
+})
+
 // El `typeof` de los goldenes de arriba no puede fallar (todo export del segmento es una
 // función): lo único que congelan es la LISTA de nombres. La correspondencia nombre → función
 // se congela acá, contra el módulo que la define — un `export { validate as validateSignature }`
@@ -281,6 +290,17 @@ test('cristae/map re-exporta distance, sphere, toParts, sampleAlong y arc, sin e
     .map(([, nombres, desde]) => [desde, nombres.split(',').map(n => n.trim()).sort()]))
   assert.deepEqual(reexporta, MAPA_GEOMETRIA)
   assert.doesNotMatch(fuente.replace(/\/\/.*$/gm, ''), /ellipsoid|WGS84|geometry\/index\.js/, 'fuera de los comentarios')
+})
+
+// El entry del mapa se lee como texto por la misma razón: registra <cristae-labeled> y no la capa de texto
+// sobre líneas, que salió de la rama, y las opciones internas de los rótulos no salen por él.
+test('cristae/map registra <cristae-labeled>, sin la capa de texto ni las opciones internas de los rótulos', () => {
+  const fuente = readFileSync(raiz('src/index.js'), 'utf8').replace(/\/\/.*$/gm, '')
+  assert.match(fuente, /grammar\.register\('cristae-labeled', CristaeLabeled\.cristaeSignature, \{ apply: CristaeLabeled\.cristaeApply \}\)/)
+  assert.match(fuente, /define\('cristae-labeled', CristaeLabeled\)/)
+  assert.match(fuente, /^export \{[^}]*\bCristaeLabeled\b[^}]*\}$/m)
+  assert.doesNotMatch(fuente, /line-label|LineLabel/)
+  assert.doesNotMatch(fuente, /labelOptions|mergeLabelOptions|resolvePlacement|LABEL_DEFAULTS|reachedKinds/)
 })
 
 // ── package.json: rutas de exports y sideEffects ──

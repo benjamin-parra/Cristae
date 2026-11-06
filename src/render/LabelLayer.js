@@ -19,7 +19,8 @@ const MAX_LABEL_WIDTH = 196
 const ACCENT_WIDTH = 5
 const FONT = '700 10.5px Inter, ui-sans-serif, system-ui, -apple-system, sans-serif'
 
-const DEFAULT_STYLE = Object.freeze({
+// La paleta de la píldora, que también recibe como `style` un pintor de `<cristae-labeled>`.
+export const DEFAULT_STYLE = Object.freeze({
   surface: '#ffffff',
   text:    '#0f172a',
   accent:  '#2563eb',
@@ -194,8 +195,12 @@ const roundedRect = (ctx, x, y, w, h, r) => {
   ctx.closePath()
 }
 
+// La caja que devuelve `drawLabel`: un portador de módulo, que el que pinta lee en el acto.
+const BOX = { x: 0, y: 0, w: 0, h: 0 }
+
 // Píldora redondeada: fondo de superficie, borde con tinte de acento y, si el label trae `accent`,
 // una franja de acento a la izquierda. Texto recortado al ancho máximo. Genérico — sin dominio.
+// Devuelve su caja en px del contenedor, que es lo que se pica.
 export const drawLabel = (ctx, point, label, hovered, style = DEFAULT_STYLE) => {
   const text = String(label.text)
   const accent = label.accent ?? style.accent
@@ -230,4 +235,10 @@ export const drawLabel = (ctx, point, label, hovered, style = DEFAULT_STYLE) => 
   ctx.fillStyle = style.text
   ctx.fillText(text, textX, y + LABEL_HEIGHT / 2)
   ctx.restore()
+
+  BOX.x = x
+  BOX.y = y
+  BOX.w = width
+  BOX.h = LABEL_HEIGHT
+  return BOX
 }

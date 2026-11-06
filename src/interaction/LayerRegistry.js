@@ -93,13 +93,14 @@ export class LayerRegistry {
       if (!entry.visible) return
       this.#resolveParts(entry, eventType, sample).forEach(part =>
         // El detalle propio del resolver pasa (una línea aporta `partIndex`/`segmentIndex`); las
-        // claves del registro van DESPUÉS del spread: la identidad de la capa no es negociable.
+        // claves del registro van DESPUÉS del spread: la identidad de la capa no es negociable. El z sí
+        // puede venir de la parte: un rótulo es parte de su ítem, pero se dibuja en su propio plano.
         hits.push({
           ...part,
           layerId:    entry.layerId,
           kind:       entry.kind,
           distancePx: part.distancePx ?? Number.POSITIVE_INFINITY,
-          zIndex:     entry.zIndex,
+          zIndex:     part.zIndex ?? entry.zIndex,
           order:      entry.declOrder,
         }))
     })

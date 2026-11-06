@@ -15,7 +15,7 @@ import { STYLE_PROPERTIES, styleConfig, syncStyle } from './layerStyle.js'
 export class CristaePolygonLayer extends CristaeLayerElement {
 
   // Gramática de composición: entidad hoja que produce `polygon`.
-  static cristaeSignature = { consumes: [], produces: ['polygon'], combine: null, arity: 'leaf' }
+  static cristaeSignature = { role: 'leaf', produces: ['polygon'] }
 
   static properties = {
     data       : { type: Array },

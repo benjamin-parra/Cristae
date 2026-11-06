@@ -15,11 +15,20 @@ import {
   CristaeLineLayer,
   CristaeShapeLayer,
   CristaeLabelLayer,
+  CristaeLabeled,
+  CristaeTextLayer,
+  CristaeImageLayer,
+  CristaeHeatLayer,
   CristaeToolbar,
+  CristaeScale,
   CristaeTable,
+  type CristaeHeatLayerElement,
+  type CristaeImageLayerElement,
   type CristaeClusterElement,
   type CristaeDrawingIndicator,
   type CristaeLabelPaint,
+  type CristaeLabeledElement,
+  type CristaeTextLayerElement,
   type CristaeMapElement,
   type CristaePointLayerElement,
   type CristaePopupElement,
@@ -28,7 +37,7 @@ import {
   type CristaeTableElement,
   type CristaeViewportChangeDetail,
 } from '@cristae/react'
-import { MapEngine, adoptLeafletHost, arc, createSource, defineSource, defineIconSet, distance, drawLabel, sphere, toParts, type Bounds, type CristaeSource, type LineAccessors, type PointerSample } from 'cristae/map'
+import { MapEngine, adoptLeafletHost, arc, createSource, defineSource, defineIconSet, distance, drawLabel, sphere, toParts, type Bounds, type ClusterBubble, type CristaeSource, type LineAccessors, type PointerSample } from 'cristae/map'
 import { WGS84, boundsOf, boundsPad } from 'cristae/geometry'
 
 interface Movil {
@@ -104,8 +113,48 @@ export const ViaData = () => (
       orientation="horizontal"
       items={[{ id: 'a', title: 'Capas', icon: '<svg/>', onClick: (it) => void it.id }]}
     />
+    <CristaeScale slot="bottom-left" units="metric imperial" maxWidth={120} />
   </CristaeMap>
 )
+
+// Texto sobre las líneas que envuelve, imagen por caja con su carga y click, y campo de calor con la rampa
+// fuera del render (una función nueva por render rehace la paleta).
+interface Ruta { id: string; nombre: string; path: [number, number][] }
+interface Muestra { id: number; lat: number; lng: number; n: number }
+const rampa = (t: number): [number, number, number, number] => [t, 0, 1 - t, t]
+export const Paridad = () => {
+  const imagen = useRef<CristaeImageLayerElement>(null)
+  const calor  = useRef<CristaeHeatLayerElement<Muestra>>(null)
+  const texto  = useRef<CristaeLabeledElement<Ruta>>(null)
+  return (
+    <CristaeMap>
+      <CristaeLabeled<Ruta> ref={texto} repeat={200} offset={6} orientation="path" textOf={(r) => r.nombre}>
+        <CristaeGeodesic>
+          <CristaeLineLayer<Ruta> id="rutas" data={[]} accessors={{ idOf: (r) => r.id, pathOf: (r) => r.path }} />
+        </CristaeGeodesic>
+      </CristaeLabeled>
+      <CristaeImageLayer
+        ref={imagen}
+        id="radar"
+        url="radar.png"
+        bounds={{ south: -34, west: -72, north: -32, east: -70 }}
+        opacity={0.7}
+        interactive
+        onLoad={(ev) => void ev.detail.url}
+        onClick={(hits) => void hits[0]?.kind}
+      />
+      <CristaeHeatLayer<Muestra>
+        ref={calor}
+        data={[]}
+        accessors={{ idOf: (m) => m.id, positionOf: (m) => ({ lat: m.lat, lng: m.lng }), weightOf: (m) => m.n }}
+        radius={30}
+        colorRamp={rampa}
+      />
+      <button onClick={() => { calor.current?.controls?.setVisible(false); imagen.current?.controls?.setOpacity(0.5) }}>ocultar</button>
+      <button onClick={() => { texto.current && (texto.current.visible = false) }}>sin texto</button>
+    </CristaeMap>
+  )
+}
 
 // Ruta `source` (Source compartida) + composición cluster › overlay › punto + línea.
 export const ViaSource = () => (
@@ -123,6 +172,23 @@ export const ViaSource = () => (
     />
     <CristaeLabelLayer bindTo="fleet" textOf={(m: Movil) => m.patente} paint={paint} style={estilo}
                        pane="cristae-etiquetas" z={620} />
+  </CristaeMap>
+)
+
+// Rótulos: la píldora con `paint={drawLabel}` bajo cada punto suelto, y el conteo bajo cada burbuja. El
+// `labeled` de afuera rotula las burbujas: `textOf` recibe `{ count, leaves }`.
+export const Rotulos = ({ visibles }: { visibles: boolean }) => (
+  <CristaeMap>
+    <CristaeLabeled<ClusterBubble<Movil>> placement="below" textOf={(b) => `${b.count} · ${b.leaves[0]?.patente ?? ''}`}>
+      <CristaeCluster>
+        <CristaeLabeled<Movil> paint={drawLabel} visible={visibles} textOf={(m) => m.patente}>
+          <CristaePointLayer<Movil> id="fleet" data={moviles} accessors={acc} iconSet={iconSet} />
+        </CristaeLabeled>
+      </CristaeCluster>
+    </CristaeLabeled>
+    <CristaeLabeled<Movil> renderer="html" interactive htmlOf={(m) => `<button>${m.patente}</button>`} placement="right">
+      <CristaePointLayer<Movil> id="otros" data={moviles} accessors={acc} iconSet={iconSet} />
+    </CristaeLabeled>
   </CristaeMap>
 )
 
@@ -347,6 +413,36 @@ export const BadHost = () => new MapEngine({ host: {} })
 // slot fuera de las zonas del overlay (un typo quedaría mudo en runtime).
 // @ts-expect-error "arriba" no es una zona del overlay 3×3
 export const BadSlot = () => <CristaeToolbar slot="arriba" />
+
+// @ts-expect-error maxWidth es number, no string
+export const BadScaleWidth = () => <CristaeScale maxWidth="100" />
+
+// @ts-expect-error orientation es 'auto' o 'path'
+export const BadLabeled = () => <CristaeLabeled orientation="left"><CristaeLineLayer id="rutas" /></CristaeLabeled>
+
+// @ts-expect-error `gl` no está entre los renderers
+export const BadRenderer = () => <CristaeLabeled renderer="gl"><CristaeLineLayer id="rutas" /></CristaeLabeled>
+
+// Texto suelto con datos propios: el genérico sale de los accessors y el handle es el de la capa de texto.
+interface Ciudad { id: string; nombre: string; lat: number; lng: number }
+export const TextoSuelto = () => {
+  const capa = useRef<CristaeTextLayerElement<Ciudad>>(null)
+  const sube = () => capa.current?.controls?.update({ placement: 'above', textOf: null })
+  return (
+    <CristaeMap>
+      <CristaeTextLayer<Ciudad> ref={capa} id="ciudades" data={[]} accessors={{ idOf: (c) => c.id, positionOf: (c) => c }}
+        textOf={(c) => c.nombre} placement="center" interactive
+        onClick={(hits) => hits[0]?.kind === 'text' && void hits[0].id} />
+      <button onClick={sube} />
+    </CristaeMap>
+  )
+}
+
+// @ts-expect-error la capa de texto no tiene trazo: `repeat` no existe
+export const BadTextRepeat = () => <CristaeTextLayer id="ciudades" repeat={200} />
+
+// @ts-expect-error sin hijo no hay qué rotular
+export const BadLabeledSinHijo = () => <CristaeLabeled textOf={() => 'x'} />
 
 // el hit de línea sólo expone partIndex/vertexIndex tras discriminar por `kind`.
 export const BadHit = () => (
