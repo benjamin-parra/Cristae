@@ -2,6 +2,7 @@ import { LayerRegistry } from '../interaction/LayerRegistry.js'
 import { EventBus } from '../events/EventBus.js'
 import { Interaction } from './Interaction.js'
 import { Camera, limitsOf } from './Camera.js'
+import { STACK, createStack } from './stack.js'
 import { PointLayer } from '../render/PointLayer.js'
 import { OBJ_BITS } from '../render/Picking.js'
 import { LineGpuLayer } from '../render/LineGpuLayer.js'
@@ -25,10 +26,11 @@ import { emptyBounds, growBounds, growRun } from '../geometry/bounds.js'
 import { byDefault, checkHeading, checkPlacer, isModel } from '../geometry/geodesic.js'
 
 // MapEngine — orquestador headless (SPECS §6). Framework-agnóstico, sin dominio. Monta sobre un
-// anfitrión —el que recibe o el que crea sobre `container`—, deriva panes por orden de declaración (el
-// consumidor no toca z-index) y cablea las piezas: registry + bus + Interaction (picking) + Camera. Los
-// tiles son del anfitrión. Cada registro sostiene su pane en la superficie del anfitrión mientras vive.
-// Cada capa de puntos posee un Source interno (ruta C) o adopta uno externo (ruta B).
+// anfitrión —el que recibe o el que crea sobre `container`—, deriva el z de cada pane de su lugar en el
+// orden de declaración (el consumidor no toca z-index; ver #build) y cablea las piezas: registry + bus +
+// Interaction (picking) + Camera. Los tiles son del anfitrión. Cada registro sostiene su pane en la
+// superficie del anfitrión mientras vive. Cada capa de puntos posee un Source interno (ruta C) o adopta uno
+// externo (ruta B).
 
 const BASE_Z = 400
 const Z_STEP = 10
@@ -40,6 +42,7 @@ const ITEM_DIM = 0.3            // opacidad del atenuado en el eje de foco por �
 // de esta banda para que las etiquetas de otros marcadores NO tapen los vehículos que el cluster superpone
 // al expandirse (el spider es el contenido enfocado → va arriba de los labels). Ver addLabelLayer + fold.
 const LABEL_Z_OFFSET = 200
+const TOP_Z          = BASE_Z + LABEL_Z_OFFSET   // plano de HTML, editores y rótulos; con +k, el del pliegue
 const BUS_EVENTS = new Set(['click', 'secondary-click', 'hover', 'hover:start', 'hover:end', 'pointer:move'])
 // El detail de `move`: uno compartido, porque sale en cada paso del movimiento.
 const MOVE_DETAIL = Object.freeze({})
@@ -108,7 +111,7 @@ export class MapEngine {
   #viewZ      = 0                 // la vista del cuadro de zoom animado, para el recorrido estable de #renderAtView
   #viewC      = null
 
-  #layers             = new Map()      // id → record { kind, source, layer, controls, paneName, order }
+  #layers             = new Map()      // id → record { kind, source, layer, controls, paneName, z, plane, rank, zIndex }
   #highlightOverlays  = new Set()      // overlays de interacción (canvas 2D fijo al contenedor) → dispose en destroy
   #fontHooked         = new WeakSet()  // iconSets ya cableados al font-gate (evita re-suscribir por cada capa)
   // Capas de puntos interactivas = las que entran al pase de picking. Sobre las MISMAS entradas vive
@@ -123,7 +126,15 @@ export class MapEngine {
   #iconSets           = new Map()      // nombre → IconSet registrado (resolución por nombre)
   #defaultClusters    = null           // cluster icon-set por defecto (lazy)
   #defaultSubClusters = null           // icon-set de sub-clusters de la espiral (jerarquía, lazy)
-  #order              = 0
+  #seq                = 0              // sólo para nombres (pane del overlay, id del pliegue): no apila
+  // Apilado (ver #build): el orden de declaración de las primarias, desde qué rango quedó un hueco sin compactar,
+  // si ya hay una microtarea que lo compacta, los marcadores de dependiente que creó el motor y los panes
+  // compartidos (`cfg.pane` → ids de sus capas).
+  #stack              = createStack()
+  #dirtyFrom          = Infinity
+  #compacting         = false
+  #anchors            = new WeakSet()
+  #panes              = new Map()
   #focused            = null           // enfoque: Set(id) de capas a opacidad plena (resto atenuado), o null
   #dimOpacity         = 0.3            // opacidad del resto mientras hay enfoque POR CAPA
   #focusKinds         = null           // kinds de capa que el enfoque por capa atenúa (null = todas)
@@ -210,34 +221,32 @@ export class MapEngine {
   /* ── Capas de puntos ── */
 
   addPointLayer(cfg) {
-    const { id, data, accessors, iconSet, interactive = false, pane, z, visible = true, enabled = true, filters, where, cluster, capture, presentAs } = cfg
-    const order    = this.#order++
+    const { id, data, accessors, iconSet, interactive = false, pane, visible = true, enabled = true, filters, where, cluster, capture, presentAs } = cfg
     const paneName = pane ?? `cristae-point-${id}`
-    const zIndex   = z ?? (BASE_Z + order * Z_STEP)
 
     const set = this.#resolveIconSet(iconSet)
     this.#hookFontGate(set)                      // re-encode al re-rasterizar el atlas (font-gate)
     // `controls` = la Source que posee el motor (ruta A/data); con `cfg.source` el dueño es el
     // consumidor → el motor solo lee, no escribe. El objeto ES el Source (handle colapsado).
-    const controls = cfg.source ? null : createSource(accessors, set?.variants)
-    const source   = cfg.source ?? controls
+    const controls          = cfg.source ? null : createSource(accessors, set?.variants)
+    const source            = cfg.source ?? controls
     // `where`: membresía por-capa (filtra qué ítems de la Source compartida entran a ESTA capa
     // sin mutar la Source). Otras vistas de la misma Source no se ven afectadas.
-    const layer = this.#build(paneName, zIndex, () =>
+    const { layer, ...seat } = this.#build(id, cfg, BASE_Z, paneName, () =>
       this.#trackGl(new PointLayer({ host: this.#host, pane: paneName, source, iconSet: set, interactive, where, visible: visible && enabled, surface: this.#tramos.surface })))
 
     // `where`/`enabled` en el record: si esta capa está clusterizada, el cluster indexa `source ∧ where`
     // de los hosts HABILITADOS (no la Source cruda) → cuenta lo que la capa REALMENTE muestra.
     // setWhere/setLayerEnabled los actualizan y re-indexan el cluster. `visible` (pintado puro) se
     // persiste para componer la visibilidad EFECTIVA del pane (visible ∧ enabled).
-    const record = { kind: 'point', source, layer, controls, paneName, zIndex, order, interactive, where: where ?? null, visible, enabled }
+    const record = { kind: 'point', source, layer, controls, paneName, ...seat, interactive, where: where ?? null, visible, enabled }
     this.#layers.set(id, record)
     if (!enabled) layer.enabled = false          // nace gateada: no reacciona a la Source hasta setLayerEnabled(true)
 
     if (interactive) {
       this.#addPickLayer(id, layer)
       // Los resolvers leen record.layer (no capturan): attachSource puede swapear la capa.
-      this.#registerResolver(id, 'point', zIndex, order, sample => record.layer.resolveClick(sample), sample => record.layer.resolveHover(sample), { capture, presentAs })
+      this.#registerResolver(id, 'point', record, sample => record.layer.resolveClick(sample), sample => record.layer.resolveHover(sample), { capture, presentAs })
     }
     this.#applyVisibility(id, paneName, visible && enabled)
 
@@ -262,24 +271,22 @@ export class MapEngine {
   addPolygonLayer(cfg) {
     if (cfg.backend !== undefined)
       throw new Error('[cristae] los polígonos se dibujan siempre en GPU y no aceptan `backend`: quitalo (ver *Migración* en el CHANGELOG)')
-    const { id, data, accessors, pane, z, source: dado, geometry,
+    const { id, data, accessors, pane, z: _z, [STACK]: _at, source: dado, geometry,
             idOf = accessors?.idOf, styleOf = accessors?.styleOf,
             interactive = true, visible = true, ...style } = cfg
-    const order    = this.#order++
     const paneName = pane ?? `cristae-polygon-${id}`
-    const zIndex   = z ?? (BASE_Z + order * Z_STEP)
 
     // Sin `geometry`: dueño motor (data) vs consumidor (cfg.source). Con `geometry` no hay Source.
-    const controls = geometry || dado ? null : createSource(accessors)
-    const source   = geometry ? null : dado ?? controls
-    const layer    = this.#build(paneName, zIndex,
+    const controls          = geometry || dado ? null : createSource(accessors)
+    const source            = geometry ? null : dado ?? controls
+    const { layer, ...seat } = this.#build(id, cfg, BASE_Z, paneName,
       () => new PolygonGpuLayer({ host: this.#host, pane: paneName, source, geometry, idOf, styleOf, interactive, ...style, surface: this.#tramos.surface }))
 
-    const record = { kind: 'polygon', source, layer, controls, paneName, zIndex, order, interactive, visible, enabled: true }
+    const record = { kind: 'polygon', source, layer, controls, paneName, ...seat, interactive, visible, enabled: true }
     this.#layers.set(id, record)
 
     if (interactive)   // resolvers leen record.layer (no capturan). Síncrono, no va a #pickLayers (como línea).
-      this.#registerResolver(id, 'polygon', zIndex, order, sample => record.layer.resolveClick(sample), sample => record.layer.resolveHover(sample))
+      this.#registerResolver(id, 'polygon', record, sample => record.layer.resolveClick(sample), sample => record.layer.resolveHover(sample))
     this.#applyVisibility(id, paneName, visible)
 
     if (data && controls) controls.set(data)
@@ -306,27 +313,21 @@ export class MapEngine {
   addLineLayer(cfg) {
     if (cfg.vector !== undefined || cfg.backend !== undefined)
       throw new Error('[cristae] las líneas se dibujan siempre en GPU y no aceptan `vector` ni `backend`: quitalos (ver *Migración* en el CHANGELOG)')
-    return this.#addLine(cfg, this.#order++)
-  }
-
-  // `order` llega de afuera para la capa que nace tarde —las patas del fold usan el de su host—: si
-  // tomara uno del contador, correría el z por defecto de las capas que se agreguen después.
-  #addLine(cfg, order) {
-    const { id, data, accessors, interactive = false, pane, z, visible = true } = cfg
+    const { id, data, accessors, interactive = false, pane, visible = true } = cfg
     const paneName = pane ?? `cristae-line-${id}`
-    const zIndex   = z ?? (BASE_Z + order * Z_STEP)
 
     // `controls` = Source que posee el motor (ruta A/data); con `cfg.source` el dueño es el consumidor.
-    const controls = cfg.source ? null : createSource(accessors)
-    const source   = cfg.source ?? controls
-    const layer = this.#build(paneName, zIndex, () => new LineGpuLayer({ host: this.#host, pane: paneName, source, surface: this.#tramos.surface }))
+    const controls          = cfg.source ? null : createSource(accessors)
+    const source            = cfg.source ?? controls
+    const { layer, ...seat } = this.#build(id, cfg, BASE_Z, paneName,
+      () => new LineGpuLayer({ host: this.#host, pane: paneName, source, surface: this.#tramos.surface }))
 
-    const record = { kind: 'line', source, layer, controls, paneName, zIndex, order, interactive, visible, enabled: true }
+    const record = { kind: 'line', source, layer, controls, paneName, ...seat, interactive, visible, enabled: true }
     this.#layers.set(id, record)
 
     if (interactive) {
       // Los resolvers leen record.layer (no capturan). Picking síncrono (no va a #pickLayers, como polígono).
-      this.#registerResolver(id, 'line', zIndex, order, sample => record.layer.resolveClick(sample), sample => record.layer.resolveHover(sample))
+      this.#registerResolver(id, 'line', record, sample => record.layer.resolveClick(sample), sample => record.layer.resolveHover(sample))
     }
     this.#applyVisibility(id, paneName, visible)
 
@@ -351,19 +352,18 @@ export class MapEngine {
   /* ── Capa de marcadores HTML (nodos DOM propios; GL-safe, complementa el point-layer GPU) ── */
 
   addHtmlLayer(cfg) {
-    const { id, data, accessors, interactive = false, pane, z, visible = true } = cfg
-    const order    = this.#order++
+    const { id, data, accessors, interactive = false, pane, visible = true } = cfg
     const paneName = pane ?? `cristae-html-${id}`
-    const zIndex   = z ?? (BASE_Z + order * Z_STEP + LABEL_Z_OFFSET)   // sobre líneas/puntos: los badges van arriba
 
-    const controls = cfg.source ? null : createSource(accessors)
-    const source   = cfg.source ?? controls
-    const layer    = this.#build(paneName, zIndex, () => new HtmlLayer({ host: this.#host, pane: paneName, source, interactive }), true)
+    // En el plano de encima: sobre líneas y puntos, los badges van arriba.
+    const controls          = cfg.source ? null : createSource(accessors)
+    const source            = cfg.source ?? controls
+    const { layer, ...seat } = this.#build(id, cfg, TOP_Z, paneName, () => new HtmlLayer({ host: this.#host, pane: paneName, source, interactive }), true)
 
-    const record = { kind: 'html', source, layer, controls, paneName, zIndex, order, interactive, visible, enabled: true }
+    const record = { kind: 'html', source, layer, controls, paneName, ...seat, interactive, visible, enabled: true }
     this.#layers.set(id, record)
     if (interactive) {
-      this.#registerResolver(id, 'html', zIndex, order, sample => record.layer.resolveClick(sample), sample => record.layer.resolveHover(sample))
+      this.#registerResolver(id, 'html', record, sample => record.layer.resolveClick(sample), sample => record.layer.resolveHover(sample))
     }
     this.#applyVisibility(id, paneName, visible)
 
@@ -382,32 +382,30 @@ export class MapEngine {
 
   // El alias se queda en la esfera por defecto aunque el mapa traiga otro modelo, sin estilo de capa y con su
   // pane, su kind y su handle: quien no lo migra conserva su anillo y su costo.
-  addCircleLayer({ id, data, accessors, source, interactive, pane, z, visible }) {
-    return this.#addShape({ id, data, accessors, source, interactive, pane, z, visible }, true)
+  addCircleLayer({ id, data, accessors, source, interactive, pane, z, visible, [STACK]: at }) {
+    return this.#addShape({ id, data, accessors, source, interactive, pane, z, visible, [STACK]: at }, true)
   }
 
   // `circle` es el alias de círculos: el kind del record y del hit, el pane por defecto y la esfera con que
   // se dibuja. El resto de `cfg` es el estilo de capa de los polígonos, y el handle suma `style` sólo en la
   // capa de formas.
   #addShape(cfg, circle) {
-    const { id, data, accessors, source: given, interactive = true, pane, z, visible = true, ...style } = cfg
+    const { id, data, accessors, source: given, interactive = true, pane, z: _z, [STACK]: _at, visible = true, ...style } = cfg
     const kind     = circle ? 'circle' : 'shape'
-    const order    = this.#order++
     const paneName = pane ?? `cristae-${kind}-${id}`
-    const zIndex   = z ?? (BASE_Z + order * Z_STEP)
 
-    const controls = given ? null : createSource(accessors)
-    const source   = given ?? controls
+    const controls          = given ? null : createSource(accessors)
+    const source            = given ?? controls
     // Se repinta con sus propios moveend/zoomend/resize, así que no va a #glLayers.
-    const layer    = this.#build(paneName, zIndex,
+    const { layer, ...seat } = this.#build(id, cfg, BASE_Z, paneName,
       () => new ShapeLayer({
         ...style, host: this.#host, pane: paneName, source, interactive, circle, model: circle ? byDefault : this.#model, surface: this.#tramos.surface,
       }))
 
-    const record = { kind, source, layer, controls, paneName, zIndex, order, interactive, visible, enabled: true }
+    const record = { kind, source, layer, controls, paneName, ...seat, interactive, visible, enabled: true }
     this.#layers.set(id, record)
     if (interactive)
-      this.#registerResolver(id, kind, zIndex, order, sample => record.layer.resolveClick(sample), sample => record.layer.resolveHover(sample))
+      this.#registerResolver(id, kind, record, sample => record.layer.resolveClick(sample), sample => record.layer.resolveHover(sample))
     this.#applyVisibility(id, paneName, visible)
 
     if (data && controls) controls.set(data)
@@ -424,17 +422,15 @@ export class MapEngine {
   /* ── Heatmap (canvas 2D, densidad acumulada; NO GL — se auto-reproyecta por eventos del mapa) ── */
 
   addHeatLayer(cfg) {
-    const { id, data, accessors, pane, z, visible = true, radius, blur, intensity, colorRamp } = cfg
-    const order    = this.#order++
+    const { id, data, accessors, pane, visible = true, radius, blur, intensity, colorRamp } = cfg
     const paneName = pane ?? `cristae-heat-${id}`
-    const zIndex   = z ?? (BASE_Z + order * Z_STEP)
 
-    const controls = cfg.source ? null : createSource(accessors)
-    const source   = cfg.source ?? controls
-    const layer    = this.#build(paneName, zIndex, () =>
+    const controls          = cfg.source ? null : createSource(accessors)
+    const source            = cfg.source ?? controls
+    const { layer, ...seat } = this.#build(id, cfg, BASE_Z, paneName, () =>
       new HeatLayer({ host: this.#host, pane: paneName, source, radius, blur, intensity, colorRamp }), true)
 
-    const record = { kind: 'heat', source, layer, controls, paneName, zIndex, order, interactive: false, visible, enabled: true }
+    const record = { kind: 'heat', source, layer, controls, paneName, ...seat, interactive: false, visible, enabled: true }
     this.#layers.set(id, record)
     this.#applyVisibility(id, paneName, visible)
 
@@ -456,10 +452,9 @@ export class MapEngine {
        `styleOf` de polígonos y líneas. ── */
 
   addEditableLayer(cfg) {
-    const { id, kind = 'polygon', value = null, mode = 'edit', style, onChange, onCommit, pane, z } = cfg
-    const order    = this.#order++
-    const paneName = pane ?? `cristae-edit-${id}`
-    const zIndex   = z ?? (BASE_Z + order * Z_STEP + LABEL_Z_OFFSET)   // handles por encima de las capas
+    const { id, kind = 'polygon', value = null, mode = 'edit', style, onChange, onCommit, pane } = cfg
+    const paneName     = pane ?? `cristae-edit-${id}`
+    const participants = new Set()   // los de la puerta del puntero: #seat los corre con la capa
     // El estado de dibujo es del mapa: entra con el primer editor que dibuja y sale con el último, y en el
     // teardown no avisa. Los avisos salen con el registro al día: el del constructor espera a que la capa
     // esté registrada, y el de la baja lo da `removeLayer` con la capa ya quitada.
@@ -471,13 +466,17 @@ export class MapEngine {
     }
     let alta = false
     let nace = false
-    const editor = this.#build(paneName, zIndex, () => new EditableGeometry({
+    // En el plano de encima: los handles, sobre las capas.
+    const { layer: editor, ...seat } = this.#build(id, cfg, TOP_Z, paneName, (zIndex, order) => new EditableGeometry({
       host: this.#host, pane: paneName, kind, value, mode, model: this.#model, style, onChange, onCommit,
-      join:          participant => this.#interaction.join(participant, zIndex, order),   // los handles, en su lugar del orden
+      join:          participant => {                                       // los handles, en su lugar del orden
+        participants.add(participant)
+        return this.#interaction.join(participant, zIndex, order)
+      },
       onHandleLevel: level => this.#interaction.setHandleLevel(id, level),   // el árbitro del cursor lo traduce
       onDrawing:     drawing => alta ? dibuja(drawing) : nace = drawing,
     }), true)
-    const record = { kind: 'editable', editing: kind, editor, paneName, zIndex, order, visible: true, enabled: true }
+    const record = { kind: 'editable', editing: kind, editor, paneName, ...seat, participants, visible: true, enabled: true }
     this.#layers.set(id, record)
     alta = true
     nace && dibuja(true)
@@ -517,14 +516,14 @@ export class MapEngine {
   /* ── Capas de labels (canvas; standalone o bind-to un host) ── */
 
   addLabelLayer(cfg) {
-    const { id, bindTo, pane, z, paint, style, textOf, accessors } = cfg
-    const order      = this.#order++
-    const paneName   = pane ?? `cristae-label-${id}`
-    const zIndex     = z ?? (BASE_Z + order * Z_STEP + LABEL_Z_OFFSET)        // labels por encima de las capas
-    const labelLayer = this.#build(paneName, zIndex, () => new LabelLayer({ host: this.#host, pane: paneName, paint, style }), true)
+    const { id, bindTo, pane, paint, style, textOf, accessors } = cfg
+    const paneName = pane ?? `cristae-label-${id}`
+    // En el plano de encima: los labels, sobre las capas.
+    const { layer: labelLayer, ...seat } = this.#build(id, cfg, TOP_Z, paneName,
+      () => new LabelLayer({ host: this.#host, pane: paneName, paint, style }), true)
     // `visible` en record: controla si sync() (la suscripción a la Source) corre el reduce O(n) +
     // setLabels. Con setVisible(false) el sync es no-op → cero CPU por cada emit del WS.
-    const record = { kind: 'label', layer: labelLayer, paneName, zIndex, order, bindTo, visible: true, enabled: true }
+    const record = { kind: 'label', layer: labelLayer, paneName, ...seat, bindTo, visible: true, enabled: true }
     this.#layers.set(id, record)
 
     const bind = () => this.#bindLabels(id, record, { bindTo, textOf, accessors, source: cfg.source })
@@ -563,17 +562,19 @@ export class MapEngine {
 
   // Puente hacia los servicios del motor que necesita el fold (ClusterFold). El fold vive en su propio
   // módulo y NO accede a los privados del motor: pide sus capacidades por esta interfaz acotada.
+  // `above(anchorId, lift)` es el marcador de `cfg[STACK]` de las capas del fold: dependientes de su host, en el plano
+  // de encima (sobre los labels) y en el rango del host, más `lift`.
   #foldBridge() {
     return {
       camera:            this.#host.camera,
       layerOf:           id => this.#layers.get(id),
-      nextOrder:         () => this.#order++,
-      overlayZ:          (order, extra) => BASE_Z + order * Z_STEP + LABEL_Z_OFFSET + extra,   // z de las capas del fold: sobre los labels (+200)
+      seq:               () => this.#seq++,
+      above:             (anchorId, lift) => this.#dependOn(anchorId, a => this.#zOf(TOP_Z, a.rank) + lift),
       subAccent:         SUB_ACCENT,                                                           // acento default de la traza spiderfy
-      makeBubbleSink:    (bubble, pane, order, foldId, interactive) => this.#makeBubbleSink(bubble, pane, order, foldId, interactive),
+      makeBubbleSink:    (bubble, pane, anchorId, foldId, interactive) => this.#makeBubbleSink(bubble, pane, anchorId, foldId, interactive),
       subClusterIconSet: accent => this.#subClusterIconSet(accent),
       addPointLayer:     cfg => this.addPointLayer(cfg),
-      addLineLayer:      (cfg, order) => this.#addLine(cfg, order),
+      addLineLayer:      cfg => this.addLineLayer(cfg),
       removeLayer:       id => this.removeLayer(id),
       resyncBound:       id => this.#resyncBound(id),
       focus:             (ids, options) => this.focus(ids, options),
@@ -596,9 +597,7 @@ export class MapEngine {
     const host = this.#layers.get(hostId)
     if (!host || host.kind !== 'point') return null
 
-    const order    = this.#order++
-    const paneName = `${host.paneName}-overlay-${order}`
-    const zIndex   = BASE_Z + host.order * Z_STEP + 7        // sobre el host (y sobre la burbuja, +5)
+    const paneName = `${host.paneName}-overlay-${this.#seq++}`
 
     // Membresía del overlay = la del HOST ∧ la propia. `host.where` se lee VIVO, así que un cambio de
     // membresía del host arrastra al badge sin que el consumidor lo espeje (su `resync` refresca).
@@ -620,10 +619,12 @@ export class MapEngine {
         visible: visible && host.enabled, suppressed: host.suppressed ?? null, focus, surface: this.#tramos.surface,
       })
     }
-    const layer = this.#build(paneName, zIndex, () => this.#trackGl(crear(host.source, visible)))
+    // Dependiente del host, en su plano: sigue su z efectivo —también uno explícito o el de setLayerZ— más 7, sobre él.
+    const { layer, ...seat } = this.#build(id, { [STACK]: this.#dependOn(hostId, h => h.zIndex + 7) }, BASE_Z, paneName,
+      () => this.#trackGl(crear(host.source, visible)))
 
     const record = {
-      kind: 'overlay', source: host.source, layer, paneName, order, bindTo: hostId, visible, enabled: true,
+      kind: 'overlay', source: host.source, layer, paneName, ...seat, bindTo: hostId, visible, enabled: true,
       // el cluster reinvoca esto al re-suprimir (#resyncBound): re-apunta al ref vivo del host + reconstruye.
       resync: () => { record.layer.suppressed = this.#layers.get(hostId)?.suppressed ?? null; record.layer.refresh() },
       // el host cambió de fuente (attachSource): la capa se rehace sobre la nueva, con su foco y en su lugar del pane.
@@ -805,6 +806,12 @@ export class MapEngine {
     this.#removePickLayer(id)
     this.#bus.clearLayer(id)
     this.#layers.delete(id)
+    // Del apilado: la primaria deja un hueco que se compacta después (#gap) y la dependiente sale de su ancla. El pane
+    // compartido toma el z del miembro que quede arriba en ese mismo pase.
+    this.#gap(this.#stack.remove(id))
+    this.#layers.get(record.anchor)?.dependents?.delete(id)
+    const shared = this.#panes.get(record.paneName)
+    shared?.delete(id) && !shared.size && this.#panes.delete(record.paneName)
     // La superficie cuenta quién sostiene cada pane: el propio de la capa se va con ella, y uno
     // compartido por varias con el mismo `cfg.pane`, con la última.
     record.paneName && this.#host.surface.unmount(record.paneName)
@@ -1118,8 +1125,8 @@ export class MapEngine {
     entry.obj && p.free.push(entry.obj)
   }
 
-  #registerResolver(id, kind, zIndex, order, resolveClick, resolveHover, overlay) {
-    this.#registry.upsertResolver({ layerId: id, kind, zIndex, declOrder: order, resolveClick, resolveHover, visible: true, capture: overlay?.capture, presentAs: overlay?.presentAs })
+  #registerResolver(id, kind, record, resolveClick, resolveHover, overlay) {
+    this.#registry.upsertResolver({ layerId: id, kind, zIndex: record.zIndex, declOrder: this.#orderOf(record), resolveClick, resolveHover, visible: true, capture: overlay?.capture, presentAs: overlay?.presentAs })
     this.#registry.setLayerDemandMask(id, this.#bus.demandMaskFor(id))
     this.#interaction.syncHoverDemand()
   }
@@ -1152,25 +1159,137 @@ export class MapEngine {
     return this.#host.surface.mount(name, zIndex, { pointer: false })
   }
 
-  // Una capa entra con su pane: se monta y la capa se construye colgada de él. Lo que valida la
-  // configuración —la Source, el iconSet, el sustrato— va antes, y lanza sin haber montado nada. Lo que
-  // lanza al construir —un sustrato GPU sin WebGL2, que el consumidor puede degradar a otro, o su propio
-  // código— deja la capa sin registro ni `removeLayer` que suelte el pane: se suelta acá. Una capa que no
-  // dibuja en un tramo (`separa`) declara su pane separador aunque esté vacío: ninguna capa GL de abajo
-  // comparte contexto con una de arriba a través de él.
-  #build(paneName, zIndex, create, separa = false) {
-    const pane = this.#mount(paneName, zIndex)
+  /* ── Apilado: el z por defecto sale del orden de declaración, no de la historia de altas ── */
+
+  // Una capa entra al apilado y con su pane: se monta y la capa se construye colgada de él. Lo que valida la
+  // configuración —la Source, el iconSet, el sustrato— va antes, y lanza sin haber tocado nada.
+  //
+  // `cfg[STACK]` dice dónde se declaró. Un nodo del documento la ubica entre las declaradas; nada, entre las
+  // imperativas, encima y en orden de alta; un marcador de #dependOn la hace dependiente, sin rango propio: su z sale
+  // de su ancla y desempata con el rango de ella. Una primaria toma `plane + rango·Z_STEP`, y un `cfg.z` explícito
+  // gana y ocupa rango igual. El hueco se abre ANTES de construir: la capa nace con su z final y las de encima ya
+  // corridas, así el plan de tramos que corre al construirla no ve un z provisional que parta uno. Un pane compartido
+  // nace con el z que le toca (#seatPanes). Una capa que no dibuja en un tramo (`separa`) declara su pane separador
+  // aunque esté vacío: ninguna capa GL de abajo comparte contexto con una de arriba a través de él.
+  //
+  // Lo que lanza al construir —un sustrato GPU sin WebGL2, que el consumidor puede degradar a otro, o su propio
+  // código— deja la capa sin registro ni `removeLayer`: se sueltan acá el separador, el pane y el rango. `create`
+  // recibe el z y el orden con que nace la capa. Devuelve la capa y el asiento que va a su record.
+  #build(id, cfg, plane, paneName, create, separa = false) {
+    const dep    = this.#anchors.has(cfg[STACK]) ? cfg[STACK] : null
+    const anchor = dep && this.#layers.get(dep.anchor)
+    dep || this.#gap(this.#stack.remove(id))   // un id que sigue en la pila (alta sin baja) deja su hueco, como una baja
+    const rank   = dep ? -1 : this.#stack.insert(id, cfg[STACK])
+    const wrote  = !dep && this.#restack(Math.min(this.#dirtyFrom, rank + 1))
+    const z      = cfg.z ?? null
+    const zIndex = z ?? (dep ? dep.place(anchor) : this.#zOf(plane, rank))
+    const order  = dep ? anchor.rank : rank
+    const top    = cfg.pane != null && this.#paneTop(paneName)
+
+    const pane = this.#mount(paneName, top && this.#orderOf(top) > order ? top.zIndex : zIndex)
     const undo = separa ? this.#tramos.separator(pane) : null
+    let layer
     try {
-      const layer = this.#watchSurface(create())
-      undo && this.#separators.set(layer, undo)
-      return layer
+      layer = this.#watchSurface(create(zIndex, order))
     } catch (error) {
       undo?.()
       this.#host.surface.unmount(paneName)
+      dep || this.#gap(this.#stack.remove(id))
       throw error
     }
+    undo && this.#separators.set(layer, undo)
+    cfg.pane == null || (this.#panes.get(paneName) ?? this.#panes.set(paneName, new Set()).get(paneName)).add(id)
+    dep && (anchor.dependents ??= new Set()).add(id)
+    wrote && this.#restacked()
+    return { layer, z, plane, rank, zIndex, ...dep && { anchor: dep.anchor, place: dep.place } }
   }
+
+  #zOf(plane, rank) { return plane + rank * Z_STEP }
+
+  // El rango con que desempata una capa: el propio, o el de su ancla si es dependiente.
+  #orderOf(record) { return record.anchor == null ? record.rank : this.#layers.get(record.anchor)?.rank ?? -1 }
+
+  // Marcador de dependiente para `cfg[STACK]`. Lo crea sólo el motor (#anchors): ningún cfg de afuera se hace pasar
+  // por uno.
+  #dependOn(anchor, place) {
+    const marker = { anchor, place }
+    this.#anchors.add(marker)
+    return marker
+  }
+
+  // Los rangos desde `from` pudieron moverse: cada primaria toma su z efectivo, y sus dependientes con ella. Salta la
+  // que está entrando, que todavía no tiene record. Devuelve si escribió algún z.
+  #restack(from) {
+    this.#dirtyFrom = Infinity
+    if (this.#destroying) return false
+    let wrote = false
+    this.#stack.forEachFrom(from, (id, rank) => {
+      const record = this.#layers.get(id)
+      if (!record) return
+      record.rank = rank
+      wrote = this.#seat(id, record) || wrote
+    })
+    return this.#seatPanes() || wrote
+  }
+
+  // Recalcula el z efectivo de una capa y lo escribe sólo si cambió; el de un pane compartido lo escribe #seatPanes.
+  // El registro y la puerta del puntero se actualizan siempre: un explícito cambia de rango sin cambiar de z. Una
+  // dependiente cuya ancla ya se fue no hace nada (el `dispose` del pliegue llega en la misma tarea). Devuelve si
+  // escribió algún z, propio o de una dependiente.
+  #seat(id, record) {
+    const anchor = record.anchor == null ? null : this.#layers.get(record.anchor)
+    if (anchor === undefined) return false
+
+    const z     = record.z ?? (anchor ? record.place(anchor) : this.#zOf(record.plane, record.rank))
+    const order = (anchor ?? record).rank
+    let wrote   = z !== record.zIndex && !this.#panes.has(record.paneName)
+    record.zIndex = z
+    wrote && this.#host.surface.setZ(record.paneName, z)
+    this.#registry.restack(id, z, order)
+    record.participants?.forEach(participant => this.#interaction.restack(participant, z, order))
+    record.dependents?.forEach(dep => wrote = this.#seat(dep, this.#layers.get(dep)) || wrote)
+    return wrote
+  }
+
+  // El z de un pane compartido es el efectivo de su miembro de mayor rango. Uno por pane y por pase, y sólo si cambió.
+  // Devuelve si escribió.
+  #seatPanes() {
+    let wrote = false
+    this.#panes.forEach((_, name) => {
+      const z = this.#paneTop(name)?.zIndex
+      if (z == null || z === this.#host.surface.zOf(name)) return
+      this.#host.surface.setZ(name, z)
+      wrote = true
+    })
+    return wrote
+  }
+
+  #paneTop(name) {
+    let top = null
+    this.#panes.get(name)?.forEach(id => {
+      const record = this.#layers.get(id)
+      if (record && (!top || this.#orderOf(record) > this.#orderOf(top))) top = record
+    })
+    return top
+  }
+
+  // Una baja deja un hueco en `rank`, sin escribir z en caliente: lo compacta la próxima alta o, si no llega, una
+  // microtarea. Así remontar en la misma tarea no escribe nada y un lote de bajas cuesta un pase. `destroy()` no
+  // compacta.
+  #gap(rank) {
+    if (rank < 0) return
+    this.#dirtyFrom = Math.min(this.#dirtyFrom, rank)
+    if (this.#compacting) return
+    this.#compacting = true
+    queueMicrotask(() => {
+      this.#compacting = false
+      !this.#destroying && this.#dirtyFrom < Infinity && this.#restack(this.#dirtyFrom) && this.#restacked()
+    })
+  }
+
+  // Un pase que escribió algún z termina acá, una vez: los tramos se replanifican con los z ya escritos. El plan decide
+  // solo si un derivado cruzó un separador; un corrimiento sin cruce deja los tramos como estaban.
+  #restacked() { this.#tramos.replan() }
 
   // Reemplaza la capa de puntos de un record por la que arma `create`. La vieja se suelta antes de construir, así que
   // su contexto se devuelve antes de tomar el nuevo, y el canvas nuevo ocupa el lugar del viejo en el pane: el orden de
@@ -1274,14 +1393,14 @@ export class MapEngine {
     rec.layer?.surface?.setOpacity?.(alpha)   // la de una capa GL la aplica la composición de su tramo
   }
 
-  // `z` nulo vuelve al derivado en el alta.
+  // Fija el z explícito de la capa, que también arrastra a sus dependientes y al registro de picking. `z` nulo o
+  // ausente lo borra: la capa vuelve al derivado que le toca ahora, no al z con que se dio de alta.
   setLayerZ(layerId, z) {
     const record = this.#layers.get(layerId)
-    const zIndex = z ?? record?.zIndex
-    if (record && zIndex != null) {
-      this.#host.surface.setZ(record.paneName, zIndex)
-      this.#tramos.replan()               // la capa puede salir del rango de su tramo, o partir uno ajeno
-    }
+    if (!record) return this
+    record.z = z ?? null
+    const wrote = this.#seat(layerId, record)
+    ;(this.#seatPanes() || wrote) && this.#restacked()
     return this
   }
 
@@ -1365,16 +1484,18 @@ export class MapEngine {
   // icon-set de cluster, o capa de labels con el conteo), o usa el default. El sink expone
   // `feed(bubbles)` (la forma de alimentar varía por tipo) y `dispose`.
   // interactive: true cuando expandable está activo (las burbujas reciben clicks de expand/collapse).
-  #makeBubbleSink(bubble, bubblePane, order, hostId, interactive = false) {
-    const siblingId = `${hostId}:clusters`
-    const zIndex    = BASE_Z + order * Z_STEP + LABEL_Z_OFFSET + 5   // burbujas sobre los labels (+200)
+  // Las burbujas son un record más, dependiente del host base del pliegue como las demás capas del fold (bridge.above):
+  // sobre los labels, en el rango del host, +5. Así #seat las corre cuando el host cambia de rango.
+  #makeBubbleSink(bubble, bubblePane, anchorId, foldId, interactive = false) {
+    const siblingId = `${foldId}:clusters`
+    const stack     = { [STACK]: this.#dependOn(anchorId, a => this.#zOf(TOP_Z, a.rank) + 5) }
     const spec      = bubble ?? { kind: 'point' }
 
     if (spec.kind === 'label') {
-      const layer  = this.#build(bubblePane, zIndex, () =>
+      const { layer, ...seat } = this.#build(siblingId, stack, TOP_Z, bubblePane, () =>
         new LabelLayer({ host: this.#host, pane: bubblePane, paint: spec.paint, style: spec.style }), true)
       const textOf = spec.textOf ?? (count => String(count))
-      this.#layers.set(siblingId, { kind: 'label', layer, paneName: bubblePane, order, visible: true, enabled: true })
+      this.#layers.set(siblingId, { kind: 'label', layer, paneName: bubblePane, ...seat, visible: true, enabled: true })
       return {
         feed:    bubbles => layer.setLabels(bubbles.map(b => ({ id: b.id, lat: b.lat, lng: b.lng, text: textOf(b.count) }))),
         dispose: () => this.removeLayer(siblingId),
@@ -1400,18 +1521,19 @@ export class MapEngine {
       // estado/pos para que cualquiera de esos cambios re-encode el sprite de la burbuja.
       hashOf: b => `${b.count}:${b.expanded ? 'd' : b.marked ? 'm' : ''}:${b.lat}:${b.lng}`,
     }, iconSet.variants)
-    const layer = this.#build(bubblePane, zIndex, () =>
+    const { layer, ...seat } = this.#build(siblingId, stack, TOP_Z, bubblePane, () =>
       this.#trackGl(new PointLayer({ host: this.#host, pane: bubblePane, source: controls, iconSet, interactive, surface: this.#tramos.surface })))
-    this.#layers.set(siblingId, {
-      kind: 'point', source: controls, layer, controls, paneName: bubblePane, order, interactive,
+    const record = {
+      kind: 'point', source: controls, layer, controls, paneName: bubblePane, ...seat, interactive,
       visible: true, enabled: true,
-    })
+    }
+    this.#layers.set(siblingId, record)
     if (interactive) {
       this.#addPickLayer(siblingId, layer)
       // La burbuja ocluye lo que tiene debajo (capa overlay): su click no se filtra a geocercas/puntos.
       // Hover real (demand-gated: sólo computa si alguien se suscribe) → la burbuja es una entidad
       // consultable como cualquier otra: hits por el bus + contentsOf del control.
-      this.#registerResolver(siblingId, 'point', zIndex, order, sample => layer.resolveClick(sample), sample => layer.resolveHover(sample), { capture: true })
+      this.#registerResolver(siblingId, 'point', record, sample => layer.resolveClick(sample), sample => layer.resolveHover(sample), { capture: true })
     }
     return {
       // feed SINCRÓNICO con el recluster: set() deja el Store al día ya, y refresh() reconstruye

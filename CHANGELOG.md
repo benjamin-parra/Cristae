@@ -18,13 +18,34 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   su textura y se componen en un solo canvas por tramo, en un pane `cristae-tramo-<n>`. El modelo de 13
   capas del Geotáctico baja de 13 contextos en reposo a 1, lejos del techo de ~16 de la página.
   Ocultar, atenuar o reordenar una capa dentro de su tramo no la hace dibujar: se resuelve al componer.
-  Un `setLayerZ` que la lleva al otro lado de un separador la muda de tramo y la rearma. Perder un contexto
-  deja en blanco su tramo y no sólo una capa: vuelve en un canvas nuevo, la capa de mayor z primero y a
-  lo sumo 8 ms por cuadro. `engine.surfaces()` conserva la forma de sus filas, y en el pane de cada capa
+  Un z que la lleva al otro lado de un separador —un `setLayerZ`, o un derivado que se corre— la muda de
+  tramo y la rearma. Perder un contexto deja en blanco su tramo y no sólo una capa: vuelve en un canvas
+  nuevo, la capa de mayor z primero y a lo sumo 8 ms por cuadro. `engine.surfaces()` conserva la forma de sus filas, y en el pane de cada capa
   queda un canvas sin contexto que guarda su lugar. Ver [`SPECS.md` §10.1](SPECS.md) y
   [`docs/render.md`](docs/render.md#tramos-lo-que-cambia-al-depurar).
   *Migración*: ninguna. Quien contaba contextos por los canvases de cada pane cuenta los de
   `cristae-tramo-*`.
+- **El z por defecto sigue el orden de declaración, no el de alta** ([SPECS §7.3, §8](SPECS.md)). Sin `z`,
+  una capa declarada por un elemento toma su z de su lugar en el documento dentro de `<cristae-map>` (con
+  React, el orden del árbol): una capa que monta tarde —sus datos llegan después, o es un hijo condicional—
+  cae donde se declaró y no encima de las declaradas después, y remontarla no la sube. Las capas de
+  `addXLayer` sin elemento van sobre las declaradas, en orden de alta, y darlas de baja y de alta no hace
+  crecer su z. Antes el z salía de un contador que sólo crecía con cada alta. Al ser una posición y no un
+  valor, cambian estos contratos:
+  - El z de un derivado cambia cuando monta o se desmonta una capa declarada antes, y en vivo puede cruzar
+    un `z` explícito que cae entre los derivados de su plano. Para fijar ese orden se fijan los dos, o el
+    explícito va fuera de ese rango.
+  - `setLayerZ(id, null)` vuelve al z derivado de la capa, no al `z` con que montó; en el elemento, quitar
+    el atributo `z` hace lo mismo.
+  - Un `pane` compartido toma el z de su capa declarada más arriba; antes, el de la última alta.
+  - El badge de un overlay sigue el z efectivo de su host (z del host + 7); antes ignoraba su `z` explícito
+    y un `setLayerZ`. Las burbujas, las patas y la espiral de un cluster siguen el lugar del host base.
+  - Las capas declaradas después de un overlay o de un cluster bajan 10 por overlay y entre 20 y 30 por
+    cluster, que ya no gastan lugares del orden.
+
+  *Migración*: quien fijaba `z` o dejaba capas vacías montadas sólo para conservar el apilado puede
+  quitarlo. Quien anotaba como constante un z derivado (por ejemplo, el de las burbujas de un cluster) deja
+  de hacerlo, y quien fijaba un explícito entre derivados revisa que no dependa de lo montado debajo.
 
 ## [0.37.0] - 2026-10-08
 

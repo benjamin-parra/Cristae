@@ -2,6 +2,7 @@ import { LitElement, nothing } from 'lit'
 import { grammar } from './composite.js'
 import { parseFocusIds } from './attrs.js'
 import { enclosingModifier, grammarChildren, leafUnits, reduceModifier, validate } from '../grammar/index.js'
+import { STACK } from '../engine/stack.js'
 
 // Base de las capas declarativas. No renderan nada visible (viven en light DOM como portadores de
 // config + reactividad). El montaje es una FUNCIÓN REACTIVA de (motor ⊗ config): no ocurre en un
@@ -26,7 +27,8 @@ export class CristaeLayerElement extends LitElement {
 
   render() { return nothing }                 // shadow vacío; los hijos light-DOM quedan intactos
 
-  get _placement() { return { pane: this.pane, z: this.z } }
+  // `STACK` lleva el propio elemento al alta: el motor lo ubica por su posición en el documento.
+  get _placement() { return { pane: this.pane, z: this.z, [STACK]: this } }
 
   // Handle imperativo de la capa (lo que devolvió el engine al montar): set/move/patch/filtros/
   // visibilidad. Público para quien declaró la capa pero necesita control imperativo — sin

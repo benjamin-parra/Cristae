@@ -93,7 +93,7 @@ test('hasContent, visible y z siguen a la capa', async () => {
   engine.setLayerZ('flota', 620)
   assert.equal(fila(engine, 'flota').z, 620, 'la z es la vigente del pane, no la del alta')
   engine.setLayerZ('flota', null)
-  assert.equal(fila(engine, 'flota').z, 378)
+  assert.equal(fila(engine, 'flota').z, 400, 'sin explícito, el derivado de su lugar: el z del alta no se recuerda')
   engine.destroy()
 })
 
