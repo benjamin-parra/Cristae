@@ -116,8 +116,8 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   de hacerlo, y quien fijaba un explícito entre derivados revisa que no dependa de lo montado debajo.
 - **El apilado sin `z` va en tres planos.** Las capas base siguen en `400 + posición·10`, con la posición
   del orden de declaración de la entrada anterior; los rótulos de `<cristae-labeled>` van en un plano propio,
-  desde `1 000 400`; y lo que antes sumaba `+200` (capas HTML, editores, `<cristae-label-layer>`, burbujas y
-  espiral del cluster) va desde `2 000 400`, con su orden relativo de siempre. Así lo de encima queda sobre
+  desde `1 000 400`; y lo que antes sumaba `+200` (capas HTML, editores, `addLabelLayer`, burbujas y espiral
+  del cluster) va desde `2 000 400`, con su orden relativo de siempre. Así lo de encima queda sobre
   las capas base aunque haya más de veinte. Los rótulos de las burbujas de un cluster van a `+6`, entre las
   burbujas y la espiral, y siguen al host base como ellas. Ver [SPECS §19.3](SPECS.md).
   *Migración*: un `z` explícito pensado para quedar sobre las capas HTML, los editores o el cluster tiene que
@@ -218,6 +218,21 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   dentro de un oyente de Leaflet, y una excepción cortaba a los oyentes del mapa registrados después —la capa
   de tiles entre ellos—; en `zoomanim` dejaba además el zoom trabado y los tiles sin pedir hasta recargar.
   Ahora cada oyente va aislado y lo que lanza sale por `console.error`.
+  *Migración*: ninguna.
+- **`attachSource` con la misma fuente ya no reconstruye la capa.** El montaje diferido de un elemento
+  reasignaba su `source` tal cual, y toda `<cristae-point-layer>` con `source` se construía dos veces:
+  contexto, programas, atlas y pase de picking. Con una fuente distinta la capa se reconstruye y conserva la
+  supresión del cluster, el foco y la visibilidad. Una capa de puntos oculta ya no dibuja.
+  *Migración*: ninguna.
+- **El handle de una capa de puntos escribe en la Source vigente tras `attachSource`.** `set`, `patch`, `move`,
+  `remove`, `addFilter` y `removeFilter` seguían escribiendo en la Source interna que la capa ya había soltado.
+  Ahora no escriben en ninguna, como el handle de una capa nacida con `source`.
+  *Migración*: ninguna.
+- **`auto-fit="once"` sigue a la fuente nueva tras un recambio.** Si `source` cambiaba antes de que la primera
+  trajera datos, el encuadre no ocurría con la nueva, y la vieja podía encuadrar a destiempo al llenarse.
+  *Migración*: ninguna.
+- **Un click sobre una capa con el contexto perdido ya no devuelve un hit viejo.** `pickSync` leía el parche
+  del click anterior, y la escala de píxel valía 0 sin buffer, lo que anulaba el tamaño de los sprites.
   *Migración*: ninguna.
 
 ## [0.37.0] - 2026-10-08
