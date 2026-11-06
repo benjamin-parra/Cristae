@@ -265,3 +265,16 @@ test('D9 el canvas de los rótulos parte el tramo de una capa GL que lo cruza po
   await asentar(engine)
   assert.equal(tramoDe(engine, 'c'), tramoDe(engine, 'd'), 'sin rótulos de por medio, las de encima comparten')
 })
+
+test('D10 modelo de 13 con rótulos: las burbujas comparten el tramo de las capas base; la espiral, sobre los rótulos, va en otro', async t => {
+  const { map, navegador } = await armar(13, 'react')
+  t.after(() => map.remove())
+  const engine = map.engine
+  engine.addTextLayer({ id: 'texto', accessors: ACC, data: items(2) })
+  await asentar(engine)
+  await quieto()
+  const capa = sufijo => engine.surfaces().find(s => s.layerId.endsWith(sufijo)).layerId
+  assert.equal(tramoDe(engine, capa(':clusters')), tramoDe(engine, 'geo'), 'las burbujas, bajo el canvas de los rótulos')
+  assert.notEqual(tramoDe(engine, capa(':spider')), tramoDe(engine, 'geo'), 'la espiral, sobre él')
+  assert.equal(navegador.vivos, 1, `en reposo, la espiral cerrada no toma contexto: ${navegador.resumen()}`)
+})
