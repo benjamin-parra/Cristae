@@ -1,8 +1,8 @@
 // Gestor de tramos de un mapa. Reparte las capas GL de Cristae —sus `TramoSlot`— en corridas contiguas del apilado
 // y le da a cada corrida un `GlTramo`, que es un contexto. El orden es K = (z del pane, orden del pane en el DOM, orden
 // del marcador dentro del pane), el mismo con que hoy se apilan los canvases. Separa todo lo que se pinta entre dos
-// miembros: un pane declarado por el motor (etiquetas, HTML, calor, realce, editores), uno ajeno o nativo con hijos, y
-// lo que no es marcador dentro del pane de un miembro, que deja a ese miembro en un tramo solo.
+// miembros: un pane declarado por el motor (etiquetas, rótulos, imagen, HTML, calor, realce, editores), uno ajeno o
+// nativo con hijos, y lo que no es marcador dentro del pane de un miembro, que deja a ese miembro en un tramo solo.
 //
 // El plan es barato (n ≤ 30) y se rehace entero en cada alta, baja, separador o `replan`, y cuando el DOM de la raíz
 // cambia por fuera: un pane ajeno que aparece, uno vacío que recibe hijos, una z inline que cambia. Eso lo avisa un

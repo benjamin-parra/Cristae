@@ -325,7 +325,7 @@ efecto ([`labels.md`](labels.md#lo-que-ya-cambia-en-cristae-label-layer), [`text
 El derivado es una posición, no un valor: su número cambia cuando monta o se desmonta una capa declarada
 antes, y sólo se garantiza el orden entre derivadas. Un `z` explícito gana, no se mueve y ocupa lugar en
 el orden. Si cae entre los derivados de su plano, su lugar frente a ellos depende de lo que esté montado
-debajo: para fijar el orden contra un derivado se fijan los dos, o el explícito va fuera de ese tramo.
+debajo: para fijar el orden contra un derivado se fijan los dos, o el explícito va fuera de ese rango.
 Quitar `z` vuelve al derivado, aunque la capa haya montado con uno. Varias capas con el mismo `pane`: el
 pane toma el z de la declarada más arriba.
 

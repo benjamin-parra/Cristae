@@ -213,3 +213,53 @@ test('D7 un pane ajeno que aparece o se mueve entre dos miembros después del pl
   await esperar(0)
   assert.notEqual(tramoDe(engine, 'a'), tramoDe(engine, 'c'), 'cambiar la z de un pane ajeno replanifica')
 })
+
+// La imagen, el calor y los rótulos no son GL: su pane, declarado entre dos capas GL, parte el tramo (SPECS §10.1).
+const CAJA = { south: -34, west: -72, north: -32, east: -70 }
+
+test('D8 una imagen declarada entre dos capas de puntos las deja en dos tramos; fuera de su rango, en uno', async t => {
+  const { map } = await armarVacio()
+  t.after(() => map.remove())
+  const engine = map.engine
+  engine.addPointLayer({ id: 'a', accessors: ACC, iconSet, data: items(2) })
+  engine.addImageLayer({ id: 'medio', url: 'radar.png', bounds: CAJA })
+  engine.addPointLayer({ id: 'b', accessors: ACC, iconSet, data: items(2) })
+  engine.addPointLayer({ id: 'c', accessors: ACC, iconSet, data: items(2) })
+  engine.addImageLayer({ id: 'encima', url: 'radar.png', bounds: CAJA })
+  await asentar(engine)
+  assert.ok(tramoDe(engine, 'a') && tramoDe(engine, 'b'), 'las dos tienen tramo')
+  assert.notEqual(tramoDe(engine, 'a'), tramoDe(engine, 'b'), 'la imagen del medio las separa')
+  assert.equal(tramoDe(engine, 'b'), tramoDe(engine, 'c'), 'la de encima no separa a las de abajo')
+  assert.equal(tramos(engine).size, 2)
+
+  engine.removeLayer('medio')
+  engine.removeLayer('encima')                  // las de alta imperativa van encima: `d` cae sobre `c` sin nada en medio
+  await esperar(0)
+  assert.equal(tramos(engine).size, 2, 'un tramo no se funde al irse el separador')
+
+  engine.addImageLayer({ id: 'debajo', url: 'radar.png', bounds: CAJA, z: 100 })
+  engine.addPointLayer({ id: 'd', accessors: ACC, iconSet, data: items(2) })
+  await asentar(engine)
+  assert.equal(tramoDe(engine, 'c'), tramoDe(engine, 'd'), 'una imagen fuera del rango no parte el tramo')
+})
+
+// El plano de los rótulos (SPECS §19.3) queda sobre todas las capas base: una capa GL con un `z` más alto lo cruza.
+const SOBRE_LOS_ROTULOS = 1e6 + 500
+
+test('D9 el canvas de los rótulos parte el tramo de una capa GL que lo cruza por z; bajo él, no', async t => {
+  const { map } = await armarVacio()
+  t.after(() => map.remove())
+  const engine = map.engine
+  engine.addPointLayer({ id: 'a', accessors: ACC, iconSet, data: items(2), z: 400 })
+  engine.addPointLayer({ id: 'b', accessors: ACC, iconSet, data: items(2), z: 410 })
+  engine.addTextLayer({ id: 'texto', accessors: ACC, data: items(2) })
+  engine.addPointLayer({ id: 'c', accessors: ACC, iconSet, data: items(2), z: SOBRE_LOS_ROTULOS })
+  await asentar(engine)
+  assert.equal(tramoDe(engine, 'a'), tramoDe(engine, 'b'), 'bajo los rótulos: un tramo')
+  assert.notEqual(tramoDe(engine, 'b'), tramoDe(engine, 'c'), 'el canvas de los rótulos las separa')
+
+  engine.removeLayer('texto')
+  engine.addPointLayer({ id: 'd', accessors: ACC, iconSet, data: items(2), z: SOBRE_LOS_ROTULOS + 10 })
+  await asentar(engine)
+  assert.equal(tramoDe(engine, 'c'), tramoDe(engine, 'd'), 'sin rótulos de por medio, las de encima comparten')
+})

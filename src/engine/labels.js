@@ -32,7 +32,9 @@ const bubbleOf = (control, b) => {
  *  - `model()`: el modelo de la Tierra con que se curva una geodésica;
  *  - `slotOf(record, hostId, renderer)`: `{ key, pane, zIndex }` del renderer donde van sus rótulos, leído
  *    también cuando el host cambia de rango (`reseat`);
- *  - `busOn(type, layerId, handler)`: suscripción al bus, que devuelve su baja. */
+ *  - `busOn(type, layerId, handler)`: suscripción al bus, que devuelve su baja;
+ *  - `separate(pane)`: declara el pane de un renderer como separador de tramos GL (no es GL, y separa aunque
+ *    siga vacío) y devuelve su baja. Opcional. */
 export const createLabels = bridge => {
   const slots = new Map()            // key → { renderer, count, key }
 
@@ -58,7 +60,8 @@ export const createLabels = bridge => {
     const create = LABEL_RENDERERS[name]
     if (!create) throw new TypeError(`[cristae] renderer '${name}': no está disponible`)
     const { key, pane, zIndex } = bridge.slotOf(record, hostId, name)
-    const slot = slots.get(key) ?? { renderer: create({ host: bridge.host, pane, zIndex }), count: 0, key, name }
+    const slot = slots.get(key)
+      ?? { renderer: create({ host: bridge.host, pane, zIndex }), unseparate: bridge.separate?.(pane), count: 0, key, name }
     slot.count++
     slots.set(key, slot)
     return slot
@@ -67,6 +70,7 @@ export const createLabels = bridge => {
   const release = slot => {
     if (--slot.count) return
     slots.delete(slot.key)
+    slot.unseparate?.()
     slot.renderer.destroy()
   }
 

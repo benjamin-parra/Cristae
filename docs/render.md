@@ -30,6 +30,10 @@ contexto de los panes `cristae-tramo-*` y de los editores. Un tramo **solo** (un
 comparte con nodos ajenos) pone su canvas en el pane de la capa, después del marcador, y ahí la
 visibilidad y la opacidad siguen siendo CSS. Los editores conservan su superficie.
 
+Lo que no es GL parte el tramo. La imagen, el calor, las etiquetas, el HTML y los rótulos (`addLabels`,
+`<cristae-labeled>`, la capa de texto) dibujan en canvas 2D o en nodos DOM, y su pane, si cae entre dos capas
+GL del apilado, las deja en dos tramos y dos contextos. Debajo o encima de todas las capas GL no parte nada.
+
 Construida suelta, sin la opción interna `surface`, una capa usa `EditSurface`, cuyos `begin()`, `end()`
 y `setOpacity()` no hacen nada: los tests de cada capa no cambian.
 

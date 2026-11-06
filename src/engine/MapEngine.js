@@ -216,6 +216,7 @@ export class MapEngine {
       model   : () => this.#model,
       slotOf  : (record, hostId, renderer) => this.#labelSlot(record, hostId, renderer),
       busOn   : (type, layerId, handler) => this.#bus.on(type, layerId, handler),
+      separate: pane => this.#separatePane(pane),
     })
 
     this.#host.camera.on('moveend zoomend', emitViewport)
@@ -400,7 +401,7 @@ export class MapEngine {
     const { id, interactive = false, pane, z: _z, [STACK]: _at, visible = true, ...image } = cfg
     const paneName = pane ?? `cristae-image-${id}`
     const { layer, ...seat } = this.#build(id, cfg, BASE_Z, paneName,
-      () => new ImageLayer({ ...image, host: this.#host, pane: paneName, id, interactive }))
+      () => new ImageLayer({ ...image, host: this.#host, pane: paneName, id, interactive }), true)
 
     const record = { kind: 'image', layer, paneName, ...seat, interactive, visible, enabled: true }
     this.#layers.set(id, record)
@@ -1275,6 +1276,16 @@ export class MapEngine {
   // Sin puntero: el picking es propio, no del nodo que queda bajo el cursor.
   #mount(name, zIndex) {
     return this.#host.surface.mount(name, zIndex, { pointer: false })
+  }
+
+  // El pane de un renderer de rótulos separa tramos mientras viva: lo sostiene sin tocar su z ni su puntero, que
+  // son del renderer, y lo suelta con la baja.
+  #separatePane(name) {
+    const undo = this.#tramos.separator(this.#host.surface.mount(name))
+    return () => {
+      undo()
+      this.#host.surface.unmount(name)
+    }
   }
 
   // Dónde van los rótulos de un host. `canvas`: el canvas del plano de rótulos, compartido por todo el mapa;

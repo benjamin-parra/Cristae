@@ -94,9 +94,9 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   queda en 92 y Firefox en 90 ([`README.md`](README.md#navegadores)).
   *Migración*: quien deba soportar Safari 15.4–15.x importa `src/` con el `target` propio de su bundler.
 - **Las capas GL contiguas comparten un contexto WebGL.** Las capas de puntos, líneas y polígonos que
-  quedan juntas en el apilado —sin etiquetas, HTML, calor ni editores entre ellas— dibujan cada una en
-  su textura y se componen en un solo canvas por tramo, en un pane `cristae-tramo-<n>`. El modelo de 13
-  capas del Geotáctico baja de 13 contextos en reposo a 1, lejos del techo de ~16 de la página.
+  quedan juntas en el apilado —sin etiquetas, rótulos, imagen, HTML, calor ni editores entre ellas—
+  dibujan cada una en su textura y se componen en un solo canvas por tramo, en un pane `cristae-tramo-<n>`.
+  El modelo de 13 capas del Geotáctico baja de 13 contextos en reposo a 1, lejos del techo de ~16 de la página.
   Ocultar, atenuar o reordenar una capa dentro de su tramo no la hace dibujar: se resuelve al componer.
   Un z que la lleva al otro lado de un separador —un `setLayerZ`, o un derivado que se corre— la muda de
   tramo y la rearma. Perder un contexto deja en blanco su tramo y no sólo una capa: vuelve en un canvas
