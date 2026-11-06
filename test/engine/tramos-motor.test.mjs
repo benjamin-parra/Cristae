@@ -243,8 +243,10 @@ test('D8 una imagen declarada entre dos capas de puntos las deja en dos tramos; 
   assert.equal(tramoDe(engine, 'c'), tramoDe(engine, 'd'), 'una imagen fuera del rango no parte el tramo')
 })
 
-// El plano de los rótulos (SPECS §19.3) queda sobre todas las capas base: una capa GL con un `z` más alto lo cruza.
-const SOBRE_LOS_ROTULOS = 1e6 + 500
+// El plano de los rótulos (SPECS §19.3) queda sobre las capas base y las burbujas del cluster: una capa GL con un `z` más
+// alto lo cruza.
+const PLANO_DE_ROTULOS  = 2_000_400
+const SOBRE_LOS_ROTULOS = PLANO_DE_ROTULOS + 100
 
 test('D9 el canvas de los rótulos parte el tramo de una capa GL que lo cruza por z; bajo él, no', async t => {
   const { map } = await armarVacio()

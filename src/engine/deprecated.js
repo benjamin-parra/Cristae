@@ -2,8 +2,8 @@
 // el método del motor que monta—, así quien usa una no ve también el aviso de la otra.
 const warned = new Set()
 
-/** La versión que retira todo lo deprecado: el minor siguiente a la de la etapa C (docs/versionado.md). Los
- *  avisos de consola la toman de acá; el JSDoc y la documentación la repiten a mano. */
+/** La versión que retira todo lo deprecado: la que sale con `freeUnusedMemory()` y da la fórmula de
+ *  docs/versionado.md. Los avisos de consola la toman de acá; el JSDoc y la documentación la repiten a mano. */
 export const RETIRO = 'v0.47.0'
 
 /** Avisa `message` por consola la primera vez que la página pide `key`. */

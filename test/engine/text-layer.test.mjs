@@ -24,7 +24,7 @@ after(decorarElementos((el, tag) => {
   return el
 }))
 
-const LABEL_PLANE = 1_000_400
+const LABEL_PLANE = 2_000_400
 
 const puntos   = { idOf: c => c.id, positionOf: c => ({ lat: c.lat, lng: c.lng }) }
 const CIUDADES = [{ id: 'scl', nombre: 'Santiago', lat: 0, lng: 0 }, { id: 'lim', nombre: 'Lima', lat: 30, lng: 30 }]
