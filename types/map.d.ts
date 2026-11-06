@@ -862,6 +862,7 @@ export interface HighlightOverlayConfig {
   layerId       : string;
   /** Dibuja el tratamiento de una clave, con el ctx ya trasladado al punto proyectado. */
   drawHighlight : (ctx: CanvasRenderingContext2D, size: number, key: string) => void;
+  /** z del pane del realce. Sin `z`, va sobre los rótulos y bajo las capas HTML, los editores y la espiral. */
   z?            : number;
 }
 export interface HighlightOverlayHandle {

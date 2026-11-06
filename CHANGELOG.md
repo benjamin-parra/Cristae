@@ -88,6 +88,10 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   *Migración*: ninguna.
 
 ### Cambiado
+- **El realce de `addHighlightOverlay` sin `z` va sobre los rótulos.** Antes quedaba en z 650, dentro del plano
+  base: tapaba las capas base declaradas después y, con el contexto compartido, su pane partía el tramo GL.
+  Ahora va bajo las capas HTML, los editores y la espiral. Un `z` explícito sigue ganando. Ver [SPECS §19.3](SPECS.md).
+  *Migración*: quien necesite el realce bajo una capa base o bajo los rótulos le pasa su `z`.
 - **El build emite `es2022`** (antes `es2020`): los campos y métodos privados y los campos de clase
   quedan nativos en `dist/`, sin el `WeakMap` con que se bajaban. Sube el mínimo de Safari de 15.4
   (`Array.prototype.at`) a 16, porque en 15.x los campos de clase tienen un fallo de alcance; Chromium
