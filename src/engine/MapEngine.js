@@ -16,6 +16,7 @@ import { createHighlightOverlay } from '../render/HighlightOverlay.js'
 import { frameTransform } from '../render/frame.js'
 import { createClusterFold } from '../cluster/ClusterFold.js'
 import { createLabels } from './labels.js'
+import { mergeLabelOptions, resolvePlacement } from '../render/labelOptions.js'
 import { deprecated } from './deprecated.js'
 import { defineClusterIconSet } from '../atlas/IconSet.js'
 import { createSource } from '../data/index.js'
@@ -554,6 +555,35 @@ export class MapEngine {
     return labels
   }
 
+  /* ── Texto suelto: capa base con Source propia, pintada por los renderers de los rótulos (docs/text-layer.md) ── */
+
+  // Sin capa ni pane propios: el registro es host de sus rótulos, que van al canvas compartido o a un pane
+  // HTML, sin contexto WebGL. Su z de picking es el del plano donde se pintan. `visible` e `interactive` son
+  // de la capa; el resto, las opciones de los rótulos. Lo inválido lanza TypeError antes de registrar nada.
+  addTextLayer({ id, data, accessors, source: given, interactive = false, visible = true, ...props }) {
+    resolvePlacement('text', mergeLabelOptions(null, props))
+    if (typeof (given?.accessors ?? accessors)?.positionOf !== 'function')
+      throw new TypeError(`[cristae] la capa de texto '${id}' pide accessors.positionOf`)
+    const controls = given ? null : createSource(accessors)
+    const source   = given ?? controls
+    const order    = this.#order++
+    const zIndex   = this.#zOf(LABEL_PLANE, order)
+    this.#layers.set(id, { kind: 'text', source, controls, zIndex, order, interactive, visible, enabled: true })
+
+    const labels = this.addLabels({ hostId: id, ...props })
+    const none   = () => null                // la capa no aporta partes: todas son de sus rótulos
+    interactive && this.#registerResolver(id, 'text', zIndex, order, none, none)
+    this.#registry.setLayerVisibility(id, visible)
+    data && controls?.set(data)
+    return {
+      id,
+      source,
+      set        : items => controls?.set(items),
+      update     : options => labels.update(options),
+      setVisible : v => this.setLayerVisibility(id, v),
+    }
+  }
+
   /* ── Capas de labels (canvas; standalone o bind-to un host) ── */
 
   // El aviso comparte clave con el de <cristae-label-layer>, que monta por acá: se ve uno solo, el de la puerta
@@ -786,6 +816,12 @@ export class MapEngine {
 
   attachSource(id, source) {
     const record = this.#layers.get(id)
+    if (record?.kind === 'text') {               // sin capa que reconstruir: los rótulos pasan a leer la nueva
+      record.controls?.destroy()
+      Object.assign(record, { source, controls: null })
+      record.labels.rebind()
+      return this
+    }
     if (!record || record.kind !== 'point') return this
     record.layer.destroy()
     record.source   = source

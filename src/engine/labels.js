@@ -37,7 +37,8 @@ export const createLabels = bridge => {
   const slots = new Map()            // key → { renderer, count, key }
 
   // Qué se rotula de un registro, o null. Un editor, el calor y la imagen no tienen ítems; un polígono con
-  // `geometry` tipada no tiene Source; la burbuja de un cluster con `slot="bubble"` de rótulo tampoco.
+  // `geometry` tipada no tiene Source; la burbuja de un cluster con `slot="bubble"` de rótulo tampoco. La capa
+  // de texto (`addTextLayer`) es host de sus propios rótulos.
   const kindOf = record => {
     if (record?.fold) {
       if (record.source) return 'bubble'
@@ -53,6 +54,7 @@ export const createLabels = bridge => {
       case 'polygon' : return record.source ? 'polygon' : null
       case 'shape'   :
       case 'circle'  : return 'shape'
+      case 'text'    : return 'text'
       default        : return null
     }
   }

@@ -30,8 +30,9 @@ const KEYS         = Object.keys(LABEL_DEFAULTS)
 const DECLARED = Symbol('renderer declarado')
 
 // Sobre puntos, HTML y burbujas, `auto` deja el texto debajo del ícono, que en una burbuja ya pinta el
-// conteo. Las líneas lo llevan por el trazo y los polígonos y las formas en su centro.
-const NATURAL = { point: 'below', html: 'below', bubble: 'below', line: 'along', polygon: 'center', shape: 'center' }
+// conteo. Las líneas lo llevan por el trazo y los polígonos y las formas en su centro. El texto suelto de
+// `<cristae-text-layer>` no tiene ícono: va sobre su punto.
+const NATURAL = { point: 'below', html: 'below', bubble: 'below', line: 'along', polygon: 'center', shape: 'center', text: 'center' }
 const AROUND  = ['center', 'above', 'below', 'right']
 const ADMITS  = {
   point   : AROUND,
@@ -40,6 +41,7 @@ const ADMITS  = {
   line    : ['along', 'center'],
   polygon : ['along', 'center'],
   shape   : ['center'],
+  text    : AROUND,
 }
 
 const fail = message => { throw new TypeError(`[cristae] ${message}`) }
