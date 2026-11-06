@@ -9,12 +9,14 @@ import { STACK } from '../engine/stack.js'
 // `control` + el descriptor de retorno) es idéntica a la que devolvía el motor.
 //
 // El bridge expone: `camera` (la faceta del anfitrión), `layerOf(id)`, `seq()` (para nombres),
-// `above(anchorId, lift)` (dónde se apila una capa del fold: sobre los rótulos, en el rango de su host, +lift),
+// `above(anchorId, lift)` y `below(anchorId, lift)` (dónde se apila una capa del fold, en el rango de su host, +lift:
+// sobre los rótulos o bajo ellos),
 // `subAccent` (acento default de la traza), `makeBubbleSink`, `subClusterIconSet`, `addPointLayer`,
 // `addLineLayer`, `removeLayer`, `resyncBound`, `focus`, `unfocusAll`, `emit`, `busOn`, `destroying()`.
 //
 // Las capas del fold no ocupan lugar en el orden de declaración: dependen del host base y lo siguen cuando cambia
-// de rango. Adentro quedan patas +4 < burbujas +5 < rótulos de las burbujas +6 < espiral +7 < sub-espiral +8.
+// de rango. Adentro quedan patas +4 < burbujas +5 < rótulos de las burbujas +6, bajo los rótulos del mapa, y espiral +7
+// < sub-espiral +8, sobre ellos (SPECS §19.3).
 
 // Ventana de coalescido del re-index del cluster ante moves de POSICIÓN (no estructurales).
 // `cluster.index` (Supercluster.load) es O(n log n) + ~4 allocs/punto y resetea la firma → fuerza
@@ -136,7 +138,7 @@ export function createClusterFold(bridge, targets, { radius, maxZoom, minPoints,
   if (ha.sizeOf)    spiderAccessors.sizeOf    = s => ha.sizeOf(s.orig)
   const spiderHandle = base.iconSet ? bridge.addPointLayer({
     id: spiderId, data: [], accessors: spiderAccessors, iconSet: base.iconSet,
-    interactive: true, [STACK]: bridge.above(baseId, 7), presentAs: presentLeaf,   // hoja: sobre los rótulos(+6), la burbuja(+5) y las líneas(+4)
+    interactive: true, [STACK]: bridge.above(baseId, 7), presentAs: presentLeaf,   // hoja: sobre los rótulos, los de la burbuja(+6), la burbuja(+5) y las líneas(+4)
   }) : null
   // Capa de SUB-CLUSTERS de la espiral (jerarquía): burbujas de conteo con el MISMO iconSet de
   // conteo que las burbujas base. Slots {kind:'subcluster'} van acá; los {kind:'leaf'} a `spiderHandle`.
@@ -154,14 +156,14 @@ export function createClusterFold(bridge, targets, { radius, maxZoom, minPoints,
   })
   // Patas y trazas en UNA capa de líneas, creada con la primera expansión: un pliegue que nunca se abre
   // no paga el contexto WebGL. Van DETRÁS de la burbuja (+5) y de los marcadores (+7): look canónico
-  // spiderfy. Si fueran encima, con muchas patas tapan el centro y la burbuja dim queda ilegible. Sin
-  // picking: las patas no responden al puntero.
+  // spiderfy. Si fueran encima, con muchas patas tapan el centro y la burbuja dim queda ilegible. Por eso
+  // comparten el plano de las burbujas, bajo los rótulos. Sin picking: las patas no responden al puntero.
   const legsId = `${foldId}:legs`
   let legsHandle = null
   let legSeq = 0   // un id nuevo por trazo y por ensamblado: se recalculan enteros, y la Source compara por id
   const setLegs = legs => {
     if (legs.length) legsHandle ??= bridge.addLineLayer({
-      id: legsId, [STACK]: bridge.above(baseId, 4),
+      id: legsId, [STACK]: bridge.below(baseId, 4),
       accessors: { idOf: s => s.id, pathOf: s => s.pts, styleOf: s => s },
     })
     legsHandle?.set(legs)

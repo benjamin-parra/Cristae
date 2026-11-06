@@ -37,14 +37,16 @@ import { byDefault, checkHeading, checkPlacer, isModel } from '../geometry/geode
 
 const BASE_Z = 400
 const Z_STEP = 10
-// Tres planos de z, cada uno con su base fija y el orden de declaración adentro (DISENO-ROTULOS §3.5): las
-// capas base; los rótulos de `addLabels`, con el canvas compartido abajo y los panes de un host encima; y
-// lo que antes sumaba +200 sobre su orden —capas HTML, editores, `<cristae-label-layer>`, burbujas y
-// espiral del cluster—, que conserva su orden relativo. Un plano da para 100 000 altas: la que lo pase
-// queda en su techo, con un aviso.
-const PLANE       = 1e6
-const LABEL_PLANE = BASE_Z + PLANE
-const TOP_PLANE   = BASE_Z + 2 * PLANE
+// Cuatro planos de z, cada uno con su base fija y el orden de declaración adentro (DISENO-ROTULOS §3.5, SPECS
+// §19.3): las capas base; las patas, las burbujas y los rótulos de las burbujas de cada cluster; los rótulos de
+// `addLabels` y de la capa de texto, con el canvas compartido abajo y los panes de un host encima; y lo de encima
+// —capas HTML, editores, `<cristae-label-layer>`, espiral y sub-espiral del cluster—. Las burbujas van en un plano
+// propio, pegado al base, para que los rótulos queden sobre ellas sin que un pane 2D de rótulos caiga entre las
+// capas GL base y las burbujas GL. Un plano da para 100 000 altas: la que lo pase queda en su techo, con un aviso.
+const PLANE         = 1e6
+const CLUSTER_PLANE = BASE_Z + PLANE
+const LABEL_PLANE   = BASE_Z + 2 * PLANE
+const TOP_PLANE     = BASE_Z + 3 * PLANE
 // Techo de la identidad de OBJETO del pase de picking: el eje `obj` del píxel menos el 0, que significa
 // «nada» y no se asigna nunca. Sale de los bits que declara el codec — nunca de un número repetido acá.
 const PICK_OBJ_MAX = (1 << OBJ_BITS) - 1
@@ -601,7 +603,7 @@ export class MapEngine {
       'addTextLayer o <cristae-text-layer>.')
     const { id, bindTo, pane, paint, style, textOf, accessors } = cfg
     const paneName = pane ?? `cristae-label-${id}`
-    // En el plano de encima, donde estaba: con las HTML y el cluster.
+    // En el plano de encima, donde estaba: con las HTML y la espiral del cluster.
     const { layer: labelLayer, ...seat } = this.#build(id, cfg, TOP_PLANE, paneName,
       () => new LabelLayer({ host: this.#host, pane: paneName, paint, style }))
     // `visible` en record: controla si sync() (la suscripción a la Source) corre el reduce O(n) +
@@ -652,14 +654,16 @@ export class MapEngine {
 
   // Puente hacia los servicios del motor que necesita el fold (ClusterFold). El fold vive en su propio
   // módulo y NO accede a los privados del motor: pide sus capacidades por esta interfaz acotada.
-  // `above(anchorId, lift)` es el marcador de `cfg[STACK]` de las capas del fold: dependientes de su host, en el plano
-  // de encima (sobre los rótulos) y en el rango del host, más `lift`.
+  // `above(anchorId, lift)` y `below(anchorId, lift)` son los marcadores de `cfg[STACK]` de las capas del fold:
+  // dependientes de su host, en el rango del host más `lift`; `above` en el plano de encima (sobre los rótulos) y
+  // `below` en el del cluster (bajo los rótulos).
   #foldBridge() {
     return {
       camera:            this.#host.camera,
       layerOf:           id => this.#layers.get(id),
       seq:               () => this.#seq++,
       above:             (anchorId, lift) => this.#dependOn(anchorId, a => this.#zOf(TOP_PLANE, a.rank) + lift),
+      below:             (anchorId, lift) => this.#dependOn(anchorId, a => this.#zOf(CLUSTER_PLANE, a.rank) + lift),
       subAccent:         SUB_ACCENT,                                                           // acento default de la traza spiderfy
       makeBubbleSink:    (bubble, pane, anchorId, foldId, interactive) => this.#makeBubbleSink(bubble, pane, anchorId, foldId, interactive),
       subClusterIconSet: accent => this.#subClusterIconSet(accent),
@@ -1255,11 +1259,11 @@ export class MapEngine {
 
   // Dónde van los rótulos de un host. `canvas`: el canvas del plano de rótulos, compartido por todo el mapa;
   // `html`, un pane por host encima de él, en el rango del host. Los de las burbujas de un cluster, sobre sus
-  // burbujas y bajo su espiral (§2.7), en un pane por fold y renderer: en el plano de encima, en el rango del host
-  // base del pliegue, +6. Los dos siguen el rango cuando cambia (#seat → `labels.reseat`).
+  // burbujas y bajo los demás rótulos (§2.7), en un pane por fold y renderer: en el plano del cluster, en el rango
+  // del host base del pliegue, +6. Los dos siguen el rango cuando cambia (#seat → `labels.reseat`).
   #labelSlot(record, hostId, renderer) {
     return record.fold
-      ? { key: `${renderer}:${hostId}`, pane: `${hostId}-labels-${renderer}`, zIndex: this.#zOf(TOP_PLANE, this.#orderOf(record)) + 6 }
+      ? { key: `${renderer}:${hostId}`, pane: `${hostId}-labels-${renderer}`, zIndex: this.#zOf(CLUSTER_PLANE, this.#orderOf(record)) + 6 }
       : renderer === 'canvas'
         ? { key: 'canvas', pane: 'cristae-labels', zIndex: LABEL_PLANE }
         : { key: `${renderer}:${hostId}`, pane: `cristae-labels-${renderer}-${hostId}`, zIndex: this.#zOf(LABEL_PLANE, this.#orderOf(record) + 1) }
@@ -1587,11 +1591,12 @@ export class MapEngine {
   // icon-set de cluster, o capa de labels con el conteo), o usa el default. El sink expone
   // `feed(bubbles)` (la forma de alimentar varía por tipo) y `dispose`.
   // interactive: true cuando expandable está activo (las burbujas reciben clicks de expand/collapse).
-  // Las burbujas son un record más, dependiente del host base del pliegue como las demás capas del fold (bridge.above):
-  // sobre los rótulos, en el rango del host, +5. Así #seat las corre cuando el host cambia de rango.
+  // Las burbujas son un record más, dependiente del host base del pliegue como las demás capas del fold (bridge.below):
+  // en el plano del cluster, bajo los rótulos, en el rango del host, +5. Así #seat las corre cuando el host cambia de
+  // rango.
   #makeBubbleSink(bubble, bubblePane, anchorId, foldId, interactive = false) {
     const siblingId = `${foldId}:clusters`
-    const stack     = { [STACK]: this.#dependOn(anchorId, a => this.#zOf(TOP_PLANE, a.rank) + 5) }
+    const stack     = { [STACK]: this.#dependOn(anchorId, a => this.#zOf(CLUSTER_PLANE, a.rank) + 5) }
     const spec      = bubble ?? { kind: 'point' }
 
     // La de rótulo comparte el aviso con la hija `slot="bubble"` de <cristae-cluster>, que llega por acá.
@@ -1602,7 +1607,7 @@ export class MapEngine {
       // Sin dibujo, pane ni picking propios: sólo la Source de las burbujas, que rotula `addClusterFold`. Es
       // dependiente del host base como la burbuja de puntos, así sus rótulos siguen su rango.
       const controls = createSource({ idOf: b => b.id, positionOf: b => b })
-      const { layer: _sinCapa, ...seat } = this.#build(siblingId, stack, TOP_PLANE, null, () => null)
+      const { layer: _sinCapa, ...seat } = this.#build(siblingId, stack, CLUSTER_PLANE, null, () => null)
       this.#layers.set(siblingId, { kind: 'label', source: controls, controls, ...seat, visible: true, enabled: true })
       return {
         feed    : bubbles => controls.set(bubbles),
@@ -1629,7 +1634,7 @@ export class MapEngine {
       // estado/pos para que cualquiera de esos cambios re-encode el sprite de la burbuja.
       hashOf: b => `${b.count}:${b.expanded ? 'd' : b.marked ? 'm' : ''}:${b.lat}:${b.lng}`,
     }, iconSet.variants)
-    const { layer, ...seat } = this.#build(siblingId, stack, TOP_PLANE, bubblePane, () =>
+    const { layer, ...seat } = this.#build(siblingId, stack, CLUSTER_PLANE, bubblePane, () =>
       this.#trackGl(new PointLayer({ host: this.#host, pane: bubblePane, source: controls, iconSet, interactive })))
     const record = {
       kind: 'point', source: controls, layer, controls, paneName: bubblePane, ...seat, interactive, iconSet,

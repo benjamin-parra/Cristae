@@ -26,8 +26,9 @@ after(decorarElementos((el, tag) => {
   return el
 }))
 
-const LABEL_PLANE = 1_000_400
-const TOP_PLANE   = 2_000_400
+const CLUSTER_PLANE = 1_000_400
+const LABEL_PLANE   = 2_000_400
+const TOP_PLANE     = 3_000_400
 
 const puntos  = { idOf: v => v.id, positionOf: v => ({ lat: v.lat, lng: v.lng }) }
 const lineas  = { idOf: r => r.id, pathOf: r => r.path }
@@ -279,7 +280,7 @@ test('el rótulo de una capa de orden bajo dentro de un polígono interactivo de
   engine.destroy()
 })
 
-test('una capa base remontada veinte veces sigue bajo los rótulos; las capas HTML y el cluster, encima', () => {
+test('una capa base remontada veinte veces sigue bajo los rótulos; las capas HTML, encima', () => {
   const { engine, map } = motor()
   engine.addLineLayer({ id: 'l', accessors: lineas, data: [RUTA] })
   engine.addLabels({ hostId: 'l' })
@@ -297,7 +298,7 @@ test('una capa base remontada veinte veces sigue bajo los rótulos; las capas HT
   engine.destroy()
 })
 
-test('la espiral y las burbujas quedan sobre los rótulos canvas y html', () => {
+test('la espiral queda sobre los rótulos canvas y html; las burbujas, bajo los dos', () => {
   const z = (map, name) => Number(map.getPane(name).style.zIndex)
   const zDeHtml = []
   const real    = LABEL_RENDERERS.html
@@ -319,11 +320,52 @@ test('la espiral y las burbujas quedan sobre los rótulos canvas y html', () => 
     assert.equal(zDeHtml.length, 1)
     assert.ok(zDeHtml[0] > canvasZ, 'el pane html de un host va sobre el canvas compartido')
     assert.ok(spiderZ > zDeHtml[0] && spiderZ > canvasZ, 'la espiral, sobre los dos')
-    assert.ok(z(map, bubbleId.replace(':clusters', '-bubbles')) > zDeHtml[0], 'las burbujas, también')
+    assert.ok(z(map, bubbleId.replace(':clusters', '-bubbles')) < canvasZ, 'las burbujas, bajo el canvas compartido')
     engine.destroy()
   } finally {
     LABEL_RENDERERS.html = real
   }
+})
+
+test('los planos no dependen de la declaración: base < burbujas < rótulos de burbujas < rótulos < HTML, editores y espiral', () => {
+  const pane = (map, name) => Number(map.getPane(name).style.zIndex)
+  const { engine, map } = motor()
+  // Lo de encima se declara primero y una capa base al final: el plano manda sobre el orden.
+  engine.addHtmlLayer({ id: 'h', accessors: { ...puntos, htmlOf: () => '' }, data: [] })
+  engine.addEditableLayer({ id: 'editor', kind: 'polygon' })
+  engine.addPointLayer({ id: 'flota', accessors: puntos, iconSet: makeIconSet(), data: FLOTA })
+  const { control } = engine.addClusterFold([{ id: 'flota' }], { radius: 80, maxZoom: 18, minPoints: 2 }).handle
+  const bubbleId    = control.bubbleLayerId
+  engine.addLabels({ hostId: bubbleId })
+  engine.addLabels({ hostId: 'flota' })
+  engine.addTextLayer({ id: 'texto', accessors: puntos, data: [{ id: 't', lat: 1, lng: 1 }], htmlOf: () => '<b>t</b>' })
+  engine.addLineLayer({ id: 'tarde', accessors: lineas, data: [RUTA] })
+  engine.addLineLayer({ id: 'fija', accessors: lineas, data: [RUTA], z: 2_500_000 })
+  const [burbuja] = engine.getLayer(bubbleId).source.getSnapshot()
+  control.expand(burbuja.id)
+
+  const capa   = sufijo => engine.getLayer(bubbleId.replace(':clusters', sufijo)).zIndex
+  const orden  = [
+    ['base declarada al final', engine.getLayer('tarde').zIndex],
+    ['patas', capa(':legs')],
+    ['burbujas', capa(':clusters')],
+    ['rótulos de las burbujas', pane(map, `${bubbleId}-labels-canvas`)],
+    ['canvas de rótulos', pane(map, 'cristae-labels')],
+    ['pane html de la capa de texto', pane(map, 'cristae-labels-html-texto')],
+    ['capa HTML declarada primero', engine.getLayer('h').zIndex],
+    ['editor', engine.getLayer('editor').zIndex],
+    ['espiral', capa(':spider')],
+    ['sub-espiral', capa(':spider-sub')],
+  ]
+  for (let i = 1; i < orden.length; i++)
+    assert.ok(orden[i - 1][1] < orden[i][1], `${orden[i - 1][0]} (${orden[i - 1][1]}) < ${orden[i][0]} (${orden[i][1]})`)
+  assert.ok(capa(':clusters') >= CLUSTER_PLANE && capa(':clusters') < LABEL_PLANE, 'las burbujas, en el plano del cluster')
+  assert.ok(engine.getLayer('h').zIndex >= TOP_PLANE, 'la capa HTML, en el de encima')
+
+  const fija = engine.getLayer('fija').zIndex
+  assert.equal(fija, 2_500_000, 'el z explícito gana sobre el plano de su kind')
+  assert.ok(pane(map, 'cristae-labels-html-texto') < fija && fija < engine.getLayer('h').zIndex, 'y cae donde lo ponen')
+  engine.destroy()
 })
 
 test('los panes de rótulos siguen el rango de su host: el html de la capa y el del pliegue', async () => {
@@ -336,12 +378,12 @@ test('los panes de rótulos siguen el rango de su host: el html de la capa y el 
   engine.addLabels({ hostId: bubbleId })
   const html     = 'cristae-labels-html-flota'
   const pliegue  = `${bubbleId}-labels-canvas`
-  assert.deepEqual([z(map, html), z(map, pliegue)], [LABEL_PLANE + 20, TOP_PLANE + 16], 'rango 1: html en +1, pliegue en +6')
+  assert.deepEqual([z(map, html), z(map, pliegue)], [LABEL_PLANE + 20, CLUSTER_PLANE + 16], 'rango 1: html en +1, pliegue en +6')
 
   engine.removeLayer('antes')
   await Promise.resolve()                            // el hueco se compacta en una microtarea
-  assert.deepEqual([z(map, html), z(map, pliegue)], [LABEL_PLANE + 10, TOP_PLANE + 6], 'rango 0: los dos bajan con su host')
-  assert.equal(engine.getLayer(bubbleId).zIndex, TOP_PLANE + 5, 'bajo la espiral y sobre las burbujas, que bajan igual')
+  assert.deepEqual([z(map, html), z(map, pliegue)], [LABEL_PLANE + 10, CLUSTER_PLANE + 6], 'rango 0: los dos bajan con su host')
+  assert.equal(engine.getLayer(bubbleId).zIndex, CLUSTER_PLANE + 5, 'sobre las burbujas, que bajan igual')
   engine.destroy()
 })
 
