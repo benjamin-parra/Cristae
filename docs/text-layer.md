@@ -55,8 +55,9 @@ prop quitada vuelve a su valor por defecto.
 - `interactive` es el de una capa base, no el de `<cristae-labeled renderer="html">`: el texto se pica como
   ítem de esta capa (`layerId` de la capa, `kind: 'text'`) y el nodo HTML no captura el puntero. Para un
   botón dentro del marcador va [`<cristae-html-layer>`](elements.md).
-- `pane` y `z` no aplican: con `canvas`, el texto va en el plano de los rótulos, sobre las capas base y bajo
-  las capas HTML, los editores y el cluster; con `html`, en un pane propio justo encima.
+- `pane` y `z` no aplican: con `canvas`, el texto va en el plano de los rótulos, sobre las capas base y las
+  burbujas del cluster, y bajo las capas HTML, los editores y la espiral; con `html`, en un pane propio justo
+  encima.
 
 ## Lo que comparte con las capas base
 

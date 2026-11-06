@@ -114,19 +114,24 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   *Migración*: quien fijaba `z` o dejaba capas vacías montadas sólo para conservar el apilado puede
   quitarlo. Quien anotaba como constante un z derivado (por ejemplo, el de las burbujas de un cluster) deja
   de hacerlo, y quien fijaba un explícito entre derivados revisa que no dependa de lo montado debajo.
-- **El apilado sin `z` va en tres planos.** Las capas base siguen en `400 + posición·10`, con la posición
-  del orden de declaración de la entrada anterior; los rótulos de `<cristae-labeled>` van en un plano propio,
-  desde `1 000 400`; y lo que antes sumaba `+200` (capas HTML, editores, `addLabelLayer`, burbujas y espiral
-  del cluster) va desde `2 000 400`, con su orden relativo de siempre. Así lo de encima queda sobre
-  las capas base aunque haya más de veinte. Los rótulos de las burbujas de un cluster van a `+6`, entre las
-  burbujas y la espiral, y siguen al host base como ellas. Ver [SPECS §19.3](SPECS.md).
-  *Migración*: un `z` explícito pensado para quedar sobre las capas HTML, los editores o el cluster tiene que
-  subir al plano de encima; uno que sólo ordena capas base no cambia.
+- **El apilado sin `z` va en cuatro planos, con los rótulos sobre las burbujas.** Las capas base siguen en
+  `400 + posición·10`, con la posición del orden de declaración de la entrada anterior. Las patas, las
+  burbujas y los rótulos de las burbujas de un cluster van desde `1 000 400`, a `+4`, `+5` y `+6` del lugar
+  de su host base. Los rótulos de `<cristae-labeled>` y de `<cristae-text-layer>` van en un plano propio,
+  desde `2 000 400`: quedan sobre las burbujas y sus rótulos. Lo de encima (capas HTML, editores,
+  `addLabelLayer`, espiral y sub-espiral del cluster) va desde `3 000 400`, con su orden relativo de siempre,
+  y queda sobre las capas base aunque haya más de veinte. Ver [SPECS §19.3](SPECS.md).
+  *Migración*: un `z` explícito pensado para quedar sobre las capas HTML, los editores o la espiral sube al
+  plano de encima (`3 000 400` o más). Uno pensado relativo a los rótulos se ubica contra los planos nuevos:
+  sobre los rótulos y bajo lo de encima, entre `2 000 400` y `3 000 400`; bajo los rótulos y sobre las
+  burbujas ya no hay lugar, porque los rótulos de las burbujas van pegados a ellas. Uno que sólo ordena
+  capas base no cambia.
 - **`<cristae-label-layer>` y la burbuja de rótulo se traducen a su reemplazo.** `bind-to` pasa por
   `addLabels`, `source` propio por `addTextLayer`, y `bubble: { kind: 'label' }` (la hija `slot="bubble"`)
   es una capa de burbujas sin dibujo rotulada con la píldora, que ya no gasta contexto WebGL. El aspecto se
-  conserva; cambian el plano —los rótulos quedan bajo las capas HTML y las burbujas, y `pane` y `z` no tienen
-  efecto—, `textOf`, `paint` y `style` en caliente, el texto vacío sin rótulo y `controls` sin `setLabels`.
+  conserva; cambian el plano —los rótulos quedan sobre las burbujas y bajo las capas HTML, y `pane` y `z` no
+  tienen efecto—, `textOf`, `paint` y `style` en caliente, el texto vacío sin rótulo y `controls` sin
+  `setLabels`.
   Un `<cristae-labeled>` por fuera del cluster ahora rotula también la burbuja de rótulo. La lista está en
   [`docs/labels.md`](docs/labels.md#lo-que-ya-cambia-en-cristae-label-layer). `engine.addLabelLayer` no cambia.
   *Migración*: ninguna, salvo quien dependía de `pane`/`z` o de `setLabels` en la label-layer.

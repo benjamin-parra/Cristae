@@ -157,8 +157,8 @@ El elemento se traduce por dentro: `bind-to` pasa por `addLabels`, `source` prop
 hija `slot="bubble"` es una capa de burbujas sin dibujo rotulada con la píldora. Se ve igual —la píldora, su
 `style` y el hover de `setHovered`—, con estas diferencias:
 
-- Los rótulos van al plano de rótulos: quedan bajo las capas HTML y las burbujas, y `pane` y `z` no tienen
-  efecto.
+- Los rótulos van al plano de rótulos: quedan sobre las burbujas del cluster y bajo las capas HTML, los
+  editores y la espiral, y `pane` y `z` no tienen efecto.
 - `textOf`, `paint` y `style` se aplican en caliente, sin remontar.
 - Un texto vacío o `null` no pinta rótulo.
 - Si el host de `bind-to` todavía no existe, se reintenta cuadro a cuadro mientras la capa siga montada. Un

@@ -329,7 +329,7 @@ new MapEngine({ host: adoptLeafletHost(map, { leaflet? }), … }) → engine
 
 Ejes **comunes a toda capa hoja** (viven en la base, ninguna subclase los declara): `pane`/`z` (apilado, MODELO §6) y `focus-ids` (enfoque por ítem). Consumo detallado en [`docs/elements.md`](./docs/elements.md).
 
-- **`z` — explícito o por posición.** Sin `z`, el z de una capa se deriva de su lugar en el orden de declaración (§7.3). El derivado es una **posición**, no un valor: su número cambia cuando monta o se desmonta una capa declarada antes, y sólo se garantiza el orden entre derivadas del mismo plano. Hay tres planos (§19.3): el base, el de los rótulos y el de encima, donde van `html`, `label`, el editor y el cluster. Un `z` explícito gana, no se mueve y ocupa lugar en el orden. Si cae dentro del tramo de los derivados de su plano, su lugar frente a ellos depende de lo que esté montado debajo: para fijar el orden contra un derivado hay que fijar los dos, o poner el explícito fuera de ese tramo. Quitar `z` (o `setLayerZ(id, null)`) vuelve al derivado, con cualquier z que la capa haya tenido al montar.
+- **`z` — explícito o por posición.** Sin `z`, el z de una capa se deriva de su lugar en el orden de declaración (§7.3). El derivado es una **posición**, no un valor: su número cambia cuando monta o se desmonta una capa declarada antes, y sólo se garantiza el orden entre derivadas del mismo plano. Hay cuatro planos (§19.3): el base; el del cluster, con sus burbujas, patas y rótulos de burbujas; el de los rótulos; y el de encima, donde van `html`, el editor, `addLabelLayer` y la espiral del cluster. Un `z` explícito gana, no se mueve y ocupa lugar en el orden. Si cae dentro del tramo de los derivados de su plano, su lugar frente a ellos depende de lo que esté montado debajo: para fijar el orden contra un derivado hay que fijar los dos, o poner el explícito fuera de ese tramo. Quitar `z` (o `setLayerZ(id, null)`) vuelve al derivado, con cualquier z que la capa haya tenido al montar.
 - **`pane` — un nodo por nombre.** Las capas con el mismo `pane` dibujan en el mismo nodo, que vive mientras quede una y se va con la última; un alta que lanza no lo sostiene. El nodo toma el z efectivo de la capa declarada más arriba; el picking ordena cada capa por el suyo. Un nombre que el mapa ya tenía —un pane de Leaflet, como `overlayPane`, o uno que creó el dueño de un mapa adoptado (§6)— se usa prestado: las capas lo configuran mientras lo usan, y al irse la última queda en el mapa con el estilo que tenía.
 - **`focus-ids` — polaridad y tres estados.** Se declara lo que queda **brillante**; se atenúa todo lo demás. AUSENTE = la capa no participa del eje; presente con ids = esos ítems plenos; presente y **vacío** (`""`/`[]`) = participa sin ninguno → todo atenuado. El converter distingue los tres (colapsar ausente con vacío borra un estado, no un caso de borde). Imperativo equivalente: `engine.setLayerFocus(id, ids)`, con `undefined` para retirar la capa del eje.
 - **Cross-layer, resuelto en un punto único.** Mientras **alguna** capa lo declare se atenúan todas las capas (el basemap no es capa) y cada una repone los suyos; las ligadas por `bind-to` siguen la suerte de foco de su host. El eje por CAPA (`engine.focus(ids, {opacity, kinds})`) **EXIME**: la capa que nombra queda plena **y fuera** del eje por ítem — contrato del spider de un cluster, que no declara ítems y no puede atenuarse a sí mismo. `kinds` acota **qué se atenúa**, no qué se recompone (el resolutor recorre todas las capas siempre). La atenuación del eje por ítem es propia y fija; `opacity` es el parámetro del eje por capa.
@@ -375,7 +375,7 @@ Ejes **comunes a toda capa hoja** (viven en la base, ninguna subclase los declar
 
 - **label-layer:** standalone (`source` propio) o attachment (`bind-to="<layerId>"`, deriva posiciones + `textOf` del host). `bind-to` resuelve por nombre, orden-independiente. **`@deprecated`, se retira en v0.47.0:** la reemplaza `<cristae-labeled>` sobre la capa de puntos (§19.3), y avisa una vez por página al montarse como capa. La hija `slot="bubble"` de label del cluster también se retira y avisa aparte: el rótulo de las burbujas lo da un `<cristae-labeled>` por fuera del cluster. La de puntos, que cambia el ícono, sigue.
 - **cluster:** agregador de la gramática (§8.10). `radius/max-zoom/min-points/icon-set` **reactivos en runtime** (reconfig sin recrear la capa). Supercluster: build O(n log n), query O(1) por zoom (no se reescribe — MODELO §13).
-- **Apilado de cluster y overlay:** no ocupan lugar en el orden de declaración; sus hojas sí. El badge de un `<cristae-overlay>` queda sobre su host (z efectivo del host + 7) y lo sigue, también con `z` explícito o `setLayerZ`. Las burbujas, las patas y la espiral de un cluster van sobre los rótulos y siguen la posición del host base, con patas < burbujas < rótulos de las burbujas < espiral < sub-espiral. Su valor es plano de encima + 10·posición del host + k, no un número fijo: ningún consumidor debe anotarlo como constante.
+- **Apilado de cluster y overlay:** no ocupan lugar en el orden de declaración; sus hojas sí. El badge de un `<cristae-overlay>` queda sobre su host (z efectivo del host + 7) y lo sigue, también con `z` explícito o `setLayerZ`. Las burbujas, las patas y la espiral de un cluster siguen la posición del host base, con patas < burbujas < rótulos de las burbujas < rótulos del mapa < espiral < sub-espiral: las tres primeras en el plano del cluster, bajo los rótulos, y la espiral en el de encima. Su valor es plano + 10·posición del host + k, no un número fijo: ningún consumidor debe anotarlo como constante.
 - **Borde eliminado:** `warmup()` de ~278 buckets de cluster → el atlas append-only lo hace innecesario.
 
 ### 8.4 `<cristae-table>` / `PagedTable` (standalone — fuera de `<cristae-map>`)
@@ -1575,17 +1575,22 @@ predio. Equivale a `polyline.setText` de Leaflet.TextPath sobre líneas. Reempla
   contexto fijado por miembro y cada `paint` entre `save` y `restore`; la medida se cachea por fuente y se
   rehace cuando resuelve `document.fonts.load(font)`. `html`: un nodo por rótulo, estable por id; `htmlOf` se
   llama otra vez sólo si cambia el hash del ítem; con `along` va en el punto medio, girado según la tangente.
-- **Z: tres planos** de un millón cada uno, sin `z` explícito:
+- **Z: cuatro planos** de un millón cada uno, sin `z` explícito:
 
   | Plano | z | Qué |
   |---|---|---|
   | base | `400 + posición·10` | puntos, líneas, polígonos, formas, círculos, calor e imagen; el badge de `addOverlay` a `+7` de su capa de puntos |
-  | rótulos | `1 000 400`; un pane `html` en `1 000 400 + (posición del host + 1)·10` | el canvas compartido y, encima, el pane `html` de cada host |
-  | encima | `2 000 400 + posición·10` | capas HTML, editores y `<cristae-label-layer>` (`+0`); del cluster, patas `+4`, burbujas `+5`, rótulos de burbujas `+6`, espiral `+7` y sub-burbujas `+8` |
+  | cluster | `1 000 400 + posición·10` | del cluster, patas `+4`, burbujas `+5` y rótulos de burbujas `+6` |
+  | rótulos | `2 000 400`; un pane `html` en `2 000 400 + (posición del host + 1)·10` | el canvas compartido de `<cristae-labeled>` y `<cristae-text-layer>` y, encima, el pane `html` de cada host |
+  | encima | `3 000 400 + posición·10` | capas HTML, editores y `addLabelLayer` (`+0`); del cluster, espiral `+7` y sub-burbujas `+8` |
 
-  La posición es la del orden de declaración (§7.3), compartida por los tres planos; la del cluster y la del
+  La posición es la del orden de declaración (§7.3), compartida por los cuatro planos; la del cluster y la del
   pane `html` de rótulos es la de su host (la del host base, en el cluster), y la siguen cuando cambia.
-  Los rótulos quedan sobre todas las capas base y bajo lo de encima, sin importar el orden de declaración.
+  Sin importar el orden de declaración, queda base < patas < burbujas < rótulos de burbujas < rótulos <
+  HTML, editores y espiral. Las patas acompañan a las burbujas para seguir bajo ellas, como en el spiderfy
+  canónico. Las burbujas van pegadas al plano base para que ningún pane 2D de rótulos quede entre las capas
+  GL base y las del cluster: con un solo cluster, forman una corrida contigua del apilado. Con varios, los
+  rótulos de las burbujas de uno quedan entre sus burbujas y las del siguiente.
   Una posición que pasaría su plano queda en el techo (`plano + 1e6 − 10`), con un aviso por motor. `z` explícito
   no se toca: cae donde lo pongan. Dentro del canvas compartido se pinta en el orden de alta de los rótulos.
 - **Picking.** El rótulo es parte de su ítem: el motor envuelve el resolver del host y suma las partes de

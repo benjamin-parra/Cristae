@@ -101,8 +101,8 @@ nuevo en cada render no redibuja si los textos no cambiaron.
 `renderer="gl"` está pendiente y hoy lanza un `TypeError` que lo dice.
 
 - **`canvas`** usa un solo canvas por mapa para todos los rótulos, en un plano propio: sobre todas las capas
-  base y bajo las capas HTML, los editores y el cluster. Los rótulos de burbujas van en un canvas del
-  cluster, sobre sus burbujas y bajo la espiral.
+  base y las burbujas de los clusters, y bajo las capas HTML, los editores y la espiral. Los rótulos de
+  burbujas van en un canvas del cluster, sobre sus burbujas y bajo los demás rótulos.
 - **`paint`** recibe `(ctx, point, label, hovered, style)`, la misma firma de `<cristae-label-layer>`.
   `point` es el ancla del ítem desplazada por `offset`. Sólo vale en `canvas` con `placement` `auto` o
   `center`, y con `paint` `auto` es `center` en todas las capas: el pintor ya pone el rótulo donde quiere
