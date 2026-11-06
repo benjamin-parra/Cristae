@@ -160,15 +160,36 @@ test('upsertResolver conserva la máscara activa si la entrada nueva no la trae'
   assert.equal(reg.demandMaskOf('a'), EVENT_CLICK)
 })
 
+// Los z de los planos del motor (SPECS §19.3), con el host en la posición 1: su lugar en el base, las burbujas de su
+// cluster y el canvas compartido de los rótulos.
+const HOST_Z     = 410
+const BURBUJAS_Z = 1_000_415
+const ROTULOS_Z  = 2_000_400
+
 // Un rótulo es parte de su ítem y se dibuja en el plano de rótulos: su parte trae el z del dibujo, que
 // ordena, y la identidad de la capa sigue saliendo de la entrada.
 test('una parte con zIndex propio ordena por él y conserva la identidad de la entrada', () => {
   const reg = new LayerRegistry()
-  reg.upsertResolver(entry({ layerId: 'flota', kind: 'point', zIndex: 410, declOrder: 1,
-    resolveHover: parts({ ref: 7, id: 7, distancePx: 0, zIndex: 1000400, layerId: 'otra', kind: 'otro' }) }))
+  reg.upsertResolver(entry({ layerId: 'flota', kind: 'point', zIndex: HOST_Z, declOrder: 1,
+    resolveHover: parts({ ref: 7, id: 7, distancePx: 0, zIndex: ROTULOS_Z, layerId: 'otra', kind: 'otro' }) }))
   reg.upsertResolver(entry({ layerId: 'geocercas', kind: 'polygon', zIndex: 440, declOrder: 4, resolveHover: parts({ ref: 0, id: 'g', distancePx: 0 }) }))
 
   const hits = reg.resolveHits('hover', {})
   assert.deepEqual(hits.map(h => [h.layerId, h.kind, h.id, h.zIndex]),
-    [['flota', 'point', 7, 1000400], ['geocercas', 'polygon', 'g', 440]])
+    [['flota', 'point', 7, ROTULOS_Z], ['geocercas', 'polygon', 'g', 440]])
+})
+
+// Las burbujas de un cluster ocluyen lo de abajo (`capture`). El rótulo de un punto suelto que cae sobre una se
+// dibuja encima y se entrega primero; el ícono de su host, en el plano base, queda ocluido.
+test('un rótulo sobre una burbuja capture se entrega; el ícono de su host, debajo, no', () => {
+  const reg = new LayerRegistry()
+  reg.upsertResolver(entry({ layerId: 'flota', kind: 'point', zIndex: HOST_Z, declOrder: 1, resolveHover: parts(
+    { ref: 7, id: 7, distancePx: 0, zIndex: ROTULOS_Z },
+    { ref: 8, id: 8, distancePx: 0 },
+  ) }))
+  reg.upsertResolver(entry({ layerId: 'burbujas', kind: 'point', zIndex: BURBUJAS_Z, declOrder: 1, capture: true,
+    resolveHover: parts({ ref: 'b', id: 'b', distancePx: 0 }) }))
+
+  const hits = reg.resolveHits('hover', {})
+  assert.deepEqual(hits.map(h => [h.layerId, h.id]), [['flota', 7], ['burbujas', 'b']])
 })

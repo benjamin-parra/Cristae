@@ -327,7 +327,8 @@ test('la espiral queda sobre los rótulos canvas y html; las burbujas, bajo los 
   }
 })
 
-test('los planos no dependen de la declaración: base < burbujas < rótulos de burbujas < rótulos < HTML, editores y espiral', () => {
+test('los planos no dependen de la declaración: base < burbujas < rótulos de burbujas < rótulos < HTML, editores y espiral', t => {
+  t.mock.method(console, 'warn', () => {})          // el retiro de addLabelLayer
   const pane = (map, name) => Number(map.getPane(name).style.zIndex)
   const { engine, map } = motor()
   // Lo de encima se declara primero y una capa base al final: el plano manda sobre el orden.
@@ -338,6 +339,7 @@ test('los planos no dependen de la declaración: base < burbujas < rótulos de b
   const bubbleId    = control.bubbleLayerId
   engine.addLabels({ hostId: bubbleId })
   engine.addLabels({ hostId: 'flota' })
+  engine.addLabelLayer({ id: 'viejo', bindTo: 'flota' })
   engine.addTextLayer({ id: 'texto', accessors: puntos, data: [{ id: 't', lat: 1, lng: 1 }], htmlOf: () => '<b>t</b>' })
   engine.addLineLayer({ id: 'tarde', accessors: lineas, data: [RUTA] })
   engine.addLineLayer({ id: 'fija', accessors: lineas, data: [RUTA], z: 2_500_000 })
@@ -361,6 +363,7 @@ test('los planos no dependen de la declaración: base < burbujas < rótulos de b
     assert.ok(orden[i - 1][1] < orden[i][1], `${orden[i - 1][0]} (${orden[i - 1][1]}) < ${orden[i][0]} (${orden[i][1]})`)
   assert.ok(capa(':clusters') >= CLUSTER_PLANE && capa(':clusters') < LABEL_PLANE, 'las burbujas, en el plano del cluster')
   assert.ok(engine.getLayer('h').zIndex >= TOP_PLANE, 'la capa HTML, en el de encima')
+  assert.ok(engine.getLayer('viejo').zIndex >= TOP_PLANE, 'addLabelLayer, el imperativo deprecado, también')
 
   const fija = engine.getLayer('fija').zIndex
   assert.equal(fija, 2_500_000, 'el z explícito gana sobre el plano de su kind')
@@ -383,7 +386,7 @@ test('los panes de rótulos siguen el rango de su host: el html de la capa y el 
   engine.removeLayer('antes')
   await Promise.resolve()                            // el hueco se compacta en una microtarea
   assert.deepEqual([z(map, html), z(map, pliegue)], [LABEL_PLANE + 10, CLUSTER_PLANE + 6], 'rango 0: los dos bajan con su host')
-  assert.equal(engine.getLayer(bubbleId).zIndex, CLUSTER_PLANE + 5, 'sobre las burbujas, que bajan igual')
+  assert.equal(engine.getLayer(bubbleId).zIndex, CLUSTER_PLANE + 5, 'las burbujas bajan igual, bajo sus rótulos')
   engine.destroy()
 })
 
