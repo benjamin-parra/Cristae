@@ -25,6 +25,8 @@ test('addHighlightOverlay: cablea el pase separado end-to-end sobre MapEngine', 
   const draws = []
   const ov = engine.addHighlightOverlay({ id: 'hl', layerId: 'flota', drawHighlight: (ctx, size, key) => draws.push({ size, key }) })
   assert.ok(ov, 'devuelve handle para un host de puntos válido')
+  const z = Number(map.getPane('cristae-highlight-hl').style.zIndex)
+  assert.ok(z > 2_000_400 && z < 3_000_400, `sin z, sobre los rótulos y bajo lo de encima (z ${z})`)
 
   ov.setHighlighted(new Map([[2, 'follow'], [5, 'select']]))
   await flushRaf()                                      // schedule = requestAnimationFrame

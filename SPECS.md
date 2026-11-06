@@ -1582,6 +1582,7 @@ predio. Equivale a `polyline.setText` de Leaflet.TextPath sobre líneas. Reempla
   | base | `400 + posición·10` | puntos, líneas, polígonos, formas, círculos, calor e imagen; el badge de `addOverlay` a `+7` de su capa de puntos |
   | cluster | `1 000 400 + posición·10` | del cluster, patas `+4`, burbujas `+5` y rótulos de burbujas `+6` |
   | rótulos | `2 000 400`; un pane `html` en `2 000 400 + (posición del host + 1)·10` | el canvas compartido de `<cristae-labeled>` y `<cristae-text-layer>` y, encima, el pane `html` de cada host |
+  | realce | `3 000 399` (`HIGHLIGHT_Z`) | el pane de `addHighlightOverlay` sin `z`: sobre los rótulos y bajo todo lo de encima |
   | encima | `3 000 400 + posición·10` | capas HTML, editores y `addLabelLayer` (`+0`); del cluster, espiral `+7` y sub-burbujas `+8` |
 
   La posición es la del orden de declaración (§7.3), compartida por los cuatro planos; la del cluster y la del

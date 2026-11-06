@@ -47,6 +47,9 @@ const PLANE         = 1e6
 const CLUSTER_PLANE = BASE_Z + PLANE
 const LABEL_PLANE   = BASE_Z + 2 * PLANE
 const TOP_PLANE     = BASE_Z + 3 * PLANE
+// El realce de addHighlightOverlay sin `z`: sobre los rótulos y bajo todo lo de encima (capas HTML, editores,
+// espiral). Fuera del plano base, su pane 2D no cae entre capas GL y no parte el tramo (SPECS §19.3).
+const HIGHLIGHT_Z   = TOP_PLANE - 1
 // Techo de la identidad de OBJETO del pase de picking: el eje `obj` del píxel menos el 0, que significa
 // «nada» y no se asigna nunca. Sale de los bits que declara el codec — nunca de un número repetido acá.
 const PICK_OBJ_MAX = (1 << OBJ_BITS) - 1
@@ -769,7 +772,7 @@ export class MapEngine {
     const hostCamera = this.#host.camera
     const surface    = this.#host.surface
     const paneName   = `cristae-highlight-${id ?? layerId}`
-    const pane       = this.#mount(paneName, z ?? BASE_Z + 250)
+    const pane       = this.#mount(paneName, z ?? HIGHLIGHT_Z)
 
     const canvas = document.createElement('canvas')
     canvas.style.position      = 'absolute'
