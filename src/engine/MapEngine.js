@@ -11,7 +11,7 @@ import { ImageLayer } from '../render/ImageLayer.js'
 import { HeatLayer } from '../render/HeatLayer.js'
 import { EditableGeometry } from '../render/EditableGeometry.js'
 import { HtmlLayer } from '../render/HtmlLayer.js'
-import { LabelLayer } from '../render/LabelLayer.js'
+import { DEFAULT_STYLE, LabelLayer, drawLabel } from '../render/LabelLayer.js'
 import { createHighlightOverlay } from '../render/HighlightOverlay.js'
 import { frameTransform } from '../render/frame.js'
 import { createClusterFold } from '../cluster/ClusterFold.js'
@@ -633,8 +633,15 @@ export class MapEngine {
   // set `suppressed` (ref estable, mutado in place) a TODOS los hosts y a sus ligados (labels +
   // overlays, que leen `host.suppressed`). El <cristae-cluster> declarativo entra por acá vía el
   // reductor de la gramática; `addCluster` (un host) es azúcar imperativa que delega.
+  // La burbuja de rótulo (`bubble: { kind: 'label' }`, deprecada) es la de su reemplazo: una capa de burbujas
+  // sin dibujo, rotulada con la píldora como la rotularía un <cristae-labeled> por fuera del cluster.
   addClusterFold(targets, opts = {}) {
-    return createClusterFold(this.#foldBridge(), targets, opts)
+    const unit = createClusterFold(this.#foldBridge(), targets, opts)
+    if (unit && opts.bubble?.kind === 'label') {
+      const { textOf, paint = drawLabel, style = DEFAULT_STYLE } = opts.bubble
+      this.addLabels({ hostId: unit.id, textOf: textOf && (b => textOf(b.count)), paint: (ctx, point, label) => paint(ctx, point, label, false, style) })
+    }
+    return unit
   }
 
   // Puente hacia los servicios del motor que necesita el fold (ClusterFold). El fold vive en su propio
@@ -1369,13 +1376,12 @@ export class MapEngine {
       deprecated('bubble-label', "[cristae] la burbuja de rótulo (bubble: { kind: 'label' }) se retira en v0.40.0: " +
         'la reemplazan la burbuja de puntos y addLabels({ hostId }) sobre la capa de burbujas, o un <cristae-labeled> ' +
         'por fuera del cluster (docs/labeled.md).')
-      const layer  = this.#build(bubblePane, zIndex, () =>
-        new LabelLayer({ host: this.#host, pane: bubblePane, paint: spec.paint, style: spec.style }))
-      const textOf = spec.textOf ?? (count => String(count))
-      this.#layers.set(siblingId, { kind: 'label', layer, paneName: bubblePane, order, visible: true, enabled: true })
+      // Sin dibujo ni picking propios: sólo la Source de las burbujas, que rotula `addClusterFold`.
+      const controls = createSource({ idOf: b => b.id, positionOf: b => b })
+      this.#layers.set(siblingId, { kind: 'label', source: controls, controls, order, visible: true, enabled: true })
       return {
-        feed:    bubbles => layer.setLabels(bubbles.map(b => ({ id: b.id, lat: b.lat, lng: b.lng, text: textOf(b.count) }))),
-        dispose: () => this.removeLayer(siblingId),
+        feed    : bubbles => controls.set(bubbles),
+        dispose : () => this.removeLayer(siblingId),
       }
     }
 

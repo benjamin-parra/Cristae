@@ -263,9 +263,8 @@ test('un editor no se rotula y se avisa una vez por editor', () => {
 
 test('<cristae-label-layer> avisa su retiro una vez por página, al montarse como capa', () => {
   const warn   = mock.method(console, 'warn', () => {})
-  const handle = { id: 'nombres', setVisible() {} }
   const capa   = () => Object.assign(Object.create(CristaeLabelLayer.prototype), { bindTo: 'flota', visible: true, layerId: () => 'nombres' })
-  const engine = { addLabelLayer: () => handle }
+  const engine = { getLayer: () => ({}), addLabels: () => null }
   capa().mountLayer(engine)
   capa().mountLayer(engine)
   assert.equal(warn.mock.callCount(), 1)

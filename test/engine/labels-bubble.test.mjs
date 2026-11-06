@@ -1,6 +1,6 @@
 // Los rótulos de las burbujas de un cluster (DISENO-ROTULOS §2.7): `addLabels` sobre la capa de burbujas.
 // Lo que recibe `textOf`, cuándo se resuelven las hojas, el click que expande y el `slot="bubble"` de
-// rótulo, que no se rotula. Corre con:
+// rótulo, que llega ya rotulado. Corre con:
 //   node --test test/engine/labels-bubble.test.mjs
 import { decorarElementos, makeEditGl, makeIconSet, makeLeaflet, makeMap } from '../../test-helpers/engine-stub.mjs'
 import test, { after } from 'node:test'
@@ -126,18 +126,21 @@ test('los rótulos de las burbujas van sobre ellas y bajo la espiral, en un canv
   assert.equal(map.getPane(`${bubbleId}-labels-canvas`), null, 'y se va con el cluster')
 })
 
-// Avisan dos claves: el retiro de la burbuja de rótulo, al montarla, y que no se rotula, al pedírselo.
-test('con slot="bubble" de rótulo, las burbujas no se rotulan y cada aviso sale una vez', () => {
+// La burbuja de rótulo se traduce a su reemplazo: la capa de burbujas, ya rotulada con la píldora. Un rótulo de
+// afuera es uno más, como un `labeled` sobre otro.
+test('con slot="bubble" de rótulo, las burbujas ya van rotuladas y el retiro avisa una vez por página', () => {
   const avisos = []
   const warn   = console.warn
   console.warn = (...args) => avisos.push(args.join(' '))
   try {
     const { engine, bubbleId } = mount({ bubble: { kind: 'label' } })
-    assert.equal(engine.addLabels({ hostId: bubbleId }), null)
-    assert.equal(engine.addLabels({ hostId: bubbleId }), null)
-    assert.equal(avisos.length, 2)
+    assert.equal(engine.getLayer(bubbleId).labels.links.length, 1, 'el rótulo de la burbuja')
+    assert.ok(engine.addLabels({ hostId: bubbleId }))
+    assert.equal(engine.getLayer(bubbleId).labels.links.length, 2)
+    const otro = mount({ bubble: { kind: 'label' } })
+    assert.equal(avisos.length, 1)
     assert.match(avisos[0], /bubble: \{ kind: 'label' \}\) se retira en v0\.40\.0: .*<cristae-labeled> por fuera del cluster/)
-    assert.match(avisos[1], /no se rotulan: se retiran en v0\.40\.0/)
+    otro.engine.destroy()
     engine.destroy()
   } finally {
     console.warn = warn
