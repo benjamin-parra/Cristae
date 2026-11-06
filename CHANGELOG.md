@@ -100,7 +100,11 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   Ocultar, atenuar o reordenar una capa dentro de su tramo no la hace dibujar: se resuelve al componer.
   Un z que la lleva al otro lado de un separador —un `setLayerZ`, o un derivado que se corre— la muda de
   tramo y la rearma. Perder un contexto deja en blanco su tramo y no sólo una capa: vuelve en un canvas
-  nuevo, la capa de mayor z primero y a lo sumo 8 ms por cuadro. `engine.surfaces()` conserva la forma de sus filas, y en el pane de cada capa
+  nuevo, la capa de mayor z primero y a lo sumo 8 ms por cuadro. Un tramo que la política suelta por cupo o por
+  saturación deja en su lugar una imagen fija de lo último que se veía (un canvas 2D `cristae-tramo-still`), que
+  sigue al paneo corto, se quita con un zoom o un paneo de más de un cuarto de la vista, y se va en la tarea en que
+  el tramo vuelve y compone; una pérdida que decide el navegador no puede copiarse y sigue en blanco hasta la vuelta.
+  `engine.surfaces()` conserva la forma de sus filas, y en el pane de cada capa
   queda un canvas sin contexto que guarda su lugar. Ver [`SPECS.md` §10.1](SPECS.md) y
   [`docs/render.md`](docs/render.md#tramos-lo-que-cambia-al-depurar).
   *Migración*: ninguna. Quien contaba contextos por los canvases de cada pane cuenta los de

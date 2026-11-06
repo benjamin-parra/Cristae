@@ -23,6 +23,7 @@ canvas, en la microtarea de la tarea que pintó. No hay API nueva; lo que cambia
 | — | un pane `cristae-tramo-<n>` por tramo, sin puntero, justo después del pane de su miembro de menor z, con el único canvas con contexto |
 | `engine.surfaces()`: una fila por capa | igual, con la misma forma; `state` es el del miembro dentro de su tramo |
 | perder un contexto deja en blanco una capa | deja en blanco el tramo entero; vuelven de mayor a menor z, en un canvas nuevo |
+| soltar un contexto por cupo deja en blanco la capa | el tramo deja en su lugar una **imagen fija**, un `<canvas>` 2D de clase `cristae-tramo-still` justo después del suyo, hasta que vuelve |
 | ocultar o atenuar una capa cambia el CSS de su pane | el pane del marcador sigue cambiando, pero lo que se ve lo decide la composición del tramo |
 
 Contar contextos: `engine.surfaces()` no lo dice (una fila por capa); se cuentan los canvases con

@@ -44,11 +44,13 @@ export const createTramos = ({ host, Tramo = GlTramo, Slot = TramoSlot }) => {
   let viewZoom   = 0
   let viewCenter = null
 
-  // El canvas de un tramo solo vive en el pane de su miembro, junto al marcador: es propio, no lo hace mixto.
+  // El canvas de un tramo solo vive en el pane de su miembro, junto al marcador, y su imagen fija mientras espera
+  // contexto, junto al canvas: son propios, no lo hacen mixto.
+  const ownOf       = (rec, node) => rec.solo && (rec.tramo.surface?.canvas === node || rec.tramo.still === node)
   const isOwnCanvas = node => {
     for (const rec of byId.values())
-      if (rec.solo && rec.tramo.surface?.canvas === node) return true
-    return vacant.some(rec => rec.solo && rec.tramo.surface?.canvas === node)
+      if (ownOf(rec, node)) return true
+    return vacant.some(rec => ownOf(rec, node))
   }
 
   // El pane raíz del mapa: el padre del pane de algún marcador colgado.

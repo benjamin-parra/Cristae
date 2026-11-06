@@ -3,6 +3,7 @@ import { EditSurface, nuevoCanvas } from './EditSurface.js'
 import { GlCompositor } from './gl-compositor.js'
 import { projX0, projY0, readView } from './project.js'
 import { RebuildQueue } from './tramo-rebuild.js'
+import { TramoStill } from './tramo-still.js'
 
 // Un tramo: una corrida de capas GL contiguas en el apilado que comparte UN contexto. Cada miembro dibuja en su propia
 // textura (un FBO que le enlaza `begin()`), en los mismos eventos que hoy, y avisa con `end(view)` la vista con que
@@ -17,6 +18,10 @@ import { RebuildQueue } from './tramo-rebuild.js'
 // Recuperación: al perder el contexto todos los miembros olvidan su parte GL y sus texturas. Al volver a tenerlo, los
 // que tenían contenido se rearman con su `buildGl` de mayor a menor K, en tandas acotadas (`RebuildQueue`), y se
 // compone tras cada tanda.
+//
+// Imagen fija (K3, `tramo-still.js`): si la superficie suelta el contexto por decisión propia, el tramo compone una vez
+// más y copia esa imagen antes de que los miembros olviden lo suyo; la copia tapa el canvas hasta que el tramo vuelve y
+// compone con todos sus miembros armados. Ocultar, atenuar o sacar un miembro la quita: mostraría lo que ya no está.
 
 const report = error => console.error('[cristae] una capa del tramo falló al armar o soltar su parte GL', error)
 
@@ -31,7 +36,7 @@ const newView = () => ({ zoom: 0, center: { x: 0, y: 0 }, size: { x: 0, y: 0 } }
 
 export class GlTramo {
 
-  #camera; #surface; #solo; #onForeign; #compositorFactory; #queue; #offZoom
+  #camera; #surface; #solo; #onForeign; #compositorFactory; #queue; #offZoom; #still
   #compositor = null
   #members    = []                  // en orden K ascendente
   #spare      = []                  // el arreglo de la lista anterior: se alternan en `setMembers`
@@ -98,7 +103,9 @@ export class GlTramo {
       e.painted = m.painted
       e.opacity = alpha
     }
-    return this.#compositor.compose(entries, n, view, globalThis.devicePixelRatio || 1)
+    const drawn = this.#compositor.compose(entries, n, view, globalThis.devicePixelRatio || 1)
+    this.#still.canvas && !this.#pending() && this.#still.clear()   // en la tarea en que el canvas vuelve a tener todo
+    return drawn
   }
 
   // `pane` es el del tramo (uno propio) o, en un tramo solo, el de su único miembro. `compositor` y `queue` se inyectan
@@ -112,12 +119,14 @@ export class GlTramo {
     this.#surface           = new EditSurface({ host, pane, antialias: false, depth: false, cssZoom: false, owner: this })
     this.#surface.onState   = this.#relay
     this.#offZoom           = host.camera.on('zoomend', this.#onZoomEnd)
+    this.#still             = new TramoStill(host.camera)
   }
 
   get surface()    { return this.#surface }
   get gl()         { return this.#surface.gl }
   get members()    { return this.#members }
   get solo()       { return this.#solo }
+  get still()      { return this.#still.canvas }   // la imagen fija mientras espera, o null
   // Lo lee `EditSurface.needed`: algún miembro visible con algo que dibujar.
   get hasContent() { return this.#members.some(withContent) }
 
@@ -135,13 +144,16 @@ export class GlTramo {
   // llega armado en otro tramo lo suelta allá primero.
   setMembers(list, count) {
     const old = this.#members
+    let left  = false
     for (let i = 0; i < old.length; i++) {
       const m = old[i]
       const k = list.indexOf(m)
       if ((k >= 0 && k < count) || m.tramo !== this) continue
       this.#unbuild(m)
       m.tramo = null
+      left    = true
     }
+    left && this.#still.clear()
 
     const next = this.#spare
     next.length = 0
@@ -199,6 +211,7 @@ export class GlTramo {
   // Dueño de la superficie: el contexto es nuevo (A2). Compositor nuevo y los miembros con contenido, de mayor a menor K.
   buildGl(gl) {
     this.#compositor = this.#compositorFactory(gl)
+    this.#still.cover(this.#surface.canvas)
     this.#solo && this.#place()
     const order = this.#order
     const list  = this.#members
@@ -213,8 +226,13 @@ export class GlTramo {
   }
 
   // El contexto se perdió, o la superficie lo va a soltar con `loseContext`, que libera todo de una vez: los miembros
-  // olvidan su parte GL y las texturas se olvidan sin borrarlas.
+  // olvidan su parte GL y las texturas se olvidan sin borrarlas. Si lo suelta con el contexto vivo y algo que mostrar,
+  // antes queda la imagen fija; en pleno zoom animado no, que el `zoomend` la quitaría. Una copia que sigue esperando
+  // a que el tramo componga entero se conserva: es de lo que se veía antes de la vuelta a medias.
   dropGl() {
+    const gl = this.#surface.gl
+    gl && !gl.isContextLost() && this.#compositor && !this.#injected && !this.#still.canvas && this.hasContent
+      && this.#compose() > 0 && this.#still.capture(this.#surface.canvas, this.#now)
     this.#queue.cancel()
     const list = this.#members
     for (let i = 0; i < list.length; i++) {
@@ -232,6 +250,7 @@ export class GlTramo {
   destroy() {
     this.#queue.cancel()
     this.#offZoom()
+    this.#still.clear()
     const list = this.#members
     for (let i = 0; i < list.length; i++) {
       const m = list[i]
@@ -339,6 +358,7 @@ export class GlTramo {
   setVisible(slot, visible) {
     if (slot.visible === visible) return false
     slot.visible = visible
+    this.#still.clear()
     this.#schedule()
     return true
   }
@@ -346,6 +366,7 @@ export class GlTramo {
   setOpacity(slot, alpha) {
     if (slot.opacity === alpha) return false
     slot.opacity = alpha
+    this.#still.clear()
     this.#schedule()
     return true
   }
@@ -372,12 +393,23 @@ export class GlTramo {
     return true
   }
 
-  // Tramo solo: el canvas va justo después del marcador de su miembro. `acquire` reemplaza al canvas en su lugar, así
-  // que la posición se conserva entre contextos.
+  // Algún miembro que se ve, con contenido, espera su tanda de la cola: el tramo todavía no muestra todo lo suyo.
+  #pending() {
+    const list = this.#members
+    for (let i = 0; i < list.length; i++) {
+      const m = list[i]
+      if (m.visible && m.wanted && !m.released && !m.destroyed && !m.built) return true
+    }
+    return false
+  }
+
+  // Tramo solo: el canvas va justo después del marcador de su miembro, y la imagen fija después del canvas. `acquire`
+  // reemplaza al canvas en su lugar, así que la posición se conserva entre contextos.
   #place() {
     const marker = this.#members[0]?.marker
     const canvas = this.#surface.canvas
     marker && canvas && marker.parentNode && marker.nextSibling !== canvas && marker.after(canvas)
+    this.#still.place(canvas)
   }
 
 }

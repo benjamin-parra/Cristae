@@ -9,6 +9,7 @@ import { makeEditGl, makePickSpy } from '../../test-helpers/engine-stub.mjs'
 import { afterEach, mock, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createSource } from '../../src/data/index.js'
+import { STILL_CLASS } from '../../src/render/tramo-still.js'
 
 /* ── Cuadros a mano ── */
 
@@ -272,5 +273,85 @@ test('T3.8 saturada, la de menor z queda sin superficie con un aviso; invalidate
   await esperar(0)
   assert.ok(dibujos(contextoDe(navegador, engine, 'a')) > 0, 'y pinta')
   assert.equal(warn.mock.callCount(), 1)
+  intactos(navegador)
+})
+
+/* ── K3 y los reintentos de la saturación sobre tramos ── */
+
+// jsdom no maqueta: el contenedor mide 800 × 600 para que el canvas del tramo tenga algo que copiar.
+const medir = (engine, id) => {
+  const contenedor = tramoDe(engine, id).surface.canvas.closest('.leaflet-container')
+  Object.defineProperties(contenedor, { clientWidth: { value: 800, configurable: true }, clientHeight: { value: 600, configurable: true } })
+  engine.syncSize()
+}
+
+// Un widget ajeno que se rehace cada vez que lo desalojan, en un canvas nuevo.
+const insistente = (navegador, lista) => {
+  const canvas = document.createElement('canvas')
+  canvas.addEventListener('webglcontextlost', () => insistente(navegador, lista))
+  lista.push(navegador.ajeno(canvas))
+}
+
+// Como `asentarCuadros`, con la pérdida que causa un cuadro avisada antes del rato ocioso, como en el navegador: el
+// evento es una tarea que el desalojo encola, y el rato ocioso llega después.
+const cuadrosEnOrden = (navegador, ajenos, n = 4) => {
+  for (let i = 0; i < n; i++) {
+    ajenos.forEach(a => a.estado === 'vivo' && a.gl.flush())
+    navegador.vaciar()
+    cuadro()
+    navegador.vaciar()
+    ocio()
+  }
+}
+
+const microtareas = async () => {
+  for (let i = 0; i < 8; i++) await null
+}
+
+// Dos pérdidas seguidas del tramo de arriba con un ajeno que llena el techo: la segunda es saturación, y la política
+// suelta por voluntad propia al de abajo, que tiene menos z, para devolverle el cupo al de arriba.
+const saturarAbajo = async ajenos => {
+  const { engine, navegador } = await montar({ techo: 3 })
+  medir(engine, 'a')
+  await esperar(300)                                    // lo que Leaflet avisa del tamaño nuevo, antes de copiar
+  mock.method(console, 'warn', () => {})
+  insistente(navegador, ajenos)
+  cuadrosEnOrden(navegador, ajenos, 3)
+  navegador.desalojar(contextoDe(navegador, engine, 'c'))
+  cuadrosEnOrden(navegador, ajenos, 3)
+  assert.deepEqual([tramoDe(engine, 'a').surface.state, tramoDe(engine, 'c').surface.state], ['live', 'live'], 'la primera vuelve')
+  navegador.desalojar(contextoDe(navegador, engine, 'c'))
+  navegador.vaciar()
+  return { engine, navegador }
+}
+
+test('K3 el tramo que la saturación suelta por voluntad propia queda con su imagen fija; vuelve y la quita en la tarea en que compone', async () => {
+  const ajenos = []
+  const { engine, navegador } = await saturarAbajo(ajenos)
+  const abajo  = tramoDe(engine, 'a')
+  const viejo  = abajo.surface.canvas
+  assert.equal(abajo.surface.state, 'released', 'la segunda pérdida suelta al de abajo')
+  const still = abajo.still
+  assert.ok(still, 'con su imagen fija')
+  assert.equal(still.className, STILL_CLASS)
+  assert.equal(viejo.nextSibling, still, 'en el lugar de su canvas')
+  assert.equal(tramoDe(engine, 'c').still, null, 'el de arriba perdió el suyo sin aviso: no copia')
+  cuadrosEnOrden(navegador, ajenos, 3)
+  await microtareas()
+  assert.equal(tramoDe(engine, 'c').surface.state, 'live', 'el de arriba vuelve')
+  assert.equal(abajo.still, still, 'y el de abajo sigue con su imagen')
+
+  engine.invalidateCanvas()                             // una señal de cupo: hay lugar
+  navegador.vaciar()
+  cuadro()
+  assert.equal(abajo.surface.state, 'live')
+  assert.notEqual(abajo.surface.canvas, viejo)
+  assert.equal(abajo.surface.canvas.style.visibility, 'hidden', 'el canvas nuevo, oculto bajo la imagen hasta componer')
+  assert.equal(abajo.still, still)
+  await microtareas()                                   // la misma tarea
+  assert.equal(abajo.still, null, 'compuso: la imagen se va')
+  assert.equal(abajo.surface.canvas.style.visibility, '')
+  assert.equal(still.isConnected, false)
+  assert.ok(dibujos(contextoDe(navegador, engine, 'a')) > 0, 'y el tramo pinta')
   intactos(navegador)
 })
