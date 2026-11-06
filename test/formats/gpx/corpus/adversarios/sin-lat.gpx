@@ -1,0 +1,2 @@
+<!-- gpx.xsd, wptType: lat y lon son use="required"; sin uno es posicion (DISENO-INTEROP §3.2). -->
+<gpx><wpt lon="1"/></gpx>

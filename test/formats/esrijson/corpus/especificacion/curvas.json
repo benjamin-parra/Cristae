@@ -1,0 +1,5 @@
+{ "features": [
+  { "attributes": { "k": "curva" }, "geometry": { "curveRings": [[[0, 0], { "c": [[1, 1], [0.5, 0.5]] }, [0, 0]]] } },
+  { "attributes": { "k": "recta" }, "geometry": { "paths": [[[0, 0], [1, 1]]] } },
+  { "attributes": { "k": "trazo" }, "geometry": { "curvePaths": [[[0, 0], { "a": [[1, 1], [0, 1], 0, 1] }]] } }
+] }

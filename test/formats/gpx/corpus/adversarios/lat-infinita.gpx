@@ -1,0 +1,2 @@
+<!-- DISENO-INTEROP §1.6-4: una coordenada no finita es numero. -->
+<gpx><wpt lat="1e999" lon="1"/></gpx>

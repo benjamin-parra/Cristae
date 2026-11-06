@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Cristae · Texto suelto y label-layer</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #f8fafc; color: #0f172a;
+    font: 13px/1.5 ui-sans-serif, system-ui, -apple-system, sans-serif; overflow: hidden; }
+  cristae-map { position: fixed; inset: 0; background: #e2e8f0; }
+  #panel { position: fixed; top: 14px; right: 14px; z-index: 1000; width: 300px; background: #fff;
+    border: 1px solid #cbd5e1; border-radius: 10px; padding: 10px 12px; }
+  h1 { font-size: 13px; margin: 0 0 6px; }
+  p { color: #475569; font-size: 12px; margin: 4px 0; }
+  #registro { font: 11px ui-monospace, monospace; color: #334155; min-height: 1.5em; }
+</style>
+</head>
+<body>
+<cristae-map initial-center="-33.45,-70.62" initial-zoom="12">
+  <!-- <cristae-label-layer> deprecada: ligada a un host, con Source propia y como burbuja del cluster. -->
+  <cristae-point-layer id="flota"></cristae-point-layer>
+  <cristae-label-layer id="patentes" bind-to="flota"></cristae-label-layer>
+  <cristae-label-layer id="sueltas"></cristae-label-layer>
+  <cristae-cluster radius="60">
+    <cristae-point-layer id="grupo"></cristae-point-layer>
+    <cristae-label-layer slot="bubble"></cristae-label-layer>
+  </cristae-cluster>
+
+  <!-- <cristae-text-layer>: canvas sobre el punto, y html con colocación e interactiva. -->
+  <cristae-text-layer id="comunas" font="600 13px ui-sans-serif, system-ui, sans-serif" color="#1e3a8a"></cristae-text-layer>
+  <cristae-text-layer id="cotas" renderer="html" placement="above" interactive></cristae-text-layer>
+  <cristae-point-layer id="cerros"></cristae-point-layer>
+</cristae-map>
+
+<div id="panel">
+  <h1>Texto suelto y &lt;cristae-label-layer&gt;</h1>
+  <p>Arriba a la izquierda, la flota con sus patentes en píldora (<code>bind-to</code>), y la de <b>CD-1002</b>
+    marcada con <code>setHovered</code>. Abajo a la izquierda, píldoras con Source propia. A la derecha, el
+    cluster con la burbuja de rótulo.</p>
+  <p>Al centro, las comunas en azul (<code>&lt;cristae-text-layer&gt;</code>, canvas, <code>center</code>) y las
+    cotas de los cerros en ámbar (html, <code>above</code>, interactivas).</p>
+  <div id="registro"></div>
+</div>
+
+<script type="module" src="./texto-suelto.js"></script>
+</body>
+</html>

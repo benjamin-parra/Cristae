@@ -13,12 +13,12 @@ import {
 /* ══════════════ Gramática de prueba ══════════════ */
 
 const g = defineGrammar({ kinds: ['point', 'label', 'bubble', 'overlay'] })
-g.register('CRISTAE-POINT-LAYER', { consumes: [], produces: ['point'], combine: null, arity: 'leaf' })
-g.register('CRISTAE-LABEL-LAYER', { consumes: [], produces: ['label'], combine: null, arity: 'leaf', bindsTo: 'point' })
+g.register('CRISTAE-POINT-LAYER', { role: 'leaf', produces: ['point'] })
+g.register('CRISTAE-LABEL-LAYER', { role: 'leaf', produces: ['label'] })
 g.register('CRISTAE-CLUSTER',
-  { consumes: ['point'], produces: ['point', 'bubble'], combine: 'fold', arity: 'wrapper' })
+  { role: 'aggregate', consumes: ['point'], produces: ['point', 'bubble'] })
 g.register('CRISTAE-OVERLAY',
-  { consumes: ['point'], produces: ['overlay'], combine: 'map', arity: 'wrapper', bindsTo: 'point' })
+  { role: 'decorate', consumes: ['point'], produces: ['overlay'] })
 
 const vctx = { signatureFor: g.signatureFor, isRegistered: g.isRegistered, mode: 'throw' }
 const capturar = (fn) => { try { fn(); return null } catch (e) { return e } }

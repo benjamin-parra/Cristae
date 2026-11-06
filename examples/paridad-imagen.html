@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Cristae · Capa de imagen</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #f8fafc; color: #0f172a;
+    font: 13px/1.5 ui-sans-serif, system-ui, -apple-system, sans-serif; overflow: hidden; }
+  cristae-map { position: fixed; inset: 0; background: #e2e8f0; }
+  #panel { position: fixed; top: 14px; right: 14px; z-index: 1000; width: 280px; background: #fff;
+    border: 1px solid #cbd5e1; border-radius: 10px; padding: 10px 12px; }
+  h1 { font-size: 13px; margin: 0 0 8px; }
+  .row { display: flex; align-items: center; gap: 8px; margin: 6px 0; flex-wrap: wrap; }
+  button { font: inherit; padding: 2px 8px; }
+  .exp { color: #475569; font-size: 11px; margin: 8px 0 0; }
+  #clic { font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+<cristae-map initial-center="-33.45,-70.65" initial-zoom="10">
+  <cristae-image-layer id="caja" opacity="0.8" interactive></cristae-image-layer>
+  <cristae-image-layer id="rotada" opacity="0.8"></cristae-image-layer>
+  <cristae-image-layer id="antimeridiano" bounds='{"south":-1,"west":179,"north":1,"east":-179}'></cristae-image-layer>
+  <cristae-line-layer id="marcos"></cristae-line-layer>
+</cristae-map>
+
+<div id="panel">
+  <h1>&lt;cristae-image-layer&gt;</h1>
+  <div class="row">zoom
+    <button data-zoom="3">3</button><button data-zoom="10">10</button><button data-zoom="18">18</button>
+  </div>
+  <div class="row">ir a
+    <button id="santiago">la caja</button><button id="esquina">esquina de la caja</button><button id="am">antimeridiano</button>
+  </div>
+  <div class="row"><label>opacidad <input type="range" id="opacidad" min="0" max="1" step="0.05" value="0.8"></label></div>
+  <div class="row"><label><input type="checkbox" id="visible" checked> visible</label></div>
+  <div class="row">click: <span id="clic">—</span></div>
+  <p class="exp">El marco rojo es una línea con las mismas esquinas: la imagen tiene que calzar con él en
+    todo zoom y durante el paneo. La izquierda es una caja interactiva; la derecha, un cuadrilátero rotado
+    30°, no interactivo, que deja pasar el arrastre.</p>
+</div>
+
+<script type="module" src="./paridad-imagen.js"></script>
+</body>
+</html>

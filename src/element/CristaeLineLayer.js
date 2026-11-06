@@ -9,7 +9,7 @@ import { makeAutoId } from './autoId.js'
 export class CristaeLineLayer extends CristaeLayerElement {
 
   // Gramática de composición: entidad hoja que produce `line`.
-  static cristaeSignature = { consumes: [], produces: ['line'], combine: null, arity: 'leaf' }
+  static cristaeSignature = { role: 'leaf', produces: ['line'] }
 
   static properties = {
     data: { type: Array },

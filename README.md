@@ -26,7 +26,8 @@ Leaflet es el **anfitrión** del mapa —cámara, tiles y entrada del navegador�
 habla en valores propios (`{ lat, lng }`, `{ x, y }`, `{ south, west, north, east }`) y las capas se dibujan
 con la superficie WebGL de Cristae. Un mapa Leaflet que ya existe se entrega al motor con
 `adoptLeafletHost(map, { leaflet })`, el único punto de integración con un Leaflet ajeno
-([SPECS §6](SPECS.md)), donde también consta que `engine.getLeafletMap()` está fuera de contrato.
+([SPECS §6](SPECS.md)), donde también consta que `engine.getLeafletMap()` está fuera de contrato. Se
+retira en v0.47.0 ([deprecado](#deprecado-se-retira-en-v0470)).
 
 ## Uso mínimo
 
@@ -51,8 +52,27 @@ import { createSource, defineIconSet } from 'cristae/map'
 | `cristae/core`     | solo el núcleo de datos (sin DOM)                           | —                  |
 | `cristae/geojson`  | lector de GeoJSON a arrays tipados                          | —                  |
 | `cristae/geometry` | distancias, áreas, formas, geodésica, terreno, cajas y path | —                  |
+| `cristae/formats`  | KML, GPX, WKT/WKB, TopoJSON, EsriJSON, Shapefile y FGB      | —                  |
 
 `table` y `map` nunca se importan entre sí: una tabla no baja Leaflet.
+
+## Deprecado: se retira en v0.47.0
+
+La v0.47.0 retira todo lo deprecado. Hasta entonces sigue funcionando, y el [CHANGELOG](CHANGELOG.md) da
+la *Migración* de cada API. La política de retiro está en
+[`docs/versionado.md`](docs/versionado.md#deprecación-y-retiro).
+
+| API deprecada | Reemplazo |
+|---------------|-----------|
+| `engine.addPolygonGpuLayer`, con `PolygonGpuLayerConfig` y `PolygonGpuHandle` | `engine.addPolygonLayer({ geometry })` ([polígonos](docs/polygons.md)) |
+| `engine.addCircleLayer` | `engine.addShapeLayer`, con `radiusOf` en vez de `radiusMetersOf`, o `<cristae-shape-layer>` ([formas](docs/shapes.md#migrar-desde-addcirclelayer)) |
+| `CircleAccessors`, `CircleLayerConfig`, `CircleHandle` | `ShapeAccessors`, `ShapeLayerConfig`, `ShapeHandle` |
+| `CircleHit` (`kind: 'circle'` en `Hit`), `CristaeCircleHit` | `ShapeHit`, `CristaeShapeHit` |
+| `engine.getLeafletMap()` | La cámara ([SPECS §9](SPECS.md)), `setTileProvider`, `setCursor` y las señales del motor. Dibujar sobre el mapa de Leaflet crudo no tiene reemplazo |
+| `<cristae-label-layer bind-to>`, `<CristaeLabelLayer>`, `engine.addLabelLayer` | `<cristae-labeled>`, `<CristaeLabeled>`, `engine.addLabels`, que envuelven la capa ([rótulos](docs/labeled.md)) |
+| `CristaeLabelLayerProps`, `CristaeLabelLayerElement` | `CristaeLabeledProps`, `CristaeLabeledElement` |
+| `<cristae-label-layer>` con `source` propio | `<cristae-text-layer>`, `<CristaeTextLayer>`, `engine.addTextLayer`: una capa base de texto ([texto suelto](docs/text-layer.md)) |
+| `<cristae-label-layer slot="bubble">` dentro de `<cristae-cluster>` | Un `<cristae-labeled>` por fuera del cluster, con `textOf` sobre `{ count, leaves }` |
 
 ## Documentación
 

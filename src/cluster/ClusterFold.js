@@ -9,12 +9,12 @@ import { STACK } from '../engine/stack.js'
 // `control` + el descriptor de retorno) es idéntica a la que devolvía el motor.
 //
 // El bridge expone: `camera` (la faceta del anfitrión), `layerOf(id)`, `seq()` (para nombres),
-// `above(anchorId, lift)` (dónde se apila una capa del fold: sobre los labels, en el rango de su host, +lift),
+// `above(anchorId, lift)` (dónde se apila una capa del fold: sobre los rótulos, en el rango de su host, +lift),
 // `subAccent` (acento default de la traza), `makeBubbleSink`, `subClusterIconSet`, `addPointLayer`,
 // `addLineLayer`, `removeLayer`, `resyncBound`, `focus`, `unfocusAll`, `emit`, `busOn`, `destroying()`.
 //
 // Las capas del fold no ocupan lugar en el orden de declaración: dependen del host base y lo siguen cuando cambia
-// de rango. Adentro quedan patas +4 < burbujas +5 < espiral +7 < sub-espiral +8.
+// de rango. Adentro quedan patas +4 < burbujas +5 < rótulos de las burbujas +6 < espiral +7 < sub-espiral +8.
 
 // Ventana de coalescido del re-index del cluster ante moves de POSICIÓN (no estructurales).
 // `cluster.index` (Supercluster.load) es O(n log n) + ~4 allocs/punto y resetea la firma → fuerza
@@ -136,7 +136,7 @@ export function createClusterFold(bridge, targets, { radius, maxZoom, minPoints,
   if (ha.sizeOf)    spiderAccessors.sizeOf    = s => ha.sizeOf(s.orig)
   const spiderHandle = base.iconSet ? bridge.addPointLayer({
     id: spiderId, data: [], accessors: spiderAccessors, iconSet: base.iconSet,
-    interactive: true, [STACK]: bridge.above(baseId, 7), presentAs: presentLeaf,   // hoja: sobre burbuja(+5) y líneas(+4)
+    interactive: true, [STACK]: bridge.above(baseId, 7), presentAs: presentLeaf,   // hoja: sobre los rótulos(+6), la burbuja(+5) y las líneas(+4)
   }) : null
   // Capa de SUB-CLUSTERS de la espiral (jerarquía): burbujas de conteo con el MISMO iconSet de
   // conteo que las burbujas base. Slots {kind:'subcluster'} van acá; los {kind:'leaf'} a `spiderHandle`.
@@ -564,6 +564,9 @@ export function createClusterFold(bridge, targets, { radius, maxZoom, minPoints,
     // ids de burbuja BASE (los de Supercluster + el sintético 'b:' de la sesión); el contenido de
     // una SUB-burbuja de la espiral se lee de la estructura de sesión (getSession / cluster:*).
     contentsOf: id => (bubbleRec?.source?.itemById?.(id) ? cluster.contents(id) : null),
+    // Los ítems que junta una burbuja del frame actual, como los tienen las Source de los hosts y en el
+    // orden de `contentsOf`. Con la espiral abierta, los del snapshot congelado. Lo leen los rótulos.
+    leavesOf: id => control.contentsOf(id)?.map(leaf => resolveOne(leaf).item) ?? [],
     // Id de la capa de burbujas: el consumidor se suscribe a sus hits por el bus normal
     // (map.on('click' | 'hover', bubbleLayerId, cb)) y compone con contentsOf/expand.
     bubbleLayerId: bubbleId,
@@ -575,6 +578,9 @@ export function createClusterFold(bridge, targets, { radius, maxZoom, minPoints,
   }
   // dispose idempotente compartido: quitar cualquiera de los hosts (o el sibling) limpia el fold.
   for (const { rec } of hosts) rec.cluster = control
+  // El registro de las burbujas lleva su fold: `addLabels` lo reconoce y pone sus rótulos sobre ellas y
+  // bajo la espiral (DISENO-ROTULOS §2.7), a +6 en el rango del host base, que el motor sigue al reasentar.
+  if (bubbleRec) bubbleRec.fold = control
 
   return { kind: 'bubble', id: bubbleId, handle: { id: bubbleId, control }, source: bridge.layerOf(bubbleId)?.source, suppressed: null }
 }

@@ -7,6 +7,86 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
 
 ## [Sin publicar]
 
+### Agregado
+- **Capa de texto suelto.** `engine.addTextLayer`, `<cristae-text-layer>` y `<CristaeTextLayer>` ponen texto
+  con datos propios (`data`, `source`, `accessors`), con el vocabulario y los renderers de
+  `<cristae-labeled>` que valen sin trazo, sin contexto WebGL. `auto` es `center`; `along`, `gl` y `repeat`
+  con colocación explícita lanzan `TypeError`. `interactive` la pica como a cualquier capa base, con
+  `TextHit` (`kind: 'text'`). Tipos `TextLayerConfig`, `TextHandle`, `TextProps` y `TextAccessors`. Ver
+  [`docs/text-layer.md`](docs/text-layer.md).
+  *Migración*: ninguna.
+- **Capa de imagen georreferenciada.** `engine.addImageLayer`, `<cristae-image-layer>` y `<CristaeImageLayer>`
+  ponen una imagen (por `url`, o un nodo propio: `<img>`, `<canvas>`, `<video>` o `<svg>`) sobre una caja
+  o sobre cuatro esquinas, con opacidad, apilado y click opcional (`ImageHit`, `{ kind: 'image' }`). Es un
+  nodo DOM, sin contexto WebGL, y sigue la paridad con `L.imageOverlay`. `ImageLayerConfig` e
+  `ImageLayerHandle` tipan el conjunto. Ver [`docs/image-layer.md`](docs/image-layer.md).
+  *Migración*: ninguna.
+- **Escala gráfica.** `<cristae-scale>` y `<CristaeScale>` muestran una barra métrica y/o imperial
+  (`units="metric imperial"`, `max-width`) con la distancia en el centro de la vista, como
+  `L.control.scale`: va en una zona del overlay por `slot`, mide con el `model` del mapa y sigue el paneo.
+  Bajo 1 m sigue en decimales en vez de subir a 1 m como Leaflet. Ver [`docs/scale.md`](docs/scale.md).
+  *Migración*: ninguna.
+- **Rótulos.** `<cristae-labeled>`, `<CristaeLabeled>` y `engine.addLabels` ponen un texto sobre cada ítem
+  de la capa que envuelven: debajo de un punto, a lo largo de una ruta (también siguiendo la curva de
+  `<cristae-geodesic>`) o en el centro de un polígono. Es un decorador: rotula lo que produce su hijo
+  directo, así que por fuera de un `<cristae-cluster>` rotula las burbujas, con `textOf` sobre
+  `{ count, leaves }`. Sigue la visibilidad, el foco y el cluster de su capa y muere con ella; tocar el rótulo
+  es tocar el ítem, así que `<cristae-popup for>` no cambia. Se dibuja en `canvas` (un canvas por mapa) o en
+  `html` (`htmlOf`, con `interactive` para que el nodo reciba el puntero). Equivale a `polyline.setText` de
+  Leaflet.TextPath. Ver [`docs/labeled.md`](docs/labeled.md).
+  *Migración*: ninguna.
+- **`drawLabel` devuelve su caja** `{ x, y, w, h }`, y `LabelPaint` admite devolverla: el rótulo de un pintor
+  que la devuelve se pica.
+  *Migración*: ninguna; un pintor que no devuelve nada sigue dibujando.
+- **Elemento y componente React de la capa de calor.** `<cristae-heat-layer>` y `<CristaeHeatLayer>`
+  declaran la capa de `engine.addHeatLayer`: `data`, `source`, `accessors` y `colorRamp` como props;
+  `radius`, `blur`, `intensity` y `visible` como atributos. Todo salvo `source` y `accessors` se aplica en
+  vivo. No se pica. Ver [`docs/heat.md`](docs/heat.md).
+  *Migración*: ninguna.
+- **Diagnóstico de los contextos WebGL.** `engine.surfaces()` devuelve una fila por superficie WebGL del motor
+  —capas de puntos, líneas, polígonos y formas, sus overlays y los editores—, armada al pedirla: `layerId`,
+  `kind`, `pane`, `z`, `cssZoom`, `state`, `hasContent` y `visible`. La señal `surfacechange` del motor, y
+  `cristae:surfacechange` en el elemento, entregan esa fila cuando una superficie cambia de estado: al tomar el
+  contexto (también la primera vez, si lo difirió), al perderlo y al soltarlo; no al dar de alta la capa, ni al
+  quitarla ni en `destroy()`. `state` es `live`, `lost`, `released` o `none`. Tipos `SurfaceInfo` y
+  `SurfaceState`. Ver [SPECS §10](SPECS.md).
+  *Migración*: ninguna.
+- **`cristae/formats`: lectores por especificación a las tablas de `readGeoJson`.** Entry nuevo, sin DOM,
+  Leaflet ni dependencias, como `cristae/geojson`, con global UMD `CristaeFormats`. Cada lector deja la
+  geometría en los arrays tipados de §17.1, sin grafo intermedio, y suma `format`, `crs` y capas
+  (`layers`, `layerOf`); `propertiesOf` decodifica a demanda y `areasOf` sirve sin cambios. La salida
+  siempre está en grados WGS84: UTM, Web Mercator y los `.prj` de transversa de Mercator se pasan a
+  grados, y `read.crs` dice en qué venía la fuente. Ver [`docs/formats.md`](docs/formats.md) y SPECS §20.
+  - `readKml`, `readKmz` y `readGpx`: KML 2.2, KMZ y GPX 1.1, sin DOM y sin resolver DTD. KMZ se infla
+    con `DecompressionStream`.
+  - `readWkt` (WKT y EWKT, varias geometrías por entrada) y `readWkb` (WKB y EWKB, binario o hex).
+  - `readTopoJson`: TopoJSON 1.0 con `transform`, arcos compartidos e invertidos, una capa por miembro
+    de `objects` y tope de expansión de arcos (`maxBytes`). Sin `crs` asume lon/lat WGS84 y lo declara
+    (`'EPSG:4326'`); una topología proyectada se lee con `{ crs }`.
+  - `readEsriJson`: FeatureSet, feature o geometría de ArcGIS REST, con anillos agrupados por
+    orientación y contención, `hasZ`/`hasM` y CRS desde `spatialReference`.
+  - `readShapefile` y `readShapefileZip`: Shapefile con su `.dbf`, `.prj` y `.cpg`, sueltos o en un zip.
+    Polígonos agrupados por orientación y contención, Z a `z`, M descartada y contada, y atributos de
+    dBase decodificados a demanda con la codificación del `.cpg`, del language driver o windows-1252.
+    El `.cpg` se entiende en sus escrituras habituales (`UTF-8`, `65001`, `ANSI 1252`, `88591`,
+    `ISO-8859-1`, `936`…); uno que no se reconoce avisa en `warnings` y no frena la lectura.
+  - `readFlatGeobuf`: FlatGeobuf 3 en lectura secuencial (el índice se salta), con los siete tipos de
+    geometría, colecciones aplanadas, z, las quince clases de columna y el CRS de la cabecera.
+  - `FormatError`, el error común, con `format`, `code`, `at` y `hint`, y siete códigos más que
+    `GeoJsonError`: `crs`, `compresion`, `tope`, `entorno`, `version`, `codificacion` y `dtd`.
+  - `warnings` en cada lectura: avisos no fatales `{ code, detail }`, vacío si no hubo: `'codificacion'`
+    (un `.cpg` que no sirve) y `'crs'` (fuente sin CRS fuera de rango).
+  - Sin CRS de la fuente ni `options.crs` se suponen grados y `read.crs` es `'EPSG:4326'`, que nunca
+    es `null`: si las coordenadas no caben, la lectura sigue y avisa `'crs'` en `warnings` pidiendo
+    `{ crs }`, en vez de fallar.
+    Vale para Shapefile sin `.prj`, FlatGeobuf sin CRS, EsriJSON sin `spatialReference`, WKT y WKB sin
+    SRID y TopoJSON. Un `crs` inválido o un CRS de la fuente sin soporte siguen siendo error.
+  - `detectFormat`, que reconoce el formato por los bytes mágicos y el primer token, sin lanzar.
+  - Opciones comunes `maxBytes`, el tope de lo que la entrada hace crecer, y `crs`, el CRS de una fuente
+    que no declara el suyo (un Shapefile sin `.prj`, el WKT de `ST_AsText`).
+
+  *Migración*: ninguna.
+
 ### Cambiado
 - **El build emite `es2022`** (antes `es2020`): los campos y métodos privados y los campos de clase
   quedan nativos en `dist/`, sin el `WeakMap` con que se bajaban. Sube el mínimo de Safari de 15.4
@@ -46,6 +126,126 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   *Migración*: quien fijaba `z` o dejaba capas vacías montadas sólo para conservar el apilado puede
   quitarlo. Quien anotaba como constante un z derivado (por ejemplo, el de las burbujas de un cluster) deja
   de hacerlo, y quien fijaba un explícito entre derivados revisa que no dependa de lo montado debajo.
+- **El apilado sin `z` va en tres planos.** Las capas base siguen en `400 + posición·10`, con la posición
+  del orden de declaración de la entrada anterior; los rótulos de `<cristae-labeled>` van en un plano propio,
+  desde `1 000 400`; y lo que antes sumaba `+200` (capas HTML, editores, `addLabelLayer`, burbujas y espiral
+  del cluster) va desde `2 000 400`, con su orden relativo de siempre. Así lo de encima queda sobre
+  las capas base aunque haya más de veinte. Los rótulos de las burbujas de un cluster van a `+6`, entre las
+  burbujas y la espiral, y siguen al host base como ellas. Ver [SPECS §19.3](SPECS.md).
+  *Migración*: un `z` explícito pensado para quedar sobre las capas HTML, los editores o el cluster tiene que
+  subir al plano de encima; uno que sólo ordena capas base no cambia.
+- **`<cristae-label-layer>` y la burbuja de rótulo se traducen a su reemplazo.** `bind-to` pasa por
+  `addLabels`, `source` propio por `addTextLayer`, y `bubble: { kind: 'label' }` (la hija `slot="bubble"`)
+  es una capa de burbujas sin dibujo rotulada con la píldora, que ya no gasta contexto WebGL. El aspecto se
+  conserva; cambian el plano —los rótulos quedan bajo las capas HTML y las burbujas, y `pane` y `z` no tienen
+  efecto—, `textOf`, `paint` y `style` en caliente, el texto vacío sin rótulo y `controls` sin `setLabels`.
+  Un `<cristae-labeled>` por fuera del cluster ahora rotula también la burbuja de rótulo. La lista está en
+  [`docs/labels.md`](docs/labels.md#lo-que-ya-cambia-en-cristae-label-layer). `engine.addLabelLayer` no cambia.
+  *Migración*: ninguna, salvo quien dependía de `pane`/`z` o de `setLabels` en la label-layer.
+- **La gramática declara el rol de cada elemento.** La firma es `{ role, consumes?, produces }`, con `role`
+  entre `'leaf'`, `'transform'`, `'aggregate'` y `'decorate'`, y la gramática deriva el resto: `combine`,
+  `arity`, `bindsTo` y `passThrough` dejan de escribirse en las firmas y de ser contrato. Los errores de
+  validación nombran el rol («`<cristae-labeled>` es un decorador y no envuelve ninguna capa que
+  produzca…»); `GrammarError` y sus códigos no cambian. `signatureFor` devuelve sólo
+  `{ role, consumes, produces }`, y `GrammarSignature` es una unión por `role`: una hoja que consume no
+  compila. Salen los tipos `GrammarCombine` y `GrammarArity` de `cristae/grammar`.
+  `<cristae-overlay>` pasa a decorador: toma el productor más cercano en vez de todo su subárbol, y el
+  resultado no cambia: dentro o por fuera de un cluster el badge va sobre los mismos puntos que antes. Ver
+  [SPECS §8.10](SPECS.md).
+  *Migración*: una firma propia registrada con `defineGrammar` declara `role` en vez de `combine` y `arity`:
+  una hoja es `'leaf'`; un `'fold'`, `'aggregate'`; un `'map'` con `bindsTo`, `'decorate'`, y el resto de
+  los `'map'`, `'transform'`. Los demás campos se quitan; `bindsTo` también en una hoja. Quien leía
+  `combine` o `arity` de `signatureFor` lee `role`, o `isLeaf` / `isWrapper`.
+- **Los contextos WebGL los reparte una política de cupo por realm.** El navegador da unos 16 contextos a la
+  página y cada capa GL toma el suyo. Los reparte una política por módulo, que comparten los mapas que monta
+  el mismo JS, también los de otra ventana montados por portal, porque el techo de Chromium es del proceso de
+  render. Nada se suelta por tiempo: oculta o vacía, una capa conserva su contexto. Sólo bajo presión —el
+  navegador le quita el suyo a una capa que se ve y tiene contenido— se sueltan en el acto las prescindibles
+  (vacías u ocultas; nunca un editor con un trazo o un vértice tomado), que quedan `released` y lo vuelven a
+  tomar cuando se ven con contenido. Si la página está saturada, la de menor z queda `released`, con su
+  `surfacechange` y un solo `console.warn`, y se reintenta con una señal de cupo o a los 5 s y a los 30 s.
+  Para que Chromium desaloje primero lo prescindible, las capas que se ven vacían su cola (`flush`) por z
+  ascendente; es por evento, nunca por cuadro. Ver [SPECS §10](SPECS.md).
+  *Migración*: ninguna. Una página con muchas capas o widgets WebGL se sigue con `engine.surfaces()`.
+- **Las capas que nacen vacías toman su contexto después.** Una capa de puntos, líneas, polígonos o formas
+  sin contenido al darse de alta —también la de puntos que recibe sus datos por la Source del motor, el
+  overlay sin badges y la espiral y la sub-espiral del cluster— deja en su pane un canvas sin contexto que le
+  guarda el lugar (`state: 'none'`). Lo toma en un rato ocioso después del montaje, de a una y la de mayor z
+  primero, o en la tarea en que recibe su primer dato. Una capa con contenido lo toma al darse de alta, como
+  antes.
+  *Migración*: ninguna. Quien cuente contextos o canvases WebGL justo después del montaje ve menos hasta el
+  primer rato ocioso.
+- **`invalidateCanvas()` es también una señal de cupo.** Además de reposicionar y redibujar las capas de
+  puntos, vuelve a intentar lo que la saturación de contextos dejó sin superficie (`released`). La app la da
+  al cerrar un widget que tomaba contextos, como un panorama u otro visor. Las demás señales de cupo son una
+  capa propia que se suelta o se quita y la pestaña que vuelve a verse. Ver
+  [`docs/elements.md`](docs/elements.md#cristae-map).
+  *Migración*: ninguna.
+- **El atlas de iconos rasteriza a demanda.** Declarar `variants` en `defineIconSet`, o los buckets de
+  `defineClusterIconSet`, dimensiona el atlas y ya no dibuja ni sube nada. Cada variante se rasteriza en su
+  primer uso sobre un solo canvas de trabajo y toma su celda entonces; las declaradas que faltan se adelantan
+  en ranuras ociosas de unos ms, y una ranura sin ocio cede el turno. El binding reserva la textura una vez y
+  sube una `texSubImage2D` por celda pedida. Un IconSet que nadie usa no dibuja nada, y una espiral que nunca
+  se abre no rasteriza sus sub-clusters. La geometría del atlas (tile, grilla, capacidad, UV) no cambia. Ver
+  [`docs/icons.md`](docs/icons.md) y [SPECS §4 y §5](SPECS.md).
+  *Migración*: ninguna.
+- `cristae/geojson` toma la división exacta de números largos del núcleo de `cristae/formats`, que la
+  comparte con los lectores de texto. El resultado no cambia, bit a bit.
+
+### Deprecado
+- **El retiro de lo deprecado se adelanta de la 1.0 a la v0.47.0.** Lo que se anunció «se retira en 1.0»
+  —`addPolygonGpuLayer`, `addCircleLayer` con sus tipos de círculo y `getLeafletMap()`— y lo que depreca
+  esta versión se retiran en la v0.47.0. Así deja de valer lo que dijo la 0.36.0, que lo deprecado seguía
+  funcionando hasta el salto a la 1.0: funciona hasta la última versión antes de la v0.47.0. El motivo es
+  que cambió el modelo general, con capas por rol y el contexto WebGL compartido que llega en la v0.46.11, y
+  lo deprecado se sostiene con caminos aparte. La política nueva está en
+  [`docs/versionado.md`](docs/versionado.md#deprecación-y-retiro): al menos una versión de aviso y el retiro
+  en una versión menor marcada. La tabla de cada API con su reemplazo está en el
+  [README](README.md#deprecado-se-retira-en-v0470).
+  *Migración*: ninguna en esta versión. Antes de la v0.47.0, cambiar cada API por su reemplazo.
+- **`<cristae-label-layer>`, `<CristaeLabelLayer>`, `addLabelLayer` y la hija `slot="bubble"` de label del
+  cluster.** Siguen funcionando y se retiran en la v0.47.0; avisan una vez por página, el elemento y el
+  método con un solo aviso y la hija con la burbuja del motor. `addPolygonGpuLayer` y `addCircleLayer` también
+  avisan ahora, y `getLeafletMap()` pasa de avisar una vez por motor a una vez por página.
+  *Migración*: envolver la capa en `<cristae-labeled>` en vez de `bind-to`; la píldora se pide con
+  `paint={drawLabel}`, porque el aspecto por defecto pasa a texto con halo; el rótulo de las burbujas va en un
+  `<cristae-labeled>` por fuera del cluster; con `source` propio, `<cristae-text-layer>`. La equivalencia está en
+  [`docs/labels.md`](docs/labels.md#retiro-en-v0470).
+
+### Corregido
+- **La capa de calor oculta ya no pinta.** Ocultarla sólo ocultaba su pane, y cada cambio de la Source
+  seguía leyendo y escribiendo el framebuffer entero. Ahora no dibuja mientras está oculta y repinta al
+  volver. Vale también para `addHeatLayer({ visible: false })`, que antes coloreaba hasta el primer
+  `setVisible`.
+  *Migración*: ninguna.
+- **Una capa que pierde su contexto WebGL lo vuelve a tomar.** Antes, una superficie cuyo contexto quitaba el
+  navegador no lo recuperaba. Ahora lo vuelve a tomar en un cuadro siguiente, en un canvas nuevo en el mismo
+  lugar de su pane, y rehace lo GL desde lo que guarda en CPU: puntos, líneas, polígonos, formas y el editor,
+  que sigue editando sin contexto y conserva el gesto en curso. Vuelve de a una superficie por cuadro, la de
+  mayor z primero, nunca en pleno gesto de un mapa del realm (arrastre, zoom, pellizco o vuelo), y el dato que
+  le llega no la adelanta. Si volver a tomarlo falla, la capa queda `released` y el error sale por
+  `console.error` sin lanzar. Ver [SPECS §10](SPECS.md).
+  *Migración*: ninguna.
+- **Un oyente de la vista o del arrastre que lanza ya no corta a Leaflet.** El reparto de esos eventos corre
+  dentro de un oyente de Leaflet, y una excepción cortaba a los oyentes del mapa registrados después —la capa
+  de tiles entre ellos—; en `zoomanim` dejaba además el zoom trabado y los tiles sin pedir hasta recargar.
+  Ahora cada oyente va aislado y lo que lanza sale por `console.error`.
+  *Migración*: ninguna.
+- **`attachSource` con la misma fuente ya no reconstruye la capa.** El montaje diferido de un elemento
+  reasignaba su `source` tal cual, y toda `<cristae-point-layer>` con `source` se construía dos veces:
+  contexto, programas, atlas y pase de picking. Con una fuente distinta la capa se reconstruye y conserva la
+  supresión del cluster, el foco y la visibilidad. Una capa de puntos oculta ya no dibuja.
+  *Migración*: ninguna.
+- **El handle de una capa de puntos escribe en la Source vigente tras `attachSource`.** `set`, `patch`, `move`,
+  `remove`, `addFilter` y `removeFilter` seguían escribiendo en la Source interna que la capa ya había soltado.
+  Ahora no escriben en ninguna, como el handle de una capa nacida con `source`.
+  *Migración*: ninguna.
+- **`auto-fit="once"` sigue a la fuente nueva tras un recambio.** Si `source` cambiaba antes de que la primera
+  trajera datos, el encuadre no ocurría con la nueva, y la vieja podía encuadrar a destiempo al llenarse.
+  *Migración*: ninguna.
+- **Un click sobre una capa con el contexto perdido ya no devuelve un hit viejo.** `pickSync` leía el parche
+  del click anterior, y la escala de píxel valía 0 sin buffer, lo que anulaba el tamaño de los sprites.
+  *Migración*: ninguna.
 
 ## [0.37.0] - 2026-10-08
 

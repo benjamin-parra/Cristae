@@ -1,0 +1,2 @@
+<!-- SPECS §17.9 y DISENO-INTEROP §1.6-4: 1e999 es Infinity. -->
+<kml><Placemark><Point><coordinates>1e999,1</coordinates></Point></Placemark></kml>

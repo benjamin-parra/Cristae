@@ -1,0 +1,2 @@
+<!-- SPECS §17.9: una estructura que empezó y no cerró es truncado. -->
+<gpx><trk><trkseg><trkpt lat="1" lon="2"/>

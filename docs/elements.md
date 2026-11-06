@@ -303,7 +303,8 @@ atribución del elemento comparten `top-left` y `bottom-right` con lo sloteado (
 
 ### Apilado — `z` / `pane`
 
-Toda capa hoja (`point` / `line` / `polygon` / `shape` / `html` / `label`) los hereda de la base:
+Toda capa hoja (`point` / `line` / `polygon` / `shape` / `html` / `image` / `heat`) los hereda de la
+base. `<cristae-label-layer>` también los declara, pero sin efecto: va en el plano de rótulos (abajo).
 
 | Miembro | Tipo | Atributo / prop |
 |---|---|---|
@@ -313,8 +314,13 @@ Toda capa hoja (`point` / `line` / `polygon` / `shape` / `html` / `label`) los h
 Sin `z`, el motor lo deriva del orden del documento dentro de `<cristae-map>` (`400 + posición·10`), que
 con React es el del árbol. Una capa que monta tarde —sus datos llegan después, o es un hijo condicional—
 cae donde se declaró, y remontarla no la sube; moverla en el DOM la reapila en su lugar nuevo. Las de
-`html` y `label` y el editor suman `200`: quedan sobre las demás aunque se declaren antes, y la puerta
-del puntero les da la pulsación por el mismo orden.
+`html`, el editor y el cluster van en un plano de encima (`2 000 400 + posición·10`): quedan sobre las
+demás aunque se declaren antes, y la puerta del puntero les da la pulsación por el mismo orden. La de
+`image` no: queda en el plano base, bajo los rótulos y los marcadores HTML. Los rótulos de
+`<cristae-labeled>` van en un plano entre los dos (`1 000 400`), sobre todas las capas base y bajo lo de
+encima ([SPECS §19.3](../SPECS.md), [`labeled.md`](labeled.md)). Ahí va también `<cristae-label-layer>`, que
+se traduce a `addLabels` (con `bind-to`) o a `addTextLayer` (con `source` propio), con `pane` y `z` sin
+efecto ([`labels.md`](labels.md#lo-que-ya-cambia-en-cristae-label-layer), [`text-layer.md`](text-layer.md)).
 
 El derivado es una posición, no un valor: su número cambia cuando monta o se desmonta una capa declarada
 antes, y sólo se garantiza el orden entre derivadas. Un `z` explícito gana, no se mueve y ocupa lugar en
@@ -330,8 +336,8 @@ pane toma el z de la declarada más arriba.
 
 Los tiles del mapa van en `200`: una capa con `z` menor queda debajo de ellos.
 
-Los modificadores (`<cristae-cluster>`, `<cristae-overlay>`, `<cristae-geodesic>`) no los aceptan: sus
-capas las crea la gramática. Imperativo equivalente: `engine.setLayerZ(id, z)`.
+Los modificadores (`<cristae-cluster>`, `<cristae-overlay>`, `<cristae-geodesic>`, `<cristae-labeled>`) no los
+aceptan: sus capas las crea la gramática. Imperativo equivalente: `engine.setLayerZ(id, z)`.
 
 ### Enfoque — `focus-ids`
 
@@ -354,8 +360,8 @@ la tabla de ninguna). Se llama así y no `focus` porque una propiedad `focus` pi
 **Es cross-layer.** Mientras **alguna** capa declare el eje, se atenúan **todas** (el basemap no, que no
 es capa) y cada una repone los suyos. Así se enfoca un punto y las geocercas, etiquetas y badges del
 resto lo acompañan sin que el consumidor coordine capa por capa. Las capas LIGADAS a un host
-(`<cristae-label-layer bind-to>`, `<cristae-overlay>`) siguen la suerte de foco de su host: un badge no
-queda brillante sobre un marcador atenuado.
+(`<cristae-label-layer bind-to>`, `<cristae-overlay>`) y los rótulos de `<cristae-labeled>` siguen la suerte
+de foco de su host: un badge no queda brillante sobre un marcador atenuado.
 
 **El eje por capa EXIME.** `engine.focus(idsDeCapa, { opacity, kinds })` es el otro eje —atenúa capas
 enteras, no ítems—, y la capa que nombra queda plena **y fuera** del eje por ítem. Es lo que necesita el
@@ -471,6 +477,10 @@ están en [`shapes.md`](shapes.md).
 
 ### `<cristae-label-layer>` — etiquetas canvas
 
+Se retira en v0.47.0: la reemplaza [`<cristae-labeled>`](#cristae-labeled--rótulos) sobre la capa de puntos, y
+con `source` propio [`<cristae-text-layer>`](text-layer.md). Al montarse avisa una vez por página en consola, y
+ya se traduce por dentro a su reemplazo, con `pane` y `z` sin efecto. La equivalencia está en [`labels.md`](labels.md#retiro-en-v0470).
+
 Standalone (con `source`/`accessors`) o **attachment** (`bind-to="<idHost>"`: deriva posiciones del
 host, resuelto por nombre, orden-independiente).
 
@@ -483,6 +493,49 @@ host, resuelto por nombre, orden-independiente).
 | `accessors` | `{ idOf, positionOf }` | **prop** |
 | `textOf` | `(item) => string` | **prop** |
 | `paint` / `style` | función / objeto | **prop** |
+
+### `<cristae-text-layer>` — texto suelto
+
+Capa base de texto con datos propios (`data`, `source`, `accessors`), con las opciones de
+[`<cristae-labeled>`](#cristae-labeled--rótulos) que valen sin trazo y sin contexto WebGL. Detalle en
+[`text-layer.md`](text-layer.md).
+
+### `<cristae-image-layer>` — imagen georreferenciada
+
+```html
+<cristae-image-layer id="radar" url="radar.png" bounds='{"south":-34,"west":-72,"north":-32,"east":-70}' opacity="0.7"></cristae-image-layer>
+```
+
+| Miembro | Tipo | Atributo / prop |
+|---|---|---|
+| `id` | string | atributo |
+| `url` | string | atributo |
+| `bounds` | `{ south, west, north, east }` (JSON) | atributo |
+| `opacity` | number en [0, 1] | atributo |
+| `interactive` `visible` | boolean | atributo |
+| `cross-origin` `alt` | string | atributo |
+| `image` | `<img>`, `<canvas>`, `<video>` o `<svg>` | **prop** |
+| `corners` | cuatro puntos nw, ne, se, sw | **prop** |
+
+Fuente (`url` o `image`) y lugar (`bounds` o `corners`); si se dan los dos de un par, mandan `image` y
+`corners`. Monta cuando tiene una fuente y un lugar. `url`, `image`, `bounds`, `corners`, `opacity` y
+`visible` van en vivo; `interactive`, `cross-origin` y `alt`, al montar. Emite `cristae:load` y
+`cristae:error`. Nodo DOM, sin contexto WebGL. Detalle en [`image-layer.md`](image-layer.md).
+
+### `<cristae-heat-layer>` — campo de calor
+
+| Miembro | Tipo | Atributo / prop |
+|---|---|---|
+| `id` | string | atributo (sin él, `heat-N`) |
+| `radius` `blur` `intensity` | number | atributo |
+| `visible` | boolean (default `true`) | atributo |
+| `data` | `Item[]` | **prop** |
+| `source` | `Source` | **prop** |
+| `accessors` | `{ idOf, positionOf, weightOf?, hashOf? }` | **prop** |
+| `colorRamp` | `(t) => color` | **prop** |
+
+Densidad en canvas 2D, sin contexto WebGL. `source` y `accessors` se leen **al montar**; lo demás va en
+vivo por el handle. Oculta no pinta. No se pica. Detalle en [`heat.md`](heat.md).
 
 ### `<cristae-editable-polygon|polyline|point|rectangle|circle|ellipse|sector>` — edición de geometría
 
@@ -502,8 +555,11 @@ Se llama `geometryStyle` y no `style` porque una propiedad `style` pisaría `HTM
 
 ### `<cristae-cluster>` — clustering declarativo
 
-Envuelve la capa **host** (hijo sin slot) y, opcional, una capa hija `slot="bubble"` (point o
-label) que define cómo se ven las burbujas. Sin bubble → icon-set de cluster por defecto.
+Agregador de la gramática ([SPECS §8.10](../SPECS.md)): envuelve la capa **host** (hijo sin slot) y,
+opcional, una capa hija `slot="bubble"` de puntos que define cómo se ven las burbujas. Sin bubble →
+icon-set de cluster por defecto. La hija `slot="bubble"` de label se retira en v0.47.0 y avisa una vez por
+página en consola: el rótulo de las burbujas lo da un `<cristae-labeled>` por fuera del cluster
+([`labeled.md`](labeled.md#burbujas)).
 
 | Miembro | Tipo | Atributo |
 |---|---|---|
@@ -523,15 +579,20 @@ suprime del host los puntos agrupados y re-filtra las labels ligadas a él — s
 interacción de burbuja (p. ej. zoom-in al click): la burbuja default es no-interactiva. Para tenerla,
 se declara la capa `slot="bubble"` con `interactive` y se maneja su `cristae:click`.
 
+**Con `<cristae-overlay>`**, un decorador, en cualquier orden: pone un badge sobre los puntos, y los que se
+agrupan lo pierden con ellos. Por fuera del cluster da lo mismo, porque el cluster no produce puntos propios
+y el overlay lo atraviesa.
+
 **Ruta imperativa** (headless o capa declarada por JS): `engine.addCluster({ hostId, radius, minPoints,
 maxZoom, bubble })` → `{ setConfig({ radius?, maxZoom?, minPoints? }), dispose() }`. El `<cristae-cluster>`
 es azúcar sobre esto (su `controls` expone solo `{ id }` del host: quitar el elemento arrastra el `dispose`).
 
 ### `<cristae-geodesic>` — geodésica declarativa
 
-Modificador que curva sobre la geodésica los tramos largos de lo que envuelve: una capa de líneas, una de
-polígonos —también la arista de cierre— o un editor de polilínea o de polígono. Un track GPS no cambia: sólo
-se parte lo que se aparta más de 0,1 m de la recta de Mercator, con la regla de
+Transformador ([SPECS §8.10](../SPECS.md)) que curva sobre la geodésica los tramos largos de lo que
+envuelve: una capa de líneas, una de polígonos —también la arista de cierre— o un editor de polilínea o de
+polígono. Un track GPS no cambia: sólo se parte lo que se aparta más de 0,1 m de la recta de Mercator, con la
+regla de
 [`geodesic`](geometry.md#geodésica--geodesic). El dibujo, el picking y el encuadre salen de la misma curva.
 
 | Miembro | Tipo | Atributo |
@@ -565,6 +626,40 @@ engine.addLineLayer({ id: 'vuelos', data, accessors })
 const recta = engine.addGeodesic({ hostId: 'vuelos' })   // recta() vuelve a rectas
 ```
 
+### `<cristae-labeled>` — rótulos
+
+Decorador ([SPECS §8.10](../SPECS.md)) que pone un texto sobre cada ítem de lo que produce su hijo
+directo: las capas de puntos, HTML, líneas, polígonos y formas que envuelve, o las burbujas de un
+`<cristae-cluster>`. La geodésica, el overlay y otro `<cristae-labeled>` se atraviesan. Sobre líneas
+equivale a `polyline.setText` de Leaflet.TextPath.
+
+| Miembro | Tipo | Atributo / prop |
+|---|---|---|
+| `placement` | `auto` `along` `center` `above` `below` `right` | atributo |
+| `repeat` `offset` | number (px) | atributo |
+| `orientation` | `auto` `path` | atributo |
+| `renderer` | `canvas` `html` | atributo |
+| `font` `color` `halo` | CSS | atributo |
+| `interactive` | boolean (default `false`, sólo `html`) | atributo |
+| `visible` | boolean (default `true`) | atributo — `"false"` o `"0"` oculta sin desmontar |
+| `textOf` / `htmlOf` | `(item) => …` | **prop** |
+| `paint` | `LabelPaint` | **prop** |
+
+```html
+<cristae-labeled placement="along" repeat="240">
+  <cristae-line-layer id="rutas" interactive></cristae-line-layer>
+</cristae-labeled>
+```
+
+- **Todo en vivo.** Cada prop se aplica sin remontar la capa; una prop quitada vuelve a su valor por
+  defecto. Un valor inválido, o un `placement` que la capa envuelta no admite, lanza `TypeError` antes de
+  tocar el motor.
+- **El rótulo es parte del ítem.** Tocarlo es tocar el ítem: mismo `layerId`, `kind` e `id`. Sigue la
+  visibilidad, el foco y el cluster de su capa, y muere con ella.
+- **Sin `pane`, `z` ni `focus-ids`**, como los demás modificadores.
+- **Ruta imperativa.** `engine.addLabels({ hostId, ...props })` → `{ update(props), remove() }`, o `null` si
+  el host no se rotula. Detalle en [`labeled.md`](labeled.md).
+
 ### `<cristae-toolbar>` — dock flotante
 
 | Miembro | Tipo | Atributo / prop |
@@ -576,6 +671,17 @@ const recta = engine.addGeodesic({ hostId: 'vuelos' })   // recta() vuelve a rec
 `icon` es markup SVG/HTML; `title` es el nombre accesible. Métodos: `addItem(item)`,
 `removeItem(id)`, `setActive(id)`. Los items suelen necesitar el `engine`, así que se asignan en
 `cristae:ready`.
+
+### `<cristae-scale>` — escala gráfica
+
+| Miembro | Tipo | Atributo / prop |
+|---|---|---|
+| `slot` | zona del overlay | atributo |
+| `units` | `metric` (default) y/o `imperial`, separados por espacio | atributo |
+| `max-width` | px, default 100 | atributo (`maxWidth`) |
+
+Barra métrica y/o imperial con la distancia en el centro de la vista, como `L.control.scale`. No es una
+capa. Ver [`scale.md`](scale.md).
 
 ### `<cristae-popup>` — tarjeta HTML anclada al dato
 
@@ -645,7 +751,7 @@ popup.contentOf = m => `<div class="card"><b>${m.patente}</b><br>${m.estado}</di
 
 La librería resuelve el item desde la `Source` de la capa (`itemById` del hit), así que `contentOf`
 recibe el objeto de dominio. El contenedor se estiliza con `.cristae-popup`. **Cuándo:** click → tarjeta con
-HTML; para texto estático sobre cada punto se usa `<cristae-label-layer>` (canvas, más liviano).
+HTML; para texto estático sobre cada punto se usa `<cristae-labeled>` (canvas, más liviano).
 
 
 **Apilado (z-index):** la tarjeta es un nodo en `document.body`, así que su orden de apilado lo decide la
@@ -704,10 +810,14 @@ Regla: si existe una prop declarativa para lo que se busca, conviene usarla; `co
 | point | `{ id, source, layer, set, patch, move, remove, addFilter, removeFilter, preloadIcons, refresh, setVisible }` |
 | polygon | `{ id, source, set, setVisible, redraw, style }` |
 | shape | `{ id, source, set, setVisible, style }` |
-| label | `{ id, setLabels, setHovered, setVisible }` |
+| label | `{ id, setHovered, setVisible }` |
+| text | `{ id, source, set, update, setVisible }` |
+| image | `{ id, setUrl, setImage, setBounds, setCorners, setOpacity, setVisible }` |
+| heat | `{ id, source, set, setVisible, setRadius, setBlur, setIntensity, setColorRamp }` |
 | editable | `{ id, setValue, setMode, setStyle, getValue, handleMapClick, destroy }` |
 | cluster | `{ id }` (id del host; quitar el `<cristae-cluster>` arrastra el cluster) |
 | geodesic | `{ id }` (un marcador, sin operaciones: la curva la destruye el host al irse; `enabled` la alterna) |
+| labeled | `{ id }` (un marcador, sin operaciones: los rótulos se cambian por sus props y mueren con el host) |
 
 ### Ejemplo (banco de pruebas)
 
@@ -737,7 +847,7 @@ mapEl.addEventListener('cristae:ready', () => {
    config y monta en cuanto llega.
 5. Cambios de props **después** del montaje se reenvían al handle: `data → controls.set`,
    `source → attachSource`, `visible → setVisible`, config de cluster → `setConfig`, `enabled` de
-   `<cristae-geodesic>` → curva o rectas.
+   `<cristae-geodesic>` → curva o rectas, props de `<cristae-labeled>` → `update` de sus rótulos.
 6. Quitar una **capa** del DOM (`disconnectedCallback`) la desmonta (`removeLayer`). Quitar el
    **`<cristae-map>`** destruye el motor entero (`engine.destroy()`: suelta el mapa y el contexto WebGL).
    Los demás `<cristae-map>` de la página no se enteran: cada motor tiene sus propios contextos.
@@ -746,8 +856,8 @@ mapEl.addEventListener('cristae:ready', () => {
    tras un reattach son otra instancia. Si el layout reconstruye el DOM, conviene insertar lo demás alrededor del
    nodo vivo en vez de detachar el mapa.
 
-Las capas hijas de un modificador (`<cristae-cluster>`, `<cristae-overlay>`, `<cristae-geodesic>`) **no** se
-auto-montan: las monta el modificador (y si su config llega tarde, le avisan para que reintente).
+Las capas hijas de un modificador (`<cristae-cluster>`, `<cristae-overlay>`, `<cristae-geodesic>`,
+`<cristae-labeled>`) **no** se auto-montan: las monta el modificador (y si su config llega tarde, le avisan para que reintente).
 
 ---
 

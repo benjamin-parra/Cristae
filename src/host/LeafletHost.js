@@ -31,6 +31,10 @@ const CONTAINER_ORIGIN = Object.freeze([0, 0])
 // Lo que la superficie le escribe a un pane: lo que le devuelve a uno prestado.
 const PANE_STYLE = ['zIndex', 'pointerEvents', 'visibility', 'opacity']
 
+// Los eventos cuya propagación corta `disableClickPropagation` de Leaflet (DomEvent.js:200): `shield` los
+// suelta con la misma lista.
+const CLICK_EVENTS = 'mousedown touchstart dblclick contextmenu'
+
 // Lo que envuelve cada método privado que un anfitrión le reemplaza a un mapa. Dos anfitriones vivos en
 // un mapa —el nuevo se adopta antes de soltar el viejo— encadenan sus envoltorios, y el que se suelta
 // sale de la cadena desde donde esté: arriba, el mapa recupera lo que envolvía; debajo de otro, ése pasa
@@ -238,6 +242,7 @@ const hostOf = (map, leaflet, ownsMap, zoomPolicy) => {
   // última. Uno que el mapa ya tenía —los de Leaflet, o uno que creó el dueño de un mapa adoptado— se
   // presta: queda en el mapa, y con la última vuelve al estilo con que se prestó, que guarda `lent`.
   const held      = heldPanes.get(map) ?? heldPanes.set(map, new Map()).get(map)
+  const shields   = new Set()   // los nodos blindados por `shield`, que `input.onSurface` no toma
   const stylePane = (name, key, value) => {
     const node = map.getPane(name)
     node && (node.style[key] = value)
@@ -290,6 +295,19 @@ const hostOf = (map, leaflet, ownsMap, zoomPolicy) => {
     // al oír `zoomanim` se interpola con el del mapa, desde la esquina del nodo. Lo hace la clase de
     // Leaflet que se le suma.
     followZoom: node => node.className += ' leaflet-zoom-animated',
+
+    // Que lo que nace en un nodo montado no sea del mapa: `input.onSurface` lo descarta, la pulsación y
+    // el doble click no siguen hacia el contenedor, donde Leaflet los oye en burbuja para arrastrar o
+    // hacer zoom, y Leaflet no toma su click. Es lo que hace con sus controles. Devuelve con qué deshacerlo.
+    shield(node) {
+      leaflet.DomEvent.disableClickPropagation(node)
+      shields.add(node)
+      return () => {
+        shields.delete(node)
+        leaflet.DomEvent.off(node, CLICK_EVENTS, leaflet.DomEvent.stopPropagation)
+        delete node._leaflet_disable_click
+      }
+    },
   }
 
   // Un proveedor a la vez (docs/tiles.md#el-proveedor-lo-pone-el-anfitrión). La retención va antes que la
@@ -334,7 +352,12 @@ const hostOf = (map, leaflet, ownsMap, zoomPolicy) => {
 
   // Lo que no cuelga de `mapPane` es la UI que Leaflet pone en el contenedor: los controles, que un mapa
   // propio no trae.
-  const mapPane = map.getPane('mapPane')
+  const mapPane  = map.getPane('mapPane')
+  const shielded = target => {
+    for (let node = target; shields.size && node && node !== container; node = node.parentNode)
+      if (shields.has(node)) return true
+    return false
+  }
 
   const input = {
     // El evento tal como llega al contenedor: `on` y `off` son su `addEventListener` y su
@@ -345,8 +368,8 @@ const hostOf = (map, leaflet, ownsMap, zoomPolicy) => {
     off : (type, fn, options) => container.removeEventListener(type, fn, options),
 
     // Si el destino de un evento es la superficie del mapa —el contenedor o lo que cuelga de sus panes— y
-    // no la UI del anfitrión.
-    onSurface: target => target === container || mapPane.contains(target),
+    // no la UI del anfitrión ni un nodo blindado (`surface.shield`).
+    onSurface: target => (target === container || mapPane.contains(target)) && !shielded(target),
     // Un doble click que Cristae consumió no hace zoom. Se llama desde un oyente en captura (ver `on`).
     suppressDoubleClickZoom: event => event.stopPropagation(),
 

@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+<!-- DISENO-INTEROP Â§2.6: ISO-8859-1 declarada en el prÃ³logo; el marcado es ASCII y sÃ³lo el texto
+     materializado se decodifica distinto. -->
+<kml><Document><name>Peñalolén</name><Placemark><name>Camión</name><Point><coordinates>1,2</coordinates></Point></Placemark></Document></kml>

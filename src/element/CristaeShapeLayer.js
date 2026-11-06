@@ -9,7 +9,7 @@ import { STYLE_PROPERTIES, styleConfig, syncStyle } from './layerStyle.js'
 export class CristaeShapeLayer extends CristaeLayerElement {
 
   // Gramática de composición: entidad hoja que produce `shape`.
-  static cristaeSignature = { consumes: [], produces: ['shape'], combine: null, arity: 'leaf' }
+  static cristaeSignature = { role: 'leaf', produces: ['shape'] }
 
   static properties = {
     data       : { type: Array },

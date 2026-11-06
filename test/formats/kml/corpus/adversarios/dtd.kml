@@ -1,0 +1,4 @@
+<?xml version="1.0"?>
+<!-- DISENO-INTEROP §2.6: cualquier DOCTYPE es dtd (sin XXE ni expansión de entidades). -->
+<!DOCTYPE kml [<!ENTITY a "aaaaaaaaaa">]>
+<kml><Placemark><name>&a;</name></Placemark></kml>

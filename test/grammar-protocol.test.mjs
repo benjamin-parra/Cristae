@@ -10,24 +10,24 @@ import {
   defineGrammar, reduceModifier, leafUnits, buildUnit, validate, GrammarError,
 } from '../src/grammar/index.js'
 
-/* ══════════════ Gramática de prueba (las firmas reales + una sin passThrough) ══════════════ */
+/* ══════════════ Gramática de prueba (las firmas reales + un agregador que absorbe lo que consume) ══════════════ */
 
 const g = defineGrammar({ kinds: ['point', 'label', 'bubble', 'overlay'] })
-g.register('CRISTAE-POINT-LAYER', { consumes: [], produces: ['point'], combine: null, arity: 'leaf' })
-g.register('CRISTAE-LABEL-LAYER', { consumes: [], produces: ['label'], combine: null, arity: 'leaf', bindsTo: 'point' })
+g.register('CRISTAE-POINT-LAYER', { role: 'leaf', produces: ['point'] })
+g.register('CRISTAE-LABEL-LAYER', { role: 'leaf', produces: ['label'] })
 g.register('CRISTAE-CLUSTER',
-  { consumes: ['point'], produces: ['point', 'bubble'], combine: 'fold', arity: 'wrapper' },
+  { role: 'aggregate', consumes: ['point'], produces: ['point', 'bubble'] },
   { apply: (engine, targets, cfg) => engine.aplicar('fold', targets, cfg) })
 g.register('CRISTAE-OVERLAY',
-  { consumes: ['point'], produces: ['overlay'], combine: 'map', arity: 'wrapper', bindsTo: 'point' },
+  { role: 'decorate', consumes: ['point'], produces: ['overlay'] },
   { apply: (engine, targets, cfg) => engine.aplicar('map', targets, cfg) })
-// Wrapper que NO re-emite lo que consume (passThrough: false) y wrapper sin apply.
+// Agregador que NO vuelve a producir lo que consume (no lo re-emite) y agregador sin apply que sí.
 g.register('CRISTAE-ABSORBE',
-  { consumes: ['point'], produces: ['bubble'], combine: 'fold', arity: 'wrapper', passThrough: false },
+  { role: 'aggregate', consumes: ['point'], produces: ['bubble'] },
   { apply: (engine, targets, cfg) => engine.aplicar('fold', targets, cfg) })
-g.register('CRISTAE-INERTE', { consumes: ['point'], produces: ['bubble'], combine: 'fold', arity: 'wrapper' })
+g.register('CRISTAE-INERTE', { role: 'aggregate', consumes: ['point'], produces: ['point', 'bubble'] })
 // Hoja que declara DOS produces: el único fixture donde produces[0] ≠ produces[length-1].
-g.register('CRISTAE-DOBLE', { consumes: [], produces: ['point', 'label'], combine: null, arity: 'leaf' })
+g.register('CRISTAE-DOBLE', { role: 'leaf', produces: ['point', 'label'] })
 
 const ctx = { signatureFor: g.signatureFor, applyFor: g.applyFor, isRegistered: g.isRegistered }
 const vctx = { signatureFor: g.signatureFor, isRegistered: g.isRegistered, mode: 'throw' }
@@ -249,7 +249,7 @@ test('un wrapper registrado SIN apply reduce a sus hijos sin producir nada', () 
   assert.deepEqual(kinds(units), ['label', 'point'])
 })
 
-test('passThrough:false descarta lo consumido y conserva el resto', () => {
+test('un agregador que no vuelve a producir lo consumido lo descarta y conserva el resto', () => {
   const e = motor()
   const units = reduceModifier(envoltorio('cristae-absorbe', [P(), L()]), e, ctx)
   assert.deepEqual(kinds(units), ['bubble', 'label'], 'el point consumido no se re-emite')
@@ -360,7 +360,7 @@ test('validar un árbol NO monta nada: sólo lee tagName/children/slot', () => {
   assert.equal(validate(w, vctx), true)
 })
 
-test('un wrapper propaga hacia arriba lo que consume y deja de propagarlo con passThrough:false', () => {
+test('un wrapper propaga hacia arriba lo que consume, salvo el agregador que no lo vuelve a producir', () => {
   // El juicio de tipos es bottom-up: el cluster de afuera sólo es válido si el overlay de
   // adentro RE-EMITE el point que consumió. Si la propagación se corta, el cluster se queda
   // sin nada que consumir → R2.
@@ -368,7 +368,7 @@ test('un wrapper propaga hacia arriba lo que consume y deja de propagarlo con pa
 
   const absorbe = envoltorio('cristae-absorbe', [P()])
   const e = capturar(() => validate(Cl([absorbe]), vctx))
-  assert.ok(e instanceof GrammarError, 'un wrapper passThrough:false no alimenta al de afuera')
+  assert.ok(e instanceof GrammarError, 'un agregador que absorbe no alimenta al de afuera')
   assert.equal(e.code, 'R2')
 })
 
@@ -376,7 +376,7 @@ test('un wrapper cuyos hijos no producen NADA de lo que consume es R2', () => {
   const e = capturar(() => validate(Cl([L()]), vctx))
   assert.ok(e instanceof GrammarError)
   assert.equal(e.code, 'R2')
-  assert.match(e.message, /ningún hijo lo produce/)
+  assert.match(e.message, /es un agregador: consume 'point' y no hay capas de 'point' adentro \(los hijos producen: \[label\]\)/)
 })
 
 /* ════════════════ mode 'warn': degrada el juicio, NO se traga otros errores ════════════════ */

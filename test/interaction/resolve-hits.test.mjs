@@ -159,3 +159,16 @@ test('upsertResolver conserva la máscara activa si la entrada nueva no la trae'
   reg.upsertResolver({ layerId: 'a', kind: 'test', zIndex: 5, declOrder: 0 })
   assert.equal(reg.demandMaskOf('a'), EVENT_CLICK)
 })
+
+// Un rótulo es parte de su ítem y se dibuja en el plano de rótulos: su parte trae el z del dibujo, que
+// ordena, y la identidad de la capa sigue saliendo de la entrada.
+test('una parte con zIndex propio ordena por él y conserva la identidad de la entrada', () => {
+  const reg = new LayerRegistry()
+  reg.upsertResolver(entry({ layerId: 'flota', kind: 'point', zIndex: 410, declOrder: 1,
+    resolveHover: parts({ ref: 7, id: 7, distancePx: 0, zIndex: 1000400, layerId: 'otra', kind: 'otro' }) }))
+  reg.upsertResolver(entry({ layerId: 'geocercas', kind: 'polygon', zIndex: 440, declOrder: 4, resolveHover: parts({ ref: 0, id: 'g', distancePx: 0 }) }))
+
+  const hits = reg.resolveHits('hover', {})
+  assert.deepEqual(hits.map(h => [h.layerId, h.kind, h.id, h.zIndex]),
+    [['flota', 'point', 7, 1000400], ['geocercas', 'polygon', 'g', 440]])
+})

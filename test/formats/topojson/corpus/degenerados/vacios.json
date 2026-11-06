@@ -1,0 +1,19 @@
+{
+  "type": "Topology",
+  "objects": {
+    "v": {
+      "type": "GeometryCollection",
+      "geometries": [
+        { "type": "Point", "coordinates": [] },
+        { "type": "MultiPoint", "coordinates": [] },
+        { "type": "LineString", "arcs": [] },
+        { "type": "MultiLineString", "arcs": [[]] },
+        { "type": "Polygon", "arcs": [[]] },
+        { "type": "MultiPolygon", "arcs": [[]] },
+        { "type": "Polygon", "arcs": [] },
+        { "type": "GeometryCollection", "geometries": [] }
+      ]
+    }
+  },
+  "arcs": []
+}

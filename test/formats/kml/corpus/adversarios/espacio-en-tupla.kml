@@ -1,0 +1,2 @@
+<!-- DISENO-INTEROP §3.1: las tuplas se separan por espacio en blanco; "1, 2" es posicion. -->
+<kml><Placemark><LineString><coordinates>1, 2 3,4</coordinates></LineString></Placemark></kml>

@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Cristae · Rótulos</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #f8fafc; color: #0f172a;
+    font: 13px/1.5 ui-sans-serif, system-ui, -apple-system, sans-serif; overflow: hidden; }
+  cristae-map { position: fixed; inset: 0; background: #e2e8f0; }
+  #panel { position: fixed; top: 14px; right: 14px; z-index: 1000; width: 300px; max-height: calc(100% - 28px);
+    overflow: auto; background: #fff; border: 1px solid #cbd5e1; border-radius: 10px; padding: 10px 12px; }
+  h1 { font-size: 13px; margin: 0 0 8px; }
+  h2 { font-size: 12px; margin: 10px 0 2px; color: #334155; }
+  .row { display: flex; align-items: center; gap: 8px; margin: 4px 0; flex-wrap: wrap; }
+  .row input[type=range] { flex: 1; }
+  .exp { color: #475569; font-size: 11px; margin: 4px 0 0; }
+  #registro { font: 11px ui-monospace, monospace; color: #334155; min-height: 1.5em; }
+  .base { font: 600 11px ui-sans-serif, system-ui, sans-serif; padding: 2px 6px; border-radius: 6px;
+    border: 1px solid #6366f1; background: #eef2ff; color: #3730a3; cursor: pointer; }
+</style>
+</head>
+<body>
+<cristae-map initial-center="-33.45,-70.62" initial-zoom="11">
+  <!-- La geodésica por dentro: el texto sigue la curva, y la ruta interactiva abre su tarjeta. -->
+  <cristae-labeled id="texto-vuelos" repeat="300" offset="6">
+    <cristae-geodesic id="curva">
+      <cristae-line-layer id="vuelos" interactive></cristae-line-layer>
+    </cristae-geodesic>
+  </cristae-labeled>
+
+  <!-- Rosa de rumbos: `orientation` y `offset` en vivo. Una ruta sinuosa con `repeat`. -->
+  <cristae-labeled id="texto-rosa" offset="6">
+    <cristae-line-layer id="rosa"></cristae-line-layer>
+  </cristae-labeled>
+  <cristae-labeled id="texto-rutas" repeat="220">
+    <cristae-line-layer id="rutas" interactive></cristae-line-layer>
+  </cristae-labeled>
+
+  <!-- El de afuera rotula las burbujas; el de adentro, los puntos sueltos. -->
+  <cristae-labeled id="texto-burbujas">
+    <cristae-cluster radius="60">
+      <cristae-labeled id="texto-flota">
+        <cristae-point-layer id="flota" interactive></cristae-point-layer>
+      </cristae-labeled>
+    </cristae-cluster>
+  </cristae-labeled>
+
+  <!-- Un nodo por rótulo con un botón adentro: responde, y arrastrar desde él no mueve el mapa. -->
+  <cristae-labeled id="texto-bases" renderer="html" interactive placement="right">
+    <cristae-point-layer id="bases"></cristae-point-layer>
+  </cristae-labeled>
+
+  <!-- En el centro del predio: el punto más alejado del borde, que en una C queda adentro. -->
+  <cristae-labeled id="texto-predios">
+    <cristae-polygon-layer id="predios" interactive></cristae-polygon-layer>
+  </cristae-labeled>
+
+  <!-- La píldora de <cristae-label-layer>, con `paint={drawLabel}`. -->
+  <cristae-labeled id="texto-pildoras">
+    <cristae-point-layer id="pildoras" interactive></cristae-point-layer>
+  </cristae-labeled>
+
+  <cristae-popup for="vuelos rutas flota predios pildoras"></cristae-popup>
+</cristae-map>
+
+<div id="panel">
+  <h1>&lt;cristae-labeled&gt;</h1>
+  <div class="row">
+    <button id="ver-santiago">Santiago</button>
+    <button id="ver-pacifico">Santiago–Sídney</button>
+  </div>
+
+  <h2>Sobre el trazo</h2>
+  <div class="row">repeat <input type="range" id="repeat" min="0" max="400" step="20" value="220"><span id="repeat-v">220</span></div>
+  <div class="row">offset <input type="range" id="offset" min="-12" max="12" step="1" value="6"><span id="offset-v">6</span></div>
+  <div class="row">orientación
+    <label><input type="radio" name="orientacion" value="auto" checked> auto</label>
+    <label><input type="radio" name="orientacion" value="path"> path</label>
+  </div>
+  <div class="row"><label><input type="checkbox" id="geodesica" checked> geodésica</label></div>
+
+  <h2>Sobre puntos y burbujas</h2>
+  <div class="row">placement
+    <select id="placement">
+      <option value="auto">auto</option>
+      <option value="below">below</option>
+      <option value="above">above</option>
+      <option value="right">right</option>
+      <option value="center">center</option>
+    </select>
+  </div>
+
+  <h2>Renderer</h2>
+  <div class="row">
+    <select id="renderer">
+      <option value="canvas">canvas</option>
+      <option value="html">html</option>
+      <option value="gl" disabled>gl (pendiente)</option>
+    </select>
+    <span class="exp">rutas, flota y predios</span>
+  </div>
+
+  <h2>Todo</h2>
+  <div class="row"><label><input type="checkbox" id="visible" checked> visible</label></div>
+  <div class="row"><label><input type="checkbox" id="oscuro"> fondo oscuro</label></div>
+  <div id="registro"></div>
+
+  <p class="exp">Click en el nombre de una ruta o de un vuelo: abre su tarjeta. Click en el rótulo de una
+  burbuja: la expande. El botón de cada base responde sin mover el mapa. La rosa con offset 6 cambia de lado
+  del trazo entre 89° y 91° con <code>auto</code>, y no con <code>path</code>. La horquilla cerrada no se
+  rotula. Con <code>html</code>, el texto sobre el trazo va en el punto medio, girado.</p>
+</div>
+
+<script type="module" src="./rotulos.js"></script>
+</body>
+</html>

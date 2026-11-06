@@ -8,9 +8,9 @@ import { grammarChildren } from '../grammar/index.js'
 // porque su id lleva el prefijo del host (no el `overlay-<n>` plano de la ruta hoja).
 let ovlSeq = 0
 
-// <cristae-overlay> — MODIFICADOR de la gramática de composición (combine: 'map').
-// Envuelve una entidad de puntos y, por cada una, monta un badge ligado: comparte la
-// Source del host (mismo dato → se mueve en vivo) pero renderiza con su propio
+// <cristae-overlay> — DECORADOR de la gramática de composición.
+// Toma la capa de puntos más cercana que envuelve y, por cada una, monta un
+// badge ligado: comparte la Source del host (mismo dato → se mueve en vivo) pero renderiza con su propio
 // `iconSet`/`variantOf`/`sizeOf` SIN rotar, y filtra con `where` (sólo los ítems con
 // badge). El badge hereda la supresión del host: si un cluster lo envuelve, los badges
 // de los puntos clusterizados desaparecen con ellos (lee `host.suppressed`).
@@ -20,12 +20,15 @@ let ovlSeq = 0
 //       <cristae-point-layer id="fleet"/>
 //     </cristae-overlay>
 //   </cristae-cluster>
+//
+// Por fuera del cluster da lo mismo: el cluster no produce puntos propios, se atraviesa y el badge va
+// sobre los puntos que re-emite.
 export class CristaeOverlay extends CristaeModifierElement {
 
-  // Modificador `map`: consume `point`, produce `overlay` (uno por target), ligado a `point`.
-  static cristaeSignature = { consumes: ['point'], produces: ['overlay'], combine: 'map', arity: 'wrapper', bindsTo: 'point' }
+  // Decorador: un badge por capa de puntos más cercana, ligado a ella.
+  static cristaeSignature = { role: 'decorate', consumes: ['point'], produces: ['overlay'] }
 
-  // apply del reductor: por cada target (map → 1 por llamada) monta un badge en el motor.
+  // apply del reductor: un badge por productor alcanzado, ligado a él (`hostId`).
   static cristaeApply(engine, targets, cfg) {
     const out = []
     for (const t of targets) {

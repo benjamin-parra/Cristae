@@ -182,7 +182,7 @@ export interface ShapeHit extends HitBase {
   kind: 'shape';
 }
 
-/** @deprecated Sólo por `addCircleLayer`, que se retira en 1.0: el hit de `addShapeLayer` es `ShapeHit`. */
+/** @deprecated Se retira en v0.47.0 con `addCircleLayer`: la reemplaza `ShapeHit`, el hit de `addShapeLayer`. */
 export interface CircleHit extends HitBase {
   kind: 'circle';
 }
@@ -196,7 +196,17 @@ export interface LineHit extends HitBase {
   vertexIndex : number;
 }
 
-export type Hit = PointHit | PolygonHit | HtmlHit | ShapeHit | CircleHit | LineHit
+/** De `addImageLayer` con `interactive`: el click dentro del cuadrilátero; `id` y `ref` son el id de la capa. */
+export interface ImageHit extends HitBase {
+  kind: 'image';
+}
+
+/** De `addTextLayer` con `interactive`: el click sobre el texto de un ítem. */
+export interface TextHit extends HitBase {
+  kind: 'text';
+}
+
+export type Hit = PointHit | PolygonHit | HtmlHit | ShapeHit | CircleHit | LineHit | ImageHit | TextHit
 
 // ── Sesión de expansión del cluster (payloads de los canales `cluster:*`) ────
 
@@ -371,22 +381,110 @@ export interface LabelStyle {
   text    : string;
   accent  : string;
 }
-/** Painter de etiqueta: recibe el ctx ya preparado y la etiqueta resuelta. */
+/** Caja de un rótulo en px del contenedor. */
+export interface LabelBox { x: number; y: number; w: number; h: number }
+/** Painter de etiqueta: recibe el ctx ya preparado y la etiqueta resuelta. Si devuelve su caja, el rótulo
+ *  de un `<cristae-labeled>` se pica; sin caja dibuja igual, pero no se pica. */
 export type LabelPaint = (
   ctx: CanvasRenderingContext2D,
   point: Point,
   label: Label,
   hovered: boolean,
   style: LabelStyle,
-) => void;
-/** Painter default de etiquetas (inyectable en la label-layer vía `paint`). */
+) => LabelBox | void;
+/** Painter de la píldora: el default de la label-layer, y en `<cristae-labeled>` se pide con
+ *  `paint={drawLabel}`. Devuelve su caja sobre un objeto reusado: se lee en el momento, no se guarda. */
 export function drawLabel(
   ctx: CanvasRenderingContext2D,
   point: Point,
   label: Label,
   hovered: boolean,
   style?: LabelStyle,
-): void;
+): LabelBox;
+
+// ── Rótulos (addLabels / <cristae-labeled>). Ver docs/labeled.md ─────────────
+/** Dónde va el rótulo. `auto` toma la colocación natural de cada capa (docs/labeled.md). */
+export type LabelPlacement   = "auto" | "along" | "center" | "above" | "below" | "right";
+/** Cómo se dibuja: `canvas` acepta cualquier fuente y se curva; `html` acepta cualquier CSS y no se curva. */
+export type LabelRenderer    = "canvas" | "html";
+/** `path` deja el texto siempre del mismo lado del trazo; `auto` lo da vuelta para que se lea derecho. */
+export type LabelOrientation = "auto" | "path";
+
+/** Lo que reciben `textOf` y `htmlOf` por cada burbuja de un `<cristae-cluster>` envuelto. Es un objeto por
+ *  burbuja y por reagrupamiento: no se guarda. */
+export interface ClusterBubble<T = unknown> {
+  /** Cuántos ítems junta: el número que pinta su ícono. */
+  readonly count  : number;
+  /** Los ítems que junta, como los tienen las Source de los hosts. Se resuelven al leerse. */
+  readonly leaves : readonly T[];
+}
+
+/** Lo que se declara, en el elemento y en React. `T` es lo que se rotula: los ítems de las capas
+ *  alcanzadas y `ClusterBubble` por cada cluster envuelto. */
+export interface LabelProps<T = unknown> {
+  /** El contenido. `null` o `''` deja al ítem sin rótulo. Default: el id; sobre una burbuja, su `count`. */
+  textOf?      : (item: T) => string | number | null | undefined;
+  /** El contenido en `html`: un string va por `innerHTML`, un `Node` tal cual. Si está y no hay
+   *  `renderer`, el renderer es `html`. */
+  htmlOf?      : (item: T) => string | Node | null | undefined;
+  /** Default: `html` si hay `htmlOf`; si no, `canvas`. */
+  renderer?    : LabelRenderer;
+  placement?   : LabelPlacement;
+  /** Px entre centros sobre el trazo, > 0. Sólo donde la colocación resuelve a `along`. */
+  repeat?      : number;
+  /** Px desde el ancla de la colocación; positivo hacia arriba para quien lee. Default `0`. */
+  offset?      : number;
+  /** Sólo donde la colocación resuelve a `along`. */
+  orientation? : LabelOrientation;
+  font?        : string;
+  /** Default `#0f172a`. */
+  color?       : string;
+  /** Color del halo; `'none'` lo apaga. Default `#ffffff`. */
+  halo?        : string;
+  /** Sólo `canvas`, con `placement` `auto` o `center`. `drawLabel` da la píldora. */
+  paint?       : LabelPaint;
+  /** Sólo `html`: el nodo recibe el puntero, y un arrastre o un click que nace en él no mueve el mapa. */
+  interactive? : boolean;
+  /** Muestra u oculta los rótulos sin desmontar. Default `true`. */
+  visible?     : boolean;
+}
+
+/** Lo que recibe `update`: `undefined` no cambia nada y `null` vuelve al valor por defecto. */
+export type LabelOptions<T = unknown> = { [K in keyof LabelProps<T>]?: LabelProps<T>[K] | null };
+
+/** Rótulos de un host (retorno de `MapEngine.addLabels`). Son estado del host y mueren con él. */
+export interface LabelsHandle<T = unknown> {
+  /** Lanza TypeError ante una opción inválida, sin cambiar nada. */
+  update(options: LabelOptions<T>): void;
+  /** Idempotente; después de la baja del host no hace nada. */
+  remove(): void;
+}
+
+// ── Texto suelto (addTextLayer / <cristae-text-layer>). Ver docs/text-layer.md ─
+export interface TextAccessors<T> extends Pick<SourceAccessors<T>, "hashOf"> {
+  idOf       : (item: T) => string | number;
+  positionOf : (item: T) => { lat: number; lng: number };
+}
+/** Las opciones de los rótulos que valen sin trazo. `auto` es `center`. */
+export type TextProps<T = unknown> = Omit<LabelProps<T>, "repeat" | "orientation" | "interactive" | "visible">;
+export interface TextLayerConfig<T> extends TextProps<T> {
+  id           : string;
+  accessors?   : TextAccessors<T>;
+  data?        : T[];
+  source?      : CristaeSource<T>;
+  /** La capa se pica: click y hover sobre el texto. */
+  interactive? : boolean;
+  visible?     : boolean;
+}
+/** Handle de una capa de texto (retorno de `MapEngine.addTextLayer`). */
+export interface TextHandle<T = unknown> {
+  readonly id     : string;
+  readonly source : CristaeReadSource<T>;
+  set(items: T[]): void;
+  /** Lanza TypeError ante una opción inválida, sin cambiar nada. */
+  update(options: { [K in keyof TextProps<T>]?: TextProps<T>[K] | null }): void;
+  setVisible(visible: boolean): void;
+}
 
 // ── Tiles (src/tiles/presets.js) ─────────────────────────────────────────────
 export const tilePresets: Record<
@@ -410,6 +508,11 @@ export interface ClusterConfig {
   radius?    : number;
   maxZoom?   : number;
   minPoints? : number;
+  /** Cómo se ven las burbujas: `{ kind: 'point', iconSet, sizeOf }`. La forma `{ kind: 'label', … }`, la
+   *  que arma `<cristae-label-layer slot="bubble">`, se retira en v0.47.0: la reemplazan la burbuja de puntos
+   *  y `addLabels({ hostId })` sobre la capa de burbujas, o un `<cristae-labeled>` por fuera del cluster
+   *  (docs/labeled.md). Hasta entonces es eso mismo: una capa de burbujas sin dibujo, rotulada con la píldora,
+   *  sin contexto WebGL ni picking. */
   bubble?    : Record<string, unknown>;
 }
 
@@ -551,8 +654,8 @@ export interface ShapeHandle<T = unknown> {
   style(options: Record<string, unknown>): void;
 }
 
-// ── Círculos en METROS (addCircleLayer, obsoleto): alias de la capa de formas, se retira en 1.0 ──
-/** @deprecated Se retira en 1.0: `ShapeAccessors`, con `radiusOf` en lugar de `radiusMetersOf`. */
+// ── Círculos en METROS (addCircleLayer, obsoleto): alias de la capa de formas, se retira en v0.47.0 ──
+/** @deprecated Se retira en v0.47.0: la reemplaza `ShapeAccessors`, con `radiusOf` en vez de `radiusMetersOf`. */
 export interface CircleAccessors<T> extends Pick<SourceAccessors<T>, "hashOf"> {
   idOf           : (c: T) => string | number;
   positionOf     : (c: T) => { lat: number; lng: number };
@@ -562,7 +665,7 @@ export interface CircleAccessors<T> extends Pick<SourceAccessors<T>, "hashOf"> {
    *  `fillColor`, `fillOpacity` y `dash`. Un `color` sin `fillColor` mueve también el relleno. */
   styleOf?       : (c: T) => Record<string, unknown>;
 }
-/** @deprecated Se retira en 1.0: `ShapeLayerConfig`. */
+/** @deprecated Se retira en v0.47.0: la reemplaza `ShapeLayerConfig`. */
 export interface CircleLayerConfig<T> {
   id           : string;
   accessors    : CircleAccessors<T>;
@@ -573,7 +676,7 @@ export interface CircleLayerConfig<T> {
   z?           : number;
   visible?     : boolean;
 }
-/** @deprecated Se retira en 1.0: `ShapeHandle`. El del alias no tiene `style`. */
+/** @deprecated Se retira en v0.47.0: la reemplaza `ShapeHandle`, que además tiene `style`. */
 export type CircleHandle<T = unknown> = Omit<ShapeHandle<T>, "style">;
 
 // ── Heatmap (addHeatLayer) — canvas 2D, densidad acumulada ───────────────────
@@ -695,6 +798,39 @@ export interface LabelHandle {
   setLabels(labels: Array<{ id: string | number; lat: number; lng: number; text: string }>): void;
   setHovered(ids: Iterable<string | number>): void;
   setVisible(visible: boolean): void;
+}
+
+// ── Imagen georreferenciada (addImageLayer) — nodo DOM. Ver docs/image-layer.md ──
+export type ImageLayerNode = HTMLImageElement | HTMLCanvasElement | HTMLVideoElement | SVGSVGElement;
+export interface ImageLayerBox { south: number; west: number; north: number; east: number }
+export interface ImageLayerConfig {
+  id           : string;
+  /** Uno de los dos: `url` o `image`. */
+  url?         : string;
+  image?       : ImageLayerNode;
+  /** Uno de los dos: `bounds` o `corners` (nw, ne, se, sw). */
+  bounds?      : ImageLayerBox;
+  corners?     : [LatLngPoint, LatLngPoint, LatLngPoint, LatLngPoint];
+  /** [0, 1]; un valor no finito lanza TypeError. Default 1. */
+  opacity?     : number;
+  interactive? : boolean;
+  crossOrigin? : string;
+  alt?         : string;
+  pane?        : string;
+  z?           : number;
+  visible?     : boolean;
+  onLoad?      : (detail: { url: string }) => void;
+  onError?     : (detail: { url: string }) => void;
+}
+export interface ImageLayerHandle {
+  readonly id: string;
+  setUrl(url: string): HTMLImageElement;
+  setImage(node: ImageLayerNode): Element;
+  /** Devuelven la caja nueva; un lugar inválido lanza TypeError sin tocar lo que se ve. */
+  setBounds(bounds: ImageLayerBox): ImageLayerBox;
+  setCorners(corners: [LatLngPoint, LatLngPoint, LatLngPoint, LatLngPoint]): ImageLayerBox;
+  setOpacity(opacity: number): number;
+  setVisible(visible: boolean): boolean;
 }
 
 export interface OverlayConfig<T> {
@@ -844,15 +980,25 @@ export class MapEngine {
 
   addPointLayer<T>(config: PointLayerConfig<T>): PointHandle<T>;
   addPolygonLayer<T>(config: PolygonLayerConfig<T>): PolygonHandle<T>;
-  /** @deprecated Una sola puerta: `addPolygonLayer({ geometry })`. Se retira en 1.0. */
+  /** @deprecated Se retira en v0.47.0: la reemplaza `addPolygonLayer({ geometry })`. */
   addPolygonGpuLayer(config: PolygonGpuLayerConfig): PolygonGpuHandle;
   addLineLayer<T>(config: LineLayerConfig<T>): LineHandle<T>;
   addHtmlLayer<T>(config: HtmlLayerConfig<T>): HtmlHandle<T>;
+  /** @deprecated Se retira en v0.47.0: con `bindTo` la reemplaza `addLabels({ hostId })` o `<cristae-labeled>`
+   *  sobre la capa de puntos (docs/labeled.md); con `source` propio, `addTextLayer` o `<cristae-text-layer>`. */
   addLabelLayer<T>(config: LabelLayerConfig<T>): LabelHandle;
+  /** Rótulos sobre los ítems del host. `null` si el host no es rotulable: un editor, el calor, la imagen o
+   *  una burbuja de rótulo. Las opciones se validan antes del alta (TypeError). */
+  addLabels<T = unknown>(config: LabelProps<T> & { hostId: string }): LabelsHandle<T> | null;
+  /** Texto suelto con Source propia, pintado por los renderers de los rótulos, sin contexto WebGL.
+   *  Las opciones se validan antes del alta (TypeError). */
+  addTextLayer<T>(config: TextLayerConfig<T>): TextHandle<T>;
+  addImageLayer(config: ImageLayerConfig): ImageLayerHandle;
   addOverlay<T>(config: OverlayConfig<T>): OverlayHandle<T> | null;
   addHighlightOverlay(config: HighlightOverlayConfig): HighlightOverlayHandle | null;
   addShapeLayer<T>(config: ShapeLayerConfig<T>): ShapeHandle<T>;
-  /** @deprecated Una sola capa de formas: `addShapeLayer`, con `radiusOf` en vez de `radiusMetersOf`. Se retira en 1.0. */
+  /** @deprecated Se retira en v0.47.0: la reemplaza `addShapeLayer`, con `radiusOf` en vez de `radiusMetersOf`,
+   *  o `<cristae-shape-layer>` (docs/shapes.md). */
   addCircleLayer<T>(config: CircleLayerConfig<T>): CircleHandle<T>;
   addHeatLayer<T>(config: HeatLayerConfig<T>): HeatHandle<T>;
   addEditableLayer(config: EditableConfig): EditableHandle;
@@ -914,7 +1060,8 @@ export class MapEngine {
   /** Cursor del contenedor, en vivo: `null`, `''` o un valor que el CSS rechace es ninguno. Su precedencia
    *  frente al arrastre, el editor y el `pointer` automático: docs/interaction.md#el-cursor-del-contenedor. */
   setCursor(cursor: string | null): this;
-  /** @deprecated Fuera de contrato: el mapa de Leaflet es un detalle del anfitrión. Se retira en 1.0 (SPECS §6). */
+  /** @deprecated Se retira en v0.47.0: el mapa de Leaflet es un detalle interno y queda fuera de contrato. La
+   *  cámara, los tiles y el cursor se piden al motor (docs/elements.md). */
   getLeafletMap(): unknown;
   syncSize(): void;
   /** Reposiciona y redibuja las capas de puntos. Es también una señal de cupo: lo que la saturación de contextos dejó
@@ -946,11 +1093,39 @@ export class CristaePolygonLayer extends HTMLElement {}
 export class CristaeShapeLayer extends HTMLElement {}
 export class CristaeLineLayer extends HTMLElement {}
 export class CristaeHtmlLayer extends HTMLElement {}
+/** Capa base de texto suelto (docs/text-layer.md). */
+export class CristaeTextLayer extends HTMLElement {}
+/** @deprecated Se retira en v0.47.0: con `bind-to` la reemplaza `<cristae-labeled>` sobre la capa de puntos
+ *  (docs/labeled.md); con `source` propio, `<cristae-text-layer>`. */
 export class CristaeLabelLayer extends HTMLElement {}
+/** Modificador que rotula lo que produce su hijo directo (docs/labeled.md). */
+export class CristaeLabeled<T = unknown> extends HTMLElement implements LabelProps<T> {
+  textOf?      : LabelProps<T>["textOf"];
+  htmlOf?      : LabelProps<T>["htmlOf"];
+  renderer?    : LabelRenderer;
+  placement?   : LabelPlacement;
+  repeat?      : number;
+  offset?      : number;
+  orientation? : LabelOrientation;
+  font?        : string;
+  color?       : string;
+  halo?        : string;
+  paint?       : LabelPaint;
+  interactive? : boolean;
+  visible?     : boolean;
+}
+export class CristaeImageLayer extends HTMLElement {}
+export class CristaeHeatLayer extends HTMLElement {}
 export class CristaeCluster extends HTMLElement {}
 export class CristaeOverlay extends HTMLElement {}
 export class CristaeGeodesic extends HTMLElement {}
 export class CristaeToolbar extends HTMLElement {}
+export class CristaeScale extends HTMLElement {
+  /** Tokens separados por espacio: `metric` (default), `imperial`. */
+  units    : string;
+  /** px a lo largo de los que se mide; no finito o ≤ 0 vale 100. */
+  maxWidth : number;
+}
 export class CristaePopup extends HTMLElement {}
 
 // ── Polígonos ESTÁTICOS en GPU (addPolygonGpuLayer) — stencil sobre geometría tipada ──
@@ -974,6 +1149,7 @@ export interface PolygonGpuGeometry {
   parts?     : Uint32Array;
 }
 
+/** @deprecated Se retira en v0.47.0 con `addPolygonGpuLayer`: la reemplaza `PolygonLayerConfig`, con `geometry`. */
 export interface PolygonGpuLayerConfig {
   id           : string;
   geometry     : PolygonGpuGeometry;
@@ -994,6 +1170,7 @@ export interface PolygonGpuLayerConfig {
   idOf?        : (part: number) => unknown;
 }
 
+/** @deprecated Se retira en v0.47.0 con `addPolygonGpuLayer`: la reemplaza `PolygonHandle`. */
 export interface PolygonGpuHandle {
   readonly id: string;
   redraw(): boolean;

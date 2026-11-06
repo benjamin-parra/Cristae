@@ -156,8 +156,10 @@ test('dispose suelta los panes del fold, el de las patas incluido', async () => 
   for (const bubble of [undefined, { kind: 'label' }]) {
     const { control, map, bubbles } = mount({ foldOpts: { bubble } })
     const foldId = control.bubbleLayerId.replace(':clusters', '')
-    // Las patas nacen con la primera espiral abierta: sin ella no hay pane que soltar.
-    const panes  = [`${foldId}-bubbles`, `cristae-point-${foldId}:spider`, `cristae-point-${foldId}:spider-sub`]
+    // Las patas nacen con la primera espiral abierta: sin ella no hay pane que soltar. La burbuja de rótulo no
+    // dibuja: su pane es el de sus rótulos.
+    const burbuja = bubble ? `${foldId}:clusters-labels-canvas` : `${foldId}-bubbles`
+    const panes   = [burbuja, `cristae-point-${foldId}:spider`, `cristae-point-${foldId}:spider-sub`]
     bubble || (control.expand(bubbles()[0].id), panes.push(`cristae-line-${foldId}:legs`))
     panes.forEach(pane => assert.ok(map.getPane(pane), `${pane} montado`))
 

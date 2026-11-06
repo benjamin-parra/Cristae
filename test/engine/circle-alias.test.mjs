@@ -1,4 +1,4 @@
-// `addCircleLayer` es un alias de la capa de formas que se retira en 1.0. Lo que acá se congela es lo que el
+// `addCircleLayer` es un alias de la capa de formas que se retira en v0.47.0. Lo que acá se congela es lo que el
 // alias conserva para quien no lo migra: su kind, su pane y su handle, el orden de los hits, el radio que lee
 // de `radiusMetersOf` también desde una Source externa, que ignora el rumbo, la apertura y el estilo de capa,
 // y que dibuja y pica sobre la esfera por defecto aunque el mapa traiga otro modelo, con su anillo bit a bit.

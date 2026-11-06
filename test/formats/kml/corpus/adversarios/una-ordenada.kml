@@ -1,0 +1,2 @@
+<!-- DISENO-INTEROP §3.1: una tupla necesita lon y lat. -->
+<kml><Placemark><Point><coordinates>1</coordinates></Point></Placemark></kml>

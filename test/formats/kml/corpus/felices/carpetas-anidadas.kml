@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 07-147r2 §9.10: kml:Folder anidados forman `layers`; kml:LineString y kml:Polygon con
+     outerBoundaryIs e innerBoundaryIs (exterior antihorario, hoyo horario: convención de RFC 7946; §10.8 no fija el sentido). -->
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>Raíz</name>
+    <Folder>
+      <name>Caminos</name>
+      <Placemark><name>Ruta</name><LineString><tessellate>1</tessellate><coordinates>
+        0,0 1,0.5 2,0
+      </coordinates></LineString></Placemark>
+      <Folder>
+        <name>Rodales</name>
+        <Placemark><name>Rodal 7</name><Polygon>
+          <outerBoundaryIs><LinearRing><coordinates>0,0 4,0 4,4 0,4 0,0</coordinates></LinearRing></outerBoundaryIs>
+          <innerBoundaryIs><LinearRing><coordinates>1,1 1,2 2,2 2,1 1,1</coordinates></LinearRing></innerBoundaryIs>
+          <innerBoundaryIs><LinearRing><coordinates>3,3 3,3.5 3.5,3.5 3,3</coordinates></LinearRing></innerBoundaryIs>
+        </Polygon></Placemark>
+      </Folder>
+    </Folder>
+    <Placemark><name>Suelto</name><Point><coordinates>9,9</coordinates></Point></Placemark>
+  </Document>
+</kml>

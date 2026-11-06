@@ -4,7 +4,7 @@ import { makeAutoId } from './autoId.js'
 import { grammar } from './composite.js'
 import { buildUnit, grammarChildren } from '../grammar/index.js'
 
-// <cristae-geodesic> — MODIFICADOR de la gramática de composición (combine: 'map').
+// <cristae-geodesic> — TRANSFORMADOR de la gramática de composición: un `apply` por capa del subárbol.
 // Curva sobre la geodésica los tramos largos de la capa de líneas, la de polígonos o el editor de polilínea
 // o de polígono que envuelve; un track GPS no cambia. Dibujo, picking y encuadre salen de esa curva. No
 // aplica al rectángulo, a las formas, ni a puntos, labels o html: envolver sólo uno de ésos da R2,
@@ -16,8 +16,8 @@ import { buildUnit, grammarChildren } from '../grammar/index.js'
 // host: quitar el host la destruye con él.
 export class CristaeGeodesic extends CristaeModifierElement {
 
-  // Modificador `map`: consume `line` y `polygon`, produce `geodesic` (uno por host) y deja pasar al host.
-  static cristaeSignature = { consumes: ['line', 'polygon'], produces: ['geodesic'], combine: 'map', arity: 'wrapper' }
+  // Transformador: consume `line` y `polygon`, produce `geodesic` (uno por host) y deja pasar al host.
+  static cristaeSignature = { role: 'transform', consumes: ['line', 'polygon'], produces: ['geodesic'] }
 
   // apply del reductor: curva cada host y guarda su baja en el handle de la unit, que `enabled` alterna.
   static cristaeApply(engine, targets, { enabled }) {

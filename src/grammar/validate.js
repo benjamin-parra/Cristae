@@ -1,15 +1,18 @@
 // Validación de la gramática de composición — un CFG TIPADO mínimo (no un parser).
 //
 // Dos chequeos:
-//   · validateSignature(tag, sig, KINDS) — forma de la firma + R4 (kinds del universo).
-//   · validate(root, ctx)                — juicio de tipos sobre el subárbol (R1–R3).
+//   · validateSignature(tag, sig, KINDS) — forma de la firma declarada + R4 (kinds del universo).
+//   · validate(root, ctx)                — juicio de tipos sobre el subárbol (R1–R3, R5).
 //
-// `produced(node)` se computa bottom-up: hoja → produces; wrapper → produces ∪
-// (passThrough ? kinds consumidos que pasan : ∅). Un subárbol es VÁLIDO si el juicio
-// se cumple en cada nodo. Toda invalidez lanza un GrammarError ANTES de tocar el
-// motor (un árbol inválido no crea estado).
+// El juicio lee la firma DERIVADA del rol (`deriveSignature`, grammar.js) a partir de la
+// que devuelve `ctx.signatureFor`. `produced(node)` se computa
+// bottom-up: hoja → produces; wrapper → produces ∪ (passThrough ? kinds consumidos que
+// pasan : ∅). Un subárbol es VÁLIDO si el juicio se cumple en cada nodo. Toda invalidez
+// lanza un GrammarError ANTES de tocar el motor (un árbol inválido no crea estado), y
+// el mensaje nombra el rol del elemento.
 
 import { grammarChildren, firstUnknownChild, tagName } from './util.js'
+import { deriveSignature } from './grammar.js'
 
 export class GrammarError extends Error {
   /**
@@ -27,26 +30,48 @@ export class GrammarError extends Error {
 
 const PFX = '[cristae-grammar]'
 
-/** R4 + coherencia de la firma. Lanza GrammarError('R4') si algo no cuadra. */
+// Rol → cómo lo nombran los mensajes. Sus claves son los roles válidos.
+const ROL   = { leaf: 'una hoja', transform: 'un transformador', aggregate: 'un agregador', decorate: 'un decorador' }
+const FIRMA = new Set(['role', 'consumes', 'produces'])
+
+/** R4 + coherencia de la firma declarada. Lanza GrammarError('R4') si algo no cuadra. */
 export function validateSignature(tag, sig, KINDS) {
-  const t = String(tag).toLowerCase()
+  const t  = String(tag).toLowerCase()
+  const r4 = msg => new GrammarError('R4', null, `${PFX} ${msg}`)
   if (!sig || typeof sig !== 'object')
-    throw new GrammarError('R4', null, `${PFX} firma inválida para <${t}>.`)
-  if (sig.arity !== 'leaf' && sig.arity !== 'wrapper')
-    throw new GrammarError('R4', null, `${PFX} <${t}> arity inválida '${sig.arity}' (leaf|wrapper).`)
+    throw r4(`firma inválida para <${t}>.`)
+  if (!Object.hasOwn(ROL, sig.role))
+    throw r4(`<${t}> rol inválido '${String(sig.role)}' (leaf|transform|aggregate|decorate).`)
+
+  // combine, arity, reach y passThrough salen del rol; el ligado de una hoja no es parte de la firma.
+  const ajeno = Object.keys(sig).find(k => !FIRMA.has(k))
+  if (ajeno)
+    throw r4(`<${t}> declara '${ajeno}', que no es parte de la firma { role, consumes, produces }.`)
   if (!Array.isArray(sig.produces) || sig.produces.length === 0)
-    throw new GrammarError('R4', null, `${PFX} <${t}> debe declarar produces con ≥1 kind.`)
-  const consumes = sig.consumes ?? []
-  for (const k of [...consumes, ...sig.produces]) {
-    if (!KINDS.has(k))
-      throw new GrammarError('R4', null,
-        `${PFX} <${t}> referencia kind desconocido '${k}'; kinds declarados: [${[...KINDS].join(',')}].`)
-  }
-  if (sig.arity === 'leaf' && (consumes.length || sig.combine))
-    throw new GrammarError('R4', null, `${PFX} <${t}> es hoja: consumes debe ser [] y combine null.`)
-  if (sig.arity === 'wrapper' && !(sig.combine === 'fold' || sig.combine === 'map'))
-    throw new GrammarError('R4', null, `${PFX} <${t}> es wrapper: combine debe ser 'fold' o 'map'.`)
+    throw r4(`<${t}> debe declarar produces con ≥1 kind.`)
+
+  const consumes    = sig.consumes ?? []
+  const desconocido = [...consumes, ...sig.produces].find(k => !KINDS.has(k))
+  if (desconocido !== undefined)
+    throw r4(`<${t}> referencia kind desconocido '${desconocido}'; kinds declarados: [${[...KINDS].join(',')}].`)
+  if (sig.role === 'leaf' && consumes.length)
+    throw r4(`<${t}> es una hoja: no consume (consumes vacío u omitido).`)
+  if (sig.role !== 'leaf' && !consumes.length)
+    throw r4(`<${t}> es ${ROL[sig.role]}: debe declarar consumes con ≥1 kind.`)
 }
+
+// ── Alcance `reach: 'nearest'` ──
+// Recorre los hijos de gramática de `el`: una hoja aporta sus kinds de `consumed`; un wrapper aporta los
+// suyos propios (`produces − consumes`) que estén en `consumed`, y sin ninguno es transparente y se recorre
+// por dentro. `fn(nodo, kinds)` corre una vez por nodo que aporta. Decide por la firma, no por las units del
+// momento: un cluster apagado sigue aportando `bubble` y no deja ver sus puntos.
+export const eachNearest = (el, ctx, consumed, fn) =>
+  grammarChildren(el, ctx.isRegistered).forEach(child => {
+    const sig   = deriveSignature(ctx.signatureFor(child.tagName))
+    const own   = sig.arity === 'leaf' ? sig.produces : sig.produces.filter(k => !sig.consumes.includes(k))
+    const kinds = own.filter(k => consumed.has(k))
+    kinds.length ? fn(child, kinds) : sig.arity === 'wrapper' && eachNearest(child, ctx, consumed, fn)
+  })
 
 // ── Juicio por arity (dispatch por tabla en vez de if/else) ──
 // `produced(node)` bifurca según la arity de la firma: una HOJA no envuelve hijos y
@@ -61,11 +86,20 @@ const juzgarHoja = (el, _ctx, sig, kids) => {
   return new Set(sig.produces)
 }
 
+// Un wrapper que no alcanza nada de lo que consume (R3 sin hijos, R2 con hijos), dicho por su rol. `producen`
+// son los kinds de los hijos, o null si no tiene.
+const sinCapas = (el, sig, producen) => {
+  const kinds = sig.consumes.map(k => `'${k}'`).join(' o ')
+  const falta = sig.role === 'decorate'
+    ? ` y no envuelve ninguna capa que produzca (${sig.consumes.join(', ')})`
+    : `: consume ${kinds} y no hay capas de ${kinds} adentro`
+  return `${PFX} <${tagName(el)}> es ${ROL[sig.role]}${falta}${producen ? ` (los hijos producen: [${producen.join(',')}])` : ''}.`
+}
+
 /** Juzga un WRAPPER: R3 (≥1 hijo) → R5 (hijo desconocido) → R2 (nadie produce lo consumido). */
 const juzgarWrapper = (el, ctx, sig, kids) => {
   if (kids.length === 0)
-    throw new GrammarError('R3', el,
-      `${PFX} <${tagName(el)}> es un wrapper y requiere ≥1 hijo que produzca uno de [${sig.consumes.join(',')}].`)
+    throw new GrammarError('R3', el, sinCapas(el, sig, null))
 
   // R5 — un hijo no reconocido (typo de tag, elemento fuera de lugar) se descartaría en silencio y
   // el error real quedaría enmascarado. Se avisa DESPUÉS de R3: sin ningún hijo válido manda R3.
@@ -84,9 +118,9 @@ const juzgarWrapper = (el, ctx, sig, kids) => {
       if (consumed.has(k)) passKinds.add(k)
     }
   }
-  if (passKinds.size === 0)
-    throw new GrammarError('R2', el,
-      `${PFX} <${tagName(el)}> consume [${sig.consumes.join(',')}] pero ningún hijo lo produce (los hijos producen: [${[...allChildKinds].join(',')}]).`)
+  // Con `reach: 'nearest'` R2 mira lo que alcanza la regla; lo que sube hacia el padre no cambia.
+  if ((sig.reach === 'nearest' ? reachedKinds(el, ctx) : passKinds).size === 0)
+    throw new GrammarError('R2', el, sinCapas(el, sig, [...allChildKinds]))
 
   const out = new Set(sig.produces)
   if (sig.passThrough) for (const k of passKinds) out.add(k)
@@ -101,9 +135,24 @@ const JUZGAR = { leaf: juzgarHoja, wrapper: juzgarWrapper }
  * @returns {Set<string>}
  */
 function producedOf(el, ctx) {
-  const sig = ctx.signatureFor(el.tagName)
+  const sig  = deriveSignature(ctx.signatureFor(el.tagName))
   const kids = grammarChildren(el, ctx.isRegistered)
   return JUZGAR[sig.arity](el, ctx, sig, kids)
+}
+
+/**
+ * Kinds de `consumes` que alcanza un wrapper según su `reach`: con `'nearest'`, los de la regla de
+ * `eachNearest`; si no, los que produce el subárbol de cada hijo (y lo valida). Interno del segmento: no
+ * sale por cristae/grammar.
+ * @returns {Set<string>}
+ */
+export function reachedKinds(el, ctx) {
+  const sig      = deriveSignature(ctx.signatureFor(el.tagName))
+  const consumed = new Set(sig.consumes)
+  const out      = new Set()
+  if (sig.reach === 'nearest') eachNearest(el, ctx, consumed, (_node, kinds) => kinds.forEach(k => out.add(k)))
+  else grammarChildren(el, ctx.isRegistered).forEach(child => producedOf(child, ctx).forEach(k => consumed.has(k) && out.add(k)))
+  return out
 }
 
 /**

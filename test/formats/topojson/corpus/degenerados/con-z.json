@@ -1,0 +1,16 @@
+{
+  "type": "Topology",
+  "objects": {
+    "c": {
+      "type": "GeometryCollection",
+      "geometries": [
+        { "type": "LineString", "arcs": [0, 1] },
+        { "type": "Point", "coordinates": [1, 2, 3, 4] }
+      ]
+    }
+  },
+  "arcs": [
+    [[0, 0, 100], [1, 1, 110]],
+    [[1, 1], [2, 2, 120, 9]]
+  ]
+}

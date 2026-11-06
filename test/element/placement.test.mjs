@@ -20,17 +20,19 @@ const CAPAS = [
   ['html', CristaeHtmlLayer],
   ['label', CristaeLabelLayer],
 ]
+// Las que dan de alta una capa propia. La label-layer deprecada no: sus rótulos van al plano de los rótulos.
+const ALTAS = CAPAS.filter(([kind]) => kind !== 'label')
 
 // Sin DOM: `mountLayer` sólo lee `this.*` y llama al alta, así que alcanza un objeto con el prototipo
 // de la clase (de ahí sale el getter `_placement` de la base). El motor eco devuelve la config recibida.
 const capa = (Clase, props) => Object.assign(Object.create(Clase.prototype), { visible: true, ...props })
 const eco = {
   addPointLayer: cfg => cfg, addLineLayer: cfg => cfg, addPolygonLayer: cfg => cfg, addShapeLayer: cfg => cfg,
-  addHtmlLayer: cfg => cfg, addLabelLayer: cfg => cfg,
+  addHtmlLayer: cfg => cfg,
 }
 
 test('toda capa hoja pasa el `pane`/`z` declarado al alta del motor', () => {
-  CAPAS.forEach(([kind, Clase]) => {
+  ALTAS.forEach(([kind, Clase]) => {
     const cfg = capa(Clase, { id: kind, pane: 'cristae-ruta', z: 378 }).mountLayer(eco)
     assert.equal(cfg.pane, 'cristae-ruta', `${kind}: el pane declarado llega al alta`)
     assert.equal(cfg.z, 378, `${kind}: el z declarado llega al alta`)
@@ -38,7 +40,7 @@ test('toda capa hoja pasa el `pane`/`z` declarado al alta del motor', () => {
 })
 
 test('sin declararlo, el alta los recibe ausentes (el motor deriva el z de su lugar)', () => {
-  CAPAS.forEach(([kind, Clase]) => {
+  ALTAS.forEach(([kind, Clase]) => {
     const cfg = capa(Clase, { id: kind }).mountLayer(eco)
     assert.equal(cfg.z, undefined, `${kind}: z ausente → el motor lo deriva de su lugar en el documento`)
     assert.equal(cfg.pane, undefined, `${kind}: pane ausente → el motor le crea uno propio`)

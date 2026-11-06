@@ -1,0 +1,2 @@
+<!-- 07-147r2 §16.9: kml:coordinates es texto (lista de xsd:string), sin elementos hijos. -->
+<kml><Placemark><Point><coordinates>1,<b/>2</coordinates></Point></Placemark></kml>

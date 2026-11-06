@@ -1,15 +1,20 @@
 // Reductor genérico de la gramática (intérprete dirigido por firmas, sin
 // special-casing por modificador). Recorrido post-orden: cada nodo aporta un
-// conjunto de RenderUnits hacia su padre. Un wrapper mezcla las units de sus hijos,
-// transforma las que matchean `consumes` (fold = un apply sobre todas; map = uno por
-// target) y pasa el resto. El intérprete hace el DISPATCH fold/map; cada modificador
-// sólo aporta un `apply(engine, targetUnits, config) → Unit[]`.
+// conjunto de RenderUnits hacia su padre. Un wrapper (transformador, agregador o
+// decorador) mezcla las units de sus hijos, transforma las que matchean `consumes`
+// (fold = un apply sobre todas; map = uno por target) y pasa el resto. Lee la firma
+// DERIVADA del rol (`deriveSignature`, grammar.js) a partir de la que devuelve
+// `ctx.signatureFor`: combine, reach y passThrough no los declara nadie.
+// El intérprete hace el DISPATCH fold/map; cada modificador sólo aporta un
+// `apply(engine, targetUnits, config) → Unit[]`.
 //
 // Asume las convenciones de custom-element de Cristae (duck-typing, sin imports de
 // element/engine): un hijo se monta con `child.cristaeMount(engine)` y expone sus
 // units con `child.cristaeUnits()`.
 
 import { grammarChildren } from './util.js'
+import { eachNearest } from './validate.js'
+import { deriveSignature } from './grammar.js'
 
 /**
  * @typedef {Object} Unit
@@ -74,7 +79,7 @@ const COMBINERS = {
  * @returns {Unit[]}
  */
 export function reduceModifier(el, engine, ctx) {
-  const sig = ctx.signatureFor(el.tagName)
+  const sig  = deriveSignature(ctx.signatureFor(el.tagName))
   const kids = grammarChildren(el, ctx.isRegistered)
 
   // Post-orden: montar hijos (hoja → handle del motor; wrapper → su propia reducción)
@@ -86,14 +91,19 @@ export function reduceModifier(el, engine, ctx) {
     for (let i = 0; i < us.length; i++) childUnits.push(us[i])
   }
 
+  // `reach: 'nearest'` (decorador): los targets son lo que cada hijo directo produce como propio
+  // (validate.js); con 'all', todo lo consumido que sube del subárbol.
   const consumed = new Set(sig.consumes)
-  const targets = childUnits.filter(u => consumed.has(u.kind))
+  const targets  = []
+  sig.reach === 'nearest'
+    ? eachNearest(el, ctx, consumed, (node, kinds) => node.cristaeUnits?.().forEach(u => kinds.includes(u.kind) && targets.push(u)))
+    : childUnits.forEach(u => consumed.has(u.kind) && targets.push(u))
 
   const apply = ctx.applyFor(el.tagName)
   const cfg = el.cristaeConfig ? el.cristaeConfig() : {}
   const combine = COMBINERS[sig.combine]
   const produced = apply && targets.length && combine ? combine(apply, engine, targets, cfg) : []
 
-  const carried = sig.passThrough ? childUnits : childUnits.filter(u => !consumed.has(u.kind))
+  const carried = sig.passThrough ? childUnits : childUnits.filter(u => !targets.includes(u))
   return [...carried, ...produced]
 }

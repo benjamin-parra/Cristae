@@ -66,14 +66,15 @@ contesta **una vez** por entidad.
 
 ## Geometría tipada, sin Source
 
-La misma puerta acepta las tablas CSR del [lector](geojson.md) sin pasar por arrays:
+La misma puerta acepta las tablas CSR del [lector](geojson.md), o de uno de los [formatos](formats.md),
+sin pasar por arrays:
 
 ```js
 engine.addPolygonLayer({ id: 'geocercas', geometry: areasOf(readGeoJson(bytes)) })
 ```
 
 El elemento la hereda, así que también entra por markup: `polygonLayer.geometry = areasOf(doc)`.
-`addPolygonGpuLayer` sigue existiendo como delegador **deprecado** y se retira en 1.0.
+`addPolygonGpuLayer` sigue existiendo como delegador **deprecado** y se retira en v0.47.0.
 
 `rings` y `parts` van juntas o no van: con una sola, el relleno y el picking mirarían conjuntos
 distintos y la capa contestaría por figuras que no dibujó.

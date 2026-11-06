@@ -1,0 +1,21 @@
+{
+  "type": "Topology",
+  "bbox": [0, 0, 10, 10],
+  "objects": {
+    "lugares": {
+      "type": "GeometryCollection",
+      "geometries": [
+        { "type": "Point", "id": 7, "properties": { "nombre": "Ñuble" }, "coordinates": [1.5, 2.25] },
+        { "type": "MultiPoint", "coordinates": [[3, 4], [5, 6]] },
+        { "type": "LineString", "properties": null, "arcs": [0] }
+      ]
+    },
+    "limites": { "type": "MultiPolygon", "id": "lim", "arcs": [[[1]], [[2], [3]]] }
+  },
+  "arcs": [
+    [[0, 0], [10, 10]],
+    [[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]],
+    [[2, 2], [8, 2], [8, 8], [2, 8], [2, 2]],
+    [[3, 3], [3, 7], [7, 7], [7, 3], [3, 3]]
+  ]
+}

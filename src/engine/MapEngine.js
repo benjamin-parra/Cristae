@@ -8,15 +8,19 @@ import { OBJ_BITS } from '../render/Picking.js'
 import { LineGpuLayer } from '../render/LineGpuLayer.js'
 import { PolygonGpuLayer } from '../render/PolygonGpuLayer.js'
 import { ShapeLayer } from '../render/ShapeLayer.js'
+import { ImageLayer } from '../render/ImageLayer.js'
 import { HeatLayer } from '../render/HeatLayer.js'
 import { EditableGeometry } from '../render/EditableGeometry.js'
 import { HtmlLayer } from '../render/HtmlLayer.js'
-import { LabelLayer } from '../render/LabelLayer.js'
+import { DEFAULT_STYLE, LabelLayer, drawLabel } from '../render/LabelLayer.js'
 import { createHighlightOverlay } from '../render/HighlightOverlay.js'
 import { frameTransform } from '../render/frame.js'
 import { glBudget } from '../render/gl-budget.js'
 import { createTramos } from '../render/gl-tramos.js'
 import { createClusterFold } from '../cluster/ClusterFold.js'
+import { createLabels } from './labels.js'
+import { mergeLabelOptions, resolvePlacement } from '../render/labelOptions.js'
+import { deprecated, RETIRO } from './deprecated.js'
 import { defineClusterIconSet } from '../atlas/IconSet.js'
 import { createSource } from '../data/index.js'
 import { createLeafletHost } from '../host/LeafletHost.js'
@@ -34,15 +38,18 @@ import { byDefault, checkHeading, checkPlacer, isModel } from '../geometry/geode
 
 const BASE_Z = 400
 const Z_STEP = 10
+// Tres planos de z, cada uno con su base fija y el orden de declaración adentro (DISENO-ROTULOS §3.5): las
+// capas base; los rótulos de `addLabels`, con el canvas compartido abajo y los panes de un host encima; y
+// lo que antes sumaba +200 sobre su orden —capas HTML, editores, `<cristae-label-layer>`, burbujas y
+// espiral del cluster—, que conserva su orden relativo. Un plano da para 100 000 altas: la que lo pase
+// queda en su techo, con un aviso.
+const PLANE       = 1e6
+const LABEL_PLANE = BASE_Z + PLANE
+const TOP_PLANE   = BASE_Z + 2 * PLANE
 // Techo de la identidad de OBJETO del pase de picking: el eje `obj` del píxel menos el 0, que significa
 // «nada» y no se asigna nunca. Sale de los bits que declara el codec — nunca de un número repetido acá.
 const PICK_OBJ_MAX = (1 << OBJ_BITS) - 1
 const ITEM_DIM = 0.3            // opacidad del atenuado en el eje de foco por ÍTEM
-// Offset de la capa de LABELS sobre su host. El fold de cluster (burbujas + spider) se cuelga por ENCIMA
-// de esta banda para que las etiquetas de otros marcadores NO tapen los vehículos que el cluster superpone
-// al expandirse (el spider es el contenido enfocado → va arriba de los labels). Ver addLabelLayer + fold.
-const LABEL_Z_OFFSET = 200
-const TOP_Z          = BASE_Z + LABEL_Z_OFFSET   // plano de HTML, editores y rótulos; con +k, el del pliegue
 const BUS_EVENTS = new Set(['click', 'secondary-click', 'hover', 'hover:start', 'hover:end', 'pointer:move'])
 // El detail de `move`: uno compartido, porque sale en cada paso del movimiento.
 const MOVE_DETAIL = Object.freeze({})
@@ -140,7 +147,8 @@ export class MapEngine {
   #focusKinds         = null           // kinds de capa que el enfoque por capa atenúa (null = todas)
   #itemFocus          = new Map()      // enfoque por ÍTEM: layerId → Set(id) declarado (vacío = todo atenuado)
   #model              = null           // el modelo de la Tierra con que dibujan y pican las formas y las geodésicas
-  #leafletWarned      = false          // getLeafletMap() ya avisó en este motor
+  #planeWarned        = false          // un z derivado ya llegó al techo de su plano
+  #labels                              // los rótulos de `addLabels` (engine/labels.js)
 
   camera
   ready
@@ -200,6 +208,14 @@ export class MapEngine {
         this.#emit('interactionend', {})
       },
       onEmptyClick: latlng => this.#emit('map:click', { latlng }),   // click en espacio vacío → latlng
+    })
+
+    this.#labels = createLabels({
+      host    : this.#host,
+      layerOf : id => this.#layers.get(id),
+      model   : () => this.#model,
+      slotOf  : (record, hostId, renderer) => this.#labelSlot(record, hostId, renderer),
+      busOn   : (type, layerId, handler) => this.#bus.on(type, layerId, handler),
     })
 
     this.#host.camera.on('moveend zoomend', emitViewport)
@@ -301,8 +317,10 @@ export class MapEngine {
     }
   }
 
-  /** @deprecated Una sola puerta: `addPolygonLayer({ geometry })`. Se retira en 1.0. */
+  /** @deprecated Se retira en v0.47.0: la reemplaza `addPolygonLayer({ geometry })`. */
   addPolygonGpuLayer({ id, pane, interactive = false, ...cfg }) {
+    deprecated('addPolygonGpuLayer',
+      `[cristae] addPolygonGpuLayer() se retira en ${RETIRO}: la reemplaza addPolygonLayer({ geometry }).`)
     return this.addPolygonLayer({ ...cfg, id, interactive, pane: pane ?? `cristae-polygon-gpu-${id}` })
   }
 
@@ -358,7 +376,7 @@ export class MapEngine {
     // En el plano de encima: sobre líneas y puntos, los badges van arriba.
     const controls          = cfg.source ? null : createSource(accessors)
     const source            = cfg.source ?? controls
-    const { layer, ...seat } = this.#build(id, cfg, TOP_Z, paneName, () => new HtmlLayer({ host: this.#host, pane: paneName, source, interactive }), true)
+    const { layer, ...seat } = this.#build(id, cfg, TOP_PLANE, paneName, () => new HtmlLayer({ host: this.#host, pane: paneName, source, interactive }), true)
 
     const record = { kind: 'html', source, layer, controls, paneName, ...seat, interactive, visible, enabled: true }
     this.#layers.set(id, record)
@@ -376,13 +394,41 @@ export class MapEngine {
     }
   }
 
+  /* ── Imagen georreferenciada (un nodo DOM propio; GL-safe): bajo las etiquetas y los marcadores HTML ── */
+
+  addImageLayer(cfg) {
+    const { id, interactive = false, pane, z: _z, [STACK]: _at, visible = true, ...image } = cfg
+    const paneName = pane ?? `cristae-image-${id}`
+    const { layer, ...seat } = this.#build(id, cfg, BASE_Z, paneName,
+      () => new ImageLayer({ ...image, host: this.#host, pane: paneName, id, interactive }))
+
+    const record = { kind: 'image', layer, paneName, ...seat, interactive, visible, enabled: true }
+    this.#layers.set(id, record)
+    if (interactive)
+      this.#registerResolver(id, 'image', record, sample => layer.resolveClick(sample), sample => layer.resolveHover(sample))
+    this.#applyVisibility(id, paneName, visible)
+    return {
+      id,
+      setUrl     : url => layer.setUrl(url),
+      setImage   : node => layer.setImage(node),
+      setBounds  : bounds => layer.setBounds(bounds),
+      setCorners : corners => layer.setCorners(corners),
+      setOpacity : opacity => layer.setOpacity(opacity),
+      setVisible : v => this.setLayerVisibility(id, v),
+    }
+  }
+
   /* ── Formas en METROS (dibujadas en la GPU — escalan con el zoom, a diferencia del sprite px) ── */
 
   addShapeLayer(cfg) { return this.#addShape(cfg, false) }
 
   // El alias se queda en la esfera por defecto aunque el mapa traiga otro modelo, sin estilo de capa y con su
   // pane, su kind y su handle: quien no lo migra conserva su anillo y su costo.
+  /** @deprecated Se retira en v0.47.0: la reemplaza `addShapeLayer`, con `radiusOf` en vez de `radiusMetersOf`,
+   *  o `<cristae-shape-layer>` (docs/shapes.md). */
   addCircleLayer({ id, data, accessors, source, interactive, pane, z, visible, [STACK]: at }) {
+    deprecated('addCircleLayer', `[cristae] addCircleLayer() se retira en ${RETIRO}: la reemplaza addShapeLayer, con ` +
+      'radiusOf en vez de radiusMetersOf, o <cristae-shape-layer> (docs/shapes.md).')
     return this.#addShape({ id, data, accessors, source, interactive, pane, z, visible, [STACK]: at }, true)
   }
 
@@ -428,11 +474,11 @@ export class MapEngine {
     const controls          = cfg.source ? null : createSource(accessors)
     const source            = cfg.source ?? controls
     const { layer, ...seat } = this.#build(id, cfg, BASE_Z, paneName, () =>
-      new HeatLayer({ host: this.#host, pane: paneName, source, radius, blur, intensity, colorRamp }), true)
+      new HeatLayer({ host: this.#host, pane: paneName, source, radius, blur, intensity, colorRamp, visible }), true)
 
     const record = { kind: 'heat', source, layer, controls, paneName, ...seat, interactive: false, visible, enabled: true }
     this.#layers.set(id, record)
-    this.#applyVisibility(id, paneName, visible)
+    this.setLayerVisibility(id, visible)
 
     if (data && controls) controls.set(data)
     return {
@@ -467,7 +513,7 @@ export class MapEngine {
     let alta = false
     let nace = false
     // En el plano de encima: los handles, sobre las capas.
-    const { layer: editor, ...seat } = this.#build(id, cfg, TOP_Z, paneName, (zIndex, order) => new EditableGeometry({
+    const { layer: editor, ...seat } = this.#build(id, cfg, TOP_PLANE, paneName, (zIndex, order) => new EditableGeometry({
       host: this.#host, pane: paneName, kind, value, mode, model: this.#model, style, onChange, onCommit,
       join:          participant => {                                       // los handles, en su lugar del orden
         participants.add(participant)
@@ -502,24 +548,74 @@ export class MapEngine {
       : record?.kind === 'line' || (record?.kind === 'polygon' && record.layer.curvable)
     if (!curva) return null
 
+    // Los rótulos leen la curva del registro: se les avisa en el alta y en la baja.
     const host = record.layer ?? record.editor
     const off  = () => {
       if (this.#layers.get(hostId) !== record || record.geodesic !== off) return
       record.geodesic = null
       host.setCurve(null)
+      record.labels?.invalidate('data')
     }
     host.setCurve(this.#model)
     record.geodesic = off
+    record.labels?.invalidate('data')
     return off
+  }
+
+  /* ── Rótulos: estado del host, sin registro ni id propio (DISENO-ROTULOS §1.3) ── */
+
+  // `null` si `hostId` no es una capa que se rotula: un editor, el calor, la imagen o la burbuja de un
+  // cluster con `slot="bubble"` de rótulo. Las opciones inválidas lanzan TypeError sin tocar nada.
+  addLabels({ hostId, ...props }) {
+    const labels = this.#labels.add(hostId, props)
+    labels && (this.#focused || this.#itemFocus.size) && this.#applyFocus()   // nacen con el foco vigente
+    return labels
+  }
+
+  /* ── Texto suelto: capa base con Source propia, pintada por los renderers de los rótulos (docs/text-layer.md) ── */
+
+  // Sin capa ni pane propios: el registro es host de sus rótulos, que van al canvas compartido o a un pane
+  // HTML, sin contexto WebGL. Su z de picking es el del plano donde se pintan. `visible` e `interactive` son
+  // de la capa; el resto, las opciones de los rótulos. Lo inválido lanza TypeError antes de registrar nada.
+  // Entra al apilado como una primaria más, sin pane: su rango ordena su picking y el pane `html` de sus rótulos.
+  addTextLayer({ id, data, accessors, source: given, interactive = false, visible = true, [STACK]: at, ...props }) {
+    resolvePlacement('text', mergeLabelOptions(null, props))
+    if (typeof (given?.accessors ?? accessors)?.positionOf !== 'function')
+      throw new TypeError(`[cristae] la capa de texto '${id}' pide accessors.positionOf`)
+    const controls = given ? null : createSource(accessors)
+    const source   = given ?? controls
+    const { layer: _sinCapa, ...seat } = this.#build(id, { [STACK]: at }, LABEL_PLANE, null, () => null)
+    const record = { kind: 'text', source, controls, ...seat, interactive, visible, enabled: true }
+    this.#layers.set(id, record)
+
+    const labels = this.addLabels({ hostId: id, ...props })
+    const none   = () => null                // la capa no aporta partes: todas son de sus rótulos
+    interactive && this.#registerResolver(id, 'text', record, none, none)
+    this.#registry.setLayerVisibility(id, visible)
+    data && controls?.set(data)
+    return {
+      id,
+      source,
+      set        : items => controls?.set(items),
+      update     : options => labels.update(options),
+      setVisible : v => this.setLayerVisibility(id, v),
+    }
   }
 
   /* ── Capas de labels (canvas; standalone o bind-to un host) ── */
 
+  // El aviso comparte clave con el de <cristae-label-layer>, que es el mismo retiro: se ve uno solo, el de la
+  // puerta que se usó primero.
+  /** @deprecated Se retira en v0.47.0: con `bindTo` la reemplaza `addLabels({ hostId })` o `<cristae-labeled>`
+   *  sobre la capa de puntos (docs/labeled.md); con `source` propio, `addTextLayer` o `<cristae-text-layer>`. */
   addLabelLayer(cfg) {
+    deprecated('label-layer', `[cristae] addLabelLayer() se retira en ${RETIRO}: con bindTo la reemplaza ` +
+      'addLabels({ hostId }) o <cristae-labeled> sobre la capa de puntos (docs/labeled.md); con source propio, ' +
+      'addTextLayer o <cristae-text-layer>.')
     const { id, bindTo, pane, paint, style, textOf, accessors } = cfg
     const paneName = pane ?? `cristae-label-${id}`
-    // En el plano de encima: los labels, sobre las capas.
-    const { layer: labelLayer, ...seat } = this.#build(id, cfg, TOP_Z, paneName,
+    // En el plano de encima, donde estaba: con las HTML y el cluster.
+    const { layer: labelLayer, ...seat } = this.#build(id, cfg, TOP_PLANE, paneName,
       () => new LabelLayer({ host: this.#host, pane: paneName, paint, style }), true)
     // `visible` en record: controla si sync() (la suscripción a la Source) corre el reduce O(n) +
     // setLabels. Con setVisible(false) el sync es no-op → cero CPU por cada emit del WS.
@@ -556,20 +652,27 @@ export class MapEngine {
   // set `suppressed` (ref estable, mutado in place) a TODOS los hosts y a sus ligados (labels +
   // overlays, que leen `host.suppressed`). El <cristae-cluster> declarativo entra por acá vía el
   // reductor de la gramática; `addCluster` (un host) es azúcar imperativa que delega.
+  // La burbuja de rótulo (`bubble: { kind: 'label' }`, deprecada) es la de su reemplazo: una capa de burbujas
+  // sin dibujo, rotulada con la píldora como la rotularía un <cristae-labeled> por fuera del cluster.
   addClusterFold(targets, opts = {}) {
-    return createClusterFold(this.#foldBridge(), targets, opts)
+    const unit = createClusterFold(this.#foldBridge(), targets, opts)
+    if (unit && opts.bubble?.kind === 'label') {
+      const { textOf, paint = drawLabel, style = DEFAULT_STYLE } = opts.bubble
+      this.addLabels({ hostId: unit.id, textOf: textOf && (b => textOf(b.count)), paint: (ctx, point, label) => paint(ctx, point, label, false, style) })
+    }
+    return unit
   }
 
   // Puente hacia los servicios del motor que necesita el fold (ClusterFold). El fold vive en su propio
   // módulo y NO accede a los privados del motor: pide sus capacidades por esta interfaz acotada.
   // `above(anchorId, lift)` es el marcador de `cfg[STACK]` de las capas del fold: dependientes de su host, en el plano
-  // de encima (sobre los labels) y en el rango del host, más `lift`.
+  // de encima (sobre los rótulos) y en el rango del host, más `lift`.
   #foldBridge() {
     return {
       camera:            this.#host.camera,
       layerOf:           id => this.#layers.get(id),
       seq:               () => this.#seq++,
-      above:             (anchorId, lift) => this.#dependOn(anchorId, a => this.#zOf(TOP_Z, a.rank) + lift),
+      above:             (anchorId, lift) => this.#dependOn(anchorId, a => this.#zOf(TOP_PLANE, a.rank) + lift),
       subAccent:         SUB_ACCENT,                                                           // acento default de la traza spiderfy
       makeBubbleSink:    (bubble, pane, anchorId, foldId, interactive) => this.#makeBubbleSink(bubble, pane, anchorId, foldId, interactive),
       subClusterIconSet: accent => this.#subClusterIconSet(accent),
@@ -761,7 +864,14 @@ export class MapEngine {
   // envuelve, que re-indexa y recalcula la supresión sobre los ids nuevos.
   attachSource(id, source) {
     const record = this.#layers.get(id)
-    if (!record || record.kind !== 'point' || record.source === source) return this
+    if (!record || record.source === source) return this
+    if (record.kind === 'text') {               // sin capa que reconstruir: los rótulos pasan a leer la nueva
+      record.controls?.destroy()
+      Object.assign(record, { source, controls: null })
+      record.labels.rebind()
+      return this
+    }
+    if (record.kind !== 'point') return this
     const { focus } = record.layer
     record.source   = source
     record.controls = null
@@ -776,6 +886,7 @@ export class MapEngine {
       if (entry) { entry.layer = record.layer; record.layer.pickObject = entry.obj }
     }
     this.#layers.forEach(r => r.bindTo === id && r.rebind?.(source))
+    record.labels?.rebind()                             // los rótulos son de la capa: siguen su Source
     this.#highlightOverlays.forEach(e => e.layerId === id && e.follow(source))
     record.cluster?.reindex()
     return this
@@ -794,6 +905,7 @@ export class MapEngine {
     const record = this.#layers.get(id)
     if (!record) return false
     const dibujaba = this.#drawing.delete(id)   // fuera del estado antes de su destroy, que así no avisa
+    record.labels?.dispose()              // los rótulos mueren con su host
     record.unsub?.()                      // bind de labels / suscripción de la capa
     record.layer?.destroy?.()
     record.editor?.destroy?.()            // editor de geometría (input controlado, sin record.layer)
@@ -831,6 +943,7 @@ export class MapEngine {
     const effective = visible && record.enabled && (!host || host.enabled)
     this.#applyVisibility(id, record.paneName, effective)
     record.layer?.setVisible?.(effective)      // una capa que dibuja sola no se apaga ocultando el pane
+    record.labels?.invalidate('visibility')
     if (!effective) this.#bus.clearLayer(id)
     return true
   }
@@ -852,6 +965,7 @@ export class MapEngine {
     // catch-up al volver (la Source siguió viva mientras tanto).
     record.layer.enabled = next
     this.#applyVisibility(id, record.paneName, next && record.visible)
+    record.labels?.invalidate('visibility')
     if (!next) this.#bus.clearLayer(id)
     // Ligados: siguen la suerte de la ENTIDAD (un badge/label de un host deshabilitado no queda
     // flotando solo). Componen su propio `visible` — re-habilitar no revive lo que el consumidor
@@ -926,12 +1040,12 @@ export class MapEngine {
   }
 
   // Fuera de contrato: el mapa de Leaflet es un detalle del anfitrión y lo que se haga con él no lo cubre
-  // ninguna garantía. Devuelve el mapa y avisa una vez por motor; se retira en 1.0.
+  // ninguna garantía. Devuelve el mapa y avisa una vez por página.
+  /** @deprecated Se retira en v0.47.0: el mapa de Leaflet es un detalle interno y queda fuera de contrato. La
+   *  cámara, los tiles y el cursor se piden al motor (docs/elements.md). */
   getLeafletMap() {
-    this.#leafletWarned || console.warn(
-      '[cristae] getLeafletMap() está fuera de contrato y se retira en 1.0: el mapa de Leaflet es un ' +
-      'detalle interno. La cámara, los tiles y el cursor se piden al motor (docs/elements.md).')
-    this.#leafletWarned = true
+    deprecated('getLeafletMap', `[cristae] getLeafletMap() se retira en ${RETIRO}: el mapa de Leaflet es un detalle ` +
+      'interno y queda fuera de contrato. La cámara, los tiles y el cursor se piden al motor (docs/elements.md).')
     return this.#host.map
   }
 
@@ -1125,7 +1239,11 @@ export class MapEngine {
     entry.obj && p.free.push(entry.obj)
   }
 
-  #registerResolver(id, kind, record, resolveClick, resolveHover, overlay) {
+  // Los rótulos de la capa son parte de sus ítems: el resolver fusiona sus partes, leyendo `record.labels`
+  // en el momento, así unos rótulos que llegan después del alta no piden registrar de nuevo.
+  #registerResolver(id, kind, record, click, hover, overlay) {
+    const resolveClick = sample => record.labels ? record.labels.merge(click(sample), sample) : click(sample)
+    const resolveHover = sample => record.labels ? record.labels.merge(hover(sample), sample) : hover(sample)
     this.#registry.upsertResolver({ layerId: id, kind, zIndex: record.zIndex, declOrder: this.#orderOf(record), resolveClick, resolveHover, visible: true, capture: overlay?.capture, presentAs: overlay?.presentAs })
     this.#registry.setLayerDemandMask(id, this.#bus.demandMaskFor(id))
     this.#interaction.syncHoverDemand()
@@ -1159,6 +1277,18 @@ export class MapEngine {
     return this.#host.surface.mount(name, zIndex, { pointer: false })
   }
 
+  // Dónde van los rótulos de un host. `canvas`: el canvas del plano de rótulos, compartido por todo el mapa;
+  // `html`, un pane por host encima de él, en el rango del host. Los de las burbujas de un cluster, sobre sus
+  // burbujas y bajo su espiral (§2.7), en un pane por fold y renderer: en el plano de encima, en el rango del host
+  // base del pliegue, +6. Los dos siguen el rango cuando cambia (#seat → `labels.reseat`).
+  #labelSlot(record, hostId, renderer) {
+    return record.fold
+      ? { key: `${renderer}:${hostId}`, pane: `${hostId}-labels-${renderer}`, zIndex: this.#zOf(TOP_PLANE, this.#orderOf(record)) + 6 }
+      : renderer === 'canvas'
+        ? { key: 'canvas', pane: 'cristae-labels', zIndex: LABEL_PLANE }
+        : { key: `${renderer}:${hostId}`, pane: `cristae-labels-${renderer}-${hostId}`, zIndex: this.#zOf(LABEL_PLANE, this.#orderOf(record) + 1) }
+  }
+
   /* ── Apilado: el z por defecto sale del orden de declaración, no de la historia de altas ── */
 
   // Una capa entra al apilado y con su pane: se monta y la capa se construye colgada de él. Lo que valida la
@@ -1174,7 +1304,8 @@ export class MapEngine {
   //
   // Lo que lanza al construir —un sustrato GPU sin WebGL2, que el consumidor puede degradar a otro, o su propio
   // código— deja la capa sin registro ni `removeLayer`: se sueltan acá el separador, el pane y el rango. `create`
-  // recibe el z y el orden con que nace la capa. Devuelve la capa y el asiento que va a su record.
+  // recibe el z y el orden con que nace la capa. Devuelve la capa y el asiento que va a su record. Con `paneName` nulo
+  // la capa no tiene pane propio (la de texto, la burbuja de rótulo): entra al apilado igual, no monta nada y no separa.
   #build(id, cfg, plane, paneName, create, separa = false) {
     const dep    = this.#anchors.has(cfg[STACK]) ? cfg[STACK] : null
     const anchor = dep && this.#layers.get(dep.anchor)
@@ -1186,14 +1317,14 @@ export class MapEngine {
     const order  = dep ? anchor.rank : rank
     const top    = cfg.pane != null && this.#paneTop(paneName)
 
-    const pane = this.#mount(paneName, top && this.#orderOf(top) > order ? top.zIndex : zIndex)
-    const undo = separa ? this.#tramos.separator(pane) : null
+    const pane = paneName == null ? null : this.#mount(paneName, top && this.#orderOf(top) > order ? top.zIndex : zIndex)
+    const undo = separa && pane ? this.#tramos.separator(pane) : null
     let layer
     try {
       layer = this.#watchSurface(create(zIndex, order))
     } catch (error) {
       undo?.()
-      this.#host.surface.unmount(paneName)
+      paneName == null || this.#host.surface.unmount(paneName)
       dep || this.#gap(this.#stack.remove(id))
       throw error
     }
@@ -1204,7 +1335,15 @@ export class MapEngine {
     return { layer, z, plane, rank, zIndex, ...dep && { anchor: dep.anchor, place: dep.place } }
   }
 
-  #zOf(plane, rank) { return plane + rank * Z_STEP }
+  // El z derivado de un rango dentro de su plano. El que llegaría al plano de arriba se queda en el techo.
+  #zOf(plane, rank) {
+    const step = rank * Z_STEP
+    if (step < PLANE - Z_STEP) return plane + step
+    this.#planeWarned || console.warn('[cristae] el orden de las capas llegó al techo de su plano de z: las ' +
+      'que se agreguen desde ahora quedan a la misma altura. Pasá `z` explícito si el apilado importa.')
+    this.#planeWarned = true
+    return plane + PLANE - Z_STEP
+  }
 
   // El rango con que desempata una capa: el propio, o el de su ancla si es dependiente.
   #orderOf(record) { return record.anchor == null ? record.rank : this.#layers.get(record.anchor)?.rank ?? -1 }
@@ -1242,11 +1381,12 @@ export class MapEngine {
 
     const z     = record.z ?? (anchor ? record.place(anchor) : this.#zOf(record.plane, record.rank))
     const order = (anchor ?? record).rank
-    let wrote   = z !== record.zIndex && !this.#panes.has(record.paneName)
+    let wrote   = z !== record.zIndex && record.paneName != null && !this.#panes.has(record.paneName)
     record.zIndex = z
     wrote && this.#host.surface.setZ(record.paneName, z)
     this.#registry.restack(id, z, order)
     record.participants?.forEach(participant => this.#interaction.restack(participant, z, order))
+    wrote = record.labels?.reseat() || wrote   // los panes de sus rótulos que van en su rango
     record.dependents?.forEach(dep => wrote = this.#seat(dep, this.#layers.get(dep)) || wrote)
     return wrote
   }
@@ -1333,7 +1473,7 @@ export class MapEngine {
   // con `surfacechange`: sale la fila de la capa que la tiene hoy. La de antes de `attachSource`, que ya no
   // es la de ninguna, no avisa.
   #watchSurface(layer) {
-    const surface = layer.surface
+    const surface = layer?.surface
     surface && (surface.onState = () => {
       const entry = [...this.#layers].find(([, record]) => (record.layer ?? record.editor)?.surface === surface)
       entry && this.#emit('surfacechange', this.#surfaceRow(...entry))
@@ -1424,6 +1564,7 @@ export class MapEngine {
       return revelados?.size ? new Set([...(propios ?? []), ...revelados]) : propios
     }
     for (const [id, rec] of this.#layers) {
+      rec.labels && this.#focusLabels(id, rec, porItem, brillantes)
       if (!rec.paneName) continue
       // Las capas LIGADAS a un host (labels/overlays con bindTo) siguen su suerte de foco: un
       // badge no queda brillante sobre un marcador atenuado ni atenuado sobre uno enfocado.
@@ -1443,6 +1584,17 @@ export class MapEngine {
       this.#host.surface.setOpacity(rec.paneName, alpha)
       rec.layer?.surface?.setOpacity?.(alpha)   // la de una capa GL la aplica la composición: el mismo valor no compone
     }
+  }
+
+  // Los rótulos de un host en un canvas compartido no tienen pane que atenuar: cada uno toma su opacidad
+  // (§2.6), con la misma composición que su host. Por capa, se atenúan con `'label'` en `kinds` aunque el
+  // kind del host no esté, y sin él siguen al host; la capa que `focus()` nombra queda exenta. Brillan los
+  // ítems que brillan en el host.
+  #focusLabels(id, rec, porItem, brillantes) {
+    const kinds   = this.#focusKinds
+    const porCapa = !!this.#focused && (!kinds || kinds.includes('label') || kinds.includes(rec.kind))
+    const atenua  = !(porCapa && this.#focused.has(id)) && (porCapa || porItem)
+    rec.labels.setFocus(atenua, atenua ? brillantes(id) ?? null : null, porCapa ? this.#dimOpacity : ITEM_DIM)
   }
 
   // Lo que el handle escribe es la Source que el motor posee, y `attachSource` se la quita: desde entonces el dueño de los
@@ -1485,20 +1637,25 @@ export class MapEngine {
   // `feed(bubbles)` (la forma de alimentar varía por tipo) y `dispose`.
   // interactive: true cuando expandable está activo (las burbujas reciben clicks de expand/collapse).
   // Las burbujas son un record más, dependiente del host base del pliegue como las demás capas del fold (bridge.above):
-  // sobre los labels, en el rango del host, +5. Así #seat las corre cuando el host cambia de rango.
+  // sobre los rótulos, en el rango del host, +5. Así #seat las corre cuando el host cambia de rango.
   #makeBubbleSink(bubble, bubblePane, anchorId, foldId, interactive = false) {
     const siblingId = `${foldId}:clusters`
-    const stack     = { [STACK]: this.#dependOn(anchorId, a => this.#zOf(TOP_Z, a.rank) + 5) }
+    const stack     = { [STACK]: this.#dependOn(anchorId, a => this.#zOf(TOP_PLANE, a.rank) + 5) }
     const spec      = bubble ?? { kind: 'point' }
 
+    // La de rótulo comparte el aviso con la hija `slot="bubble"` de <cristae-cluster>, que llega por acá.
     if (spec.kind === 'label') {
-      const { layer, ...seat } = this.#build(siblingId, stack, TOP_Z, bubblePane, () =>
-        new LabelLayer({ host: this.#host, pane: bubblePane, paint: spec.paint, style: spec.style }), true)
-      const textOf = spec.textOf ?? (count => String(count))
-      this.#layers.set(siblingId, { kind: 'label', layer, paneName: bubblePane, ...seat, visible: true, enabled: true })
+      deprecated('bubble-label', `[cristae] la burbuja de rótulo (bubble: { kind: 'label' }) se retira en ${RETIRO}: ` +
+        'la reemplazan la burbuja de puntos y addLabels({ hostId }) sobre la capa de burbujas, o un <cristae-labeled> ' +
+        'por fuera del cluster (docs/labeled.md).')
+      // Sin dibujo, pane ni picking propios: sólo la Source de las burbujas, que rotula `addClusterFold`. Es
+      // dependiente del host base como la burbuja de puntos, así sus rótulos siguen su rango.
+      const controls = createSource({ idOf: b => b.id, positionOf: b => b })
+      const { layer: _sinCapa, ...seat } = this.#build(siblingId, stack, TOP_PLANE, null, () => null)
+      this.#layers.set(siblingId, { kind: 'label', source: controls, controls, ...seat, visible: true, enabled: true })
       return {
-        feed:    bubbles => layer.setLabels(bubbles.map(b => ({ id: b.id, lat: b.lat, lng: b.lng, text: textOf(b.count) }))),
-        dispose: () => this.removeLayer(siblingId),
+        feed    : bubbles => controls.set(bubbles),
+        dispose : () => this.removeLayer(siblingId),
       }
     }
 
@@ -1521,10 +1678,10 @@ export class MapEngine {
       // estado/pos para que cualquiera de esos cambios re-encode el sprite de la burbuja.
       hashOf: b => `${b.count}:${b.expanded ? 'd' : b.marked ? 'm' : ''}:${b.lat}:${b.lng}`,
     }, iconSet.variants)
-    const { layer, ...seat } = this.#build(siblingId, stack, TOP_Z, bubblePane, () =>
+    const { layer, ...seat } = this.#build(siblingId, stack, TOP_PLANE, bubblePane, () =>
       this.#trackGl(new PointLayer({ host: this.#host, pane: bubblePane, source: controls, iconSet, interactive, surface: this.#tramos.surface })))
     const record = {
-      kind: 'point', source: controls, layer, controls, paneName: bubblePane, ...seat, interactive,
+      kind: 'point', source: controls, layer, controls, paneName: bubblePane, ...seat, interactive, iconSet,
       visible: true, enabled: true,
     }
     this.#layers.set(siblingId, record)
@@ -1612,6 +1769,7 @@ export class MapEngine {
       if (record.bindTo !== hostId) return
       if (record.kind === 'label' || record.kind === 'overlay') record.resync?.()
     })
+    this.#layers.get(hostId)?.labels?.invalidate('data')
   }
 
   #flushPendingBinds() {
