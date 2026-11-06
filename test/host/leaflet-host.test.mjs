@@ -248,7 +248,9 @@ test('flyTo vuela si la política anima el zoom de destino, y si no es un setVie
 
 // El vuelo de Leaflet no pasa por los topes: sin los del anfitrión, la vista queda más allá de
 // `max-zoom` hasta el zoom siguiente. La caja la repone Leaflet en el `moveend` del vuelo, y desde tan
-// lejos sin animar.
+// lejos sin animar. El `zoomend` se espera desde antes del vuelo: Leaflet calcula el primer cuadro en la
+// misma llamada, y si ya pasó la duración —una pausa de 50 ms con la máquina cargada— el vuelo se asienta
+// adentro de `flyTo`, y quien se suscribe después espera para siempre.
 test('flyTo llega a un zoom entre los topes, y la caja lo trae de vuelta', async () => {
   const caja = { south: -34, west: -71, north: -32, east: -69 }
   const host = createLeafletHost({
@@ -259,8 +261,9 @@ test('flyTo llega a un zoom entre los topes, y la caja lo trae de vuelta', async
   const { camera } = host
   camera.zoomPolicy = 'on'
   const vuela = (latlng, zoom) => {
+    const asentado = asiente(camera)
     camera.flyTo(latlng, zoom, { duration: 0.05 })
-    return asiente(camera).then(() => camera.zoom())
+    return asentado.then(() => camera.zoom())
   }
   assert.equal(await vuela({ lat: -33.2, lng: -70.2 }, 14), 11, 'el tope de arriba')
   assert.equal(await vuela({ lat: -33, lng: -70 }, 3), 8, 'el de abajo')
