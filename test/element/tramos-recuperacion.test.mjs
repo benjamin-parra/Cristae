@@ -358,6 +358,39 @@ test('K3 el tramo que la saturación suelta por voluntad propia queda con su ima
   intactos(navegador)
 })
 
+// La imagen fija ocupa un canvas del tamaño de la vista y oye la vista: quitar lo que la sostiene la suelta entera.
+const soltada = still => {
+  assert.equal(still.isConnected, false, 'fuera del DOM')
+  assert.deepEqual([still.width, still.height], [0, 0], 'sin su memoria')
+}
+
+test('K3 sin fugas: quitar una capa del tramo que espera suelta su imagen fija, y el tramo sigue esperando sin ella', async () => {
+  const { engine, navegador } = await saturarAbajo([])
+  const abajo = tramoDe(engine, 'a')
+  const still = abajo.still
+  assert.ok(still)
+  engine.removeLayer('a')
+  await microtareas()
+  assert.equal(abajo.still, null)
+  soltada(still)
+  assert.equal(tramoDe(engine, 'b'), abajo, 'la línea sigue en su tramo')
+  assert.equal(abajo.surface.state, 'released', 'esperando cupo, sin imagen')
+  engine.camera.setView([1, 1], 3)                     // la vista que se mueve ya no la toca
+  await microtareas()
+  assert.equal(abajo.still, null)
+  intactos(navegador)
+})
+
+test('K3 sin fugas: quitar el mapa con un tramo esperando suelta su imagen fija', async () => {
+  const { engine } = await saturarAbajo([])
+  const still = tramoDe(engine, 'a').still
+  assert.ok(still)
+  mapa.remove()
+  mapa = null
+  await microtareas()
+  soltada(still)
+})
+
 test('saturación sobre tramos: dos reintentos, a los 5 s y a los 30 s, y nada más; la imagen fija sigue mientras tanto', async () => {
   try {
     const ajenos = []
