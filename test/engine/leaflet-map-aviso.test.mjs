@@ -1,4 +1,4 @@
-// `getLeafletMap()` está fuera de contrato y se retira en v0.40.0: devuelve el mapa y avisa por consola una sola
+// `getLeafletMap()` está fuera de contrato y se retira en v0.47.0: devuelve el mapa y avisa por consola una sola
 // vez por página, aunque la llamen varios motores.
 // Corre con: node --test test/engine/leaflet-map-aviso.test.mjs
 import '../../test-helpers/engine-stub.mjs'
@@ -22,5 +22,5 @@ test('devuelve el mapa de cada motor y avisa una vez por página', t => {
   assert.equal(a.getLeafletMap(), mapA)
   assert.equal(b.getLeafletMap(), mapB)
   assert.equal(aviso.mock.callCount(), 1)
-  assert.match(aviso.mock.calls[0].arguments[0], /getLeafletMap\(\) se retira en v0\.40\.0: .*fuera de contrato/)
+  assert.match(aviso.mock.calls[0].arguments[0], /getLeafletMap\(\) se retira en v0\.47\.0: .*fuera de contrato/)
 })

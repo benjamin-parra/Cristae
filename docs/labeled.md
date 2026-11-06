@@ -203,7 +203,7 @@ Un valor inválido lanza `TypeError` antes de tocar el motor, y en caliente no c
 
 ## Desde `<cristae-label-layer>`
 
-`<cristae-label-layer>` se retira en v0.40.0, y su reemplazo es `<cristae-labeled>` sobre la capa de puntos; con
+`<cristae-label-layer>` se retira en v0.47.0, y su reemplazo es `<cristae-labeled>` sobre la capa de puntos; con
 `source` propio, [`<cristae-text-layer>`](text-layer.md). La
-equivalencia prop por prop está en [`labels.md`](labels.md#retiro-en-v0400). `<cristae-line-label-layer>` no
+equivalencia prop por prop está en [`labels.md`](labels.md#retiro-en-v0470). `<cristae-line-label-layer>` no
 llegó a publicarse: su reemplazo es `<cristae-labeled>` sobre la capa de líneas.

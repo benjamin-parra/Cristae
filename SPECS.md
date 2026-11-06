@@ -255,8 +255,8 @@ new MapEngine({ host: adoptLeafletHost(map, { leaflet? }), … }) → engine
 | `addPolygonLayer(cfg) → handle` | acción | O(1) | |
 | `addShapeLayer(cfg) → handle` | acción | O(1) | círculos, elipses y sectores en metros (§8.7) |
 | `addEditableLayer(cfg) → handle` | acción | O(1) | editor de una geometría, input controlado (§8.8) |
-| `addCircleLayer(cfg) → handle` | acción | O(1) | `@deprecated`, se retira en v0.40.0: alias de la capa de formas (§8.7) |
-| `addLabelLayer(cfg) → handle` | acción | O(1) | standalone o `bindTo`. `@deprecated`, se retira en v0.40.0: lo reemplaza `addLabels` (§19.3) |
+| `addCircleLayer(cfg) → handle` | acción | O(1) | `@deprecated`, se retira en v0.47.0: alias de la capa de formas (§8.7) |
+| `addLabelLayer(cfg) → handle` | acción | O(1) | standalone o `bindTo`. `@deprecated`, se retira en v0.47.0: lo reemplaza `addLabels` (§19.3) |
 | `addLabels({ hostId, ...props }) → { update, remove } \| null` | acción | O(1) + la colocación del host | rótulos sobre los ítems del host; `null` si no se rotula (§19.3) |
 | `addImageLayer(cfg) → { id, setUrl, setImage, setBounds, setCorners, setOpacity, setVisible }` | acción | O(1) | imagen georreferenciada en DOM (§19.1) |
 | `attachSource(id, source)` | acción | O(n) | ruta B/C; interno del setter `.source` de la capa. La misma fuente no hace nada; otra reemplaza la capa y lo que cuelga del host la sigue (overlays, labels, rótulos, realce y cluster, que re-indexa). En la capa de texto no hay capa que reemplazar: sus rótulos pasan a leer la nueva |
@@ -272,7 +272,7 @@ new MapEngine({ host: adoptLeafletHost(map, { leaflet? }), … }) → engine
 
 - **Leaflet es el anfitrión.** El motor lo usa para la cámara, la superficie donde dibujan las capas, los tiles y la entrada cruda del navegador —lo que costaría rehacer—; el dibujo, el picking, el cursor, los controles y el ruteo del puntero son de Cristae. Es un detalle interno: ningún valor de la API es un objeto suyo (§0), y `adoptLeafletHost` es el único punto de integración con un Leaflet ajeno.
 - **El mapa:** sin `host`, el motor crea su propio mapa sobre `container` —con `preferCanvas`, sin el fundido de tiles ni la animación de marcadores de Leaflet y sin controles: el zoom y la atribución los dibuja `<cristae-map>`, y sin él la atribución la da `getTileAttribution()` ([`docs/tiles.md`](./docs/tiles.md#la-atribución))—, con la vista inicial de `view` (default `[0, 0]`, zoom 2) y los límites de la cámara (§9), y `destroy()` lo remueve. Con `host` trabaja sobre un mapa que ya existe, adoptado con `adoptLeafletHost(map, { leaflet })`: el mapa sigue siendo de quien lo creó, y `destroy()` le quita los listeners del ciclo de vista y del arrastre, la política de zoom de §9 y la capa de tiles que le puso, con el pane de su retención, le devuelve los límites de la cámara que tenía si el motor le puso los suyos (§9), y lo deja vivo. Un mapa adoptado es de un solo motor. `leaflet` es el Leaflet que construyó el mapa (default: el de Cristae): con dos copias en la página, las capas del motor tienen que salir de la del mapa.
-- **`getLeafletMap()` está fuera de contrato.** El mapa de Leaflet es el anfitrión del motor y un detalle suyo: lo que se haga con el mapa crudo —un control, un evento, un pane— no tiene garantía entre versiones, y Cristae no lo prueba. Sigue devolviéndolo, y avisa por consola la primera vez que se lo pide cada motor. Se retira en v0.40.0; lo que se bajaba a buscar ahí lo dan la cámara (§9), los tiles (`setTileProvider`), el cursor (`setCursor`) y las señales del motor.
+- **`getLeafletMap()` está fuera de contrato.** El mapa de Leaflet es el anfitrión del motor y un detalle suyo: lo que se haga con el mapa crudo —un control, un evento, un pane— no tiene garantía entre versiones, y Cristae no lo prueba. Sigue devolviéndolo, y avisa por consola la primera vez que se lo pide cada motor. Se retira en v0.47.0; lo que se bajaba a buscar ahí lo dan la cámara (§9), los tiles (`setTileProvider`), el cursor (`setCursor`) y las señales del motor.
 - **Apilado de las capas imperativas.** Sin `z`, una capa dada de alta con `addXLayer` se apila sobre las declaradas por elementos (§7.3), en orden de alta. Darla de baja y otra vez de alta la pone sobre las demás imperativas; su z no crece, porque sale de su posición y no de cuántas altas hubo. `setLayerZ(id, z)` le fija un z explícito, y `setLayerZ(id, null)` lo borra: la capa vuelve a su lugar (§8, `z`).
 - **Sin globals:** el motor no lee ni escribe `window.L`, y `<cristae-map>` no registra plugins: los puntos, las líneas y los polígonos se dibujan con la superficie WebGL de cada capa ([`docs/render.md`](./docs/render.md)), y el Leaflet que usa el mapa propio es el de Cristae.
 
@@ -373,7 +373,7 @@ Ejes **comunes a toda capa hoja** (viven en la base, ninguna subclase los declar
 </cristae-point-layer>
 ```
 
-- **label-layer:** standalone (`source` propio) o attachment (`bind-to="<layerId>"`, deriva posiciones + `textOf` del host). `bind-to` resuelve por nombre, orden-independiente. **`@deprecated`, se retira en v0.40.0:** la reemplaza `<cristae-labeled>` sobre la capa de puntos (§19.3), y avisa una vez por página al montarse como capa. La hija `slot="bubble"` de label del cluster también se retira y avisa aparte: el rótulo de las burbujas lo da un `<cristae-labeled>` por fuera del cluster. La de puntos, que cambia el ícono, sigue.
+- **label-layer:** standalone (`source` propio) o attachment (`bind-to="<layerId>"`, deriva posiciones + `textOf` del host). `bind-to` resuelve por nombre, orden-independiente. **`@deprecated`, se retira en v0.47.0:** la reemplaza `<cristae-labeled>` sobre la capa de puntos (§19.3), y avisa una vez por página al montarse como capa. La hija `slot="bubble"` de label del cluster también se retira y avisa aparte: el rótulo de las burbujas lo da un `<cristae-labeled>` por fuera del cluster. La de puntos, que cambia el ícono, sigue.
 - **cluster:** agregador de la gramática (§8.10). `radius/max-zoom/min-points/icon-set` **reactivos en runtime** (reconfig sin recrear la capa). Supercluster: build O(n log n), query O(1) por zoom (no se reescribe — MODELO §13).
 - **Apilado de cluster y overlay:** no ocupan lugar en el orden de declaración; sus hojas sí. El badge de un `<cristae-overlay>` queda sobre su host (z efectivo del host + 7) y lo sigue, también con `z` explícito o `setLayerZ`. Las burbujas, las patas y la espiral de un cluster van sobre los rótulos y siguen la posición del host base, con patas < burbujas < rótulos de las burbujas < espiral < sub-espiral. Su valor es plano de encima + 10·posición del host + k, no un número fijo: ningún consumidor debe anotarlo como constante.
 - **Borde eliminado:** `warmup()` de ~278 buckets de cluster → el atlas append-only lo hace innecesario.
@@ -480,7 +480,7 @@ root del mapa. Hijo de `<cristae-map>`.
 - **El tamaño es de la figura entera**: `camera.fitToLayer`/`fitToLayers` encuadran la caja que la capa informa de lo dibujado, no sus centros.
 - **Hit**: `{ kind: 'shape', id, ref: id, distancePx: 0 }`, resuelto por punto-en-anillo sobre las mismas tablas del dibujo, así que el borde que se ve es el que pica; de varias formas superpuestas sale primero la última de `data`. Los vértices por forma y el tope de textura, en [`docs/shapes.md`](./docs/shapes.md#costo).
 - **Complejidad**: un cambio de la Source rehace todos los anillos y sube la textura entera, O(vértices); al asentar el zoom sólo rehace si alguna forma pide otro número de vértices. Sirve para cientos de formas, no para un feed de miles a alta frecuencia. Cifras en [`docs/shapes.md`](./docs/shapes.md#costo).
-- **`addCircleLayer`** es un alias `@deprecated` de esta capa: dibuja y pica en la esfera por defecto aunque el mapa traiga otro `model`, lee sólo `radiusMetersOf`, ignora `headingOf`, `sweepOf` y el estilo de capa, devuelve `{ id, source, set, setVisible }` y sus hits llevan `kind: 'circle'` en el orden de `data`. Se retira en v0.40.0; la guía de migración está en [`docs/shapes.md`](./docs/shapes.md#migrar-desde-addcirclelayer).
+- **`addCircleLayer`** es un alias `@deprecated` de esta capa: dibuja y pica en la esfera por defecto aunque el mapa traiga otro `model`, lee sólo `radiusMetersOf`, ignora `headingOf`, `sweepOf` y el estilo de capa, devuelve `{ id, source, set, setVisible }` y sus hits llevan `kind: 'circle'` en el orden de `data`. Se retira en v0.47.0; la guía de migración está en [`docs/shapes.md`](./docs/shapes.md#migrar-desde-addcirclelayer).
 
 ### 8.8 `<cristae-editable-*>`
 
@@ -534,7 +534,7 @@ hace con lo que toma, y el resto de la firma lo deriva la gramática (`deriveSig
 - **El decorado sigue a su capa.** La capa alcanzada es el host del decorador: lo que pone sigue la
   supresión del cluster y el foco del host (§8), y muere con él.
 - **`<cristae-label-layer>`** es una hoja: su liga a una capa de puntos es el atributo `bind-to` (§8.3), no
-  la firma, y se va con el elemento en v0.40.0.
+  la firma, y se va con el elemento en v0.47.0.
 - **`<cristae-overlay>` es decorador**: `{ role: 'decorate', consumes: ['point'], produces: ['overlay'] }`.
   Antes tomaba todo su subárbol; ahora, el productor más cercano, y el resultado no cambia: dentro de un
   cluster, por fuera de él, junto a otro overlay o envuelto por un `labeled` alcanza las mismas capas de
@@ -587,7 +587,7 @@ MODELO §8. En el elemento como `CustomEvent` (prefijo `cristae:`) y en el motor
 
 ```ts
 Hit = { layerId, kind: 'point'|'polygon'|'line'|'shape'|'html'|'circle', ref, id, distancePx, zIndex, order }
-// 'circle' sólo lo emite addCircleLayer, deprecada; se retira en v0.40.0
+// 'circle' sólo lo emite addCircleLayer, deprecada; se retira en v0.47.0
 // orden top-first: zIndex desc, order asc, distancePx asc
 ```
 
@@ -1541,7 +1541,7 @@ toca el motor.
 
 Texto sobre cada ítem de una capa base: debajo de un punto, a lo largo de una ruta, en el centro de un
 predio. Equivale a `polyline.setText` de Leaflet.TextPath sobre líneas. Reemplaza a `<cristae-label-layer>`
-(§8.3), que se retira en v0.40.0.
+(§8.3), que se retira en v0.47.0.
 
 - **Decorador** (§8.10): un `addLabels` por capa alcanzada, el productor más cercano. Re-emite la capa que decora, así que un cluster o una geodésica que envuelvan al
   `labeled` siguen viendo su capa. El `_handle` es un marcador; las units de rótulo llevan `update` y

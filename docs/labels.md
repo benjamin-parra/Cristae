@@ -3,11 +3,11 @@
 > Pieza de [Cristae](../MODELO.md). Implementa [SPECS §8.3](../SPECS.md) (label-layer). Capa de
 > presentación pura: posiciona etiquetas sobre el mapa; no resuelve hits ni conoce el dominio.
 
-> **`<cristae-label-layer>` y `addLabelLayer` se retiran en v0.40.0.** Los reemplaza
+> **`<cristae-label-layer>` y `addLabelLayer` se retiran en v0.47.0.** Los reemplaza
 > [`<cristae-labeled>`](labeled.md) sobre la capa de puntos, y con `source` propio
 > [`<cristae-text-layer>`](text-layer.md). Hasta entonces funcionan, y avisan una vez por página en consola.
 > El elemento ya no tiene implementación propia: se traduce a su reemplazo. La equivalencia está en
-> [Retiro en v0.40.0](#retiro-en-v0400). `LabelLayer` y `drawLabel` se quedan.
+> [Retiro en v0.47.0](#retiro-en-v0470). `LabelLayer` y `drawLabel` se quedan.
 
 `LabelLayer` dibuja etiquetas de texto (píldoras) sobre un canvas montado en la superficie del mapa,
 ancladas a coordenadas geográficas. Una sola capa genérica: el **glifo** lo pinta una función
@@ -134,7 +134,7 @@ la `LabelLayer` sigue siendo presentación pura y no conoce clusters.
 
 ---
 
-## Retiro en v0.40.0
+## Retiro en v0.47.0
 
 `<cristae-labeled>` envuelve la capa en vez de ligarse por nombre, y sigue su visibilidad, su foco y su
 cluster sin que se declare ([`labeled.md`](labeled.md)).

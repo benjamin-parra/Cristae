@@ -140,7 +140,7 @@ test('con slot="bubble" de rótulo, las burbujas ya van rotuladas y el retiro av
     assert.equal(engine.getLayer(bubbleId).labels.links.length, 2)
     const otro = mount({ bubble: { kind: 'label' } })
     assert.equal(avisos.length, 1)
-    assert.match(avisos[0], /bubble: \{ kind: 'label' \}\) se retira en v0\.40\.0: .*<cristae-labeled> por fuera del cluster/)
+    assert.match(avisos[0], /bubble: \{ kind: 'label' \}\) se retira en v0\.47\.0: .*<cristae-labeled> por fuera del cluster/)
     otro.engine.destroy()
     engine.destroy()
   } finally {

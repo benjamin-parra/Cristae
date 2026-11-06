@@ -181,24 +181,24 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   comparte con los lectores de texto. El resultado no cambia, bit a bit.
 
 ### Deprecado
-- **El retiro de lo deprecado se adelanta de la 1.0 a la v0.40.0.** Lo que se anunció «se retira en 1.0»
+- **El retiro de lo deprecado se adelanta de la 1.0 a la v0.47.0.** Lo que se anunció «se retira en 1.0»
   —`addPolygonGpuLayer`, `addCircleLayer` con sus tipos de círculo y `getLeafletMap()`— y lo que depreca
-  esta versión se retiran en la v0.40.0. Así deja de valer lo que dijo la 0.36.0, que lo deprecado seguía
-  funcionando hasta el salto a la 1.0: funciona hasta la última versión antes de la v0.40.0. El motivo es
-  que cambió el modelo general, con capas por rol y un contexto WebGL compartido, y lo deprecado se sostiene
-  con caminos aparte. La política nueva está en
+  esta versión se retiran en la v0.47.0. Así deja de valer lo que dijo la 0.36.0, que lo deprecado seguía
+  funcionando hasta el salto a la 1.0: funciona hasta la última versión antes de la v0.47.0. El motivo es
+  que cambió el modelo general, con capas por rol y el contexto WebGL compartido que llega en la v0.46.11, y
+  lo deprecado se sostiene con caminos aparte. La política nueva está en
   [`docs/versionado.md`](docs/versionado.md#deprecación-y-retiro): al menos una versión de aviso y el retiro
   en una versión menor marcada. La tabla de cada API con su reemplazo está en el
-  [README](README.md#deprecado-se-retira-en-v0400).
-  *Migración*: ninguna en esta versión. Antes de la v0.40.0, cambiar cada API por su reemplazo.
+  [README](README.md#deprecado-se-retira-en-v0470).
+  *Migración*: ninguna en esta versión. Antes de la v0.47.0, cambiar cada API por su reemplazo.
 - **`<cristae-label-layer>`, `<CristaeLabelLayer>`, `addLabelLayer` y la hija `slot="bubble"` de label del
-  cluster.** Siguen funcionando y se retiran en la v0.40.0; avisan una vez por página, el elemento y el
+  cluster.** Siguen funcionando y se retiran en la v0.47.0; avisan una vez por página, el elemento y el
   método con un solo aviso y la hija con la burbuja del motor. `addPolygonGpuLayer` y `addCircleLayer` también
   avisan ahora, y `getLeafletMap()` pasa de avisar una vez por motor a una vez por página.
   *Migración*: envolver la capa en `<cristae-labeled>` en vez de `bind-to`; la píldora se pide con
   `paint={drawLabel}`, porque el aspecto por defecto pasa a texto con halo; el rótulo de las burbujas va en un
   `<cristae-labeled>` por fuera del cluster; con `source` propio, `<cristae-text-layer>`. La equivalencia está en
-  [`docs/labels.md`](docs/labels.md#retiro-en-v0400).
+  [`docs/labels.md`](docs/labels.md#retiro-en-v0470).
 
 ### Corregido
 - **La capa de calor oculta ya no pinta.** Ocultarla sólo ocultaba su pane, y cada cambio de la Source

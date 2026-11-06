@@ -1,4 +1,4 @@
-// Lo que se retira en v0.40.0 avisa por consola una vez por página, con el reemplazo (DEPRECADOS-0.40). Acá van
+// Lo que se retira en v0.47.0 avisa por consola una vez por página, con el reemplazo (DEPRECADOS-0.40). Acá van
 // las puertas del motor que antes no avisaban y la clave que comparten <cristae-label-layer> y `addLabelLayer`,
 // que son el mismo retiro: quien usa uno no ve también el aviso del otro.
 // Corre con: node --test test/engine/retiro-avisos.test.mjs
@@ -35,14 +35,14 @@ test('addPolygonGpuLayer avisa una vez por página y nombra addPolygonLayer', t 
   assert.equal(alta('areas').pane, 'cristae-polygon-gpu-areas', 'sigue delegando igual')
   alta('otras')
   assert.equal(warn.mock.callCount(), 1)
-  assert.match(warn.mock.calls[0].arguments[0], /^\[cristae\] addPolygonGpuLayer\(\) se retira en v0\.40\.0: la reemplaza addPolygonLayer\(\{ geometry \}\)\.$/)
+  assert.match(warn.mock.calls[0].arguments[0], /^\[cristae\] addPolygonGpuLayer\(\) se retira en v0\.47\.0: la reemplaza addPolygonLayer\(\{ geometry \}\)\.$/)
 })
 
 test('addCircleLayer avisa una vez por página y nombra addShapeLayer con radiusOf', t => {
   const accessors = { idOf: d => d.id, positionOf: d => d, radiusMetersOf: () => 100 }
   const vistos    = avisos(t, (engine, id = 'radios') => engine.addCircleLayer({ id, accessors, data: [] }))
   assert.equal(vistos.length, 1)
-  assert.match(vistos[0], /addCircleLayer\(\) se retira en v0\.40\.0: la reemplaza addShapeLayer, con radiusOf .*<cristae-shape-layer>/)
+  assert.match(vistos[0], /addCircleLayer\(\) se retira en v0\.47\.0: la reemplaza addShapeLayer, con radiusOf .*<cristae-shape-layer>/)
 })
 
 test('addLabelLayer y <cristae-label-layer> comparten un solo aviso por página', t => {
@@ -52,5 +52,5 @@ test('addLabelLayer y <cristae-label-layer> comparten un solo aviso por página'
     engine.addLabelLayer({ id })
   })
   assert.equal(vistos.length, 1, 'el elemento y el método son el mismo retiro y no se avisa dos veces')
-  assert.match(vistos[0], /^\[cristae-label-layer\] se retira en v0\.40\.0: con bind-to .*<cristae-labeled>.*<cristae-text-layer>/)
+  assert.match(vistos[0], /^\[cristae-label-layer\] se retira en v0\.47\.0: con bind-to .*<cristae-labeled>.*<cristae-text-layer>/)
 })

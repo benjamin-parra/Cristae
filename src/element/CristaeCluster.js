@@ -1,6 +1,6 @@
 import { CristaeModifierElement } from './base.js'
 import { makeAutoId } from './autoId.js'
-import { deprecated } from '../engine/deprecated.js'
+import { deprecated, RETIRO } from '../engine/deprecated.js'
 
 // circle-threshold: un número (umbral círculo→espiral) o "auto"/vacío → null (el motor usa su default).
 const parseCircleThreshold = v => {
@@ -46,7 +46,7 @@ function ensureCenterCss() {
 //   </cristae-cluster>
 //
 // Hija opcional `slot="bubble"` (point o label) = cómo se ven las burbujas. Sin ella → default. La de
-// label se retira en v0.40.0, y avisa una vez por página con la misma clave que `bubble: { kind: 'label' }`
+// label se retira en v0.47.0, y avisa una vez por página con la misma clave que `bubble: { kind: 'label' }`
 // del motor: el rótulo de las burbujas lo da un <cristae-labeled> por fuera del cluster.
 //
 // expandable (default true): click en una burbuja la expande (los puntos del cluster aparecen
@@ -314,7 +314,7 @@ export class CristaeCluster extends CristaeModifierElement {
     const b = [...this.children].find(el => el.getAttribute?.('slot') === 'bubble')
     if (b?.tagName !== 'CRISTAE-LABEL-LAYER') return b && { kind: 'point', iconSet: b.iconSet, sizeOf: b.sizeOf }
 
-    deprecated('bubble-label', '[cristae-cluster] <cristae-label-layer slot="bubble"> se retira en v0.40.0: la ' +
+    deprecated('bubble-label', `[cristae-cluster] <cristae-label-layer slot="bubble"> se retira en ${RETIRO}: la ` +
       'reemplaza un <cristae-labeled> por fuera del cluster (docs/labeled.md).')
     return { kind: 'label', textOf: b.textOf, paint: b.paint, style: b.style }
   }

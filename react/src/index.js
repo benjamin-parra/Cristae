@@ -111,7 +111,7 @@ export const CristaeLineLayer = wrap('cristae-line-layer')
 export const CristaePolygonLayer = wrap('cristae-polygon-layer')
 export const CristaeShapeLayer = wrap('cristae-shape-layer')
 export const CristaeHtmlLayer = wrap('cristae-html-layer')
-/** @deprecated Se retira en v0.40.0: con `bindTo` la reemplaza `<CristaeLabeled>` sobre la capa de puntos
+/** @deprecated Se retira en v0.47.0: con `bindTo` la reemplaza `<CristaeLabeled>` sobre la capa de puntos
  *  (docs/labeled.md); con `source` propio, `<CristaeTextLayer>`. */
 export const CristaeLabelLayer = wrap('cristae-label-layer')
 export const CristaeImageLayer = wrap('cristae-image-layer')

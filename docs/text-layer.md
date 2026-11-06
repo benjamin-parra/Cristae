@@ -90,7 +90,7 @@ Un valor inválido lanza `TypeError` antes de registrar la capa, y en `update` n
 
 Una `<cristae-label-layer>` con `source` propio pasa a `<cristae-text-layer>` con la misma Source; su
 `textOf` va tal cual. La píldora de antes se pide con `paint={drawLabel}`. La equivalencia completa está en
-[`labels.md`](labels.md#retiro-en-v0400).
+[`labels.md`](labels.md#retiro-en-v0470).
 
 ## Límites
 

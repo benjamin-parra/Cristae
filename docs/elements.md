@@ -477,9 +477,9 @@ están en [`shapes.md`](shapes.md).
 
 ### `<cristae-label-layer>` — etiquetas canvas
 
-Se retira en v0.40.0: la reemplaza [`<cristae-labeled>`](#cristae-labeled--rótulos) sobre la capa de puntos, y
+Se retira en v0.47.0: la reemplaza [`<cristae-labeled>`](#cristae-labeled--rótulos) sobre la capa de puntos, y
 con `source` propio [`<cristae-text-layer>`](text-layer.md). Al montarse avisa una vez por página en consola, y
-ya se traduce por dentro a su reemplazo, con `pane` y `z` sin efecto. La equivalencia está en [`labels.md`](labels.md#retiro-en-v0400).
+ya se traduce por dentro a su reemplazo, con `pane` y `z` sin efecto. La equivalencia está en [`labels.md`](labels.md#retiro-en-v0470).
 
 Standalone (con `source`/`accessors`) o **attachment** (`bind-to="<idHost>"`: deriva posiciones del
 host, resuelto por nombre, orden-independiente).
@@ -557,7 +557,7 @@ Se llama `geometryStyle` y no `style` porque una propiedad `style` pisaría `HTM
 
 Agregador de la gramática ([SPECS §8.10](../SPECS.md)): envuelve la capa **host** (hijo sin slot) y,
 opcional, una capa hija `slot="bubble"` de puntos que define cómo se ven las burbujas. Sin bubble →
-icon-set de cluster por defecto. La hija `slot="bubble"` de label se retira en v0.40.0 y avisa una vez por
+icon-set de cluster por defecto. La hija `slot="bubble"` de label se retira en v0.47.0 y avisa una vez por
 página en consola: el rótulo de las burbujas lo da un `<cristae-labeled>` por fuera del cluster
 ([`labeled.md`](labeled.md#burbujas)).
 

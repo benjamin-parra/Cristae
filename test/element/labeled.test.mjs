@@ -268,7 +268,7 @@ test('<cristae-label-layer> avisa su retiro una vez por página, al montarse com
   capa().mountLayer(engine)
   capa().mountLayer(engine)
   assert.equal(warn.mock.callCount(), 1)
-  assert.match(warn.mock.calls[0].arguments[0], /se retira en v0\.40\.0: con bind-to .*<cristae-labeled>.*<cristae-text-layer>/)
+  assert.match(warn.mock.calls[0].arguments[0], /se retira en v0\.47\.0: con bind-to .*<cristae-labeled>.*<cristae-text-layer>/)
   warn.mock.restore()
 })
 
@@ -282,6 +282,6 @@ test('<cristae-cluster> avisa una vez por página al leer una hija `slot="bubble
   assert.equal(conHija(burbuja('CRISTAE-LABEL-LAYER')).cristaeConfig().bubble.kind, 'label')
   conHija(burbuja('CRISTAE-LABEL-LAYER')).cristaeConfig()
   assert.equal(warn.mock.callCount(), 1)
-  assert.match(warn.mock.calls[0].arguments[0], /slot="bubble".*se retira en v0\.40\.0.*<cristae-labeled>/)
+  assert.match(warn.mock.calls[0].arguments[0], /slot="bubble".*se retira en v0\.47\.0.*<cristae-labeled>/)
   warn.mock.restore()
 })

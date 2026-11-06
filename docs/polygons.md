@@ -74,7 +74,7 @@ engine.addPolygonLayer({ id: 'geocercas', geometry: areasOf(readGeoJson(bytes)) 
 ```
 
 El elemento la hereda, así que también entra por markup: `polygonLayer.geometry = areasOf(doc)`.
-`addPolygonGpuLayer` sigue existiendo como delegador **deprecado** y se retira en v0.40.0.
+`addPolygonGpuLayer` sigue existiendo como delegador **deprecado** y se retira en v0.47.0.
 
 `rings` y `parts` van juntas o no van: con una sola, el relleno y el picking mirarían conjuntos
 distintos y la capa contestaría por figuras que no dibujó.

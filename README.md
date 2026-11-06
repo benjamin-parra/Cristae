@@ -27,7 +27,7 @@ habla en valores propios (`{ lat, lng }`, `{ x, y }`, `{ south, west, north, eas
 con la superficie WebGL de Cristae. Un mapa Leaflet que ya existe se entrega al motor con
 `adoptLeafletHost(map, { leaflet })`, el único punto de integración con un Leaflet ajeno
 ([SPECS §6](SPECS.md)), donde también consta que `engine.getLeafletMap()` está fuera de contrato. Se
-retira en v0.40.0 ([deprecado](#deprecado-se-retira-en-v0400)).
+retira en v0.47.0 ([deprecado](#deprecado-se-retira-en-v0470)).
 
 ## Uso mínimo
 
@@ -56,9 +56,9 @@ import { createSource, defineIconSet } from 'cristae/map'
 
 `table` y `map` nunca se importan entre sí: una tabla no baja Leaflet.
 
-## Deprecado: se retira en v0.40.0
+## Deprecado: se retira en v0.47.0
 
-La v0.40.0 retira todo lo deprecado. Hasta entonces sigue funcionando, y el [CHANGELOG](CHANGELOG.md) da
+La v0.47.0 retira todo lo deprecado. Hasta entonces sigue funcionando, y el [CHANGELOG](CHANGELOG.md) da
 la *Migración* de cada API. La política de retiro está en
 [`docs/versionado.md`](docs/versionado.md#deprecación-y-retiro).
 

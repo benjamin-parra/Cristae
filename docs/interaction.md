@@ -34,7 +34,7 @@ completo ([SPECS §10](../SPECS.md)):
 
 ```js
 Hit = { layerId, kind: 'point'|'polygon'|'line'|'shape'|'html'|'circle', ref, id, distancePx, zIndex, order }
-// 'circle' sólo lo emite addCircleLayer, deprecada; se retira en v0.40.0
+// 'circle' sólo lo emite addCircleLayer, deprecada; se retira en v0.47.0
 // orden top-first: zIndex desc, order asc, distancePx asc
 ```
 

@@ -31,17 +31,18 @@ Una API pública no se quita de un día para otro: primero se depreca, después 
    se fija al anunciarlo, y su encabezado en el CHANGELOG dice que retira: cada API sale en la sección
    «Eliminado» con su *Migración*.
 
-La versión del retiro no la mueve la fórmula. Si antes se juntan cambios medios que la alcanzarían, salen
-como patches del minor anterior; si el retiro llega antes, la versión salta hasta él. La siguiente sigue la
-fórmula desde ahí.
+**El retiro vigente es v0.47.0**, el minor siguiente a la versión de la etapa C (el contexto WebGL
+compartido). Retira todo lo que hoy está deprecado (la tabla del
+[README](../README.md#deprecado-se-retira-en-v0470)). Los avisos de consola toman la versión de `RETIRO`, en
+`src/engine/deprecated.js`.
 
-**El retiro vigente es v0.40.0, sí o sí.** Retira todo lo que hoy está deprecado (la tabla del
-[README](../README.md#deprecado-se-retira-en-v0400)), y antes pueden salir las versiones que hagan falta.
+Si antes del retiro entra otro cambio medio, el retiro se corre al minor siguiente y se corrigen los avisos,
+el JSDoc y la documentación que lo nombran (inferido de la regla; falta que lo confirme el dueño).
 
 ## Emitir una versión
 
 1. `git log --oneline <último tag>..main` y clasificar cada commit (medio / menor).
-2. Calcular la versión con la fórmula de arriba, o tomar la del retiro si la versión retira.
+2. Calcular la versión con la fórmula de arriba.
 3. `package.json` → `version`; `CHANGELOG.md` → cerrar `[Sin publicar]` con `## [x.y.z] - AAAA-MM-DD`.
 4. Commit `chore(release): vx.y.z` + tag anotado `git tag -a vx.y.z -m "…"` + `git push origin main --follow-tags`.
 

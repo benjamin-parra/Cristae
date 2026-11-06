@@ -208,7 +208,7 @@ con los hits de **todas** las capas visibles, **ordenados top-first**:
 
 ```js
 // Hit = { layerId, kind: 'point'|'polygon'|'line'|'shape'|'html'|'circle', ref, id, distancePx, zIndex, order }
-// 'circle' sólo lo emite addCircleLayer, deprecada; se retira en v0.40.0
+// 'circle' sólo lo emite addCircleLayer, deprecada; se retira en v0.47.0
 map.addEventListener('cristae:click', (e) => {
   const top = e.detail.hits[0]
   if (top?.layerId === 'fleet') abrirDetalle(source.itemById(top.id))
@@ -315,7 +315,7 @@ const latlng   = map.camera.containerPointToLatLng([x, y])
 | `map.setMinZoom/setMaxZoom/setMaxBounds` · `maxBoundsViscosity` | `min-zoom` / `max-zoom` / `max-bounds` / `max-bounds-viscosity` en el mapa (SPECS §9) |
 | `map.latLngToContainerPoint` para un overlay | `map.camera.latLngToContainerPoint(latlng)` |
 | popup/tarjeta al click sobre un punto | `<cristae-popup for="fleet">` + `contentOf(item)` (HTML en light DOM) |
-| labels/tooltips a mano | `<cristae-labeled>` envolviendo la capa (`<cristae-label-layer>` se retira en v0.40.0) ([`docs/labeled.md`](./docs/labeled.md)) |
+| labels/tooltips a mano | `<cristae-labeled>` envolviendo la capa (`<cristae-label-layer>` se retira en v0.47.0) ([`docs/labeled.md`](./docs/labeled.md)) |
 | `L.imageOverlay`, `VideoOverlay`, `SVGOverlay` | `<cristae-image-layer url bounds>` o con `image` y `corners` para rotarla ([`docs/image-layer.md`](./docs/image-layer.md)) |
 | `L.control.scale()` | `<cristae-scale slot="bottom-left">` ([`docs/scale.md`](./docs/scale.md)) |
 | `polyline.setText` (Leaflet.TextPath) | `<cristae-labeled repeat="200">` envolviendo la capa de líneas ([`docs/labeled.md`](./docs/labeled.md)) |

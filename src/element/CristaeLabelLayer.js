@@ -1,6 +1,6 @@
 import { CristaeLayerElement } from './base.js'
 import { makeAutoId } from './autoId.js'
-import { deprecated } from '../engine/deprecated.js'
+import { deprecated, RETIRO } from '../engine/deprecated.js'
 import { DEFAULT_STYLE, drawLabel } from '../render/LabelLayer.js'
 import { STACK } from '../engine/stack.js'
 
@@ -12,7 +12,7 @@ import { STACK } from '../engine/stack.js'
 //     rotula las burbujas como lo haría un <cristae-labeled> por fuera del cluster (`addClusterFold`).
 // Se ve como siempre: la píldora (`drawLabel` o el `paint` declarado) con su `style`, y el hover que marca el
 // handle. Avisa su retiro una vez por página, al montarse como capa, con la misma clave que `addLabelLayer`.
-/** @deprecated Se retira en v0.40.0: con `bind-to` la reemplaza `<cristae-labeled>` sobre la capa de puntos
+/** @deprecated Se retira en v0.47.0: con `bind-to` la reemplaza `<cristae-labeled>` sobre la capa de puntos
  *  (docs/labeled.md); con `source` propio, `<cristae-text-layer>`. */
 export class CristaeLabelLayer extends CristaeLayerElement {
 
@@ -49,7 +49,7 @@ export class CristaeLabelLayer extends CristaeLayerElement {
   // El handle de siempre, sin `setLabels`: los rótulos salen del host o de la Source. Sin `source`, así el
   // mapa no la cuenta entre las capas de datos.
   mountLayer(engine) {
-    deprecated('label-layer', '[cristae-label-layer] se retira en v0.40.0: con bind-to la reemplaza <cristae-labeled> ' +
+    deprecated('label-layer', `[cristae-label-layer] se retira en ${RETIRO}: con bind-to la reemplaza <cristae-labeled> ` +
       'sobre la capa de puntos (docs/labeled.md); con source propio, <cristae-text-layer>.')
     this._shown = !!this.visible
     this._attach(engine)
