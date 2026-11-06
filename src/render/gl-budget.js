@@ -312,16 +312,19 @@ const pump = () => {
   wanted.size ? schedule() : askIdle()
 }
 
+// Alguna de la tanda sigue dada de alta: la tanda no la cerró una señal de cupo ni se fue con su mapa.
+const episodeOpen = () => episodic && registered().some(s => episode.has(s))
+
 // Un momento ocioso: los avisos pendientes ya llegaron, salvo el de un desalojo que el navegador avisa tarde (Firefox
 // no desaloja en la tarea del getContext: avisa ≈ 2,5 s después, y el rato ocioso tiene un tope de 1 s). Sin nada
-// esperando cupo y con la tanda cerrada por una señal de cupo, los reintentos vuelven a empezar: con una vuelta de la
-// tanda todavía abierta, su desalojo puede no haber llegado, y empezar de nuevo daría un reintento cada 5 s. Ordena el
-// desalojo tras un montaje y toma una vacía diferida. Sin presión, un montaje sólo lo ordena si una de sus altas no se
-// ve: las que se ven nacieron más jóvenes que todo lo anterior.
+// esperando cupo y sin tanda abierta, los reintentos vuelven a empezar: con una vuelta de la tanda todavía dada de alta,
+// su desalojo puede no haber llegado, y empezar de nuevo daría un reintento cada 5 s. Ordena el desalojo tras un
+// montaje y toma una vacía diferida. Sin presión, un montaje sólo lo ordena si una de sus altas no se ve: las que se
+// ven nacieron más jóvenes que todo lo anterior.
 const rest = () => {
   idleId = 0
   if (wanted.size || frame) return
-  if (!starved.size && !episodic) {
+  if (!starved.size && !episodeOpen()) {
     clearTimeout(retryId)
     retryId = retryStep = 0
   }

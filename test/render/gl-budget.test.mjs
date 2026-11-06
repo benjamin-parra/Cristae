@@ -596,6 +596,42 @@ test('desalojo avisado después del rato ocioso (Firefox): la saturación sigue 
   }
 })
 
+test('la tanda que se va con su mapa sin una señal de cupo no le deja su escalera al siguiente: su saturación empieza en los 5 s', () => {
+  mock.timers.enable({ apis: ['setTimeout'] })
+  const warn = mock.method(console, 'warn', () => {})
+  try {
+    nuevoNavegador()
+    const saturar = (abajo, arriba) => {
+      desalojar(arriba)
+      asentar()
+      desalojar(arriba)
+      asentar()
+      assert.deepEqual(estados(abajo, arriba), ['released', 'live'])
+    }
+    const a = superficie('a', { z: 10 })
+    const b = superficie('b', { z: 20 })
+    ocio()                                              // el montaje asienta en un rato ocioso
+    saturar(a, b)                                       // b volvió en la tanda; el de los 5 s queda agendado
+    mock.timers.tick(4000)
+    desalojar(b)                                        // b pierde el suyo y el mapa se va antes del aviso: nada devuelve
+    vivas.splice(0).forEach(s => s.destroy())           // un cupo vivo, así que no hay señal de cupo
+
+    const c = superficie('c', { z: 10 })
+    const d = superficie('d', { z: 20 })
+    ocio()
+    saturar(c, d)
+    mock.timers.tick(1000)
+    asentar()
+    assert.equal(c.state, 'released', 'el reintento del mapa que se fue no corre')
+    mock.timers.tick(4000)
+    asentar()
+    assert.equal(c.state, 'live', 'el de los 5 s de su propia escalera')
+  } finally {
+    warn.mock.restore()
+    mock.timers.reset()
+  }
+})
+
 /* ── Pérdida masiva ── */
 
 test('un reinicio de la GPU devuelve todas las necesarias de a una por cuadro, por z, y la prescindible no', () => {
