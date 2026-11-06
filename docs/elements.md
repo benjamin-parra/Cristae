@@ -303,8 +303,8 @@ atribución del elemento comparten `top-left` y `bottom-right` con lo sloteado (
 
 ### Apilado — `z` / `pane`
 
-Toda capa hoja (`point` / `line` / `polygon` / `shape` / `html` / `label` / `image` / `heat`) los
-hereda de la base:
+Toda capa hoja (`point` / `line` / `polygon` / `shape` / `html` / `image` / `heat`) los hereda de la
+base. `<cristae-label-layer>` también los declara, pero sin efecto: va en el plano de rótulos (abajo).
 
 | Miembro | Tipo | Atributo / prop |
 |---|---|---|
@@ -314,11 +314,13 @@ hereda de la base:
 Sin `z`, el motor lo deriva del orden del documento dentro de `<cristae-map>` (`400 + posición·10`), que
 con React es el del árbol. Una capa que monta tarde —sus datos llegan después, o es un hijo condicional—
 cae donde se declaró, y remontarla no la sube; moverla en el DOM la reapila en su lugar nuevo. Las de
-`html` y `label`, el editor y el cluster van en un plano de encima (`2 000 400 + posición·10`): quedan
-sobre las demás aunque se declaren antes, y la puerta del puntero les da la pulsación por el mismo orden.
-La de `image` no: queda en el plano base, bajo las etiquetas y los marcadores HTML. Los rótulos de
+`html`, el editor y el cluster van en un plano de encima (`2 000 400 + posición·10`): quedan sobre las
+demás aunque se declaren antes, y la puerta del puntero les da la pulsación por el mismo orden. La de
+`image` no: queda en el plano base, bajo los rótulos y los marcadores HTML. Los rótulos de
 `<cristae-labeled>` van en un plano entre los dos (`1 000 400`), sobre todas las capas base y bajo lo de
-encima ([SPECS §19.3](../SPECS.md), [`labeled.md`](labeled.md)).
+encima ([SPECS §19.3](../SPECS.md), [`labeled.md`](labeled.md)). Ahí va también `<cristae-label-layer>`, que
+se traduce a `addLabels` (con `bind-to`) o a `addTextLayer` (con `source` propio), con `pane` y `z` sin
+efecto ([`labels.md`](labels.md#lo-que-ya-cambia-en-cristae-label-layer), [`text-layer.md`](text-layer.md)).
 
 El derivado es una posición, no un valor: su número cambia cuando monta o se desmonta una capa declarada
 antes, y sólo se garantiza el orden entre derivadas. Un `z` explícito gana, no se mueve y ocupa lugar en

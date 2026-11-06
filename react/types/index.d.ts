@@ -194,9 +194,12 @@ interface CristaeLeafLayerProps extends CristaeLayerProps {
    *  alta: cambiarlo después no muda la capa de pane. Con el mismo nombre, varias capas lo comparten
    *  (SPECS §8). */
   pane? : string;
-  /** z-index del pane, reactivo. Sin él el motor lo DERIVA del orden de declaración (`400 + orden·10`),
-   *  así que las mismas capas montadas en otro orden apilan distinto. Panes nativos de Leaflet que
-   *  conviven en el mismo mapa: tiles 200 · overlay 400 · marker 600 · tooltip 650 · popup 700. */
+  /** z-index del pane, reactivo. Sin él el motor lo DERIVA del orden de declaración —el lugar de la capa en
+   *  el árbol dentro de `<CristaeMap>`—, no de la historia de altas: una capa que monta tarde (sus datos
+   *  llegan después, o es un hijo condicional) cae donde se declaró, y remontarla no la sube. El derivado es
+   *  una posición, no un valor: sólo garantiza el orden entre derivadas. Un `z` explícito gana; quitarlo
+   *  vuelve al derivado (SPECS §7.3, §8). Panes nativos de Leaflet que conviven en el mismo mapa:
+   *  tiles 200 · overlay 400 · marker 600 · tooltip 650 · popup 700. */
   z?    : number;
 }
 

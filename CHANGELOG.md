@@ -43,6 +43,14 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   `radius`, `blur`, `intensity` y `visible` como atributos. Todo salvo `source` y `accessors` se aplica en
   vivo. No se pica. Ver [`docs/heat.md`](docs/heat.md).
   *Migración*: ninguna.
+- **Diagnóstico de los contextos WebGL.** `engine.surfaces()` devuelve una fila por superficie WebGL del motor
+  —capas de puntos, líneas, polígonos y formas, sus overlays y los editores—, armada al pedirla: `layerId`,
+  `kind`, `pane`, `z`, `cssZoom`, `state`, `hasContent` y `visible`. La señal `surfacechange` del motor, y
+  `cristae:surfacechange` en el elemento, entregan esa fila cuando una superficie cambia de estado: al tomar el
+  contexto (también la primera vez, si lo difirió), al perderlo y al soltarlo; no al dar de alta la capa, ni al
+  quitarla ni en `destroy()`. `state` es `live`, `lost`, `released` o `none`. Tipos `SurfaceInfo` y
+  `SurfaceState`. Ver [SPECS §10](SPECS.md).
+  *Migración*: ninguna.
 - **`cristae/formats`: lectores por especificación a las tablas de `readGeoJson`.** Entry nuevo, sin DOM,
   Leaflet ni dependencias, como `cristae/geojson`, con global UMD `CristaeFormats`. Cada lector deja la
   geometría en los arrays tipados de §17.1, sin grafo intermedio, y suma `format`, `crs` y capas
@@ -136,6 +144,39 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   una hoja es `'leaf'`; un `'fold'`, `'aggregate'`; un `'map'` con `bindsTo`, `'decorate'`, y el resto de
   los `'map'`, `'transform'`. Los demás campos se quitan; `bindsTo` también en una hoja. Quien leía
   `combine` o `arity` de `signatureFor` lee `role`, o `isLeaf` / `isWrapper`.
+- **Los contextos WebGL los reparte una política de cupo por realm.** El navegador da unos 16 contextos a la
+  página y cada capa GL toma el suyo. Los reparte una política por módulo, que comparten los mapas que monta
+  el mismo JS, también los de otra ventana montados por portal, porque el techo de Chromium es del proceso de
+  render. Nada se suelta por tiempo: oculta o vacía, una capa conserva su contexto. Sólo bajo presión —el
+  navegador le quita el suyo a una capa que se ve y tiene contenido— se sueltan en el acto las prescindibles
+  (vacías u ocultas; nunca un editor con un trazo o un vértice tomado), que quedan `released` y lo vuelven a
+  tomar cuando se ven con contenido. Si la página está saturada, la de menor z queda `released`, con su
+  `surfacechange` y un solo `console.warn`, y se reintenta con una señal de cupo o a los 5 s y a los 30 s.
+  Para que Chromium desaloje primero lo prescindible, las capas que se ven vacían su cola (`flush`) por z
+  ascendente; es por evento, nunca por cuadro. Ver [SPECS §10](SPECS.md).
+  *Migración*: ninguna. Una página con muchas capas o widgets WebGL se sigue con `engine.surfaces()`.
+- **Las capas que nacen vacías toman su contexto después.** Una capa de puntos, líneas, polígonos o formas
+  sin contenido al darse de alta —también la de puntos que recibe sus datos por la Source del motor, el
+  overlay sin badges y la espiral y la sub-espiral del cluster— deja en su pane un canvas sin contexto que le
+  guarda el lugar (`state: 'none'`). Lo toma en un rato ocioso después del montaje, de a una y la de mayor z
+  primero, o en la tarea en que recibe su primer dato. Una capa con contenido lo toma al darse de alta, como
+  antes.
+  *Migración*: ninguna. Quien cuente contextos o canvases WebGL justo después del montaje ve menos hasta el
+  primer rato ocioso.
+- **`invalidateCanvas()` es también una señal de cupo.** Además de reposicionar y redibujar las capas de
+  puntos, vuelve a intentar lo que la saturación de contextos dejó sin superficie (`released`). La app la da
+  al cerrar un widget que tomaba contextos, como un panorama u otro visor. Las demás señales de cupo son una
+  capa propia que se suelta o se quita y la pestaña que vuelve a verse. Ver
+  [`docs/elements.md`](docs/elements.md#cristae-map).
+  *Migración*: ninguna.
+- **El atlas de iconos rasteriza a demanda.** Declarar `variants` en `defineIconSet`, o los buckets de
+  `defineClusterIconSet`, dimensiona el atlas y ya no dibuja ni sube nada. Cada variante se rasteriza en su
+  primer uso sobre un solo canvas de trabajo y toma su celda entonces; las declaradas que faltan se adelantan
+  en ranuras ociosas de unos ms, y una ranura sin ocio cede el turno. El binding reserva la textura una vez y
+  sube una `texSubImage2D` por celda pedida. Un IconSet que nadie usa no dibuja nada, y una espiral que nunca
+  se abre no rasteriza sus sub-clusters. La geometría del atlas (tile, grilla, capacidad, UV) no cambia. Ver
+  [`docs/icons.md`](docs/icons.md) y [SPECS §4 y §5](SPECS.md).
+  *Migración*: ninguna.
 - `cristae/geojson` toma la división exacta de números largos del núcleo de `cristae/formats`, que la
   comparte con los lectores de texto. El resultado no cambia, bit a bit.
 
@@ -164,6 +205,19 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   seguía leyendo y escribiendo el framebuffer entero. Ahora no dibuja mientras está oculta y repinta al
   volver. Vale también para `addHeatLayer({ visible: false })`, que antes coloreaba hasta el primer
   `setVisible`.
+  *Migración*: ninguna.
+- **Una capa que pierde su contexto WebGL lo vuelve a tomar.** Antes, una superficie cuyo contexto quitaba el
+  navegador no lo recuperaba. Ahora lo vuelve a tomar en un cuadro siguiente, en un canvas nuevo en el mismo
+  lugar de su pane, y rehace lo GL desde lo que guarda en CPU: puntos, líneas, polígonos, formas y el editor,
+  que sigue editando sin contexto y conserva el gesto en curso. Vuelve de a una superficie por cuadro, la de
+  mayor z primero, nunca en pleno gesto de un mapa del realm (arrastre, zoom, pellizco o vuelo), y el dato que
+  le llega no la adelanta. Si volver a tomarlo falla, la capa queda `released` y el error sale por
+  `console.error` sin lanzar. Ver [SPECS §10](SPECS.md).
+  *Migración*: ninguna.
+- **Un oyente de la vista o del arrastre que lanza ya no corta a Leaflet.** El reparto de esos eventos corre
+  dentro de un oyente de Leaflet, y una excepción cortaba a los oyentes del mapa registrados después —la capa
+  de tiles entre ellos—; en `zoomanim` dejaba además el zoom trabado y los tiles sin pedir hasta recargar.
+  Ahora cada oyente va aislado y lo que lanza sale por `console.error`.
   *Migración*: ninguna.
 
 ## [0.37.0] - 2026-10-08
