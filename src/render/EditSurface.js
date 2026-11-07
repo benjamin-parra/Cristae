@@ -257,8 +257,9 @@ export class EditSurface {
 
   // El canvas sin contexto queda de marcador de lugar, pero no se puede ver: Chromium pinta de blanco opaco el canvas de
   // un contexto perdido o soltado, y tapa todo lo que está debajo, tiles incluidos. El contexto nuevo va en otro canvas,
-  // que nace visible. Se usa `visibility` y no `display`: `display` es si la capa se ve, y el canvas nuevo lo hereda.
-  #apagar() { this.#canvas && (this.#canvas.style.visibility = 'hidden') }
+  // que nace visible. Se usa `opacity`: `display` es si la capa se ve, y el canvas nuevo lo hereda; `visibility` la usa la
+  // imagen fija del tramo para tapar el canvas que vuelve, y al quitarla no debe destapar uno muerto.
+  #apagar() { this.#canvas && (this.#canvas.style.opacity = '0') }
 
   // Zoom animado: el canvas NO se re-rasteriza por frame —eso vibra— ni espera a `zoomend` —eso
   // teletransporta—. Recibe el mismo transform que los tiles y la transición del zoom lo lleva. La vista se
