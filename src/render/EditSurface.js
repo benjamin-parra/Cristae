@@ -182,6 +182,7 @@ export class EditSurface {
       this.#owner?.dropGl()
       loseGlContext(this)
     }
+    this.#apagar()
     this.#state = 'released'
     this.#gl    = null
     this.#owner && glBudget.dropped(this, freed)
@@ -246,12 +247,18 @@ export class EditSurface {
   // quien oye: si al oírlo quita la capa, la política ya no la tiene en su espera. Devuelve el estado en que queda.
   #lose() {
     this.#owner?.dropGl()
+    this.#apagar()
     this.#state = 'lost'
     this.#gl    = null
     if (this.#owner) this.#state = glBudget.lost(this)
     this.onState?.(this)
     return this.#state
   }
+
+  // El canvas sin contexto queda de marcador de lugar, pero no se puede ver: Chromium pinta de blanco opaco el canvas de
+  // un contexto perdido o soltado, y tapa todo lo que está debajo, tiles incluidos. El contexto nuevo va en otro canvas,
+  // que nace visible. Se usa `visibility` y no `display`: `display` es si la capa se ve, y el canvas nuevo lo hereda.
+  #apagar() { this.#canvas && (this.#canvas.style.visibility = 'hidden') }
 
   // Zoom animado: el canvas NO se re-rasteriza por frame —eso vibra— ni espera a `zoomend` —eso
   // teletransporta—. Recibe el mismo transform que los tiles y la transición del zoom lo lleva. La vista se

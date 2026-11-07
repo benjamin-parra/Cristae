@@ -232,6 +232,11 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   [`docs/labels.md`](docs/labels.md#retiro-en-v0470).
 
 ### Corregido
+- **Una capa sin contexto WebGL ya no deja el mapa en blanco.** Al soltarla la política de cupo, o al quitarle el
+  navegador el contexto, su canvas quedaba en el pane como marcador de lugar, y Chromium pinta de blanco opaco el
+  canvas de un contexto perdido o soltado: tapaba todo lo de debajo, tiles incluidos, hasta que la capa volvía a
+  tomar contexto. Ahora el marcador queda oculto, y el canvas del contexto nuevo nace visible.
+  *Migración*: ninguna.
 - **La capa de calor oculta ya no pinta.** Ocultarla sólo ocultaba su pane, y cada cambio de la Source
   seguía leyendo y escribiendo el framebuffer entero. Ahora no dibuja mientras está oculta y repinta al
   volver. Vale también para `addHeatLayer({ visible: false })`, que antes coloreaba hasta el primer
