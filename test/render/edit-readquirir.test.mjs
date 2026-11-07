@@ -219,21 +219,21 @@ test('sin contexto, el canvas marcador no se ve; el del contexto nuevo sí', () 
   const esc = montar({ value: [SQUARE, HUECO] })
   const { navegador } = esc
   const primero = esc.ed.surface.canvas
-  assert.notEqual(primero.style.visibility, 'hidden', 'vivo, se ve')
+  assert.notEqual(primero.style.opacity, '0', 'vivo, se ve')
 
   navegador.desalojar(esc.contexto(0))
   assert.equal(esc.ed.surface.state, 'lost')
   navegador.vaciar()                                    // el aviso de la pérdida
-  assert.equal(primero.style.visibility, 'hidden', 'perdido, el marcador no se ve')
+  assert.equal(primero.style.opacity, '0', 'perdido, el marcador no se ve')
   cuadro()
   const segundo = esc.ed.surface.canvas
   assert.notEqual(segundo, primero)
-  assert.notEqual(segundo.style.visibility, 'hidden', 'el canvas del contexto nuevo se ve')
+  assert.notEqual(segundo.style.opacity, '0', 'el canvas del contexto nuevo se ve')
 
   esc.ed.surface.release()
-  assert.equal(segundo.style.visibility, 'hidden', 'soltado, el marcador no se ve')
+  assert.equal(segundo.style.opacity, '0', 'soltado, el marcador no se ve')
   esc.ed.surface.acquire()
-  assert.notEqual(esc.ed.surface.canvas.style.visibility, 'hidden', 'el del contexto vuelto a tomar se ve')
+  assert.notEqual(esc.ed.surface.canvas.style.opacity, '0', 'el del contexto vuelto a tomar se ve')
   navegador.vaciar()
   esc.ed.destroy()
 })
