@@ -213,6 +213,31 @@ for (const [nombre, opciones] of ESCENARIOS) {
   })
 }
 
+// Chromium pinta de blanco opaco el canvas de un contexto perdido o soltado: el marcador no puede verse, y el canvas
+// del contexto nuevo sí.
+test('sin contexto, el canvas marcador no se ve; el del contexto nuevo sí', () => {
+  const esc = montar({ value: [SQUARE, HUECO] })
+  const { navegador } = esc
+  const primero = esc.ed.surface.canvas
+  assert.notEqual(primero.style.visibility, 'hidden', 'vivo, se ve')
+
+  navegador.desalojar(esc.contexto(0))
+  assert.equal(esc.ed.surface.state, 'lost')
+  navegador.vaciar()                                    // el aviso de la pérdida
+  assert.equal(primero.style.visibility, 'hidden', 'perdido, el marcador no se ve')
+  cuadro()
+  const segundo = esc.ed.surface.canvas
+  assert.notEqual(segundo, primero)
+  assert.notEqual(segundo.style.visibility, 'hidden', 'el canvas del contexto nuevo se ve')
+
+  esc.ed.surface.release()
+  assert.equal(segundo.style.visibility, 'hidden', 'soltado, el marcador no se ve')
+  esc.ed.surface.acquire()
+  assert.notEqual(esc.ed.surface.canvas.style.visibility, 'hidden', 'el del contexto vuelto a tomar se ve')
+  navegador.vaciar()
+  esc.ed.destroy()
+})
+
 // Con curva el contorno es otro arena con su propio path: el mismo dibujo, sobre el stack que `setCurve` armó.
 test('T2.1 polyline curva: re-adquirida dibuja los mismos segmentos, con el arena del contorno incluido', () => {
   const esc = montar({ kind: 'polyline', value: DIAGONAL })
