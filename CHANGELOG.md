@@ -7,6 +7,8 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
 
 ## [Sin publicar]
 
+## [0.46.22] - 2026-11-07
+
 ### Agregado
 - **Capa de texto suelto.** `engine.addTextLayer`, `<cristae-text-layer>` y `<CristaeTextLayer>` ponen texto
   con datos propios (`data`, `source`, `accessors`), con el vocabulario y los renderers de
@@ -216,10 +218,10 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   —`addPolygonGpuLayer`, `addCircleLayer` con sus tipos de círculo y `getLeafletMap()`— y lo que depreca
   esta versión se retiran en la v0.47.0. Así deja de valer lo que dijo la 0.36.0, que lo deprecado seguía
   funcionando hasta el salto a la 1.0: funciona hasta la última versión antes de la v0.47.0. El motivo es
-  que cambió el modelo general, con capas por rol y el contexto WebGL compartido que llega en la v0.46.19 (el
-  número se vuelve a contar al cortar esa versión), y lo deprecado se sostiene con caminos aparte. La
-  política nueva está en [`docs/versionado.md`](docs/versionado.md#deprecación-y-retiro): al menos una
-  versión de aviso y el retiro en una versión menor marcada. La tabla de cada API con su reemplazo está en el
+  que cambió el modelo general, con capas por rol y el contexto WebGL compartido que llega en esta versión, la
+  v0.46.22, y lo deprecado se sostiene con caminos aparte. La política nueva está en
+  [`docs/versionado.md`](docs/versionado.md#deprecación-y-retiro): al menos una versión de aviso y el retiro
+  en una versión menor marcada. La tabla de cada API con su reemplazo está en el
   [README](README.md#deprecado-se-retira-en-v0470).
   *Migración*: ninguna en esta versión. Antes de la v0.47.0, cambiar cada API por su reemplazo.
 - **`<cristae-label-layer>`, `<CristaeLabelLayer>`, `addLabelLayer` y la hija `slot="bubble"` de label del
