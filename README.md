@@ -97,6 +97,8 @@ El gate trabaja sobre un **clon limpio de lo commiteado** (no el working tree) y
 
 - **`--no-verify` no se usa.** Salta el hook y es el atajo que dejó pasar un pipeline en rojo. Si el
   hook frena algo que no viene de tus commits, se avisa en vez de saltarlo.
+- Con Claude Code, `.claude/settings.json` agrega un hook que niega todo `git push` con `--no-verify`,
+  `core.hooksPath` o `HUSKY=0` en la misma línea.
 - **Sello:** en verde se guarda el hash del *árbol* en `<git-common-dir>/ci-local-sellos/` (no
   versionado); un segundo push del mismo árbol no repite la corrida. En rojo no hay sello.
 - **Un clon nuevo no tiene el hook hasta el primer `npm install`** (o `node scripts/activar-hooks.mjs`).
