@@ -17,16 +17,42 @@
 //         el editor, deja sus contextos en 0; `map.remove()` en cada momento de la recuperación, 0 vivos.
 //
 // Los cuadros los corre el test (`cuadro()`), así «uno por cuadro» es determinista. Los eventos del navegador llegan con
-// `navegador.vaciar()`. Corre con: node --test test/element/contextos-readquirir.test.mjs
+// `navegador.vaciar()`. El reloj es falso: el tiempo pasa sólo con `pasar()`, y ni la carga de la máquina ni lo que
+// tarda un rearme cambian el resultado. Corre con: node --test test/element/contextos-readquirir.test.mjs
 //
 // El harness va PRIMERO: window, customElements y lo que Lit toca al evaluar.
-import { armar, armarVacio, asentar, esperar, ACC, LINEA, POLI, iconSet, items } from '../../test-helpers/modelo-capas.mjs'
+import { armar, armarVacio, asentar, ACC, LINEA, POLI, iconSet, items } from '../../test-helpers/modelo-capas.mjs'
 import { makeEditGl, makePickSpy } from '../../test-helpers/engine-stub.mjs'
-import { afterEach, beforeEach, test } from 'node:test'
+import { afterEach, beforeEach, mock, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createSource } from '../../src/data/index.js'
 
-/* ── Cuadros a mano, y un reloj que avanza entre test y test ── */
+/* ── Un reloj que avanza sólo cuando el test lo avanza ── */
+
+// setTimeout, setInterval (el rAF de jsdom) y Date. `performance.now`, que mide el tope de cada tanda de la cola de
+// reconstrucción, los sigue: dentro de una tarea no avanza.
+mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'] })
+
+// Avanza el reloj de a 1 ms; entre paso y paso corren las microtareas y lo que agendó el paso.
+const pasar = async ms => {
+  for (let i = 0; i < ms; i++) {
+    mock.timers.tick(1)
+    await new Promise(r => setImmediate(r))
+  }
+}
+
+// Lo que duerme con el reloj (los helpers de montaje) despierta a medida que se lo avanza.
+const conReloj = async (promesa, tope = 60_000) => {
+  let fin = false
+  promesa.then(() => { fin = true }, () => { fin = true })
+  for (let t = 0; t < tope && !fin; t++) await pasar(1)
+  assert.ok(fin, `sigue esperando tras ${tope} ms del reloj`)
+  return promesa
+}
+
+const montarVacio = () => conReloj(armarVacio({ crearGl }))
+
+/* ── Cuadros a mano, y un desfase que crece entre test y test ── */
 
 const rafPrevio    = globalThis.requestAnimationFrame
 const cancelPrevio = globalThis.cancelAnimationFrame
@@ -47,10 +73,9 @@ const cuadro = () => {
 // La composición de un tramo corre en la microtarea de la tarea en que algo pintó: esperarla no cambia de tarea.
 const microtarea = () => Promise.resolve()
 
-// Un reloj que avanza entre test y test: nada de la política depende de él, y así lo fija.
-const reloj   = performance.now.bind(performance)
-let   desfase = 0
-performance.now = () => reloj() + desfase
+// Nada de la política depende del valor de `performance.now`, y el desfase lo fija.
+let desfase = 0
+performance.now = () => Date.now() + desfase
 beforeEach(() => { desfase += 10_000 })
 
 // Se quita el mapa antes de correr lo agendado: quitar una viva es una señal de cupo, y el cuadro que agenda tiene que correr
@@ -100,16 +125,15 @@ const intactos = navegador => {
 
 const ajenos = (navegador, n) => Array.from({ length: n }, () => navegador.ajeno())
 
-// Corre cuadros hasta que `listo()` o el tope: la cola de reconstrucción de un tramo rearma en tandas de 8 ms reales.
+// Corre cuadros hasta que `listo()` o el tope: la cola de reconstrucción de un tramo rearma en tandas por cuadro.
 const cuadrosHasta = (listo, tope = 10) => {
   for (let i = 0; i < tope && !listo(); i++) cuadro()
   return listo()
 }
 
-// Espera, con tiempo real, a que `listo()` o el tope: lo que se toma en ratos ociosos, sin requestIdleCallback en jsdom.
+// Avanza el reloj hasta que `listo()` o el tope: lo que se toma en ratos ociosos, sin requestIdleCallback en jsdom.
 const hasta = async (listo, tope = 2000) => {
-  const desde = Date.now()
-  while (Date.now() - desde < tope && !listo()) await esperar(10)
+  for (let t = 0; t < tope && !listo(); t++) await pasar(1)
   return listo()
 }
 
@@ -157,14 +181,14 @@ const VACIAS = ['medicion', 'rutas', 'espiral', 'subespiral']
 
 // Las etiquetas van antes que las capas: un separador que aparece después parte un tramo vivo.
 const montarPila = async () => {
-  const { map, navegador } = await armarVacio({ crearGl })
+  const { map, navegador } = await montarVacio()
   mapa = map
   const { engine } = map
   PILA.filter(x => typeof x === 'number').forEach((z, i) => engine.addLabelLayer({ id: `sep${i}`, z }))
   PILA.filter(x => typeof x !== 'number').forEach(([id, clase, z]) => ALTA[clase](engine, id, { z }))
   assert.ok(await hasta(() => engine.surfaces().every(s => duena(engine, s.layerId).state === 'live')),
     'los tramos vacíos toman el suyo en un rato ocioso')
-  await esperar(40)
+  await pasar(40)
   cuadros()
   assert.equal(new Set(engine.surfaces().map(s => duena(engine, s.layerId))).size, 7, 'siete tramos')
   assert.equal(navegador.vivos, 7, 'un contexto por tramo')
@@ -244,11 +268,11 @@ test('siete tramos + 10 ajenos pasan el techo por uno: cae un tramo prescindible
 /* ── El modelo de 13 capas: un tramo ── */
 
 test('un reinicio de la GPU le quita el contexto al modelo de 13 capas: vuelve con uno, rearma las nueve con contenido por z y pinta', async () => {
-  const { map, navegador } = await armar(13, 'react', { crearGl, asentado: false })
+  const { map, navegador } = await conReloj(armar(13, 'react', { crearGl, asentado: false }))
   mapa = map
   const { engine } = map
   await hasta(() => duena(engine, 'geo').state === 'live' && engine.surfaces().every(s => s.state !== 'none' || !s.hasContent))
-  await esperar(40)
+  await pasar(40)
   cuadros()
   const ids = engine.surfaces().map(s => s.layerId)
   assert.equal(ids.length, 13)
@@ -297,13 +321,13 @@ const GL     = CLASES.slice(0, 4)                        // las que van en tramo
 const clases = async (engine, pane) => {
   const en = { ...(pane && { pane, z: 450 }) }
   CLASES.forEach(clase => ALTA[clase](engine, clase, en))
-  await esperar(40)       // los datos entran por la Source, que avisa en el cuadro de jsdom y no en los que corre el test
-  await asentar(engine)   // y el primero le pide su contexto a la capa que nació vacía
+  await pasar(40)                   // los datos entran por la Source, que avisa en el cuadro de jsdom y no en los que corre el test
+  await conReloj(asentar(engine))   // y el primero le pide su contexto a la capa que nació vacía
   return CLASES
 }
 
 const montarClases = async pane => {
-  const { map, navegador } = await armarVacio({ crearGl })
+  const { map, navegador } = await montarVacio()
   mapa = map
   cuadros()
   const ids = await clases(map.engine, pane)
@@ -509,9 +533,9 @@ for (const [estado, llevar] of ESTADOS) {
 
 // El mapa entero, con el modelo de 13 capas en un tramo: lo que desmonta `map.remove()` en cada momento de la recuperación.
 const montar13 = async () => {
-  const { map, navegador } = await armar(13, 'react', { crearGl })
+  const { map, navegador } = await conReloj(armar(13, 'react', { crearGl }))
   mapa = map
-  await esperar(40)                              // lo que jsdom agendó al montar corre con su rAF, no con el del test
+  await pasar(40)                                // lo que jsdom agendó al montar corre con su rAF, no con el del test
   cuadros()
   return { map, engine: map.engine, navegador }
 }
@@ -548,13 +572,13 @@ const clasesSeparadas = async engine => {
     i && engine.addLabelLayer({ id: `sep-${clase}`, z: 395 + i * 10 })
     ALTA[clase](engine, clase, { z: 400 + i * 10 })
   })
-  await esperar(40)
-  await asentar(engine)
+  await pasar(40)
+  await conReloj(asentar(engine))
 }
 
 for (const clase of GL) {
   test(`${clase} oculta, sola en su tramo: conserva el contexto; desalojado queda soltado, y al mostrarla lo toma y pinta en la misma tarea`, async () => {
-    const { map, navegador } = await armarVacio({ crearGl })
+    const { map, navegador } = await montarVacio()
     mapa = map
     cuadros()
     const { engine } = map
@@ -591,12 +615,12 @@ for (const [estado, soltar, tomados] of [
   ['con su tramo soltado',     (engine, id) => duena(engine, id).release(),      1],
 ]) {
   test(`attachSource de una capa ${estado}: la nueva se arma en el lugar de la vieja, en el mismo tramo, y nada la duplica`, async () => {
-    const { map, navegador } = await armarVacio({ crearGl })
+    const { map, navegador } = await montarVacio()
     mapa = map
     cuadros()
     const { engine } = map
     ;['a', 'b', 'c'].forEach(id => engine.addPointLayer({ id, source: fuente(2), iconSet, pane: 'comun', z: 450 }))
-    await asentar(engine)
+    await conReloj(asentar(engine))
     const orden = () => (hijos => ['a', 'b', 'c'].sort((p, q) =>
       hijos.indexOf(superficie(engine, p).canvas) - hijos.indexOf(superficie(engine, q).canvas)))([...superficie(engine, 'a').canvas.parentNode.children])
     assert.deepEqual(orden(), ['a', 'b', 'c'])
