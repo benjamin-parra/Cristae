@@ -136,6 +136,12 @@ paso(`clon limpio de ${commit.slice(0, 12)}`, () => {
   ].join('\n') + '\n')
 })
 
+// Con `core.fileMode=false` el bit de ejecución no se commitea, y en un clon nuevo git salta el pre-push con un hint.
+paso('hooks de .githooks ejecutables en el árbol', () => {
+  const sinBit = git('ls-tree', commit, '.githooks/').split('\n').filter(l => l && !l.startsWith('100755')).map(l => l.split('\t')[1])
+  if (sinBit.length) throw new Error(`Sin bit de ejecución: ${sinBit.join(', ')}. Se corrige con git update-index --chmod=+x ${sinBit.join(' ')}`)
+})
+
 /* ── 2. Contenedor: la imagen del runner, instalando desde cero ───────────── */
 paso(motor.remoto ? `copiar el clon a ${motor.remoto}` : 'preparar el clon para el contenedor', () => {
   if (!motor.remoto) { dirMotor = motor.ruta ? motor.ruta(clon) : clon; return }
