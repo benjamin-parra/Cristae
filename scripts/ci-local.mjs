@@ -153,7 +153,9 @@ paso(`Node ${process.version} de esta máquina: lint + test`, () => {
   if (existsSync(modulos)) symlinkSync(modulos, join(clon, 'node_modules'), 'dir')
   else sh('npm', ['install', '--no-audit', '--no-fund'], { cwd: clon })
   sh('npm', ['run', 'lint'], { cwd: clon })
-  sh('npm', ['test'], { cwd: clon })
+  // Concurrencia acotada: varias pruebas viven del reloj (performance.now con desfase) y en una máquina
+  // de desarrollo cargada, con ocho procesos de prueba a la vez, vencen plazos que a solas no vencen.
+  sh('npm', ['test', '--', '--test-concurrency=2'], { cwd: clon })
 })
 
 /* ── Limpieza ─────────────────────────────────────────────────────────────── */
