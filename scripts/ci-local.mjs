@@ -79,7 +79,9 @@ const paso = (titulo, fn) => {
   const t = Date.now()
   try { fn(); console.log(`OK (${seg(t)})`) } catch (e) {
     console.log('FALLA\n')
-    console.error(String(e.stdout ?? '') + String(e.stderr ?? '') || e.message)
+    // Un test rojo vuelca miles de líneas: se muestra la cola, donde está el resumen del fallo.
+    const lineas = (String(e.stdout ?? '') + String(e.stderr ?? '') || e.message).split('\n')
+    console.error((lineas.length > 150 ? [`… (${lineas.length - 150} líneas anteriores omitidas)`, ...lineas.slice(-150)] : lineas).join('\n'))
     fallo = true
   }
 }
