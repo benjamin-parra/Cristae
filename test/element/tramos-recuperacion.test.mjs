@@ -4,12 +4,37 @@
 // navegador falso que cuenta los contextos.
 //
 // El harness va PRIMERO: window, customElements y lo que Lit toca al evaluar.
-import { ACC, LINEA, POLI, armarVacio, asentar, esperar, iconSet, items } from '../../test-helpers/modelo-capas.mjs'
+import { ACC, LINEA, POLI, armarVacio, asentar, iconSet, items } from '../../test-helpers/modelo-capas.mjs'
 import { makeEditGl, makePickSpy } from '../../test-helpers/engine-stub.mjs'
-import { afterEach, mock, test } from 'node:test'
+import { afterEach, beforeEach, mock, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createSource } from '../../src/data/index.js'
 import { STILL_CLASS } from '../../src/render/tramo-still.js'
+
+/* ── Reloj falso ── */
+
+// El tiempo sólo avanza cuando el test lo avanza, también `performance.now`: con el de pared, una máquina cargada parte
+// la reconstrucción de un tramo en tandas de 8 ms (`RebuildQueue`) y lo que el test espera en una tarea llega en otra.
+// El cuadro de jsdom, del que cuelgan Leaflet y la Source, es un `setInterval`: también lo mueve este reloj.
+mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'] })
+const origen = performance.now()
+beforeEach(() => mock.method(performance, 'now', () => origen + Date.now()))
+
+const PASOS_MAX = 60_000                         // ms del reloj falso: una espera que no termina falla en vez de colgarse
+
+// Corre `promesa` avanzando el reloj de a 1 ms, con las microtareas al día entre paso y paso, hasta que se resuelve.
+const conReloj = async promesa => {
+  let lista = false
+  promesa.then(() => { lista = true }, () => { lista = true })
+  for (let ms = 0; ; ms++) {
+    await new Promise(r => setImmediate(r))
+    if (lista) return promesa
+    if (ms === PASOS_MAX) throw new Error(`[reloj] la espera no terminó en ${PASOS_MAX} ms`)
+    mock.timers.tick(1)
+  }
+}
+
+const esperar = ms => conReloj(new Promise(r => setTimeout(r, ms)))
 
 /* ── Cuadros a mano ── */
 
@@ -65,7 +90,7 @@ const linea  = { id: 1, pts: [[0, 0], [1, 1]], color: '#00f', weight: 2, opacity
 
 // Dos tramos: { a, b } y { c, d }, con la etiqueta `sep` entre ellos.
 const montar = async (opciones = {}) => {
-  const { map, navegador } = await armarVacio({ crearGl, ...opciones })
+  const { map, navegador } = await conReloj(armarVacio({ crearGl, ...opciones }))
   mapa = map
   const engine  = map.engine
   const fuentes = { a: fuente(2), c: fuente(2) }
@@ -74,7 +99,7 @@ const montar = async (opciones = {}) => {
   engine.addLabelLayer({ id: 'sep', z: 420 })
   engine.addPointLayer({ id: 'c', source: fuentes.c, iconSet, z: 430 })
   engine.addPolygonLayer({ id: 'd', accessors: POLI, data: [{ id: 'z1' }], z: 440 })
-  await asentar(engine)
+  await conReloj(asentar(engine))
   await esperar(40)
   cuadros()
   assert.equal(tramoDe(engine, 'a'), tramoDe(engine, 'b'))
@@ -202,12 +227,12 @@ for (const [estado, llevar] of [
   ['perdido, esperando su cuadro',           (n, c) => (n.desalojar(c), n.vaciar())],
 ]) {
   test(`attachSource de una capa con su tramo ${estado}: el tramo vuelve una vez, con la nueva en el lugar de la vieja`, async () => {
-    const { map, navegador } = await armarVacio({ crearGl })
+    const { map, navegador } = await conReloj(armarVacio({ crearGl }))
     mapa = map
     cuadros()
     const { engine } = map
     ;['p', 'q', 'r'].forEach(id => engine.addPointLayer({ id, source: fuente(2), iconSet, pane: 'comun', z: 450 }))
-    await asentar(engine)
+    await conReloj(asentar(engine))
     const orden = () => (hijos => ['p', 'q', 'r'].sort((x, y) =>
       hijos.indexOf(engine.getLayer(x).layer.surface.canvas) - hijos.indexOf(engine.getLayer(y).layer.surface.canvas)))(
       [...engine.getLayer('p').layer.surface.canvas.parentNode.children])
@@ -309,13 +334,11 @@ const microtareas = async () => {
 }
 
 // Dos pérdidas seguidas del tramo de arriba con un ajeno que llena el techo: la segunda es saturación, y la política
-// suelta por voluntad propia al de abajo, que tiene menos z, para devolverle el cupo al de arriba. `relojes` corre ya
-// montado el mapa, que espera con `setTimeout` reales.
-const saturarAbajo = async (ajenos, relojes = () => {}) => {
+// suelta por voluntad propia al de abajo, que tiene menos z, para devolverle el cupo al de arriba.
+const saturarAbajo = async ajenos => {
   const { engine, navegador } = await montar({ techo: 3 })
   medir(engine, 'a')
   await esperar(300)                                    // lo que Leaflet avisa del tamaño nuevo, antes de copiar
-  relojes()
   mock.method(console, 'warn', () => {})
   insistente(navegador, ajenos)
   cuadrosEnOrden(navegador, ajenos, 3)
@@ -392,35 +415,31 @@ test('K3 sin fugas: quitar el mapa con un tramo esperando suelta su imagen fija'
 })
 
 test('saturación sobre tramos: dos reintentos, a los 5 s y a los 30 s, y nada más; la imagen fija sigue mientras tanto', async () => {
-  try {
-    const ajenos = []
-    const { engine, navegador } = await saturarAbajo(ajenos, () => mock.timers.enable({ apis: ['setTimeout'] }))
-    const abajo = tramoDe(engine, 'a')
-    const still = abajo.still
-    assert.ok(still)
-    insistente(navegador, ajenos)                       // otro widget toma el cupo que soltó el de abajo
-    cuadrosEnOrden(navegador, ajenos)
-    const propias = () => navegador.contextos.filter(c => !c.ajeno).length
-    const antes   = propias()
-    const despues = async ms => {
-      mock.timers.tick(ms)
-      cuadrosEnOrden(navegador, ajenos, 6)
-      await microtareas()
-      return propias()
-    }
-
-    assert.equal(await despues(4999), antes, 'nada antes de los 5 s')
-    // El reintento toma al de abajo, que desaloja al de arriba; ésa vuelve a ser saturación: suelta al de abajo y el de
-    // arriba vuelve. Dos contextos propios por reintento.
-    assert.equal(await despues(1), antes + 2, 'el de los 5 s')
-    assert.equal(await despues(29_999), antes + 2, 'nada hasta los 30 s siguientes')
-    assert.equal(await despues(1), antes + 4, 'el de los 30 s')
-    assert.equal(await despues(600_000), antes + 4, 'y no hay más')
-    assert.deepEqual([abajo.surface.state, tramoDe(engine, 'c').surface.state], ['released', 'live'])
-    assert.equal(abajo.still, still, 'la imagen de antes sigue: una vuelta que no llegó a componer no la reemplaza')
-    assert.equal(still.isConnected, true)
-    intactos(navegador)
-  } finally {
-    mock.timers.reset()
+  const ajenos = []
+  const { engine, navegador } = await saturarAbajo(ajenos)
+  const abajo = tramoDe(engine, 'a')
+  const still = abajo.still
+  assert.ok(still)
+  insistente(navegador, ajenos)                         // otro widget toma el cupo que soltó el de abajo
+  cuadrosEnOrden(navegador, ajenos)
+  const propias = () => navegador.contextos.filter(c => !c.ajeno).length
+  const antes   = propias()
+  const despues = async ms => {
+    mock.timers.tick(ms)
+    cuadrosEnOrden(navegador, ajenos, 6)
+    await microtareas()
+    return propias()
   }
+
+  assert.equal(await despues(4999), antes, 'nada antes de los 5 s')
+  // El reintento toma al de abajo, que desaloja al de arriba; ésa vuelve a ser saturación: suelta al de abajo y el de
+  // arriba vuelve. Dos contextos propios por reintento.
+  assert.equal(await despues(1), antes + 2, 'el de los 5 s')
+  assert.equal(await despues(29_999), antes + 2, 'nada hasta los 30 s siguientes')
+  assert.equal(await despues(1), antes + 4, 'el de los 30 s')
+  assert.equal(await despues(600_000), antes + 4, 'y no hay más')
+  assert.deepEqual([abajo.surface.state, tramoDe(engine, 'c').surface.state], ['released', 'live'])
+  assert.equal(abajo.still, still, 'la imagen de antes sigue: una vuelta que no llegó a componer no la reemplaza')
+  assert.equal(still.isConnected, true)
+  intactos(navegador)
 })
