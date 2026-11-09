@@ -1,7 +1,7 @@
 #!/bin/sh
 # Barrera antes de que algo llegue al remoto: Cristae se vendoriza en winglibraries, cuyo CI avisa a todo
-# el equipo cuando falla. NO se empuja nada que no pase lint + suite + build en la imagen del runner
-# (Node 24) y en el Node de esta máquina.
+# el equipo cuando falla. no se empuja nada que no pase lint + suite + build en la imagen del runner
+# (Node 24) y en la del Node actual (Node 26).
 #
 # Por cada ref que se empuja exige el sello del ÁRBOL (lo deja scripts/ci-local.mjs al terminar en
 # verde) o corre `ci-local --ref <sha>` ahora mismo. Se activa solo: `npm install` corre `prepare`.
@@ -22,11 +22,11 @@ while read -r ref_local sha_local ref_remota sha_remoto; do
   case "$vistos" in *" $sha_local$ref_remota "*) continue ;; esac
   vistos="$vistos$sha_local$ref_remota "
 
-  echo "pre-push: validando $ref_remota ($sha_local) en la imagen del runner y en este Node…" >&2
+  echo "pre-push: validando $ref_remota ($sha_local) en la imagen del runner y en la del Node actual…" >&2
   if ! node scripts/ci-local.mjs --ref "$sha_local" --usar-sello </dev/null >&2; then
     echo "" >&2
     echo "pre-push: PUSH ABORTADO. $ref_remota no pasa el CI local." >&2
-    echo "  Arreglá la causa y volvé a empujar. No se usa --no-verify: un pipeline en rojo avisa a todo el equipo." >&2
+    echo "  Corrige la causa y vuelve a empujar. No se usa --no-verify: un pipeline en rojo avisa a todo el equipo." >&2
     estado=1
   fi
 done <<REFS

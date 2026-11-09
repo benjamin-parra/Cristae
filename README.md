@@ -93,7 +93,7 @@ El gate trabaja sobre un **clon limpio de lo commiteado** (no el working tree) y
 1. **En la imagen del runner** (`IMAGEN_RUNNER` en `scripts/ci-local.mjs`, la `default.image` del
    `.gitlab-ci.yml` de winglibraries): instalación desde cero (`npm ci` si el lockfile está commiteado;
    hoy `.gitignore` lo excluye, así que `npm install`), `npm run lint`, `npm test` y `npm run build`.
-2. **En el Node de esta máquina**: lint y la suite, sobre el mismo clon.
+2. **En la imagen del Node actual** (`node:26-alpine`): lo mismo, sobre el mismo clon.
 
 - **`--no-verify` no se usa.** Salta el hook y es el atajo que dejó pasar un pipeline en rojo. Si el
   hook frena algo que no viene de tus commits, se avisa en vez de saltarlo.

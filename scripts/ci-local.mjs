@@ -1,5 +1,5 @@
 // Barrera de Cristae antes de subir: corre lint + suite + build sobre un CLON LIMPIO de lo commiteado,
-// en la imagen del runner de CI de winglibraries Y en el Node de esta máquina.
+// en la imagen del runner de CI de winglibraries y en la del Node actual.
 //
 //   node scripts/ci-local.mjs [--ref <commit>] [--usar-sello]
 //
@@ -11,10 +11,8 @@
 // local en rojo; tres pruebas sólo andaban en el Node de la máquina (Node 26) y no en el de la imagen
 // (Node 24). Probar sólo con el Node propio no basta: ese es el problema.
 //
-// Los dos pasos usan lo MISMO que el CI: el contenedor instala desde cero, así que no ve nada que sólo
-// exista en tu working tree o en tu node_modules. El paso con el Node de la máquina reutiliza el
-// node_modules del repo (symlink) si existe —se prueba el código commiteado, no las dependencias— y,
-// si no, instala en el clon.
+// Los dos contenedores instalan desde cero sobre el clon, como el CI: no ven nada que sólo exista en el
+// working tree o en el node_modules del repo.
 //
 // Dónde corre el contenedor (sin rutas ni nombres de máquina en el repo; se configura por clon):
 //   · Windows        → docker dentro de la distro WSL.
@@ -35,6 +33,10 @@ import { join, resolve } from 'node:path'
 // Imagen del job `verificar` de winglibraries (`default.image` de su .gitlab-ci.yml). Si allá cambia,
 // cambia acá: es la que corre las pruebas de Cristae cuando se vendoriza en packages/cristae.
 const IMAGEN_RUNNER = 'node:24-alpine'
+// El Node actual: el de las máquinas de desarrollo y el que viene. Corre en contenedor y no en el Node de la
+// máquina, porque en una máquina de desarrollo cargada las pruebas que viven del reloj vencen plazos.
+const IMAGEN_ACTUAL = 'node:26-alpine'
+const IMAGENES = [IMAGEN_RUNNER, IMAGEN_ACTUAL]
 
 // Git exporta estas variables a los hooks; apuntarían a otro repo si se heredaran en un subproceso.
 for (const v of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_PREFIX']) delete process.env[v]
@@ -58,9 +60,9 @@ const arbol = git('rev-parse', '--verify', `${ref}^{tree}`)
 
 /* ── Sello ────────────────────────────────────────────────────────────────── */
 const dirSellos = join(resolve(REPO, git('rev-parse', '--git-common-dir')), 'ci-local-sellos')
-const archivoSello = join(dirSellos, createHash('sha256').update(`${arbol}\n${IMAGEN_RUNNER}\n`).digest('hex').slice(0, 40))
+const archivoSello = join(dirSellos, createHash('sha256').update(`${arbol}\n${IMAGENES.join(' ')}\n`).digest('hex').slice(0, 40))
 if (usarSello && existsSync(archivoSello)) {
-  console.log(`Sello vigente: el árbol ${arbol.slice(0, 12)} ya pasó en ${IMAGEN_RUNNER} y en el Node de la máquina. No se repite la corrida.`)
+  console.log(`Sello vigente: el árbol ${arbol.slice(0, 12)} ya pasó en ${IMAGENES.join(' y ')}. No se repite la corrida.`)
   process.exit(0)
 }
 
@@ -107,14 +109,14 @@ function elegirMotor() {
     }
   }
   const engine = preferido ?? ['docker', 'podman'].find(e => existe(e))
-  if (!engine) throw new Error('No hay docker ni podman. Instalá uno, o configurá un host remoto: git config cilocal.remoto <alias-ssh>')
-  if (!existe(engine, ['info'])) throw new Error(`${engine} está instalado pero no responde (¿daemon apagado?). Levantalo, o usá un host remoto: git config cilocal.remoto <alias-ssh>`)
+  if (!engine) throw new Error('No hay docker ni podman. Instala uno, o configura un host remoto: git config cilocal.remoto <alias-ssh>')
+  if (!existe(engine, ['info'])) throw new Error(`${engine} está instalado pero no responde (¿daemon apagado?). Levántalo, o usa un host remoto: git config cilocal.remoto <alias-ssh>`)
   return { nombre: engine, sufijoVolumen: engine === 'podman' ? ':Z' : '', engineCli: argv => sh(engine, argv) }
 }
 
 let motor
 try { motor = elegirMotor() } catch (e) { console.error(e.message); process.exit(1) }
-console.log(`Validando ${ref} (commit ${commit.slice(0, 12)}, árbol ${arbol.slice(0, 12)}) en ${IMAGEN_RUNNER} vía ${motor.nombre} y en Node ${process.version}`)
+console.log(`Validando ${ref} (commit ${commit.slice(0, 12)}, árbol ${arbol.slice(0, 12)}) en ${IMAGENES.join(' y ')} vía ${motor.nombre}`)
 
 /* ── 1. Clon limpio de lo COMMITEADO ──────────────────────────────────────── */
 const tmp = mkdtempSync(join(tmpdir(), 'cristae-ci-'))
@@ -126,6 +128,7 @@ paso(`clon limpio de ${commit.slice(0, 12)}`, () => {
   // `npm ci` si el lockfile está commiteado (hoy .gitignore lo excluye: entonces `npm install`).
   writeFileSync(join(clon, 'ci-contenedor.sh'), [
     'set -e',
+    'rm -rf node_modules dist',
     'if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi',
     'npm run lint',
     'npm test',
@@ -139,26 +142,14 @@ paso(motor.remoto ? `copiar el clon a ${motor.remoto}` : 'preparar el clon para 
   dirMotor = ssh(motor.remoto, 'mkdir -p "${XDG_CACHE_HOME:-$HOME/.cache}/ci-local" && mktemp -d "${XDG_CACHE_HOME:-$HOME/.cache}/ci-local/cristae-XXXXXX"').trim()
   ssh(motor.remoto, `tar -x -C ${q(dirMotor)}`, { input: execFileSync('tar', ['-c', '-C', clon, '.'], { maxBuffer: 1 << 30 }) })
 })
-paso(`imagen del runner disponible (${IMAGEN_RUNNER})`, () => {
-  try { motor.engineCli(['image', 'inspect', IMAGEN_RUNNER]) } catch { motor.engineCli(['pull', IMAGEN_RUNNER]) }
-})
-paso(`${IMAGEN_RUNNER}: install, lint, test, build`, () => {
-  motor.engineCli(['run', '--rm', '-v', `${dirMotor}:/build${motor.sufijoVolumen}`, '-w', '/build', IMAGEN_RUNNER, 'sh', 'ci-contenedor.sh'])
-})
-
-/* ── 3. El Node de esta máquina, sobre el MISMO clon ──────────────────────── */
-// El clon local nunca se tocó dentro del contenedor (en remoto se copió; en local el contenedor sí lo
-// usa, así que los restos root-owned se limpian antes de reusarlo).
-paso(`Node ${process.version} de esta máquina: lint + test`, () => {
-  if (!motor.remoto) limpiarClon()
-  const modulos = join(REPO, 'node_modules')
-  if (existsSync(modulos)) symlinkSync(modulos, join(clon, 'node_modules'), 'dir')
-  else sh('npm', ['install', '--no-audit', '--no-fund'], { cwd: clon })
-  sh('npm', ['run', 'lint'], { cwd: clon })
-  // Concurrencia acotada: varias pruebas viven del reloj (performance.now con desfase) y en una máquina
-  // de desarrollo cargada, con ocho procesos de prueba a la vez, vencen plazos que a solas no vencen.
-  sh('npm', ['test', '--', '--test-concurrency=2'], { cwd: clon })
-})
+for (const imagen of IMAGENES) {
+  paso(`imagen ${imagen} disponible`, () => {
+    try { motor.engineCli(['image', 'inspect', imagen]) } catch { motor.engineCli(['pull', imagen]) }
+  })
+  paso(`${imagen}: install, lint, test, build`, () => {
+    motor.engineCli(['run', '--rm', '-v', `${dirMotor}:/build${motor.sufijoVolumen}`, '-w', '/build', imagen, 'sh', 'ci-contenedor.sh'])
+  })
+}
 
 /* ── Limpieza ─────────────────────────────────────────────────────────────── */
 // El contenedor corre como root: lo que creó (node_modules) no lo puede borrar el usuario normal.
@@ -166,6 +157,7 @@ function limpiarClon() {
   if (motor.remoto || !dirMotor) return
   try { motor.engineCli(['run', '--rm', '-v', `${dirMotor}:/build${motor.sufijoVolumen}`, IMAGEN_RUNNER, 'sh', '-c', 'rm -rf /build/node_modules /build/dist']) } catch { /* se intenta igual abajo */ }
 }
+limpiarClon()
 if (motor.remoto && dirMotor) {
   try { motor.engineCli(['run', '--rm', '-v', `${dirMotor}:/build${motor.sufijoVolumen}`, IMAGEN_RUNNER, 'sh', '-c', 'rm -rf /build/* /build/.[!.]* /build/..?*']) } catch { /* idem */ }
   try { ssh(motor.remoto, `rm -rf ${q(dirMotor)}`) } catch { /* residuo en el cache del host */ }
@@ -177,5 +169,5 @@ if (fallo) {
   process.exit(1)
 }
 mkdirSync(dirSellos, { recursive: true })
-writeFileSync(archivoSello, JSON.stringify({ arbol, imagen: IMAGEN_RUNNER, node: process.version, commit, motor: motor.nombre, fecha: new Date().toISOString() }, null, 2) + '\n')
+writeFileSync(archivoSello, JSON.stringify({ arbol, imagenes: IMAGENES, commit, motor: motor.nombre, fecha: new Date().toISOString() }, null, 2) + '\n')
 console.log(`\nGate local en verde (${seg(t0)}). Sello escrito para el árbol ${arbol.slice(0, 12)}.`)
