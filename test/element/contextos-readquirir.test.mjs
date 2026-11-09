@@ -17,8 +17,7 @@
 //         el editor, deja sus contextos en 0; `map.remove()` en cada momento de la recuperación, 0 vivos.
 //
 // Los cuadros los corre el test (`cuadro()`), así «uno por cuadro» es determinista. Los eventos del navegador llegan con
-// `navegador.vaciar()`. El reloj es falso: el tiempo pasa sólo con `pasar()`, y ni la carga de la máquina ni lo que
-// tarda un rearme cambian el resultado. Corre con: node --test test/element/contextos-readquirir.test.mjs
+// `navegador.vaciar()`, y el tiempo, con `pasar()`. Corre con: node --test test/element/contextos-readquirir.test.mjs
 //
 // El harness va PRIMERO: window, customElements y lo que Lit toca al evaluar.
 import { armar, armarVacio, asentar, ACC, LINEA, POLI, iconSet, items } from '../../test-helpers/modelo-capas.mjs'
@@ -27,13 +26,13 @@ import { afterEach, beforeEach, mock, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createSource } from '../../src/data/index.js'
 
-/* ── Un reloj que avanza sólo cuando el test lo avanza ── */
+/* ── Reloj falso ── */
 
-// setTimeout, setInterval (el rAF de jsdom) y Date. `performance.now`, que mide el tope de cada tanda de la cola de
-// reconstrucción, los sigue: dentro de una tarea no avanza.
+// Con el reloj de pared, una máquina cargada parte la reconstrucción de un tramo en tandas de 8 ms (`RebuildQueue`) y
+// el montaje vence su plazo. `performance.now` sigue a este reloj (abajo), y el rAF de jsdom es un `setInterval`.
 mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'] })
 
-// Avanza el reloj de a 1 ms; entre paso y paso corren las microtareas y lo que agendó el paso.
+// Entre paso y paso corren las microtareas y lo que agendó el paso.
 const pasar = async ms => {
   for (let i = 0; i < ms; i++) {
     mock.timers.tick(1)
@@ -41,7 +40,6 @@ const pasar = async ms => {
   }
 }
 
-// Lo que duerme con el reloj (los helpers de montaje) despierta a medida que se lo avanza.
 const conReloj = async (promesa, tope = 60_000) => {
   let fin = false
   promesa.then(() => { fin = true }, () => { fin = true })

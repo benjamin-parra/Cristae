@@ -74,44 +74,55 @@ la *Migración* de cada API. La política de retiro está en
 | `<cristae-label-layer>` con `source` propio | `<cristae-text-layer>`, `<CristaeTextLayer>`, `engine.addTextLayer`: una capa base de texto ([texto suelto](docs/text-layer.md)) |
 | `<cristae-label-layer slot="bubble">` dentro de `<cristae-cluster>` | Un `<cristae-labeled>` por fuera del cluster, con `textOf` sobre `{ count, leaves }` |
 
-## Antes de subir: la barrera de `pre-push`
+## Antes de empujar: el gate
 
-Cristae se vendoriza en winglibraries (`packages/cristae`), cuyo pipeline de GitLab corre en `node:24-alpine`
-y **avisa a todo el equipo** cuando falla. Una prueba que anda en tu Node pero no en el de la imagen se
-descubre ahí, tarde y en público. Por eso **nada se empuja sin pasar el gate**:
+Cristae se vendoriza en winglibraries (`packages/cristae`), cuyo pipeline de GitLab corre en `node:24-alpine` y
+avisa a todo el equipo cuando falla. Por eso el hook `pre-push` deja subir un árbol que ya pasó el gate, y una
+prueba que anda en un Node y no en el de la imagen aparece en local.
 
 ```bash
-npm install            # activa el hook (el script `prepare` apunta core.hooksPath de git a .githooks)
+npm install            # activa el hook pre-push
 npm run gate           # node scripts/ci-local.mjs [--ref <commit>]
 ```
 
-`.githooks/pre-push` está versionado. Por cada ref que se empuja pide el **sello** del árbol de ese commit
-o corre el gate en el momento; si falla, **el push se aborta**. Borrar una rama o tag remoto pasa.
+### Qué corre
 
-El gate trabaja sobre un **clon limpio de lo commiteado** (no el working tree) y corre:
+El gate clona lo commiteado y corre install, `npm run lint`, `npm test` y `npm run build` en dos imágenes:
 
-1. **En la imagen del runner** (`IMAGEN_RUNNER` en `scripts/ci-local.mjs`, la `default.image` del
-   `.gitlab-ci.yml` de winglibraries): instalación desde cero (`npm ci` si el lockfile está commiteado;
-   hoy `.gitignore` lo excluye, así que `npm install`), `npm run lint`, `npm test` y `npm run build`.
-2. **En la imagen del Node actual** (`node:26-alpine`): lo mismo, sobre el mismo clon.
+| Imagen | Por qué |
+| --- | --- |
+| `node:24-alpine` (`IMAGEN_RUNNER` en `scripts/ci-local.mjs`) | Es la `default.image` del `.gitlab-ci.yml` de winglibraries |
+| `node:26-alpine` (`IMAGEN_ACTUAL`) | El Node con que se desarrolla, en un clon limpio y sin la carga de la máquina local |
 
-- **`--no-verify` no se usa.** Salta el hook y es el atajo que dejó pasar un pipeline en rojo. Si el
-  hook frena algo que no viene de tus commits, se avisa en vez de saltarlo.
-- Con Claude Code, `.claude/settings.json` agrega un hook que niega todo `git push` con `--no-verify`,
-  `core.hooksPath` o `HUSKY=0` en la misma línea.
-- **Sello:** en verde se guarda el hash del *árbol* en `<git-common-dir>/ci-local-sellos/` (no
-  versionado); un segundo push del mismo árbol no repite la corrida. En rojo no hay sello.
-- **Un clon nuevo no tiene el hook hasta el primer `npm install`** (o `node scripts/activar-hooks.mjs`).
-- **Dónde corre el contenedor:** en Windows, docker dentro de WSL; en Linux/macOS, `docker` o `podman`
-  locales, o un host remoto por ssh. El host se configura en tu clon, no en el repo:
+El lockfile está en `.gitignore`, así que el clon instala con `npm install`. Si algún día se commitea, pasa a
+`npm ci`.
+
+### Cómo se activa
+
+- `npm install` corre el `prepare`, que apunta `core.hooksPath` a `.githooks/`. Un clon nuevo no tiene el hook
+  hasta ese primer install, o hasta `node scripts/activar-hooks.mjs`.
+- El hook valida cada ref que se empuja. Borrar una rama o un tag remoto no sube código y pasa sin validar.
+- En verde, el gate guarda un sello con el hash del árbol en `<git-common-dir>/ci-local-sellos/`, fuera del repo.
+  Un segundo push del mismo árbol no repite la corrida, y en rojo no se escribe sello.
+
+### Dónde corre el contenedor
+
+En Windows corre en docker dentro de WSL, y en Linux o macOS en `docker` o `podman` locales. Un host remoto por
+ssh se configura en el clon de cada uno, nunca en el repo, o con las variables `CILOCAL_REMOTO`, `CILOCAL_MOTOR`
+y `CILOCAL_CANDADO`:
 
 ```bash
 git config cilocal.remoto <alias-ssh>      # host con podman o docker
 git config cilocal.motor podman            # opcional
-git config cilocal.candado <ruta-remota>   # opcional: serializa corridas con flock
+git config cilocal.candado <ruta-remota>   # opcional: serializa las corridas con flock
 ```
 
-(Las mismas claves se leen como `CILOCAL_REMOTO`, `CILOCAL_MOTOR` y `CILOCAL_CANDADO`.)
+### Si el hook frena el push
+
+- Se corrige la causa: el código, o la prueba si medía mal su invariante.
+- Si el rojo no viene de los commits propios, no se empuja: se arregla primero en la rama base.
+- `git push --no-verify` salta el hook, y el rojo llega igual al pipeline de winglibraries. En Claude Code, el
+  hook de `.claude/settings.json` niega todo `git push` que lo salte.
 
 ## Documentación
 

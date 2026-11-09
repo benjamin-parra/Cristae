@@ -13,16 +13,16 @@ import { STILL_CLASS } from '../../src/render/tramo-still.js'
 
 /* ── Reloj falso ── */
 
-// El tiempo sólo avanza cuando el test lo avanza, también `performance.now`: con el de pared, una máquina cargada parte
-// la reconstrucción de un tramo en tandas de 8 ms (`RebuildQueue`) y lo que el test espera en una tarea llega en otra.
-// El cuadro de jsdom, del que cuelgan Leaflet y la Source, es un `setInterval`: también lo mueve este reloj.
+// Con el reloj de pared, una máquina cargada parte la reconstrucción de un tramo en tandas de 8 ms (`RebuildQueue`) y
+// lo que el test espera en una tarea llega en otra. El rAF de jsdom, del que cuelgan Leaflet y la Source, es un
+// `setInterval`: también lo mueve este reloj.
 mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'] })
 const origen = performance.now()
 beforeEach(() => mock.method(performance, 'now', () => origen + Date.now()))
 
 const PASOS_MAX = 60_000                         // ms del reloj falso: una espera que no termina falla en vez de colgarse
 
-// Corre `promesa` avanzando el reloj de a 1 ms, con las microtareas al día entre paso y paso, hasta que se resuelve.
+// Avanza de a 1 ms, con las microtareas al día entre paso y paso, hasta que `promesa` se resuelve.
 const conReloj = async promesa => {
   let lista = false
   promesa.then(() => { lista = true }, () => { lista = true })
