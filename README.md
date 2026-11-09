@@ -74,6 +74,43 @@ la *Migración* de cada API. La política de retiro está en
 | `<cristae-label-layer>` con `source` propio | `<cristae-text-layer>`, `<CristaeTextLayer>`, `engine.addTextLayer`: una capa base de texto ([texto suelto](docs/text-layer.md)) |
 | `<cristae-label-layer slot="bubble">` dentro de `<cristae-cluster>` | Un `<cristae-labeled>` por fuera del cluster, con `textOf` sobre `{ count, leaves }` |
 
+## Antes de subir: la barrera de `pre-push`
+
+Cristae se vendoriza en winglibraries (`packages/cristae`), cuyo pipeline de GitLab corre en `node:24-alpine`
+y **avisa a todo el equipo** cuando falla. Una prueba que anda en tu Node pero no en el de la imagen se
+descubre ahí, tarde y en público. Por eso **nada se empuja sin pasar el gate**:
+
+```bash
+npm install            # activa el hook (el script `prepare` apunta core.hooksPath de git a .githooks)
+npm run gate           # node scripts/ci-local.mjs [--ref <commit>]
+```
+
+`.githooks/pre-push` está versionado. Por cada ref que se empuja pide el **sello** del árbol de ese commit
+o corre el gate en el momento; si falla, **el push se aborta**. Borrar una rama o tag remoto pasa.
+
+El gate trabaja sobre un **clon limpio de lo commiteado** (no el working tree) y corre:
+
+1. **En la imagen del runner** (`IMAGEN_RUNNER` en `scripts/ci-local.mjs`, la `default.image` del
+   `.gitlab-ci.yml` de winglibraries): instalación desde cero (`npm ci` si el lockfile está commiteado;
+   hoy `.gitignore` lo excluye, así que `npm install`), `npm run lint`, `npm test` y `npm run build`.
+2. **En el Node de esta máquina**: lint y la suite, sobre el mismo clon.
+
+- **`--no-verify` no se usa.** Salta el hook y es el atajo que dejó pasar un pipeline en rojo. Si el
+  hook frena algo que no viene de tus commits, se avisa en vez de saltarlo.
+- **Sello:** en verde se guarda el hash del *árbol* en `<git-common-dir>/ci-local-sellos/` (no
+  versionado); un segundo push del mismo árbol no repite la corrida. En rojo no hay sello.
+- **Un clon nuevo no tiene el hook hasta el primer `npm install`** (o `node scripts/activar-hooks.mjs`).
+- **Dónde corre el contenedor:** en Windows, docker dentro de WSL; en Linux/macOS, `docker` o `podman`
+  locales, o un host remoto por ssh. El host se configura en tu clon, no en el repo:
+
+```bash
+git config cilocal.remoto <alias-ssh>      # host con podman o docker
+git config cilocal.motor podman            # opcional
+git config cilocal.candado <ruta-remota>   # opcional: serializa corridas con flock
+```
+
+(Las mismas claves se leen como `CILOCAL_REMOTO`, `CILOCAL_MOTOR` y `CILOCAL_CANDADO`.)
+
 ## Documentación
 
 - [`AGENTS.md`](AGENTS.md) — reglas de contribución y estilo JavaScript.

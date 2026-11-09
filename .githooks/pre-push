@@ -1,0 +1,36 @@
+#!/bin/sh
+# Barrera antes de que algo llegue al remoto: Cristae se vendoriza en winglibraries, cuyo CI avisa a todo
+# el equipo cuando falla. NO se empuja nada que no pase lint + suite + build en la imagen del runner
+# (Node 24) y en el Node de esta máquina.
+#
+# Por cada ref que se empuja exige el sello del ÁRBOL (lo deja scripts/ci-local.mjs al terminar en
+# verde) o corre `ci-local --ref <sha>` ahora mismo. Se activa solo: `npm install` corre `prepare`.
+# POSIX sh, para que corra igual en Git Bash de Windows.
+
+raiz=$(git rev-parse --show-toplevel) || exit 1
+cd "$raiz" || exit 1
+
+# stdin se lee completo y se corta antes de lanzar nada: node/ssh/docker lo consumirían.
+refs=$(cat)
+estado=0
+vistos=" "
+
+while read -r ref_local sha_local ref_remota sha_remoto; do
+  [ -n "$sha_local" ] || continue
+  # Borrar una rama o tag remoto no sube código: se deja pasar.
+  case "$sha_local" in *[!0]*) ;; *) continue ;; esac
+  case "$vistos" in *" $sha_local$ref_remota "*) continue ;; esac
+  vistos="$vistos$sha_local$ref_remota "
+
+  echo "pre-push: validando $ref_remota ($sha_local) en la imagen del runner y en este Node…" >&2
+  if ! node scripts/ci-local.mjs --ref "$sha_local" --usar-sello </dev/null >&2; then
+    echo "" >&2
+    echo "pre-push: PUSH ABORTADO. $ref_remota no pasa el CI local." >&2
+    echo "  Arreglá la causa y volvé a empujar. No se usa --no-verify: un pipeline en rojo avisa a todo el equipo." >&2
+    estado=1
+  fi
+done <<REFS
+$refs
+REFS
+
+exit $estado

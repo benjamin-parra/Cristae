@@ -9,6 +9,8 @@ Estas instrucciones aplican a todo el repositorio.
 - Preservar los hot paths `[0-alloc]` documentados en `SPECS.md`: una simplificación sintáctica no
   justifica introducir arrays, objetos o clausuras nuevas por iteración.
 - No modificar cambios ajenos presentes en el working tree.
+- Nada se empuja sin que `npm run gate` esté en verde (hook `pre-push`, ver README). Un rojo se arregla —el código,
+  o la prueba si su invariante estaba mal medida—; no se salta el hook ni se debilita la prueba.
 
 ## Estilo JavaScript: sintaxis mínima
 
