@@ -192,9 +192,12 @@ test('las tablas de anidamiento no dependen de la cota, crecen duplicando, y su 
     assert.equal(Math.max(...pedidos), base, 'la cota alta pide lo mismo que la de siempre')
 
     pedidos.length = 0
-    const hondo = doc(feature({ type: 'Point', coordinates: [1, 2] }, { hondo: Array.from({ length: 20000 }).reduce(d => [d], 1) }))
+    // El documento hondo se arma como texto: `JSON.stringify` recursa en Node 24 y se rinde cerca de los
+    // 3 600 niveles, y lo que se prueba es el lector, no el helper.
+    const niveles = 20000
+    const hondo   = enc.encode(`{"type":"Feature","properties":{"hondo":${'['.repeat(niveles)}1${']'.repeat(niveles)}},"geometry":{"type":"Point","coordinates":[1,2]}}`)
     assert.equal(leer(hondo, { maxDepth: 1e9 }).vertexCount, 1)
-    assert.ok(pedidos.length <= 2 + Math.log2(20000), `${pedidos.length} pedidos para 20 000 niveles`)
+    assert.ok(pedidos.length <= 2 + Math.log2(niveles), `${pedidos.length} pedidos para ${niveles} niveles`)
 
     tope = base
     assert.throws(() => leer(hondo, { maxDepth: 1e9 }),

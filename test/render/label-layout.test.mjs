@@ -4,7 +4,7 @@
 // medida (html), que el búfer no depende del renderer y que `hitsAt` y la lectura no asignan.
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import v8 from 'node:v8'
+import { bytesPorLlamada } from '../../test-helpers/asignaciones.mjs'
 import { createLayout, readLabelView } from '../../src/render/labelLayout.js'
 import { mergeLabelOptions, resolvePlacement } from '../../src/render/labelOptions.js'
 import { createMeasure } from '../../src/render/labelText.js'
@@ -213,20 +213,8 @@ test('recolocar con menos ítems acorta ids, items y texts', () => {
   assert.deepEqual([l.ids, l.items.length, l.texts.length, l.placementCount], [['c'], 1, 1, 1])
 })
 
-// SPECS §14: se cuentan los bytes asignados por el heap. El contador avanza por bloques y la compilación
-// también asigna, así que se calienta y se toma la mejor de tres tandas. Una asignación por llamada son al
-// menos 16 bytes.
-const allocated = () => v8.getHeapStatistics().total_allocated_bytes
-const perCall   = (fn, n) => {
-  for (let i = 0; i < n; i++) fn(i)
-  let best = Infinity
-  for (let round = 0; round < 3; round++) {
-    const before = allocated()
-    for (let i = 0; i < n; i++) fn(i)
-    best = Math.min(best, (allocated() - before) / n)
-  }
-  return best
-}
+// SPECS §14: se cuentan los bytes asignados en la generación joven, con calentamiento (el medidor está en
+// test-helpers/asignaciones.mjs). Una asignación por llamada son al menos 16 bytes.
 
 test('cero asignaciones en hitsAt y en la lectura', () => {
   const arc = []
@@ -261,7 +249,7 @@ test('cero asignaciones en hitsAt y en la lectura', () => {
   }
   hit(1)
   assert.deepEqual(out.slice(1).map(p => p.id), ['C'])
-  assert.ok(perCall(hit, 300_000) < 2, 'hitsAt')
-  assert.ok(perCall(read, 300_000) < 2, 'lectura')
+  assert.ok(bytesPorLlamada(hit, 20_000, { calentar: 300_000 }) < 2, 'hitsAt')
+  assert.ok(bytesPorLlamada(read, 20_000, { calentar: 300_000 }) < 2, 'lectura')
   assert.ok(acc.sum > 0)
 })

@@ -6,25 +6,17 @@
 import { decorarElementos } from '../../test-helpers/engine-stub.mjs'
 import test, { after } from 'node:test'
 import assert from 'node:assert/strict'
-import v8 from 'node:v8'
+import { bytesPorLlamada } from '../../test-helpers/asignaciones.mjs'
 import { createLabelCanvas } from '../../src/render/LabelCanvas.js'
 import { LABEL_DEFAULTS } from '../../src/render/labelOptions.js'
 
 const frame = () => new Promise(resolve => setTimeout(resolve, 5))
 
-// SPECS §14: se cuentan los bytes asignados por el heap, con calentamiento previo, largo para que el
-// compilador optimice. El repintado de lo ya colocado —un aviso ajeno, el hover, el foco— no llama a
+// SPECS §14: se cuentan los bytes asignados en la generación joven (test-helpers/asignaciones.mjs), con
+// calentamiento previo, largo para que el compilador optimice. El repintado de lo ya colocado —un aviso ajeno, el hover, el foco— no llama a
 // `forEach` ni a la colocación, y no asigna por rótulo. Lo que asigna una vez por repintado es la lectura
 // de la vista (la cámara, `readLabelView`), que no crece con los rótulos: por eso se mide la diferencia
 // entre 10 y 210 rótulos. El contexto es de no-ops, así el que asigna no es el espía.
-const allocated = () => v8.getHeapStatistics().total_allocated_bytes
-const perCall   = (fn, n) => {
-  for (let i = 0; i < 10 * n; i++) fn()
-  const before = allocated()
-  for (let i = 0; i < n; i++) fn()
-  return (allocated() - before) / n
-}
-
 const noop = () => {}
 const mudo = () => ({
   font: '', textAlign: '', textBaseline: '', globalAlpha: 1, lineWidth: 1, fillStyle: '', strokeStyle: '', lineJoin: '',
@@ -90,7 +82,7 @@ const repintados = async n => {
   r.attach(l)
   await frame()
   p.reads = l.reads = 0
-  const bytes = perCall(() => host.camera.fire('resize'), 5_000)
+  const bytes = bytesPorLlamada(() => host.camera.fire('resize'), 100, { calentar: 50_000 })
   assert.equal(p.reads + l.reads, 0, 'sin recolocar')
 
   const sample = { x: 400, y: 300 }
@@ -101,7 +93,7 @@ const repintados = async n => {
   }
   hit()
   assert.equal(out.length, 2, 'la línea se pica en su centro')
-  const pica = perCall(hit, 20_000)
+  const pica = bytesPorLlamada(hit, 5_000, { calentar: 200_000 })
   r.destroy()
   return { bytes, pica }
 }
