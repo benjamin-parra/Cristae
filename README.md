@@ -163,6 +163,11 @@ La tabla es el mínimo del núcleo. `terrain` (de `cristae/geometry`) pide adem�
 para el PNG, que fija Safari 16.4 y Firefox 113, y `OffscreenCanvas` y `createImageBitmap` para el WebP
 ([`docs/geometry.md`](docs/geometry.md)). En un navegador sin ellos rechaza con un mensaje de entorno.
 
+## Node
+
+Lo que corre en Node (las entradas sin DOM, las pruebas y el build) se prueba en Node 24 y Node 26, y
+`engines` declara `>=24`. Una versión anterior puede andar, pero no se verifica.
+
 ## Limitaciones conocidas
 
 - **Un vuelo animado de cámara y el gesto de dos dedos dejan quietas las capas GL.** Con un modo de

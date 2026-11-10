@@ -20,7 +20,7 @@
     "url": "git+https://github.com/benjamin-parra/Cristae.git"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=24"
   },
   "scripts": {
     "prepare": "node -e \"require('fs').existsSync('scripts/activar-hooks.mjs')&&import('./scripts/activar-hooks.mjs')\"",

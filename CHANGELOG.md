@@ -7,6 +7,12 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
 
 ## [Sin publicar]
 
+### Cambiado
+- **`engines` declara `node >=24`.** Antes decía `>=20`, pero sólo se prueba en Node 24 y 26: la librería ya no
+  afirma una compatibilidad que no verifica. Ver [Node](README.md#node).
+  *Migración*: ninguna en el navegador. En Node 20 o 22, `npm install` avisa por `engines`; el código puede andar,
+  pero no se prueba.
+
 ## [0.46.22] - 2026-11-07
 
 ### Agregado
