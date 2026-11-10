@@ -22,6 +22,19 @@ while read -r ref_local sha_local ref_remota sha_remoto; do
   case "$vistos" in *" $sha_local$ref_remota "*) continue ;; esac
   vistos="$vistos$sha_local$ref_remota "
 
+  # Chequeos de los archivos tocados, en segundos y antes de los minutos del contenedor. La base es lo que
+  # el remoto ya tiene; una rama nueva (sha remoto en ceros), o un sha remoto que este clon no conoce (alguien
+  # empujó antes y falta un fetch), se compara con el merge-base de origin/main.
+  base=$sha_remoto
+  case "$base" in *[!0]*) git cat-file -e "$base^{commit}" 2>/dev/null || base= ;; *) base= ;; esac
+  [ -n "$base" ] || base=$(git merge-base origin/main "$sha_local" 2>/dev/null)
+  if [ -n "$base" ] && ! node scripts/test-corto.mjs --push --sin-tests --base="$base" --head="$sha_local" </dev/null >&2; then
+    echo "" >&2
+    echo "pre-push: PUSH ABORTADO. $ref_remota no pasa los chequeos de lo que cambia (test-corto)." >&2
+    estado=1
+    continue
+  fi
+
   echo "pre-push: validando $ref_remota ($sha_local) en la imagen del runner y en la del Node actual…" >&2
   if ! node scripts/ci-local.mjs --ref "$sha_local" --usar-sello </dev/null >&2; then
     echo "" >&2

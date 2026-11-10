@@ -117,6 +117,13 @@ git config cilocal.motor podman            # opcional
 git config cilocal.candado <ruta-remota>   # opcional: serializa las corridas con flock
 ```
 
+### Chequeo corto
+
+`npm run test-corto` corre sólo lo que toca el diff contra `origin/main`. No reemplaza al gate.
+- eslint sobre los archivos cambiados, los chequeos de documentación y los tests que los importan, por el grafo de imports.
+- Si cambia `package.json`, `build.mjs` o `eslint.config.js`, corre la suite entera.
+- El hook `pre-push` corre antes del gate `--push --sin-tests`, que falla en segundos sobre los commits que suben.
+
 ### Si el hook frena el push
 
 - Se corrige la causa: el código, o la prueba si medía mal su invariante.

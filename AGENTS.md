@@ -282,7 +282,15 @@ Desde la raíz:
 npm run lint
 npm test
 npm run build
+npm run test-corto     # sólo lo que cambió respecto de origin/main: lint, chequeos de docs y los tests afectados
 ```
+
+Los chequeos de `scripts/`:
+- `npm run lint` suma tres que no usan git: `check-enlaces` (enlaces y anclas relativos, nexos),
+  `check-refs-seccion` (citas `SPECS §N` y `MODELO §N` contra sus encabezados) y `check-redaccion` (sólo avisa).
+- `check-comentarios [--base=<ref>]` revisa los comentarios que agrega el diff.
+- `npm run diagnostico-comentarios` mide la deuda de comentarios del árbol.
+- Cada `check-*` acepta archivos como argumentos y termina con `<check>: N bloqueantes, M avisos`.
 
 El cambio no está cerrado hasta que pasen las validaciones aplicables. Si falla una comprobación por
 un problema preexistente y ajeno al cambio, documentarlo expresamente.
