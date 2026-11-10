@@ -1,5 +1,5 @@
-// Hook PreToolUse de Claude Code: un `git push` no se salta el pre-push. El pre-push corre el CI local en la
-// imagen del runner; --no-verify, un core.hooksPath en la línea o HUSKY=0 lo apagan sin que se note.
+// Hook PreToolUse de Claude Code: un `git push` no se salta el pre-push. El pre-push corre el CI local en
+// los dos Node; --no-verify, un core.hooksPath en la línea o HUSKY=0 lo apagan sin que se note.
 // En `git push`, -n es --dry-run y no salta hooks: no se bloquea.
 let entrada = ''
 process.stdin.on('data', d => { entrada += d })

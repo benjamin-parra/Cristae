@@ -1,15 +1,13 @@
 // Barrera de Cristae antes de subir: corre lint + suite + build sobre un CLON LIMPIO de lo commiteado,
-// en la imagen del runner de CI de winglibraries y en la del Node actual.
+// en el Node LTS anterior y en el actual.
 //
 //   node scripts/ci-local.mjs [--ref <commit>] [--usar-sello]
 //
 //   --ref         commit (o tag) a validar; por defecto HEAD.
 //   --usar-sello  si ese mismo árbol ya pasó, no repite la corrida (lo usa el pre-push).
 //
-// Por qué la imagen del runner: Cristae se vendoriza en winglibraries (packages/cristae) y ahí lo
-// verifica un pipeline de GitLab que avisa a todo el equipo cuando falla. El 06-11 se subió con el CI
-// local en rojo; tres pruebas sólo andaban en el Node de la máquina (Node 26) y no en el de la imagen
-// (Node 24). Probar sólo con el Node propio no basta: ese es el problema.
+// Por qué dos Node: una prueba puede andar en el Node de la máquina y fallar en otro, así que probar sólo con
+// el propio no basta.
 //
 // Los dos contenedores instalan desde cero sobre el clon, como el CI: no ven nada que sólo exista en el
 // working tree o en el node_modules del repo.
@@ -30,13 +28,12 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync 
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
-// Imagen del job `verificar` de winglibraries (`default.image` de su .gitlab-ci.yml). Si allá cambia,
-// cambia acá: es la que corre las pruebas de Cristae cuando se vendoriza en packages/cristae.
-const IMAGEN_RUNNER = 'node:24-alpine'
+// El Node más antiguo que se prueba: el LTS anterior. Sube cuando ese LTS deja de tener soporte.
+const IMAGEN_LTS = 'node:24-alpine'
 // El Node actual: el de las máquinas de desarrollo y el que viene. Corre en contenedor y no en el Node de la
 // máquina, porque en una máquina de desarrollo cargada las pruebas que viven del reloj vencen plazos.
 const IMAGEN_ACTUAL = 'node:26-alpine'
-const IMAGENES = [IMAGEN_RUNNER, IMAGEN_ACTUAL]
+const IMAGENES = [IMAGEN_LTS, IMAGEN_ACTUAL]
 
 // Git exporta estas variables a los hooks; apuntarían a otro repo si se heredaran en un subproceso.
 for (const v of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_PREFIX']) delete process.env[v]
@@ -142,7 +139,7 @@ paso('hooks de .githooks ejecutables en el árbol', () => {
   if (sinBit.length) throw new Error(`Sin bit de ejecución: ${sinBit.join(', ')}. Se corrige con git update-index --chmod=+x ${sinBit.join(' ')}`)
 })
 
-/* ── 2. Contenedor: la imagen del runner, instalando desde cero ───────────── */
+/* ── 2. Contenedores: las dos imágenes, instalando desde cero ─────────────── */
 paso(motor.remoto ? `copiar el clon a ${motor.remoto}` : 'preparar el clon para el contenedor', () => {
   if (!motor.remoto) { dirMotor = motor.ruta ? motor.ruta(clon) : clon; return }
   dirMotor = ssh(motor.remoto, 'mkdir -p "${XDG_CACHE_HOME:-$HOME/.cache}/ci-local" && mktemp -d "${XDG_CACHE_HOME:-$HOME/.cache}/ci-local/cristae-XXXXXX"').trim()
@@ -161,11 +158,11 @@ for (const imagen of IMAGENES) {
 // El contenedor corre como root: lo que creó (node_modules) no lo puede borrar el usuario normal.
 function limpiarClon() {
   if (motor.remoto || !dirMotor) return
-  try { motor.engineCli(['run', '--rm', '-v', `${dirMotor}:/build${motor.sufijoVolumen}`, IMAGEN_RUNNER, 'sh', '-c', 'rm -rf /build/node_modules /build/dist']) } catch { /* se intenta igual abajo */ }
+  try { motor.engineCli(['run', '--rm', '-v', `${dirMotor}:/build${motor.sufijoVolumen}`, IMAGEN_LTS, 'sh', '-c', 'rm -rf /build/node_modules /build/dist']) } catch { /* se intenta igual abajo */ }
 }
 limpiarClon()
 if (motor.remoto && dirMotor) {
-  try { motor.engineCli(['run', '--rm', '-v', `${dirMotor}:/build${motor.sufijoVolumen}`, IMAGEN_RUNNER, 'sh', '-c', 'rm -rf /build/* /build/.[!.]* /build/..?*']) } catch { /* idem */ }
+  try { motor.engineCli(['run', '--rm', '-v', `${dirMotor}:/build${motor.sufijoVolumen}`, IMAGEN_LTS, 'sh', '-c', 'rm -rf /build/* /build/.[!.]* /build/..?*']) } catch { /* idem */ }
   try { ssh(motor.remoto, `rm -rf ${q(dirMotor)}`) } catch { /* residuo en el cache del host */ }
 }
 rmSync(tmp, { recursive: true, force: true })

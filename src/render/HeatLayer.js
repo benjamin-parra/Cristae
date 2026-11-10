@@ -20,7 +20,7 @@ import { frameTransform } from './frame.js'
 // `risks` del manifiesto.
 //
 // accessors: { idOf, positionOf, weightOf? }. `weightOf` (o 1) es el peso del punto; se NORMALIZA por el
-// peso máximo del snapshot y se escala por `intensity`. Agnóstico: sin dominio, sin React, sin Wing.
+// peso máximo del snapshot y se escala por `intensity`. Agnóstico: sin dominio ni React.
 
 const DEFAULT_RADIUS    = 25     // px del núcleo sólido de la brocha
 const DEFAULT_BLUR      = 15     // px de caída (núcleo → transparente)

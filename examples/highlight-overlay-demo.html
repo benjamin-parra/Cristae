@@ -90,7 +90,7 @@ function createHighlightOverlay({ source, project, ctx, clear, drawHighlight, si
   }
 }
 
-// ── El dibujo (Wing lo provee; acá el anillo de selección + el retículo location_searching) ─────────
+// ── El dibujo (lo provee el consumidor; acá el anillo de selección + el retículo location_searching) ─────────
 const ACCENT = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim()
 function drawHighlight(ctx, size, key) {
   const r = size * 0.62

@@ -22,7 +22,7 @@ const RAIZ_DEFECTO = resolve(import.meta.dirname, '..')
 const MAX_SALIDA_GIT = 64 << 20 // execFileSync corta con ENOBUFS al pasar el tope (1 MiB por defecto); holgado para un diff de refactor
 const LARGO_CITA = 140 // la cita de un hallazgo cabe en una línea de terminal de 160 columnas con su sangría
 
-// Sin `git`: el CI de winglibraries corre este script dentro de packages/cristae, en una imagen que no lo trae.
+// Sin `git`: un CI puede correrlo desde la raíz del paquete copiado dentro de otro repo, en una imagen que no lo trae.
 const RAICES_ARCHIVO = ['README.md', 'AGENTS.md', 'SKILL.md']
 const CARPETA_DOCS   = 'docs'
 const EXCLUIDAS      = new Set(['node_modules', 'dist', 'notas', '.git'])

@@ -148,5 +148,5 @@ npm run typecheck # tsc --noEmit --strict sobre types/ + typecheck/usage.tsx
 
 1. **`CristaePopup` con árbol React portaleado** a la posición viva (hoy el contenido es `contentOf` →
    string/Node); y un hook de realce (`addHighlightOverlay`) derivado de la selección.
-2. **Retiro de los ref-wirings en Wing** (el payoff de LOC: −tipos-sombra −`useCristaeSource`) — es
+2. **Retiro de los ref-wirings en los consumidores** (el payoff de LOC: −tipos-sombra −`useCristaeSource`) — es
    trabajo del repo consumidor, no de este binding.

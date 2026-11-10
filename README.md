@@ -76,9 +76,9 @@ la *Migración* de cada API. La política de retiro está en
 
 ## Antes de empujar: el gate
 
-Cristae se vendoriza en winglibraries (`packages/cristae`), cuyo pipeline de GitLab corre en `node:24-alpine` y
-avisa a todo el equipo cuando falla. Por eso el hook `pre-push` deja subir un árbol que ya pasó el gate, y una
-prueba que anda en un Node y no en el de la imagen aparece en local.
+El hook `pre-push` deja subir sólo un árbol que ya pasó el gate: lint, pruebas y build en un clon limpio, en el
+Node LTS anterior y en el actual. Una prueba que anda en un Node y no en el otro aparece en local, antes de llegar
+al remoto.
 
 ```bash
 npm install            # activa el hook pre-push
@@ -91,7 +91,7 @@ El gate clona lo commiteado y corre install, `npm run lint`, `npm test` y `npm r
 
 | Imagen | Por qué |
 | --- | --- |
-| `node:24-alpine` (`IMAGEN_RUNNER` en `scripts/ci-local.mjs`) | Es la `default.image` del `.gitlab-ci.yml` de winglibraries |
+| `node:24-alpine` (`IMAGEN_LTS` en `scripts/ci-local.mjs`) | El LTS anterior: el Node más antiguo que se prueba |
 | `node:26-alpine` (`IMAGEN_ACTUAL`) | El Node con que se desarrolla, en un clon limpio y sin la carga de la máquina local |
 
 El lockfile está en `.gitignore`, así que el clon instala con `npm install`. Si algún día se commitea, pasa a
@@ -128,8 +128,8 @@ git config cilocal.candado <ruta-remota>   # opcional: serializa las corridas co
 
 - Se corrige la causa: el código, o la prueba si medía mal su invariante.
 - Si el rojo no viene de los commits propios, no se empuja: se arregla primero en la rama base.
-- `git push --no-verify` salta el hook, y el rojo llega igual al pipeline de winglibraries. En Claude Code, el
-  hook de `.claude/settings.json` niega todo `git push` que lo salte.
+- `git push --no-verify` salta el hook y sube un árbol sin validar. En Claude Code, el hook de
+  `.claude/settings.json` niega todo `git push` que lo salte.
 
 ## Documentación
 
