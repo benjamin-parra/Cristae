@@ -9,6 +9,9 @@
 // la superficie les da a los nodos que lo siguen; uno sin vista destino —pinch, `flyTo`, un salto— lo
 // reubica en cada `move` hasta asentar.
 //
+// Un marcador que la superficie tapa —tras el horizonte de un globo— se oculta y no da hit; sobre un mapa
+// plano nada queda tapado.
+//
 // accessors: { idOf, positionOf, htmlOf(item)->string, classNameOf?(item)->string, sizeOf?(item)->[w,h],
 //              anchorOf?(item)->[x,y] }. Estado (position/html) → mutar item + set/patch la Source.
 
@@ -27,8 +30,9 @@ export class HtmlLayer {
   #camera; #surface; #pane; #source; #interactive
   #accessors
   #root
-  #byId    = new Map()   // id → { el, icon, lat, lng, html, centered, transform } (el hit y el reposicionado)
+  #byId    = new Map()   // id → { el, icon, lat, lng, html, centered, hidden, transform } (el hit y el reposicionado)
   #hitTol  = HIT_TOL_PX  // tolerancia de hit vigente (deriva del sizeOf mayor)
+  #screen  = { x: 0, y: 0, visible: false, occluded: false }   // portador de `toScreen`, reusado por marcador
   #toward  = null        // la vista destino mientras un zoom anima, o null
   #zooming = false       // hay un zoom en curso: cada `move` deja la vista que hay que seguir
   #offs    = null
@@ -98,7 +102,8 @@ export class HtmlLayer {
     const tol = this.#hitTol                      // deriva del sizeOf mayor: un badge grande pica en toda su caja
     const out = []
     this.#byId.forEach((entry, id) => {
-      const mp = this.#camera.toContainer(entry)
+      const mp = this.#camera.toScreen(entry, this.#screen)
+      if (mp.occluded) return
       const d  = Math.hypot(mp.x - sample.x, mp.y - sample.y)
       if (d <= tol) out.push({ ref: id, id, distancePx: d })
     })
@@ -110,7 +115,8 @@ export class HtmlLayer {
   // La posición en el marco de cada marcador, redondeada al píxel para que el contenido no se vea borroso.
   // Con un zoom animado es la de la vista destino: el centro destino queda en el medio del contenedor. El
   // transform no cambia con un paneo, y se reescribe sólo el que cambió. Las de más abajo en pantalla
-  // tapan a las de más arriba.
+  // tapan a las de más arriba. Un marcador tapado se oculta y conserva su transform: al destaparse, si no
+  // se movió, no hay nada que reescribir. Con un zoom animado no se lee la oclusión: es el atajo afín.
   #layout() {
     const camera = this.#camera
     if (!camera.hasView()) return
@@ -119,7 +125,15 @@ export class HtmlLayer {
     const size   = camera.size()
     const mid    = toward && camera.project(toward.center, toward.zoom)
     this.#byId.forEach(entry => {
-      const at        = toward ? camera.project(entry, toward.zoom) : camera.toContainer(entry)
+      const at        = toward ? camera.project(entry, toward.zoom) : camera.toScreen(entry, this.#screen)
+      if (!toward) {
+        const hidden = this.#screen.occluded
+        if (hidden !== entry.hidden) {
+          entry.hidden = hidden
+          write(entry.el.style, 'visibility', hidden ? 'hidden' : '')
+        }
+        if (hidden) return
+      }
       const x         = Math.round(toward ? at.x - mid.x + size.x / 2 + origin.x : at.x + origin.x)
       const y         = Math.round(toward ? at.y - mid.y + size.y / 2 + origin.y : at.y + origin.y)
       const transform = frameTransform(x, y) + (entry.centered ? CENTERED : '')
@@ -159,7 +173,7 @@ export class HtmlLayer {
         this.#surface.followZoom(el)
         el.appendChild(icon)
         this.#root.appendChild(el)
-        entry = { el, icon, lat: 0, lng: 0, html: null, centered: false, transform: null }
+        entry = { el, icon, lat: 0, lng: 0, html: null, centered: false, hidden: false, transform: null }
       }
       next.set(id, entry)
       if (size) tol = Math.max(tol, size[0] / 2, size[1] / 2)

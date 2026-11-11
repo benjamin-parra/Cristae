@@ -9,6 +9,8 @@ import test, { after, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { HtmlLayer } from '../../src/render/HtmlLayer.js'
 import { adoptLeafletHost } from '../../src/host/LeafletHost.js'
+import { globeView } from '../../src/camera/views.js'
+import { viewFacet } from '../../src/camera/facet.js'
 
 // Los divs que nacen de la fábrica, con lo que se les cuelga y se les quita, cada transform escrito y la
 // clave de cada escritura de estilo.
@@ -310,4 +312,51 @@ test('destroy saca el nodo, suelta el pane, la vista y la Source; un segundo des
   assert.equal(map.getPane('marcas'), null, 'la capa no deja una cuenta de más')
   assert.doesNotThrow(() => layer.destroy())
   assert.deepEqual(layer.resolveClick({ x: 0, y: 0 }), [])
+})
+
+// Sobre un globo, lo que cae tras el horizonte queda tapado: el marcador se oculta, conserva su transform y
+// no da hit; al destaparse vuelve sin que nadie lo reescriba (SPECS §9, criterio 3 de §4.1).
+const SIZE_GLOBO = { x: 800, y: 600 }
+const globo      = lng => viewFacet(globeView({ center: { lat: 0, lng }, zoom: 1, size: SIZE_GLOBO }))
+
+const montarGlobo = items => {
+  const anfitrion = adoptLeafletHost(makeMap())
+  const pane      = anfitrion.surface.mount('marcas')
+  const colgados  = []
+  pane.appendChild = nodo => colgados.push(nodo)
+  let camara = globo(0)
+  const proxy = { ...camara, toScreen: (latlng, out) => camara.toScreen(latlng, out) }
+  const source = fuente(items)
+  const layer  = new HtmlLayer({ host: { camera: proxy, surface: anfitrion.surface }, pane: 'marcas', source, interactive: true })
+  return { layer, source, nodos: colgados[0].hijos, ver: nueva => { camara = nueva }, camara: () => camara }
+}
+
+test('en un globo, el marcador tras el horizonte se oculta y no da hit', () => {
+  const FRENTE = { id: 1, lat: 0, lng: 0 }
+  const ATRAS  = { id: 2, lat: 0, lng: 180 }
+  const { layer, nodos, camara } = montarGlobo([FRENTE, ATRAS])
+  const [frente, atras]          = nodos
+
+  assert.equal(frente.style.visibility, undefined, 'el de enfrente no se toca')
+  assert.equal(atras.style.visibility, 'hidden')
+  assert.equal(atras.escrituras.length, 0, 'ni se posiciona')
+  assert.equal(frente.escrituras.length, 1)
+
+  const sobreAtras = camara().toScreen(ATRAS, { x: 0, y: 0, visible: false, occluded: false })
+  assert.equal(sobreAtras.occluded, true)
+  // El antípoda cae en el mismo píxel que el frente: allí sólo el de enfrente pica.
+  assert.deepEqual(layer.resolveClick({ x: sobreAtras.x, y: sobreAtras.y }).map(h => h.id), [1], 'el tapado no pica donde caería')
+  assert.deepEqual(layer.resolveHover({ x: SIZE_GLOBO.x / 2, y: SIZE_GLOBO.y / 2 }).map(h => h.id), [1])
+})
+
+test('un marcador que se destapa vuelve a mostrarse y se posiciona', () => {
+  const { source, nodos, ver } = montarGlobo([{ id: 1, lat: 0, lng: 180 }])
+  const [marcador]             = nodos
+  assert.equal(marcador.style.visibility, 'hidden')
+
+  ver(globo(180))
+  source.emitir([{ id: 1, lat: 0, lng: 180 }])
+  assert.equal(marcador.style.visibility, '')
+  assert.equal(marcador.escrituras.length, 1)
+  assert.equal(marcador.style.transform, 'translate3d(400px, 300px, 0) translate(-50%, -50%)', 'en el centro de la vista')
 })

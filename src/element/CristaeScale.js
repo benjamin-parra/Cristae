@@ -47,6 +47,7 @@ export class CristaeScale extends LitElement {
   #engine  = null
   #offMove = null
   #raf     = 0
+  #screen  = { x: 0, y: 0, visible: false, occluded: false }   // portador de la fila central, reusado
 
   #schedule = () => this.#raf ||= requestAnimationFrame(this.#measure)
   #onReady  = () => {
@@ -55,15 +56,19 @@ export class CristaeScale extends LitElement {
   }
 
   // La fila central del contenedor: su alto sale de dónde cae el centro, sin leer el layout. Un contenedor
-  // de alto 0 no da barra, y la recupera el `viewportchange` que trae su tamaño.
+  // de alto 0 no da barra, y la recupera el `viewportchange` que trae su tamaño. Si un extremo de la fila
+  // no toca la superficie —el cielo de una vista inclinada, el fuera del globo— no hay barra.
   #measure = () => {
     this.#raf = 0
     const camera   = this.#map?.camera
-    const y        = camera?.latLngToContainerPoint(camera.getCenter()).y
+    const y        = camera?.latLngToContainerPoint(camera.getCenter(), this.#screen).y
     const maxWidth = Number.isFinite(this.maxWidth) && this.maxWidth > 0 ? this.maxWidth : 100
-    const meters   = y > 0
-      ? distance(this.#map.model ?? byDefault, camera.containerPointToLatLng({ x: 0, y }), camera.containerPointToLatLng({ x: maxWidth, y }))
-      : NaN
+    let meters     = NaN
+    if (y > 0) {
+      const west = camera.containerPointToLatLng({ x: 0, y })
+      const east = camera.containerPointToLatLng({ x: maxWidth, y })
+      if (west.onSurface && east.onSurface) meters = distance(this.#map.model ?? byDefault, west, east)
+    }
     const tokens   = String(this.units ?? '').split(/\s+/)
     const units    = UNITS.filter(unit => tokens.includes(unit))
     this._bars = meters > 0 ? (units.length ? units : ['metric']).map(unit => ({ unit, ...scaleBar(meters, maxWidth, unit) })) : []

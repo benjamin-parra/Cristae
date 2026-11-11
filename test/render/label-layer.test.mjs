@@ -9,6 +9,8 @@ import test, { after } from 'node:test'
 import assert from 'node:assert/strict'
 import { LabelLayer } from '../../src/render/LabelLayer.js'
 import { adoptLeafletHost } from '../../src/host/LeafletHost.js'
+import { globeView } from '../../src/camera/views.js'
+import { viewFacet } from '../../src/camera/facet.js'
 
 // El canvas de la capa: se lo instrumenta al salir de la fábrica para leer dónde lo cuelga.
 const espia = { canvases: [] }
@@ -82,4 +84,48 @@ test('destruida desde un oyente de la vista, el reparto en curso ya no la llama'
     layer = new LabelLayer({ host, pane: 'rotulos' })
     assert.doesNotThrow(() => map.fire(tipo), tipo)
   }
+})
+
+// Sobre un globo, un rótulo tras el horizonte no se pinta; uno hovered tapado tampoco, y el que se pinta
+// recibe el píxel de su propio rótulo aunque el portador se reuse.
+const globo = lng => viewFacet(globeView({ center: { lat: 0, lng }, zoom: 1, size: { x: 800, y: 600 } }))
+
+const montarGlobo = () => {
+  const anfitrion = adoptLeafletHost(makeMap())
+  const puntos    = []
+  const layer     = new LabelLayer({
+    host  : { camera: globo(0), surface: anfitrion.surface },
+    pane  : 'rotulos',
+    paint : (ctx, point, label, hovered) => puntos.push({ id: label.id, x: point.x, y: point.y, hovered }),
+  })
+  return { layer, puntos }
+}
+
+test('un rótulo tapado por el horizonte no se pinta', () => {
+  const { layer, puntos } = montarGlobo()
+  layer.setLabels([
+    { id: 'frente', lat: 0, lng: 0, text: 'frente' },
+    { id: 'atras', lat: 0, lng: 175, text: 'atras' },
+  ])
+  assert.deepEqual(puntos.map(p => p.id), ['frente'])
+  assert.deepEqual([puntos[0].x, puntos[0].y], [400, 300])
+})
+
+test('con el portador reusado, cada rótulo se pinta en su píxel y el hovered va al final', () => {
+  const { layer, puntos } = montarGlobo()
+  const labels = [
+    { id: 'a', lat: 0, lng: 0, text: 'a' },
+    { id: 'b', lat: 10, lng: 10, text: 'b' },
+    { id: 'c', lat: -10, lng: -10, text: 'c' },
+  ]
+  layer.setLabels(labels)
+  const solo = Object.fromEntries(puntos.map(p => [p.id, p]))
+  puntos.length = 0
+
+  layer.setHovered(new Set(['a']))
+  assert.equal(puntos.length, 3)
+  assert.equal(puntos.at(-1).id, 'a')
+  assert.equal(puntos.at(-1).hovered, true)
+  puntos.forEach(p => assert.deepEqual([p.x, p.y], [solo[p.id].x, solo[p.id].y], p.id))
+  assert.equal(new Set(Object.values(solo).map(p => `${p.x},${p.y}`)).size, 3, 'tres píxeles distintos')
 })

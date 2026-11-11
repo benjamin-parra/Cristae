@@ -37,6 +37,7 @@ export class LabelLayer {
   #labels        = []
   #hovered       = new Set()
   #hoveredSource = null
+  #screen        = { x: 0, y: 0, visible: false, occluded: false }   // portador de `toScreen`, reusado por rótulo
   #focus         = { ids: null, dim: 0.3 }   // ids null = sin foco
   #paint
   #boundsPad
@@ -137,6 +138,7 @@ export class LabelLayer {
     const origin   = camera.frameOrigin()
     const ratio    = window.devicePixelRatio || 1
     const box      = boundsPad(camera.bounds(), this.#boundsPad)
+    const screen   = this.#screen
     const elevated = []
     const paint    = (point, label, hovered) => {
       ctx.globalAlpha = focusFactor(this.#focus, label.id)
@@ -157,7 +159,11 @@ export class LabelLayer {
     prepareContext(ctx)
     this.#labels.forEach(label => {
       if (!boundsContain(box, label)) return
-      const point = camera.toContainer(label)
+      camera.toScreen(label, screen)
+      if (screen.occluded) return
+      // El painter recibe un píxel plano {x, y} propio, como siempre: el portador se reusa y el hovered, que
+      // se pinta al final, necesita el suyo.
+      const point = { x: screen.x, y: screen.y }
       if (this.#hovered.has(label.id)) elevated.push({ point, label })
       else paint(point, label, false)
     })

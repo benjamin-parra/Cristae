@@ -183,3 +183,22 @@ test('fuera de un <cristae-map>, o antes de ready, no dibuja ni lanza', async ()
   assert.deepEqual(barras(el), [])
   el.disconnectedCallback()
 })
+
+// Una faceta cuyo borde izquierdo cae fuera de la superficie —el cielo de una vista inclinada— no da barra;
+// con la superficie entera, la misma faceta mide como el mapa de Leaflet.
+test('si un extremo de la fila no toca la superficie, no hay barra', async () => {
+  const map     = mapa({ center: [0, 0], zoom: 10 })
+  const facetaH = map.host.camera
+  const camera  = new Camera({ host: { camera: { ...facetaH, surfaceAt: (point, out) => {
+    facetaH.surfaceAt(point, out)
+    out.onSurface = point.x > 0
+    return out
+  } } } })
+  const el = await escala(Object.assign(map, { camera }))
+  assert.deepEqual(barras(el), [], 'x = 0 no toca la superficie')
+  el.disconnectedCallback()
+
+  const entero = await escala(mapa({ center: [0, 0], zoom: 10 }))
+  assert.equal(barras(entero).length, 1, 'con la superficie entera sí')
+  entero.disconnectedCallback()
+})
