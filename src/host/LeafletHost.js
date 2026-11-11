@@ -1,6 +1,7 @@
 import L from 'leaflet'
 import { coordOf, hasPointShape } from '../data/path.js'
 import { safe } from '../data/safe.js'
+import { MODEL } from '../geometry/geodesic.js'
 import { retainTileSnapshots } from './TileSnapshotRetention.js'
 import { TILE_FILTER } from './styles.js'
 
@@ -27,6 +28,12 @@ const PASSIVE   = Object.freeze({ passive: true })
 const NOOP      = () => {}
 
 const CONTAINER_ORIGIN = Object.freeze([0, 0])
+
+// El paso hacia el este con que `metersPerPixelAt` mide un paralelo, en grados. Origen: la cuerda contra
+// el arco del paralelo difiere en (δ·sin φ)²/24, que a 1e-5 grados (δ en radianes) es menor que 1e-15
+// relativo, y la haversine no se cancela a esa distancia (unos 1,1 m): el cociente queda en el error de
+// redondeo, que es lo que `TOL_CERRADA` de la prueba exige contra la fórmula cerrada de la esfera.
+const EAST_STEP = 1e-5
 
 // Lo que la superficie le escribe a un pane: lo que le devuelve a uno prestado.
 const PANE_STYLE = ['zIndex', 'pointerEvents', 'visibility', 'opacity']
@@ -176,6 +183,9 @@ const hostOf = (map, leaflet, ownsMap, zoomPolicy) => {
   }
   let ownerLimits
 
+  // El camino sin asignar de `toScreen` sólo sabe la cuenta de EPSG:3857, y necesita la vista.
+  const fastPath = () => map._loaded && !!leaflet.CRS?.EPSG3857 && map.options.crs === leaflet.CRS.EPSG3857
+
   const camera = {
     // Un mapa adoptado puede llegar sin vista, y la toma con su primer `setView`. Mientras no la tenga,
     // leer su caja o proyectar lanza.
@@ -226,6 +236,68 @@ const hostOf = (map, leaflet, ownsMap, zoomPolicy) => {
 
     toContainer   : latlng => plainPoint(map.latLngToContainerPoint(toLatLng(latlng))),
     fromContainer : point => plainLatLng(map.containerPointToLatLng(point)),
+
+    // El contrato agnóstico de la cámara (SPECS §9). `toScreen` escribe en `out` el píxel del contenedor,
+    // si cae en él y si lo tapa el relieve, y lo devuelve. Con EPSG:3857 y vista repite, en el mismo orden
+    // de operaciones, `latLngToContainerPoint` de Leaflet —proyección, transformación, redondeo, origen
+    // del pixel y posición del pane— sin crear el LatLng ni los Point intermedios: x e y salen idénticos
+    // bit a bit. Con otro CRS, o sin vista, delega en Leaflet. Un mapa plano no tapa nada.
+    toScreen(latlng, out) {
+      hasPointShape(latlng) || toLatLng(latlng)
+      const lat = +coordOf(latlng, 0)
+      const lng = +coordOf(latlng, 1)
+      if (!fastPath()) {
+        const p = map.latLngToContainerPoint(toLatLng(latlng))
+        out.x = p.x
+        out.y = p.y
+      } else if (lat !== lat || lng !== lng) {
+        // Lo que no es un número lo rechaza Leaflet, con su mismo error.
+        toLatLng(latlng)
+      } else {
+        const { R, MAX_LATITUDE } = leaflet.Projection.SphericalMercator
+        const scale  = map.options.crs.scale(map.getZoom())
+        const k      = 0.5 / (Math.PI * R)
+        const d      = Math.PI / 180
+        const max    = MAX_LATITUDE
+        const sin    = Math.sin(Math.max(Math.min(max, lat), -max) * d)
+        const origin = map._pixelOrigin
+        const pane   = map._getMapPanePos()
+        out.x = Math.round(scale * (k * (R * lng * d) + 0.5)) - origin.x + pane.x
+        out.y = Math.round(scale * (-k * (R * Math.log((1 + sin) / (1 - sin)) / 2) + 0.5)) - origin.y + pane.y
+      }
+      // `getSize` clona: se lee el tamaño que cachea el mapa, refrescado como lo haría él.
+      ;(map._sizeChanged || !map._size) && map.getSize()
+      const size = map._size
+      out.visible  = 0 <= out.x && out.x <= size.x && 0 <= out.y && out.y <= size.y
+      out.occluded = false
+      return out
+    },
+    // El punto de la superficie bajo un píxel del contenedor. Un mapa plano cubre todo el contenedor.
+    surfaceAt(point, out = { lat: 0, lng: 0, onSurface: false, incidence: 0, altitude: 0 }) {
+      const { lat, lng } = map.containerPointToLatLng(point)
+      out.lat       = lat
+      out.lng       = lng
+      out.onSurface = true
+      out.incidence = 1
+      out.altitude  = 0
+      return out
+    },
+    // Los metros que mide un píxel CSS hacia el este en `lat`, `lng`, con la distancia de `model`.
+    metersPerPixelAt(lat, lng, model) {
+      const zoom = map.getZoom()
+      // El paso que de verdad se dio: `lng + EAST_STEP` se redondea al float más cercano, y a 70° de
+      // longitud eso mueve el paso en una parte en 1e9. La resta es exacta.
+      const east = lng + EAST_STEP
+      const step = east - lng
+      if (fastPath()) {
+        const max = leaflet.Projection.SphericalMercator.MAX_LATITUDE
+        const phi = Math.max(Math.min(max, lat), -max)
+        return model[MODEL](phi, lng, phi, east) / (step * map.options.crs.scale(zoom) / 360)
+      }
+      const a = map.project(new leaflet.LatLng(lat, lng), zoom)
+      const b = map.project(new leaflet.LatLng(lat, east), zoom)
+      return model[MODEL](lat, lng, lat, east) / Math.hypot(b.x - a.x, b.y - a.y)
+    },
     project       : (latlng, zoom) => plainPoint(map.project(toLatLng(latlng), zoom)),
     unproject     : (point, zoom) => plainLatLng(map.unproject(point, zoom)),
     // Dónde cae el píxel (0, 0) del contenedor en el marco que acompaña al paneo: lo que se le resta a

@@ -53,7 +53,7 @@ if (!globalThis.window) {
   const doc = {
     documentElement: { style: {} },
     body: { style: {} },
-    createElement: (tag) => elemento(String(tag).toLowerCase() === 'canvas' ? makeCanvas() : {}),
+    createElement: tag => elemento(String(tag).toLowerCase() === 'canvas' ? makeCanvas() : {}),
     createElementNS: () => elemento(),
     addEventListener() {}, removeEventListener() {},
   }
@@ -64,8 +64,8 @@ if (!globalThis.window) {
     screen: { width: 800, height: 600 },
     location: { href: 'http://localhost/', protocol: 'http:' },
     getComputedStyle: () => ({}),
-    requestAnimationFrame: (cb) => globalThis.setTimeout(() => cb(0), 0),
-    cancelAnimationFrame: (id) => globalThis.clearTimeout(id),
+    requestAnimationFrame: cb => globalThis.setTimeout(() => cb(0), 0),
+    cancelAnimationFrame: id => globalThis.clearTimeout(id),
     addEventListener() {}, removeEventListener() {},
   }
   // navigator NO se asigna: en node es un getter de sólo lectura (ya existe). Leaflet lee `navigator`
@@ -267,7 +267,7 @@ const vaoGl = spy => ({
 // antes). El resto de métodos/constantes cae al no-op del Proxy.
 export const makeGl = (onLose, spy = makePickSpy(), canvas = makeSurface()) => new Proxy({ ...GL_CONSTS, isContextLost: () => false, ...enSuperficie(canvas), ...pickGl(spy), ...uploadGl(spy), ...vaoGl(spy), spy }, {
   get: (t, p) => {
-    if (p === 'getExtension') return (name) => (name === 'WEBGL_lose_context' ? { loseContext: onLose ?? (() => {}) } : {})
+    if (p === 'getExtension') return name => (name === 'WEBGL_lose_context' ? { loseContext: onLose ?? (() => {}) } : {})
     return p in t ? t[p] : () => ({})
   },
 })
@@ -388,9 +388,9 @@ const P = 100
 // Point mínimo (divideBy/subtract/add) para el reproyectado de vista. Inmutable, como L.Point.
 const makePoint = (x, y) => ({
   x, y,
-  divideBy: (n) => makePoint(x / n, y / n),
-  subtract: (p) => makePoint(x - p.x, y - p.y),
-  add:      (p) => makePoint(x + p.x, y + p.y),
+  divideBy: n => makePoint(x / n, y / n),
+  subtract: p => makePoint(x - p.x, y - p.y),
+  add:      p => makePoint(x + p.x, y + p.y),
 })
 
 export const makeMap = ({ zoom = 3 } = {}) => {
@@ -411,6 +411,8 @@ export const makeMap = ({ zoom = 3 } = {}) => {
 
   const map = {
     _zoom: zoom,
+    // Fiel a Leaflet: toda instancia trae `options`; sin `crs` la faceta no toma el camino cerrado de EPSG:3857.
+    options: {},
     // Latch de animación: Leaflet se lo COPIA a cada capa al agregarla, por eso el anfitrión no lo apaga.
     _zoomAnimated: true,
     // Fiel a Leaflet: la decisión es POR ZOOM. El anfitrión lo envuelve con su política.
@@ -429,8 +431,8 @@ export const makeMap = ({ zoom = 3 } = {}) => {
     _panes: panesRegistro,
     // Fiel a Leaflet: el renderer de los paths de cada pane, que el mapa cachea por nombre.
     _paneRenderers: {},
-    getPane: (n) => n === 'mapPane' ? mapPane : panesRegistro[n] ?? null,
-    createPane: (n) => (panesRegistro[n] = { style: {}, connected: true, appendChild() {}, remove() { panesRegistro[n].connected = false } }),
+    getPane: n => n === 'mapPane' ? mapPane : panesRegistro[n] ?? null,
+    createPane: n => (panesRegistro[n] = { style: {}, connected: true, appendChild() {}, remove() { panesRegistro[n].connected = false } }),
     getZoom: () => map._zoom,
     // Helper del TEST: fija el zoom lógico (el que lee recluster). No dispara eventos por sí solo.
     setZoomForTest(z) { map._zoom = z; return map },
@@ -448,6 +450,8 @@ export const makeMap = ({ zoom = 3 } = {}) => {
     // Fiel a Leaflet: un LatLngBounds, que se lee por sus getters. Es la caja del contenedor de 800×600
     // en la proyección de abajo.
     getBounds: () => ({ getSouth: () => 0, getWest: () => 0, getNorth: () => 600 / P, getEast: () => 800 / P }),
+    // Fiel a Leaflet: `getSize` deja el tamaño en `_size`, y la faceta lee ese caché.
+    _size: makePoint(800, 600),
     getSize: () => makePoint(800, 600),
     // Proyección a píxeles dependiente del zoom (px = coord·P·2^z), para el reproyectado de vista.
     project: (ll, z = map._zoom) => {
@@ -456,15 +460,15 @@ export const makeMap = ({ zoom = 3 } = {}) => {
       return makePoint(lng * s, lat * s)
     },
     invalidateSize: () => map,
-    latLngToContainerPoint: (ll) => {
+    latLngToContainerPoint: ll => {
       const lat = Array.isArray(ll) ? ll[0] : ll.lat, lng = Array.isArray(ll) ? ll[1] : ll.lng
       return { x: lng * P, y: lat * P }
     },
-    containerPointToLatLng: (pt) => {
+    containerPointToLatLng: pt => {
       const x = Array.isArray(pt) ? pt[0] : pt.x, y = Array.isArray(pt) ? pt[1] : pt.y
       return { lat: y / P, lng: x / P }
     },
-    containerPointToLayerPoint: (pt) => (Array.isArray(pt) ? { x: pt[0], y: pt[1] } : { x: pt.x, y: pt.y }),
+    containerPointToLayerPoint: pt => (Array.isArray(pt) ? { x: pt[0], y: pt[1] } : { x: pt.x, y: pt.y }),
     remove() {},
   }
   return map
