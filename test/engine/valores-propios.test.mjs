@@ -76,7 +76,7 @@ test('la cámara devuelve posiciones, píxeles y cajas planas', async () => {
 
   plano(camera.getCenter(), ['lat', 'lng'], 'getCenter')
   plano(camera.getBounds(), ['south', 'west', 'north', 'east'], 'getBounds')
-  plano(camera.containerPointToLatLng({ x: 400, y: 300 }), ['lat', 'lng'], 'containerPointToLatLng')
+  plano(camera.containerPointToLatLng({ x: 400, y: 300 }), ['lat', 'lng', 'onSurface', 'incidence', 'altitude'], 'containerPointToLatLng')
 
   const formas = {
     par      : [-33, -70],
@@ -87,7 +87,7 @@ test('la cámara devuelve posiciones, píxeles y cajas planas', async () => {
   }
   for (const [nombre, punto] of Object.entries(formas)) {
     const p = camera.latLngToContainerPoint(punto)
-    plano(p, ['x', 'y'], `latLngToContainerPoint, ${nombre}`)
+    plano(p, ['x', 'y', 'visible', 'occluded'], `latLngToContainerPoint, ${nombre}`)
     cerca(p.x, 400, nombre)
     cerca(p.y, 300, nombre)
   }
@@ -227,7 +227,7 @@ test('lo que no tiene forma de punto lanza en la cámara; la latitud fuera de ra
   assert.throws(() => camera.latLngToContainerPoint(track), TypeError)
   assert.throws(() => camera.setView(track, 10), TypeError)
   assert.throws(() => camera.panTo(null), TypeError)
-  plano(camera.latLngToContainerPoint({ lat: 95, lng: -70 }), ['x', 'y'], 'la proyección la acota')
+  plano(camera.latLngToContainerPoint({ lat: 95, lng: -70 }), ['x', 'y', 'visible', 'occluded'], 'la proyección la acota')
   engine.destroy()
 })
 

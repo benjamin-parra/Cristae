@@ -1,5 +1,6 @@
-import { isPlace } from '../data/path.js'
+import { coordOf, isPlace } from '../data/path.js'
 import { emptyBounds, growBounds, readBounds } from '../geometry/bounds.js'
+import { byDefault } from '../geometry/geodesic.js'
 
 // Camera — la ÚNICA vía de movimiento del viewport tras el montaje (SPECS §9, MODELO §5.4).
 // Todo es acción (imperativo), no estado: no hay prop reactiva de centro. Aplica viewport-insets
@@ -30,15 +31,19 @@ export class Camera {
   #hostCamera
   #insets
   #resolveSource
+  #model                      // () → modelo de la Tierra con que se miden las distancias (inyectado por el motor)
+  #screenCarrier = { x: 0, y: 0, visible: false, occluded: false }   // portadores de metersPerPixelAt, reusados
+  #surfaceCarrier = { lat: 0, lng: 0, onSurface: false, incidence: 0, altitude: 0 }
   #boundsOf                   // layerId → caja en grados que la capa informa de su dibujo | null (inyectado)
   #declusterZoomOf            // (layerId, id) → zoom mínimo desclusterizado | null (inyectado por el motor)
   #onInsetsChange             // () → void: el motor re-emite su vista (inyectado)
   #follow = null              // { id, zoom, source, unsub, lastKey }
 
-  constructor({ host, insets, resolveSource, boundsOf, declusterZoomOf, onInsetsChange } = {}) {
+  constructor({ host, insets, resolveSource, model, boundsOf, declusterZoomOf, onInsetsChange } = {}) {
     this.#hostCamera      = host.camera
     this.#insets          = { ...ZERO_INSETS, ...insets }
     this.#resolveSource   = resolveSource ?? (() => null)
+    this.#model           = model ?? (() => byDefault)
     this.#boundsOf        = boundsOf ?? (() => null)
     this.#declusterZoomOf = declusterZoomOf ?? (() => null)
     this.#onInsetsChange  = onInsetsChange ?? (() => {})
@@ -176,6 +181,7 @@ export class Camera {
 
   getCenter() { return this.#hostCamera.center() }
   getZoom() { return this.#hostCamera.zoom() }
+  // La caja envolvente de lo visible; en Mercator sin inclinación, exactamente la de hoy.
   getBounds() { return this.#hostCamera.bounds() }
   // Zoom EFECTIVO en cada extremo: el límite `minZoom`/`maxZoom` si lo hay y, si no, lo que permiten las
   // capas (el máximo minZoom y el mínimo maxZoom entre ellas). Cierran el motivo de bajar a getLeafletMap()
@@ -196,11 +202,31 @@ export class Camera {
   // calculado en píxeles contra los viewport-insets, así que la cámara solo lo aplica tal cual).
   panBy(offset, options) { this.#hostCamera.panBy(offset, options); return this }
 
-  /* ── Proyección píxel ↔ geográfica relativa al contenedor. Cierra el motivo más común para bajar
-       a getLeafletMap(): posicionar overlays HTML (popups, tarjetas) en light DOM sobre el mapa. ── */
+  /* ── Conversiones entre el píxel del contenedor y la superficie. Cierran el motivo más común para bajar
+       a getLeafletMap(): posicionar overlays HTML (popups, tarjetas) en light DOM sobre el mapa. Dicen la
+       verdad de la vista: si el punto cae en el contenedor (`visible`), si lo tapa el relieve (`occluded`) y
+       si el píxel toca la superficie (`onSurface`). ── */
 
-  latLngToContainerPoint(latlng) { return this.#hostCamera.toContainer(latlng) }
-  containerPointToLatLng(point) { return this.#hostCamera.fromContainer(point) }
+  // Con `out` reusado no asigna: es el camino de lo que se reubica en cada cuadro.
+  latLngToContainerPoint(latlng, out = { x: 0, y: 0, visible: false, occluded: false }) {
+    return this.#hostCamera.toScreen(latlng, out)
+  }
+  containerPointToLatLng(point) {
+    return this.#hostCamera.surfaceAt(point, { lat: 0, lng: 0, onSurface: false, incidence: 0, altitude: 0 })
+  }
+
+  // Los metros que mide un píxel CSS hacia el este, con la distancia del modelo del mapa. Sin argumento,
+  // en el centro del contenedor. NaN si el punto no toca la superficie o lo tapa el relieve.
+  metersPerPixelAt(latlng) {
+    if (latlng === undefined) {
+      const size = this.#hostCamera.size()
+      const at   = this.#surfaceCarrier
+      this.#hostCamera.surfaceAt({ x: size.x / 2, y: size.y / 2 }, at)
+      return at.onSurface ? this.#hostCamera.metersPerPixelAt(at.lat, at.lng, this.#model()) : NaN
+    }
+    if (this.#hostCamera.toScreen(latlng, this.#screenCarrier).occluded) return NaN
+    return this.#hostCamera.metersPerPixelAt(+coordOf(latlng, 0), +coordOf(latlng, 1), this.#model())
+  }
 
   destroy() { this.stopFollow() }
 

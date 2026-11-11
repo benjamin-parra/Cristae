@@ -188,6 +188,7 @@ export class MapEngine {
       host: this.#host,
       insets,
       resolveSource:   id => this.#layers.get(id)?.source ?? null,
+      model:           () => this.#model,
       boundsOf:        id => this.#layers.get(id)?.layer?.bounds ?? null,
       // Zoom mínimo de desclusterización por (capa, id): la cámara lo consulta para revealPoint /
       // followPoint({reveal}) sin conocer el cluster. El fold ata rec.cluster = control (ver addClusterFold).
