@@ -93,6 +93,7 @@ export class CristaeCluster extends CristaeModifierElement {
   // Botón central (re-clusterizar): nodo HTML flotante anclado al centro del cluster abierto.
   #centerEl     = null
   #centerAnchor = null            // { lat, lng } del centro abierto (re-proyecta en cada move)
+  #centerScreen = { x: 0, y: 0, visible: false, occluded: false }  // portador de la cámara, reusado
   #onCenterMove = null
   #offMove      = null            // baja del `move` del motor, que sigue el paneo/inercia
 
@@ -177,14 +178,16 @@ export class CristaeCluster extends CristaeModifierElement {
     if (!this.#centerEl || !this.#centerAnchor || !this.#mapEl) return
     const cam = this.#mapEl.camera
     if (!cam) return
-    const pt = cam.latLngToContainerPoint([this.#centerAnchor.lat, this.#centerAnchor.lng])
+    const pt = cam.latLngToContainerPoint([this.#centerAnchor.lat, this.#centerAnchor.lng], this.#centerScreen)
     const rect = this.#mapEl.getBoundingClientRect()
     // El botón es un overlay HTML en document.body — el contenedor del mapa NO lo clipea como a los
     // marcadores GL. Si el ancla cae fuera de la REGIÓN VISIBLE (el contenedor menos los
-    // viewport-insets que ocluyen UI del consumidor — paneo, o un panel interno encima), ocultarlo
-    // en vez de dejarlo flotar afuera. Misma región contra la que recorta el popup.
+    // viewport-insets que ocluyen UI del consumidor — paneo, o un panel interno encima), o la tapa la
+    // superficie (tras el horizonte de un globo), ocultarlo en vez de dejarlo flotar afuera. Misma región
+    // contra la que recorta el popup.
     const ins = cam.insets
-    if (pt.x < ins.left || pt.y < ins.top || pt.x > rect.width - ins.right || pt.y > rect.height - ins.bottom) {
+    const out = pt.x < ins.left || pt.y < ins.top || pt.x > rect.width - ins.right || pt.y > rect.height - ins.bottom
+    if (pt.occluded || out) {
       this.#centerEl.style.display = 'none'
       return
     }

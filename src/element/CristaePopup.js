@@ -234,6 +234,7 @@ export class CristaePopup extends LitElement {
       key, item, binding, node, live,
       lat: anchor.lat, lng: anchor.lng,
       screenPt: null,                   // se fija en el primer #place (modo pinned="false")
+      screen: null,                     // portador de la cámara, reusado en cada #place
       w: 0, h: 0,                       // tamaño cacheado (1 reflow por render; clip/fit no re-miden)
       ro: null, unsub: null,
     }
@@ -330,15 +331,25 @@ export class CristaePopup extends LitElement {
     const rect = this.#map.getBoundingClientRect()
     // Punto del contenedor: pinned → re-proyecta el ancla viva (sigue al mapa) y memoriza el spot;
     // unpinned → reusa el spot congelado (queda fijo en pantalla, ajeno a pan/zoom).
-    let cx, cy
+    // Ancla tapada por la superficie (el otro lado del globo): el nodo se oculta, sin tocar su caja.
+    // Fuera del rectángulo NO se oculta: se recorta y panea. El spot congelado no consulta la oclusión.
+    let cx, cy, occluded = false
     if (boolOff(this.pinned) && popup.screenPt) {
       cx = popup.screenPt.x; cy = popup.screenPt.y
     } else {
-      const pt = cam.latLngToContainerPoint([popup.lat, popup.lng])
+      const pt = cam.latLngToContainerPoint([popup.lat, popup.lng], popup.screen ??= { x: 0, y: 0, visible: false, occluded: false })
       cx = pt.x; cy = pt.y
+      occluded = pt.occluded === true
       popup.screenPt ??= { x: 0, y: 0 }  // registro reusado: sin alloc en la reposición continua
       popup.screenPt.x = cx; popup.screenPt.y = cy
     }
+    // `visibility` es del consumidor salvo mientras el popup lo oculta él: sólo se escribe al cambiar de
+    // estado de oclusión, y no se pisa el valor ajeno.
+    if (occluded !== !!popup.occludedHidden) {
+      popup.occludedHidden = occluded
+      popup.node.style.visibility = occluded ? 'hidden' : ''
+    }
+    if (occluded) return
     // Con `fit` la caja se computa entera desde el ancla (#placeFit). Sin `fit`, camino legacy.
     if (this.fit) return this.#placeFit(popup, rect, cx, cy)
     const [dx, dy] = parsePair(this.offset) ?? [0, -12]
@@ -414,7 +425,8 @@ export class CristaePopup extends LitElement {
 
     const rect = this.#map.getBoundingClientRect()
     // Caja en coords del contenedor, desde el tamaño cacheado + transform base-centro.
-    const pt = cam.latLngToContainerPoint([popup.lat, popup.lng])
+    const pt = cam.latLngToContainerPoint([popup.lat, popup.lng], popup.screen ??= { x: 0, y: 0, visible: false, occluded: false })
+    if (pt.occluded) return
     const [ox, oy] = parsePair(this.offset) ?? [0, -12]
     const nx = pt.x + ox, ny = pt.y + oy
     const left = nx - popup.w / 2, right = nx + popup.w / 2, top = ny - popup.h, bottom = ny
