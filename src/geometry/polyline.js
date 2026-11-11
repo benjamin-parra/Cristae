@@ -11,7 +11,7 @@
 // espacio en que dibuja la capa. El caller convierte la tolerancia y la
 // distancia a píxeles de pantalla multiplicando por la escala del zoom (world0 · 2^zoom = screen).
 // Módulo puro: sin Leaflet, sin WebGL, testeable con coordenadas conocidas.
-import { projX0, projY0 } from '../render/project.js'
+import { projX0, projY0 } from '../projection/mercator.js'
 import { coordOf, isNested, isPoint, iterable, listOf } from '../data/path.js'
 import { lowerBoundBy } from './binary-search.js'
 

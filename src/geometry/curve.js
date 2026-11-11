@@ -8,7 +8,7 @@ import { HEADING, DESTINATION, MEAN_RADIUS, MODEL, byDefault, checkHeading, chec
 import { GROUND, stepsFor } from './density.js'
 import { measureArgs } from './measure.js'
 import { toParts } from './polyline.js'
-import { MAXLAT } from '../render/project.js'
+import { MAXLAT } from '../projection/mercator.js'
 
 const D    = Math.PI / 180
 const SPAN = MEAN_RADIUS * D * Math.sqrt(1.005)   // los metros por grado del prefiltro

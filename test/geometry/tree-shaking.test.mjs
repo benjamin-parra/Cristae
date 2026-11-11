@@ -85,3 +85,18 @@ test('el entry del mapa no los carga: su grafo no llega al elipsoide ni al terre
   assert.ok(!js.includes(MARCA))
   assert.ok(!js.includes(TERRENO))
 })
+
+test('el bundle de cristae/geometry no trae src/render/', async () => {
+  const salida = (await build({
+    stdin    : { contents: "export * from './src/geometry/index.js'", resolveDir: raiz, sourcefile: 'consumidor.js' },
+    bundle   : true,
+    write    : false,
+    metafile : true,
+    format   : 'esm',
+    platform : 'browser',
+    logLevel : 'silent',
+  })).metafile
+  const entradas = Object.keys(salida.inputs)
+  assert.ok(entradas.some(f => f.includes('src/geometry/')))
+  assert.deepEqual(entradas.filter(f => f.includes('src/render/')), [])
+})

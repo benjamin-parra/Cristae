@@ -10,7 +10,7 @@
 // El ref de una entrada es su POSICIÓN en el arena — `ref = chunk · LOCAL_CAP + local`, el mismo par
 // (chunk, local) que decodifica el picking. Es posicional y no ordinal: un split o un merge migra refs
 // ajenos, y por eso `structRev` sella los picks en vuelo.
-import { LOCAL_BITS } from '../render/Picking.js'
+import { LOCAL_BITS } from './picking-bits.js'
 
 // El packer del picking guarda `local + 1` en LOCAL_BITS bits, así que el local más alto direccionable
 // es LOCAL_CAP - 1. Impar ⇒ la paridad del REF no es la del local (ver #isVertex).

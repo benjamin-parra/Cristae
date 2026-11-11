@@ -1,5 +1,8 @@
 import { pixelScaleOf } from './pixel-scale.js'
 import { POINT_VERTEX, POINT_PICKING_FRAGMENT } from './shaders.js'
+import { OBJ_BITS, CHUNK_BITS, LOCAL_BITS } from '../geometry/picking-bits.js'
+
+export { OBJ_BITS, CHUNK_BITS, LOCAL_BITS }
 
 // Picking GPU no-bloqueante: micro-FBO + lectura diferida por PBO/fenceSync (WebGL2).
 // Comparte el buffer de vértices del visual — el programa de picking se linkea con los MISMOS
@@ -26,10 +29,6 @@ const HALF  = PATCH >> 1
 // Estados del fence, de la especificación: se comparan también sin contexto, cuando el vuelo murió con él.
 const TIMEOUT_EXPIRED = 0x911A
 const WAIT_FAILED     = 0x911D
-
-export const OBJ_BITS   = 14
-export const CHUNK_BITS = 6
-export const LOCAL_BITS = 12
 
 // Índices del parche ordenados por distancia al texel del cursor —que con el viewport trasladado es
 // SIEMPRE (HALF, HALF), incluso pegado al borde del canvas—: así el primer impacto del barrido es el
