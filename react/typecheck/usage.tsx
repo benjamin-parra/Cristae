@@ -37,7 +37,7 @@ import {
   type CristaeTableElement,
   type CristaeViewportChangeDetail,
 } from '@cristae/react'
-import { MapEngine, adoptLeafletHost, arc, createSource, defineSource, defineIconSet, distance, drawLabel, sphere, toParts, type Bounds, type ClusterBubble, type CristaeSource, type LineAccessors, type PointerSample } from 'cristae/map'
+import { MapEngine, adoptLeafletHost, arc, createSource, defineSource, defineIconSet, distance, drawLabel, sphere, toParts, type Bounds, type ClusterBubble, type CristaeSource, type LatLng, type LineAccessors, type Point, type PointerSample, type ScreenPoint } from 'cristae/map'
 import { WGS84, boundsOf, boundsPad } from 'cristae/geometry'
 
 interface Movil {
@@ -313,6 +313,14 @@ export const ViaRef = () => {
     camera.setView({ lat: -33, lon: -70 }, 10)
     void camera.latLngToContainerPoint(camera.getCenter()).x
     void camera.containerPointToLatLng([10, 20]).lng
+    // Aditivo: el retorno sigue asignándose a Point y a LatLng.
+    const p: Point = camera.latLngToContainerPoint(camera.getCenter())
+    const ll: LatLng = camera.containerPointToLatLng([0, 0])
+    const out: ScreenPoint = { x: 0, y: 0, visible: false, occluded: false }
+    camera.latLngToContainerPoint(camera.getCenter(), out).visible satisfies boolean
+    camera.containerPointToLatLng([0, 0]).onSurface satisfies boolean
+    camera.metersPerPixelAt() satisfies number
+    void p; void ll
   }
 
   // Las señales del motor entregan su payload directo, el mismo que el detail del evento del DOM.

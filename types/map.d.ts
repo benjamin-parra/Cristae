@@ -891,6 +891,23 @@ export interface Point {
   x : number;
   y : number;
 }
+/** Un píxel del contenedor con su estado frente a la superficie (retorno de `latLngToContainerPoint`). */
+export interface ScreenPoint extends Point {
+  /** El punto se ve: está dentro del rectángulo del contenedor y nada lo tapa. */
+  visible  : boolean;
+  /** La superficie lo tapa (queda tras el horizonte del globo o detrás de una loma), sin importar el rectángulo. */
+  occluded : boolean;
+}
+/** Un punto geográfico bajo un píxel (retorno de `containerPointToLatLng`). */
+export interface SurfaceLatLng extends LatLng {
+  /** El píxel toca la superficie. Si no, `lat` y `lng` son el punto del limbo más próximo. */
+  onSurface : boolean;
+  /** Coseno del ángulo entre el rayo del píxel y la normal de la superficie: 1 de frente (siempre, con
+   *  Leaflet), 0 en el limbo y fuera de la superficie. */
+  incidence : number;
+  /** Metros sobre el nivel del terreno digital con relieve activo; 0 sin él. */
+  altitude  : number;
+}
 
 /** Cámara: la ÚNICA vía de movimiento del viewport tras el montaje. Todo es ACCIÓN (imperativo). Los
  *  puntos entran en cualquier forma de `LatLngPoint` (lo que no lo es, SPECS §9), y lo que devuelve son
@@ -917,6 +934,8 @@ export interface Camera {
   stopFollow(): this;
   getCenter(): LatLng;
   getZoom(): number;
+  /** La caja envolvente de lo visible: contiene todo lo que se ve y puede contener más. En Mercator sin
+   *  inclinación es exactamente la de siempre. */
   getBounds(): Bounds;
   /** Zoom mínimo efectivo: el límite `minZoom` si lo hay y, si no, el que permiten las capas. */
   getMinZoom(): number;
@@ -926,9 +945,15 @@ export interface Camera {
   zoomOut(delta?: number): this;
   setZoom(zoom: number): this;
   panBy(offset: [number, number], options?: Record<string, unknown>): this;
-  /** Proyección geográfica → píxel de contenedor (anclar overlays propios sin bajar a Leaflet). */
-  latLngToContainerPoint(latlng: LatLngPoint): Point;
-  containerPointToLatLng(point: Point | readonly [number, number]): LatLng;
+  /** Proyección geográfica → píxel de contenedor (anclar overlays propios sin bajar a Leaflet). `x` e `y`
+   *  se calculan siempre, aunque caigan fuera del contenedor. Con `out` reusa ese objeto y no asigna. */
+  latLngToContainerPoint(latlng: LatLngPoint, out?: ScreenPoint): ScreenPoint;
+  /** Píxel de contenedor → punto geográfico. Es total: si el píxel no toca la superficie, `onSurface` es
+   *  `false`. */
+  containerPointToLatLng(point: Point | readonly [number, number]): SurfaceLatLng;
+  /** Metros por píxel CSS en ese punto, con el modelo del mapa. Sin punto, en el centro del contenedor.
+   *  `NaN` si está tapado. */
+  metersPerPixelAt(latlng?: LatLngPoint): number;
 }
 
 // ── Motor y custom elements ──────────────────────────────────────────────────
