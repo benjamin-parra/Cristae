@@ -59,6 +59,11 @@ export class Interaction {
   #onInteractionEnd
   #onEmptyClick
 
+  // Si el último píxel muestreado toca la superficie (el `onSurface` de la cámara) y si el hover vigente
+  // ya se cerró por haber salido de ella. Sobre Leaflet todo píxel la toca: ninguno de los dos se mueve.
+  #onSurface = true
+  #offClosed = false
+
   // Estado del puntero, en píxeles del contenedor (muta-y-reusa). `inside` lo prenden el `pointerenter` o
   // cualquier muestra —un motor montado con el puntero ya encima no recibe `pointerenter`— y lo apaga el
   // `pointerleave` del contenedor.
@@ -138,7 +143,9 @@ export class Interaction {
     this.#paintCursor()
     if (c.consumer || !h.pickDemand || this.#interacting || !this.#pointer.inside) return
     h.dirty = true
-    h.session || this.#startHover(this.#sampleOf(this.#pointer))
+    if (h.session) return
+    const sample = this.#sampleOf(this.#pointer)
+    this.#onSurface && this.#startHover(sample)
   }
 
   // Un editor informa su nivel de handle y queda en el conjunto de ese nivel: con varios, el más
@@ -266,8 +273,10 @@ export class Interaction {
   // da. Es la misma que reciben los resolvers de cada capa, los canales `pointer:move` y `hover*` del bus
   // y el `cristae:pointermove` del elemento. Una por evento y congelada: la comparten los handlers y el
   // picking del mismo evento, y su identidad ata el pick de hover de una capa a la muestra que lo pidió.
+  // La muestra no lleva si toca la superficie: eso queda en `#onSurface` para los handlers.
   #sampleOf(point) {
-    const { lat, lng } = this.#camera.containerPointToLatLng(point)
+    const { lat, lng, onSurface } = this.#camera.containerPointToLatLng(point)
+    this.#onSurface = onSurface
     return Object.freeze({ lat, lng, x: point.x, y: point.y })
   }
 
@@ -331,6 +340,8 @@ export class Interaction {
     else for (const { participant } of this.#participants) participant.move(point.x, point.y)
 
     const sample = this.#sampleOf(point)
+    if (!this.#onSurface) return this.#leaveSurface()           // sin superficie no hay muestra ni pick
+    this.#offClosed = false
     this.#bus.dispatch('pointer:move', null, sample)            // crudo: coordenadas, sin picking
 
     const h = this.#hover
@@ -364,6 +375,10 @@ export class Interaction {
     if (!click) return
 
     const sample = this.#sampleOf(point)
+    if (!this.#onSurface) {                                    // sin superficie: ni hits ni click del mapa
+      for (const { participant } of this.#participants) participant.click(sample)
+      return
+    }
     const hits   = this.#registry.resolveHits('click', sample)
     this.#bus.dispatch('click', hits, event)
     // Click en ESPACIO VACÍO (ningún hit en ninguna capa): entrega la coordenada cruda. Es la
@@ -391,13 +406,23 @@ export class Interaction {
     this.#bus.dispatch('hover:out', null, null)
   }
 
+  // El puntero pasó a un píxel sin superficie: el hover vigente se cierra como al salir del mapa, una sola
+  // vez por salida. Los participantes siguen recibiendo `move`, que se les entregó antes.
+  #leaveSurface() {
+    if (this.#offClosed) return
+    this.#offClosed = true
+    this.#endHover()
+    this.#bus.dispatch('hover:out', null, null)
+  }
+
   // Click contextual (botón secundario / long-press / tecla Menú), desde el MouseEvent del DOM. El
   // pick es el MISMO camino síncrono que el click primario (`resolveHits('secondary-click')` →
   // `resolveClick`). El menú nativo del browser queda INTACTO por default: lo suprime el
   // consumidor con `event.preventDefault()` sólo cuando resolvió un hit propio.
   #onSecondaryClick(event) {
     const sample = this.#sampleOf(this.#updatePointer(event))
-    this.#bus.dispatch('secondary-click', this.#registry.resolveHits('secondary-click', sample), event)
+    const hits   = this.#onSurface ? this.#registry.resolveHits('secondary-click', sample) : []
+    this.#bus.dispatch('secondary-click', hits, event)
   }
 
   /* ── Sesión de hover (picking GPU no bloqueante) ── */
@@ -445,7 +470,9 @@ export class Interaction {
 
     h.session = null
     this.#emitHover(session.sample)
-    if (h.dirty) this.#startHover(this.#sampleOf(this.#pointer))   // relee la última muestra
+    if (!h.dirty) return
+    const last = this.#sampleOf(this.#pointer)                  // relee la última muestra
+    this.#onSurface && this.#startHover(last)
   }
 
   #emitHover(sample) {
