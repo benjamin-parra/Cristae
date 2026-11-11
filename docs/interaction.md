@@ -164,7 +164,10 @@ resuelven sólo si algún participante reconoció el píxel.
 - **El click lo sintetiza la puerta:** es la pulsación del mapa con el botón primario que se suelta sin
   haber recorrido `CLICK_TOLERANCE` px (|dx| + |dy|, la tolerancia de Leaflet), sin arrastrar el mapa
   y sin un segundo puntero. Sale con su `pointerup` por el canal `click` del bus —o como `map:click` sin
-  hits— y después a cada participante. El `click` del DOM no se mira.
+  hits— y después a cada participante. El `click` del DOM no se mira. Un píxel fuera de la superficie
+  (`onSurface` falso, [SPECS §9](../SPECS.md)) no da hits ni sale como `map:click` / `cristae:mapclick`, y su
+  movimiento no emite `pointer:move` / `cristae:pointermove`; los participantes igual reciben `move` y `click`.
+  Con Leaflet todo píxel toca la superficie.
 - **Un puntero que baja con otro apoyado no abre pulsación:** no toma un handle ni es un click, aunque el
   que se sumó antes ya se haya levantado. La pulsación del mapa en curso se suelta sin click; la de un
   participante sigue con su puntero. La puerta cuenta los apoyados en el contenedor, y el primario

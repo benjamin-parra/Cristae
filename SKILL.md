@@ -282,8 +282,14 @@ La cámara además **proyecta** coordenadas ↔ píxeles del contenedor, para an
 (p. ej. una tarjeta al hacer click) sin bajar al mapa de Leaflet:
 
 ```js
-const { x, y } = map.camera.latLngToContainerPoint([lat, lng])   // dónde cae el punto, en px del contenedor
-const latlng   = map.camera.containerPointToLatLng([x, y])
+const { x, y, visible } = map.camera.latLngToContainerPoint([lat, lng])   // px del contenedor; visible = dentro y sin tapar
+const latlng = map.camera.containerPointToLatLng([x, y])                  // { lat, lng, onSurface, incidence, altitude }
+const m = map.camera.metersPerPixelAt()                                   // metros por px en el centro, no se deduce del zoom
+
+// Lo que se reubica en cada cuadro reusa un `out`: no asigna
+const p = { x: 0, y: 0, visible: false, occluded: false }
+map.camera.latLngToContainerPoint([lat, lng], p)
+if (p.visible) place(p.x, p.y)                                            // en vez de comparar con el rectángulo a mano
 ```
 
 ---
@@ -313,7 +319,7 @@ const latlng   = map.camera.containerPointToLatLng([x, y])
 | seguir un punto con `panTo` por update | `map.camera.followPoint(layerId, id)` (una vez) |
 | `fitBounds` a mano tras cargar datos | `auto-fit="once"` en la capa (o `map.camera.fitToLayer('fleet')`) |
 | `map.setMinZoom/setMaxZoom/setMaxBounds` · `maxBoundsViscosity` | `min-zoom` / `max-zoom` / `max-bounds` / `max-bounds-viscosity` en el mapa (SPECS §9) |
-| `map.latLngToContainerPoint` para un overlay | `map.camera.latLngToContainerPoint(latlng)` |
+| `map.latLngToContainerPoint` para un overlay | `map.camera.latLngToContainerPoint(latlng, out)` con un `out` reusado; `p.visible` dice si se ve |
 | popup/tarjeta al click sobre un punto | `<cristae-popup for="fleet">` + `contentOf(item)` (HTML en light DOM) |
 | labels/tooltips a mano | `<cristae-labeled>` envolviendo la capa (`<cristae-label-layer>` se retira en v0.47.0) ([`docs/labeled.md`](./docs/labeled.md)) |
 | `L.imageOverlay`, `VideoOverlay`, `SVGOverlay` | `<cristae-image-layer url bounds>` o con `image` y `corners` para rotarla ([`docs/image-layer.md`](./docs/image-layer.md)) |

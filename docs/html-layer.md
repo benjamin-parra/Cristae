@@ -65,6 +65,8 @@ estado (`positionOf`/`htmlOf`): para moverlos o recolorearlos se muta el item y 
 - **Zoom**: durante un zoom animado cada marcador viaja a su destino (lo calcula `zoomanim`) sin
   escalar su contenido; uno sin destino —pinch, `flyTo`, un salto sin animación— lo reubica en cada
   `move` hasta que la vista asienta. La capa nunca se esconde.
+- **Superficie**: un marcador tapado por la superficie (`occluded`, [SPECS §9](../SPECS.md)) se oculta con
+  `visibility: hidden`, conserva su `transform` y no da hit; al destaparse vuelve. Sobre Leaflet nada queda tapado.
 - **Foco por opacidad**: el foco atenúa el nodo, no lo reconstruye; sobrevive a los ticks de datos.
 - **No captura el puntero**: la capa es transparente a él; el clic y el hover los resuelve por
   proximidad el motor de interacción.

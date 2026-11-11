@@ -42,6 +42,8 @@ re-montaje del mapa lee el motor y la cámara nuevos sola.
 
 - **Antes de `cristae:ready`**, o con el contenedor de alto 0 (`display: none`): no hay barra. Vuelve con
   el `viewportchange` que trae la vista o el tamaño.
+- **Un extremo fuera de la superficie** (`onSurface` falso en el píxel 0 o en el `max-width`, p. ej. un globo
+  que no llena el contenedor): no hay barra, porque no hay distancia que medir entre esos dos puntos.
 - **Vista que cruza el antimeridiano:** se mide el arco corto, no hace falta corregir nada.
 - **Zoom bajo con el mapa más chico que `max-width`:** se mide igual a lo largo de `max-width` px, y la
   barra puede pasar de media vuelta al mundo. Leaflet hace lo mismo.

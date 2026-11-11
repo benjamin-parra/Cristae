@@ -14,6 +14,22 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   recrearse ni volver a la página 0 para mostrarlo. En `<cristae-table>`, asignar `.binder` después
   del primer render ahora tiene efecto. Ver [`docs/table.md`](docs/table.md#pagedtable--engine-headless).
   *Migración*: ninguna.
+- **Cámara agnóstica de la proyección.** `camera.latLngToContainerPoint(latlng, out?)` da
+  `{ x, y, visible, occluded }`: `x` e `y` siempre, `visible` dentro del contenedor y sin superficie que lo
+  tape, `occluded` tapado por la superficie. `containerPointToLatLng(point)` da
+  `{ lat, lng, onSurface, incidence, altitude }`, y fuera de la superficie `lat` y `lng` son el punto del
+  limbo más próximo; `incidence` es el coseno del ángulo de incidencia (1 con Leaflet, 0 fuera de la
+  superficie). `metersPerPixelAt(latlng?)` da los metros por px CSS locales hacia el este con el `model`
+  del mapa; `<cristae-scale>` mide la cuerda de `maxWidth` px, que a zoom bajo y latitud media difiere
+  en una fracción de punto porcentual. `metersPerPixelAt` sigue escalar: la forma `metersPerPixelRange`
+  queda fuera de este tramo hasta decidir la forma en la esfera. Con `out`, la conversión no asigna, y en el anfitrión con EPSG:3857 sale con
+  los mismos `x` e `y` que Leaflet. `getBounds()` es la caja envolvente de lo visible, la de siempre en
+  Mercator sin inclinación. Un píxel fuera de la superficie no emite `cristae:mapclick` ni
+  `cristae:pointermove` y no da hits. `<cristae-popup>`, `<cristae-html-layer>`, el botón central de
+  `<cristae-cluster>`, los rótulos y `<cristae-scale>` ya usan el contrato: ocultan lo tapado (`occluded`, no
+  lo que cae fuera del rectángulo, que se recorta y deja panear) y no lo pican.
+  Ver [SPECS §9](SPECS.md) y [`docs/elements.md`](docs/elements.md).
+  *Migración*: ninguna; el retorno sigue siendo asignable a `Point` y a `LatLng`.
 
 ### Cambiado
 - **`engines` declara `node >=24`.** Antes decía `>=20`, pero sólo se prueba en Node 24 y 26: la librería ya no

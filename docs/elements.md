@@ -146,9 +146,9 @@ instancia** (resuelve al primer montaje, con su propio tiempo si hay varios mapa
 |---|---|
 | `cristae:ready` | `{}` — el motor existe; aquí ya se pueden leer `controls` e items del toolbar |
 | `cristae:click` | `{ hits, originalEvent }` — `hits` ordenados top-first (ver `interaction.md`); `originalEvent` es el `pointerup` de la pulsación con que el motor sintetizó el click, un `PointerEvent` ([`interaction.md`](./interaction.md#la-puerta-del-puntero)) |
-| `cristae:mapclick` | `{ latlng: { lat, lng } }` — click en el vacío, sin ningún hit |
+| `cristae:mapclick` | `{ latlng: { lat, lng } }` — click en el vacío, sin ningún hit; un píxel fuera de la superficie no lo emite |
 | `cristae:hover` | `{ hits }` |
-| `cristae:pointermove` | la muestra del puntero, `{ lat, lng, x, y }`: su posición y su píxel del contenedor. Llega congelada ([SPECS §10](../SPECS.md)) |
+| `cristae:pointermove` | la muestra del puntero, `{ lat, lng, x, y }`: su posición y su píxel del contenedor. Llega congelada ([SPECS §10](../SPECS.md)). Un píxel fuera de la superficie no lo emite |
 | `cristae:viewportchange` | `{ center: { lat, lng }, zoom, bounds: { south, west, north, east } }` |
 | `cristae:interactionstart` / `cristae:interactionend` | `{}` |
 | `cristae:surfacechange` | `{ layerId, kind, pane, z, cssZoom, state, hasContent, visible }` — la fila de `engine.surfaces()` de la capa cuya superficie WebGL cambió de estado: cuando la capa toma el contexto (`live`, también la primera vez si lo difirió por nacer vacía), cuando el navegador se lo quita (`lost`) y cuando lo suelta o la política la deja sin él (`released`) ([SPECS §10](../SPECS.md)) |
@@ -274,12 +274,17 @@ solo fijan la vista inicial). Es la **única** vía de viewport dentro del contr
 | `zoomIn(delta?)` · `zoomOut(delta?)` · `setZoom(zoom)` | el zoom es **ortogonal al follow**: no lo cancela (ajusta escala, no reposiciona) |
 | `followPoint(layerId, id, {zoom?})` · `stopFollow()` | sigue la posición **viva** del id (se actualiza con `move`/`patch` del Source), sin que el consumidor bombee |
 | `getCenter()` · `getZoom()` · `getBounds()` | lectura: `{ lat, lng }`, número y `{ south, west, north, east }`, con la longitud sin envolver (SPECS §9) |
-| `latLngToContainerPoint(latlng)` · `containerPointToLatLng(point)` | proyección píxel ↔ geo **relativa al contenedor**, para anclar overlays HTML propios en light DOM: `{ x, y }` y `{ lat, lng }` |
+| `latLngToContainerPoint(latlng, out?)` · `containerPointToLatLng(point)` · `metersPerPixelAt(latlng?)` | proyección píxel ↔ geo **relativa al contenedor**, para anclar overlays HTML propios en light DOM: `{ x, y, visible, occluded }` y `{ lat, lng, onSurface, incidence, altitude }`; `metersPerPixelAt` da los metros por px CSS hacia el este en ese punto (`<cristae-scale>` mide la cuerda de su barra, que a zoom bajo difiere un poco), `NaN` si el punto está tapado o fuera de la superficie |
 
 Los métodos de movimiento devuelven `this` (encadenables). Aplican `viewport-insets`: el objetivo cae en
 el centro de la región **visible**, no detrás de un panel. Un `latlng` va en cualquier forma de punto de
 [`cristae/geometry`](./geometry.md#formas-de-punto) (lo que no lo es: SPECS §9), y lo que la cámara
 devuelve son objetos planos; qué cuenta como caja lo fija [SPECS §18](../SPECS.md).
+
+En `latLngToContainerPoint`, `x` e `y` salen siempre, aunque el punto caiga fuera; `visible` es estar dentro
+del contenedor y sin superficie que lo tape, y `occluded`, estar tapado. Con Leaflet, `occluded` es siempre
+`false`, `onSurface` siempre `true`, `incidence` 1 y `altitude` 0. Con un `out` propio escribe en él y no asigna
+([SPECS §9](../SPECS.md)). Los retornos siguen siendo asignables a `Point` y a `LatLng`.
 
 ---
 
