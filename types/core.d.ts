@@ -57,8 +57,10 @@ export interface CristaeReadSource<T = unknown> {
 export interface CristaeSource<T = unknown> extends CristaeReadSource<T> {
   /** Reemplaza el conjunto completo (rebuild O(n)). */
   set(items: T[]): void;
-  /** Mueve un punto en O(1) sin reconstruir el buffer GPU. */
-  move(id: string | number, lat: number, lng: number): void;
+  /** Mueve un punto en O(1) sin reconstruir el buffer GPU. Con `heading` (grados) también gira su ícono si la
+   *  capa rota; sin él, o con un valor no finito, conserva el rumbo anterior. Un `set`, `patch` o `remove` del
+   *  ítem descarta lo movido. */
+  move(id: string | number, lat: number, lng: number, heading?: number): void;
   /** Parche incremental O(k) de varios campos. `dirtyIds` = Set de ids cambiados —
    *  REQUERIDO: la implementación lo itera sin guard. */
   patch(items: T[], dirtyIds: Set<string | number>): void;

@@ -29,6 +29,8 @@ import type {
   Camera,
   MapEngine,
   PointHandle,
+  TilePresetName,
+  CristaeSource,
   LineHandle,
   PolygonHandle,
   ShapeHandle,
@@ -91,7 +93,7 @@ import type { PagedTable } from '../../types/table'
 
 /** Re-export de conveniencia: los tipos de Source con los que se anotan las props de dato. Una Source
  *  de `defineSource` es `CristaeReadSource`; sólo `createSource` devuelve la `CristaeSource` mutable. */
-export type { CristaeReadSource, CristaeSource } from '../../types/map'
+export type { CristaeReadSource, CristaeSource, TilePresetName } from '../../types/map'
 
 // ── Núcleo del binding (imperativo) ─────────────────────────────────────────
 
@@ -224,6 +226,8 @@ interface CristaeDataLayerProps extends CristaeLeafLayerProps {
   onHoverEnd?       : CristaeHitsHandler<PointerSample | null>;
 }
 
+export type CristaeTilePresetName = TilePresetName
+
 export interface CristaeTileProvider {
   url          : string;
   maxZoom?     : number;
@@ -259,8 +263,8 @@ export interface CristaeMapElement extends HTMLElement {
 }
 
 export interface CristaeMapProps extends CristaeBaseProps {
-  /** Proveedor de tiles (capa base). Objeto → propiedad; el shell suele derivarlo del tema. */
-  tile?               : CristaeTileProvider;
+  /** Proveedor de tiles (capa base): un objeto o el nombre de un preset (`"osm"`, `"cartoDark"`…). Reactivo. */
+  tile?               : CristaeTileProvider | CristaeTilePresetName;
   worldCopies?        : boolean;
   noZoomControl?      : boolean;
   /** Franjas del contenedor ocluidas por UI del consumidor (paneles) — reactivo. */
@@ -334,7 +338,12 @@ type CristaeAccessorsRule<A> =
   | { url: string;     fields?: Fields;    accessors?: Partial<A> }
   | { url?: string;    fields: Fields;     accessors?: Partial<A> }
 
-export interface CristaePointLayerElement<T = unknown> extends HTMLElement { readonly controls: PointHandle<T> | null }
+export interface CristaePointLayerElement<T = unknown> extends HTMLElement {
+  readonly controls: PointHandle<T> | null
+  /** Siempre presente, también antes de `ready`: lo movido o puesto antes del alta se reproduce al montar.
+   *  Asignable para dar la Source del consumidor. */
+  source: CristaeSource<T>
+}
 export interface CristaeLineLayerElement<T = unknown> extends HTMLElement { readonly controls: LineHandle<T> | null }
 export interface CristaePolygonLayerElement<T = unknown> extends HTMLElement { readonly controls: PolygonHandle<T> | null }
 export interface CristaeShapeLayerElement<T = unknown> extends HTMLElement { readonly controls: ShapeHandle<T> | null }

@@ -147,10 +147,12 @@ export interface RemoteDataOptions {
   format?      : FormatName;
   /** Cómo leer cada ítem por nombre de campo; los lectores son totales sobre null y campo ausente. */
   fields?      : Fields;
-  /** Milisegundos entre recargas; piso de 1000. `0`, `null` o `false` lo apagan. Pausa con la pestaña oculta. */
+  /** Milisegundos entre recargas; piso de 1000. `0`, `null` o `false` lo apagan. Pausa con la pestaña oculta.
+   *  Cada recarga se aplica por diferencia de id (alta, baja o cambio) sin re-encodar lo que no cambió; en una
+   *  capa de puntos, el que se movió se desliza a su nueva posición durante `REFRESH_TWEEN_MS`. */
   refresh?     : number | null | false;
   fetch?       : RemoteFetch;
-  /** Qué hace un click sobre un ítem de la capa: `fit` centra el punto (`panTo`, sin cambiar el zoom) o encuadra la caja de la línea o el polígono, y `follow` sigue el punto (sólo puntos). Requiere `interactive`. */
+  /** Qué hace un click sobre un ítem de la capa: `fit` centra el punto y, si el zoom es menor que 16, lo acerca hasta 16 sin alejar nunca; en una línea o un polígono encuadra su caja (si es un solo lugar, como un punto), y `follow` sigue el punto (sólo puntos). Requiere `interactive`. */
   clickAction? : "fit" | "follow";
 }
 
@@ -612,6 +614,8 @@ export interface TextHandle<T = unknown> {
 }
 
 // ── Tiles (src/tiles/presets.js) ─────────────────────────────────────────────
+/** Los nombres de `tilePresets`, para el atributo `tile` y `setTileProvider`. */
+export type TilePresetName = "osm" | "cartoLight" | "cartoDark" | "esriImagery";
 export const tilePresets: Record<
   string,
   { url: string; maxZoom?: number; attribution?: string }
@@ -668,7 +672,8 @@ export interface PointHandle<T = unknown> {
   readonly layer  : unknown;
   set(items: T[]): void;
   patch(items: T[], dirtyIds: Set<string | number>): void;
-  move(id: string | number, lat: number, lng: number): void;
+  /** Mueve un punto en O(1). Con `heading` (grados) también gira su ícono; sin él conserva el rumbo anterior. */
+  move(id: string | number, lat: number, lng: number, heading?: number): void;
   remove(id: string | number): void;
   addFilter(filter: CristaeFilter<T>): void;
   removeFilter(filterId: unknown): void;
@@ -1048,8 +1053,11 @@ export interface Camera {
   /** Encuadra una caja o un par de esquinas opuestas; lo que no lo es, `maxZoom` y `animate`: SPECS §9. */
   fitBounds(bounds: BoundsLike | null | undefined, options?: { insets?: Insets; maxZoom?: number; animate?: boolean }): this;
   /** Encuadra la caja que la capa informa de lo que dibuja —formas y polígonos, enteros— o, sin ella, la de
-   *  sus posiciones válidas. El error de un accessor le llega al llamador. */
-  fitToLayer(layerId: string, options?: { insets?: Insets; maxZoom?: number }): this;
+   *  sus posiciones válidas. El error de un accessor le llega al llamador.
+   *  Con `ids`, encuadra sólo la caja de los lugares que dibuja cada ítem (vértices de una línea o polígono;
+   *  en las formas, su centro y no su radio; los ausentes se ignoran; sin ninguno, no hace nada). Si esa caja es un solo lugar, aplica la regla del punto: sube hasta `FIT_POINT_MIN_ZOOM`
+   *  (16, tope `maxZoom`) y nunca aleja; con el zoom ya en 16 o más, sólo centra. */
+  fitToLayer(layerId: string, options?: { insets?: Insets; maxZoom?: number; ids?: Iterable<string | number> }): this;
   /** Enfoca un punto dejándolo visible (des-clusteriza subiendo el zoom si hace falta). */
   revealPoint(layerId: string, id: string | number, options?: { zoom?: number }): this;
   /** Sigue la posición VIVA de un id (re-centra en cada flush). `reveal` des-clusteriza al iniciar. */
@@ -1202,7 +1210,9 @@ export class MapEngine {
   on<K extends keyof EngineSignals>(event: K, cb: EngineSignals[K]): () => void;
   registerIconSet(name: string, set: IconSet): this;
   createIcon(config: { size?: number; draw?: (ctx: CanvasRenderingContext2D, size: number) => void }): HTMLCanvasElement;
-  setTileProvider(tile: { url: string; [k: string]: unknown }): this;
+  /** Un nombre de `tilePresets` o un proveedor. Un nombre desconocido lanza `TypeError` (con la lista de
+   *  presets) y deja el proveedor vigente. */
+  setTileProvider(tile: TilePresetName | { url: string; [k: string]: unknown }): this;
   /** Atribución del proveedor vigente, tal como se dio —HTML, como en Leaflet—, o `null`. El motor no la
    *  dibuja: docs/tiles.md#la-atribución. */
   getTileAttribution(): string | null;

@@ -301,6 +301,8 @@ export const ViaRef = () => {
     map.current?.camera?.followPoint('fleet', m.id, { reveal: true })
     map.current?.ready.then((engine) => engine.fitToLayers(['fleet']))
     fleet.current?.controls?.move(m.id, m.lat, m.lng)          // ruta caliente: sin re-render
+    fleet.current?.controls?.move(m.id, m.lat, m.lng, m.rumbo) // con rumbo: gira el ícono si su set rota
+    fleet.current?.source.move(m.id, m.lat, m.lng, m.rumbo)    // la Source del elemento existe antes de ready
     cluster.current?.contentsOf(1)
     popup.current?.open(m)
   }
@@ -530,3 +532,6 @@ export const MotorPorUrl = (engine: MapEngine) => {
   engine.on('dataerror', (d) => void d.code)
   engine.addPolygonLayer({ id: 'p', url: 'p.geojson', format: 'geojson' }).reload()
 }
+
+// `tile` por nombre de preset, sin armar el proveedor.
+export const PorNombre = () => <CristaeMap tile="osm" />
