@@ -90,3 +90,14 @@ test('CristaeIcon renderiza <cristae-icon name src> dentro del set', () => {
   assert.equal(icon.getAttribute('src'), '/iconos/camion.svg')
   unmount()
 })
+
+test('ref.current.source es el elemento mismo: lo que el elemento expone antes de ready, el ref lo publica', () => {
+  const fuente = { move() {} }
+  const ref = { current: null }
+  const { container, unmount } = mount(e(CristaePointLayer, { ref, url: '/x' }))
+  const el = container.querySelector('cristae-point-layer')
+  assert.equal(ref.current, el, 'el ref apunta al elemento, no a un envoltorio')
+  el.source = fuente
+  assert.equal(ref.current.source, fuente)
+  unmount()
+})

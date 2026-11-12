@@ -35,6 +35,10 @@ export class CristaeLayerElement extends LitElement {
   // perforar el campo privado. null hasta que la capa monta.
   get controls() { return this._handle }
 
+  // La Source que el consumidor asignó, para saber si los accessors viajan con ella. Las capas con Source propia
+  // implícita (puntos) la redefinen para no contarla.
+  get _consumerSource() { return this.source }
+
   connectedCallback() {
     super.connectedCallback()
     if (this._enclosingModifier()) return       // el modificador gestiona a sus hijos

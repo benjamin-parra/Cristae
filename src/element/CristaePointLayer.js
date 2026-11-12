@@ -1,5 +1,6 @@
 import { CristaeLayerElement } from './base.js'
 import { makeAutoId } from './autoId.js'
+import { createPendingSource } from '../data/Source.js'
 import { DATA_PROPERTIES, POINT_OF, bridgeLoad, dropLoad, remoteConfig, resolveOf, syncData } from './dataAttrs.js'
 
 // <cristae-point-layer> — capa de puntos GL declarativa. Dos entradas de dato simétricas:
@@ -15,7 +16,7 @@ export class CristaePointLayer extends CristaeLayerElement {
 
   static properties = {
     data       : { type: Array },
-    source     : { attribute: false },           // Source compartida (createSource/defineSource)
+    source     : { attribute: false, noAccessor: true },   // Source compartida (createSource/defineSource); accessor propio, abajo
     accessors  : { type: Object },
     iconSet    : { attribute: 'icon-set' },      // string (nombre registrado) u objeto IconSet
     filters    : { type: Array },
@@ -28,6 +29,10 @@ export class CristaePointLayer extends CristaeLayerElement {
     ...POINT_OF,                                 // variant-of, heading-of
   }
 
+  // Campos con guion bajo y no privados: las pruebas prestan el prototipo sobre un `this` sin constructor.
+  _own         = createPendingSource()   // la Source del elemento: existe desde la construcción y la adopta la capa al montar
+  _mountedData = null                    // el `data` con que montó la capa, hasta el primer cambio de `data`: ese primer `updated()` no lo reaplica (borraría lo movido antes de ready)
+  _external    = null                    // la Source que el consumidor asigna; si está, gana sobre _own
   #autoFitUnsub = null   // la espera de `auto-fit="once"` mientras no encuadró; null = no espera
 
   constructor() {
@@ -37,18 +42,32 @@ export class CristaePointLayer extends CristaeLayerElement {
     this.enabled     = true
   }
 
+  // Sin Source del consumidor, `source` es la propia del elemento (la misma que `controls.source` tras montar):
+  // antes de ready encola move/set/append y el motor los reproduce al alta. Asignar una propia la reemplaza; vaciarla
+  // después de un attach no vuelve a la del elemento.
+  get source() { return this._external ?? this._own }
+  set source(value) {
+    const old = this._external
+    this._external = value ?? null
+    this.requestUpdate('source', old)
+  }
+
+  // Lo que el consumidor aportó: lo que `-of` y los `fields` por atributo respetan o ignoran.
+  get _consumerSource() { return this._external }
+
   layerId() { return this.id || (this._auto ??= makeAutoId('point')) }
 
   // Necesita una Source (que ya trae accessors), accessors propios (ruta `data`), una `url` o `fields`. Sin eso, diferir.
-  mountReady() { return !!(this.source || this.accessors || this.url || this.fields) }
+  mountReady() { return !!(this._external || this.accessors || this.url || this.fields) }
 
   // Con `source` los accessors viajan con ella: los cierres de `variant-of` y `heading-of` no aplican.
   mountLayer(engine) {
-    const of = resolveOf(this, this.source ? [] : ['id', 'variant', 'heading'])
+    const of = resolveOf(this, this._external ? [] : ['id', 'variant', 'heading'])
+    this._mountedData = this.data
     const handle = engine.addPointLayer({
       id         : this.layerId(),
       ...this._placement,
-      source     : this.source,                  // si está, gana sobre `data` (el motor hace cfg.source ?? owned)
+      source     : this._external ?? this._own,  // la del consumidor gana sobre `data`; si no, la pendiente propia, que adopta la capa
       data       : this.data,
       accessors  : of.accessors,
       ...remoteConfig(this),
@@ -66,10 +85,15 @@ export class CristaePointLayer extends CristaeLayerElement {
   }
 
   syncLayer(changed) {
-    if (changed.has('source') && this.source) {
-      this._engine.attachSource(this._handle.id, this.source)
+    if (changed.has('source') && this._external) {
+      this._engine.attachSource(this._handle.id, this._external)
       this.#autoFitUnsub && this.#autoFitOnce(this._engine, this._handle)   // la espera sigue a la fuente nueva
-    } else if (changed.has('data') && this.data) this._handle.set(this.data)
+    } else if (changed.has('data') && this.data) {
+      // La marca vale sólo para el primer cambio tras montar: después, todo `data` se aplica (también uno ya visto).
+      const montada = this._mountedData
+      this._mountedData = null
+      if (this.data !== montada) this._handle.set(this.data)
+    }
     if (changed.has('where')) this._handle.setWhere(this.where)
     if (changed.has('visible')) this._handle.setVisible(this.visible)
     if (changed.has('enabled')) this._handle.setEnabled(this.enabled)

@@ -35,7 +35,7 @@ const capa = (Clase, props = {}) => {
   const el = Object.assign(Object.create(Clase.prototype), {
     id: 'capa', interactive: false, visible: true, enabled: true,
     _handle: null, _engine: null,
-    _enclosingModifier: () => null, closest: () => null,
+    _enclosingModifier: () => null, closest: () => null, requestUpdate() {},   // el accessor de `source` avisa a Lit
     dispatchEvent: e => (eventos.push(e), true),
   }, props)
   el.eventos = eventos

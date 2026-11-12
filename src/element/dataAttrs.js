@@ -79,7 +79,7 @@ const compile = (channel, spec) => {
 // se aplica, y se dice una vez en lugar de quedar mudo.
 const warnIgnored = el => {
   const names = [...Object.keys(OF_PROP).map(key => OF_PROP[key]).filter(name => named(el[name])), ...(el.fields ? ['fields'] : [])]
-  names.length && el.source &&
+  names.length && el._consumerSource &&
     warnOnce(el, 'source-of', `${names.join(', ')} se ignora${names.length > 1 ? 'n' : ''} con 'source': los accessors viajan con la Source`)
 }
 
@@ -151,7 +151,7 @@ export const syncData = (el, changed) => {
     const name = OF_PROP[key]
     if (!moved(name)) continue
     if (st.closures[key]) { st.read[key] = compile(key, el[name]); dirty = true }
-    else if (named(el[name]) && !el.source && typeof el.accessors?.[name] !== 'function' && !(el.fields && key in el.fields))
+    else if (named(el[name]) && !el._consumerSource && typeof el.accessors?.[name] !== 'function' && !(el.fields && key in el.fields))
       warnOnce(el, `mount:${name}`, `'${name}' no estaba declarado al montar la capa: el cambio no se aplica en vivo`)
   }
   dirty && handle.refresh()
