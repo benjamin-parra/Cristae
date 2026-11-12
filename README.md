@@ -57,7 +57,7 @@ import { createSource, defineIconSet } from 'cristae/map'
 
 | Specifier          | Trae                                                        | Registra           |
 |--------------------|-------------------------------------------------------------|--------------------|
-| `cristae/map`      | mapa + núcleo (Leaflet/lit)                                 | `<cristae-*>` mapa |
+| `cristae/map`      | mapa + núcleo (Leaflet/lit), con la capa de terreno         | `<cristae-*>` mapa |
 | `cristae/table`    | tabla virtual + núcleo (solo `lit`)                         | `<cristae-table>`  |
 | `cristae/core`     | solo el núcleo de datos (sin DOM)                           | —                  |
 | `cristae/geojson`  | lector de GeoJSON a arrays tipados                          | —                  |
@@ -169,9 +169,11 @@ clase quedan nativos, y no hay bloques `static {}`, que subirían Safari a 16.4.
 Quien importa `src/` con su propio bundler hereda la misma sintaxis y puede bajarla con su `target`,
 salvo `Array.prototype.at`, que es una API y no sintaxis.
 
-La tabla es el mínimo del núcleo. `terrain` (de `cristae/geometry`) pide además `DecompressionStream`
-para el PNG, que fija Safari 16.4 y Firefox 113, y `OffscreenCanvas` y `createImageBitmap` para el WebP
-([`docs/geometry.md`](docs/geometry.md)). En un navegador sin ellos rechaza con un mensaje de entorno.
+La tabla es el mínimo del núcleo. `terrain` (de `cristae/geometry`) y `<cristae-terrain-layer>` (de
+`cristae/map`) piden además `DecompressionStream` para el PNG, que fija Safari 16.4 y Firefox 113, y
+`OffscreenCanvas` y `createImageBitmap` para el WebP ([`docs/geometry.md`](docs/geometry.md),
+[`docs/terrain-layer.md`](docs/terrain-layer.md)). En un navegador sin ellos rechazan con un mensaje de
+entorno.
 
 ## Node
 

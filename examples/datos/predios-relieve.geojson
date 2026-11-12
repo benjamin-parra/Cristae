@@ -1,0 +1,9 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    { "type": "Feature", "properties": { "rol": "101-1", "superficie_ha": 147.0 },
+      "geometry": { "type": "Polygon", "coordinates": [[[-72.866, -37.54], [-72.852, -37.541], [-72.85, -37.548], [-72.858, -37.552], [-72.867, -37.548], [-72.866, -37.54]]] } },
+    { "type": "Feature", "properties": { "rol": "101-2", "superficie_ha": 121.6 },
+      "geometry": { "type": "Polygon", "coordinates": [[[-72.846, -37.553], [-72.834, -37.554], [-72.832, -37.561], [-72.841, -37.564], [-72.848, -37.559], [-72.846, -37.553]]] } }
+  ]
+}

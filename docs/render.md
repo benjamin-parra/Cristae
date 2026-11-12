@@ -40,6 +40,42 @@ y `setOpacity()` no hacen nada: los tests de cada capa no cambian.
 
 ---
 
+## Proyección de las capas nuevas: `FrameView` y el preludio
+
+Las capas que se escriben desde el tramo del terreno no arman su matriz ni su proyección a mano.
+
+- **`createFrameView()`** (`src/render/frame-view.js`) devuelve el portador de la vista de una capa. Lo llena
+  `readView` con zoom, centro y tamaño, y suma lo constante del plano afín actual: sin inclinación ni giro
+  y con la proyección `mercator`. Se crea una vez y se reusa en cada cuadro.
+- **`bind(gl, locs, anchorX, anchorY)`** escribe la matriz rel-ancla a clip en un arreglo propio y la sube.
+  Si el programa declara `u_projection_scale`, sube también `2^zoom`. No crea objetos. La matriz sale
+  bit a bit igual a la de `anchorMatrix`.
+- **`withProjection(source, variant = 'mercator')`** (`src/render/projection-prelude.js`) inserta el preludio
+  GLSL después de `#version` y de las líneas `precision`. Trae `projectRel`, `projectScreen`,
+  `projectScale` y `projectHidden`. Una variante desconocida lanza.
+- **`projectionKey(base, variant)`** da la clave del programa compartido, `terrain:mercator`.
+
+La regla: una capa nueva escribe su vértice contra `projectRel` y no contra una matriz propia. Así el
+día que haya otra variante de proyección el shader no cambia. Las capas existentes siguen con su matriz y
+no migran en este tramo.
+
+Fuera de este tramo quedan la inclinación, el giro y la variante de esfera.
+
+### La capa de terreno
+
+`TerrainLayer` es un miembro de tramo, con su detalle de uso en [`terrain-layer.md`](terrain-layer.md).
+
+- **Superficie:** nace con `open(false)` y pide el contexto cuando llega el primer mosaico. El contexto lo
+  comparte con las capas contiguas de su tramo.
+- **Texturas:** `R32F` con las alturas y `RG32F` de una columna con los pasos de Horn por fila. Salen de copias
+  de CPU, así que perder el contexto no repite la red. La celda sin dato lleva `-1e9`, nunca `NaN`.
+- **Programas:** sombreado y color con curvas, sobre un cuadrado sin atributos que cubre la caja del mosaico.
+- **Recorte:** reusa `EditFillLayer.mask(view)`, que deja la paridad par-impar en el stencil sin pintar
+  cobertura. La capa cubre con `NOTEQUAL` y deja el estado en neutro.
+- **Sin picking:** no tiene `resolveClick` ni `resolveHover`.
+
+---
+
 ## Los dos paths (la idea central)
 
 Reconstruir el buffer entero es **O(n)**: sirve para el alta/baja del set, pero pagar O(n) por mover un

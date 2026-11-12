@@ -377,6 +377,7 @@ if (p.visible) place(p.x, p.y)                                            // en 
 | popup/tarjeta al click sobre un punto | `<cristae-popup for="fleet">` + `contentOf(item)` (HTML en light DOM) |
 | labels/tooltips a mano | `<cristae-labeled>` envolviendo la capa (`<cristae-label-layer>` se retira en v0.47.0) ([`docs/labeled.md`](./docs/labeled.md)) |
 | `L.imageOverlay`, `VideoOverlay`, `SVGOverlay` | `<cristae-image-layer url bounds>` o con `image` y `corners` para rotarla ([`docs/image-layer.md`](./docs/image-layer.md)) |
+| pendientes, color por altura y curvas de nivel de un dem en planta | `<cristae-terrain-layer dem="aws" color-by="slope" slope-breaks="15% 30%" contours="10" clip-to="predios">`; `measure(geometryOf(id))` da la misma cifra que `relief()` ([`docs/terrain-layer.md`](./docs/terrain-layer.md)) |
 | `L.control.scale()` | `<cristae-scale slot="bottom-left">` ([`docs/scale.md`](./docs/scale.md)) |
 | `polyline.setText` (Leaflet.TextPath) | `<cristae-labeled repeat="200">` envolviendo la capa de líneas ([`docs/labeled.md`](./docs/labeled.md)) |
 | `L.heatLayer` (`leaflet.heat`) | `<cristae-heat-layer>` + `accessors:{ idOf, positionOf, weightOf? }` ([`docs/heat.md`](./docs/heat.md)) |

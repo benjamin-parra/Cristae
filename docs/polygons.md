@@ -91,6 +91,32 @@ engine.addPolygonGpuLayer({ id: 'geocercas', geometry: areasOf(doc), idOf: f => 
 
 Con tablas armadas a mano, sin `owner`, el sujeto sigue siendo la parte.
 
+## Geometría de un ítem
+
+`geometryOf(id)` está en los handles de `addPointLayer`, `addLineLayer` y `addPolygonLayer`. Devuelve la
+geometría del ítem tal como la capa la dibuja, en `[lat, lng]`, o `null` si el id no existe o la capa se
+armó con `geometry` y no con una `Source`.
+
+| Capa | Devuelve |
+|---|---|
+| puntos | `[lat, lng]` |
+| líneas | lo que entrega `pathOf` para el ítem |
+| polígonos | `[exterior, agujeros…]`, o `[[exterior, …], …]` con varias partes |
+
+La forma es la que miden `area`, `distance` y `relief()`, así que no hay que releer el archivo ni invertir
+ejes. El caso típico es medir el predio pulsado:
+
+```js
+engine.on('click', 'predios', async ([hit]) => {
+  const r = await relieve.measure(predios.geometryOf(hit.id))
+})
+```
+
+- **Multipolígonos por `url`.** Cada parte queda aparte, con sus agujeros. Antes se aplanaban en una lista
+  de anillos, y un multipolígono con dos partes medía como un polígono con un agujero. Un polígono de una
+  sola parte conserva la forma `[exterior, agujeros…]`.
+- Lo devuelto es la geometría de la capa, no una copia: no se modifica.
+
 ## Curva geodésica
 
 Con curva —la pide `<cristae-geodesic>` envolviendo la capa, o `engine.addGeodesic({ hostId })`, que

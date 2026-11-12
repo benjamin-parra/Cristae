@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Cristae · Terreno sin script</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #f8fafc; color: #0f172a;
+    font: 13px/1.5 ui-sans-serif, system-ui, -apple-system, sans-serif; overflow: hidden; }
+  cristae-map { position: fixed; inset: 0; background: #e2e8f0; }
+  #panel { position: fixed; top: 14px; right: 14px; z-index: 1000; width: 300px; background: #fff;
+    border: 1px solid #cbd5e1; border-radius: 10px; padding: 10px 12px; }
+  h1 { font-size: 13px; margin: 0 0 6px; }
+  p { color: #475569; font-size: 12px; margin: 4px 0; }
+  .leyenda { display: flex; gap: 10px; font-size: 12px; margin: 6px 0 0; }
+  .leyenda i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; }
+  .tarjeta { font-size: 12px; }
+  .tarjeta b { font-size: 13px; }
+</style>
+<!-- Único script de la página: registra los elementos. Todo lo demás es HTML. -->
+<script type="module" src="../src/index.js"></script>
+</head>
+<body>
+<cristae-map tile="osm" initial-center="-37.55,-72.85" initial-zoom="14"
+  max-bounds='{"south":-37.65,"west":-73.0,"north":-37.45,"east":-72.7}'>
+  <!-- Declarada antes de los vectores: queda debajo de ellos. Pendiente en tres clases, curvas cada 10 m y
+       el color recortado a los predios. El dem sale del preset «aws». -->
+  <cristae-terrain-layer id="relieve" dem="aws"
+    color-by="slope" slope-breaks="15% 30%" slope-colors="#a6d96a #fdae61 #d7191c"
+    contours="10" clip-to="predios"></cristae-terrain-layer>
+
+  <cristae-labeled text-of="rol" placement="center">
+    <cristae-polygon-layer id="predios" url="./datos/predios-relieve.geojson" fields='{"id":"rol"}'
+      interactive fill="false" color="#111827" weight="2"></cristae-polygon-layer>
+  </cristae-labeled>
+
+  <!-- La ficha muestra lo que traen los datos: data-field escribe texto, nunca HTML. -->
+  <cristae-popup for="predios">
+    <template>
+      <div class="tarjeta">Rol <b data-field="rol"></b> · <span data-field="superficie_ha"></span> ha</div>
+    </template>
+  </cristae-popup>
+
+  <cristae-scale slot="bottom-left"></cristae-scale>
+</cristae-map>
+
+<div id="panel">
+  <h1>Terreno sin script</h1>
+  <p>Dos predios ficticios con la pendiente de su <code>dem</code> en tres clases y curvas de nivel cada 10 m,
+    recortadas a cada predio por <code>clip-to</code>. Un clic abre la ficha.</p>
+  <div class="leyenda">
+    <span><i style="background:#a6d96a"></i>hasta 15 %</span>
+    <span><i style="background:#fdae61"></i>15 a 30 %</span>
+    <span><i style="background:#d7191c"></i>sobre 30 %</span>
+  </div>
+  <p>Hace falta red para las teselas del <code>dem</code>, y servir la carpeta por HTTP: <code>fetch</code> no
+    abre <code>file://</code>.</p>
+</div>
+</body>
+</html>

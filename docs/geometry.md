@@ -27,7 +27,7 @@
 los importa: las medidas de zona tampoco la cargan si no se les pasa el elipsoide. Lo mismo vale para
 el cargador de tiles de `terrain`, `relief` y `elevation`: no entra a quien no los importa, y
 `terrainPresets` solo son datos. Por eso `cristae/map` re-exporta `distance`, `sphere`, `toParts`,
-`sampleAlong` y `arc`, y no el elipsoide ni el terreno; el prearmado `esm/geometry.js`, en cambio, los
+`sampleAlong`, `arc` y `terrainPresets`, y no el elipsoide ni el terreno; el prearmado `esm/geometry.js`, en cambio, los
 trae siempre.
 
 ## Formas de llamada
@@ -262,7 +262,9 @@ metros sobre ese modelo y no hereda la escala de Mercator. Es lo único asíncro
 error llega como rechazo; qué rechaza y con qué, [SPECS §18](../SPECS.md). Para un multipolígono la
 caja es `boundsOf(zona.flat())`: `boundsOf` lee paths planos o anidados de un nivel.
 
-- **Las fuentes son datos.** `terrainPresets.aws` son los PNG Terrarium de AWS (z12 con tiles de 256,
+- **Las fuentes son datos.** Viven en un módulo sin imports, que comparten `cristae/map` y `cristae/geometry`: en
+  los dos `terrainPresets` es el mismo objeto, y `<cristae-terrain-layer dem="aws">` lo lee sin cargar el
+  cargador de tiles. `terrainPresets.aws` son los PNG Terrarium de AWS (z12 con tiles de 256,
   hasta z15) y `terrainPresets.mapterhorn` los WebP Terrarium de Mapterhorn (z11 con tiles de 512,
   hasta z17 donde hay cobertura; en muchas regiones llega a menos, y un zoom sin cobertura rechaza
   con «ningún tile»). Los dos cargan la misma grilla, 2²⁰ píxeles por vuelta, así que sus cifras se
@@ -331,6 +333,10 @@ padre: mezclar resoluciones aparentaría un detalle que no hay.
    caso.
 
 ## Relieve
+
+La capa [`<cristae-terrain-layer>`](terrain-layer.md) es la forma visual de `relief()`: sus clases de
+pendiente salen de las mismas teselas al zoom del `dem`, y `measure()` de la capa devuelve el `relief()` de la
+zona con los cortes y las teselas de lo dibujado.
 
 ```js
 const r = relief(t, zona, [0.15, 0.3])

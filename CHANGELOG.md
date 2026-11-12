@@ -103,6 +103,22 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   *Migración*: ninguna.
 - **Ejemplo [`examples/datos-sin-script.html`](examples/datos-sin-script.html)**: flota y predios con un
   único `<script type="module">` y el resto en HTML.
+- **Capa de terreno en planta.** `<cristae-terrain-layer>`, `<CristaeTerrainLayer>` y
+  `engine.addTerrainLayer(config)` dibujan el relieve de un `dem`: sombreado, color por altura o por pendiente
+  en clases y curvas de nivel, con `clip-to` para recortar el color a una capa de polígonos. Las clases salen de
+  las mismas teselas al zoom del `dem` que `relief()`, así que lo dibujado y lo medido coinciden. El handle trae
+  `update`, `setVisible`, `setOpacity`, `elevationAt` y `measure`, y la capa emite `cristae:load` y
+  `cristae:error`. La atribución del `dem` se suma, como texto, a la del mapa. `relief` y `exaggeration` llegarán
+  en el mapa. Ver [`docs/terrain-layer.md`](docs/terrain-layer.md) y el ejemplo
+  [`examples/terreno-sin-script.html`](examples/terreno-sin-script.html).
+  *Migración*: ninguna.
+- **`terrainPresets` en `cristae/map`.** Es el mismo objeto que el de `cristae/geometry`, en un módulo de sólo
+  datos: importarlo no carga el cargador de teselas. Ver [`docs/geometry.md`](docs/geometry.md).
+  *Migración*: ninguna.
+- **`geometryOf(id)` en los handles de punto, línea y polígono.** Devuelve la geometría del ítem en
+  `[lat, lng]`, sin copiarla, para pasarla directo a `measure()`, `relief()` o `area()`. Ver
+  [`docs/polygons.md`](docs/polygons.md#geometría-de-un-ítem).
+  *Migración*: ninguna.
 
 ### Cambiado
 - **`iconSet` es opcional en `addPointLayer`.** Sin él se usa `'dot'`, igual que antes para quien ya lo
@@ -124,6 +140,12 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
 - **`camera.fitToLayer` sobre una capa de líneas sin curva lanzaba `TypeError`.** El respaldo sin caja informada
   suponía `positionOf`, que una capa de líneas no tiene; ahora lee `pathOf`. Ver [SPECS §9](SPECS.md).
   *Migración*: ninguna.
+- **Los multipolígonos cargados por `url` se agrupan por parte.** Antes se aplanaban en una lista de anillos y
+  una pieza suelta se leía como agujero de la anterior. Ahora un feature con varias partes da
+  `[[exterior, …], …]`, que la capa dibuja como partes apiladas, y uno con una sola conserva
+  `[exterior, agujeros…]`. Ver [`docs/polygons.md`](docs/polygons.md).
+  *Migración*: ninguna; el dibujo de un polígono de una parte no cambia, y la forma de un multipolígono por
+  `url` ahora es la de `relief()` y `area`.
 
 ## [0.46.22] - 2026-11-07
 

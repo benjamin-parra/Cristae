@@ -590,6 +590,28 @@ Fuente (`url` o `image`) y lugar (`bounds` o `corners`); si se dan los dos de un
 `visible` van en vivo; `interactive`, `cross-origin` y `alt`, al montar. Emite `cristae:load` y
 `cristae:error`. Nodo DOM, sin contexto WebGL. Detalle en [`image-layer.md`](image-layer.md).
 
+### `<cristae-terrain-layer>` — relieve del dem en planta
+
+```html
+<cristae-terrain-layer id="relieve" dem="aws" color-by="slope" slope-breaks="15% 30%" contours="10" clip-to="predios"></cristae-terrain-layer>
+```
+
+| Miembro | Tipo | Atributo / prop |
+|---|---|---|
+| `id` | string | atributo (sin él, `terrain-N`) |
+| `dem` | nombre de `terrainPresets` o JSON de un `TerrainSource` | atributo |
+| `hillshade` | boolean; `"false"` lo apaga | atributo |
+| `color-by` | `none` \| `elevation` \| `slope` | atributo |
+| `slope-breaks` `slope-colors` `elevation-range` | cadena | atributo |
+| `contours` | intervalo en m | atributo |
+| `clip-to` | id de una capa de polígonos | atributo |
+| `opacity` `visible` | number en [0, 1], boolean | atributo |
+| `fetch` | `(url, init?) → Promise<Response>` | **prop**, al montar |
+
+Sin `dem` legible no monta y avisa una vez. Todo va en vivo salvo `fetch`, `pane` y `z`, que se leen al montar ([terrain-layer.md](terrain-layer.md)). Emite `cristae:load` y
+`cristae:error`. No se pica. El handle del motor queda en `controls`, con `measure` y `elevationAt`. Detalle en
+[`terrain-layer.md`](terrain-layer.md).
+
 ### `<cristae-heat-layer>` — campo de calor
 
 | Miembro | Tipo | Atributo / prop |

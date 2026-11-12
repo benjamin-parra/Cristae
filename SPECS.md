@@ -271,6 +271,7 @@ new MapEngine({ host: adoptLeafletHost(map, { leaflet? }), … }) → engine
 | `addLabelLayer(cfg) → handle` | acción | O(1) | standalone o `bindTo`. `@deprecated`, se retira en v0.47.0: lo reemplaza `addLabels` (§19.3) |
 | `addLabels({ hostId, ...props }) → { update, remove } \| null` | acción | O(1) + la colocación del host | rótulos sobre los ítems del host; `null` si no se rotula (§19.3) |
 | `addImageLayer(cfg) → { id, setUrl, setImage, setBounds, setCorners, setOpacity, setVisible }` | acción | O(1) | imagen georreferenciada en DOM (§19.1) |
+| `addTerrainLayer(cfg) → TerrainLayerHandle` | acción | O(1) | relieve del `dem` en planta: sombreado, color por altura o pendiente y curvas (§8.11). El handle trae `update`, `setVisible`, `setOpacity`, `elevationAt` y `measure` |
 | `attachSource(id, source)` | acción | O(n) | ruta B/C; interno del setter `.source` de la capa. La misma fuente no hace nada; otra reemplaza la capa y lo que cuelga del host la sigue (overlays, labels, rótulos, realce y cluster, que re-indexa). En la capa de texto no hay capa que reemplazar: sus rótulos pasan a leer la nueva |
 | `removeLayer(id)` / `getLayer(id)` | acción | O(1) | |
 | `surfaces() → SurfaceInfo[]` | consulta | O(layers) | una fila por superficie WebGL, para diagnosticar cuántos contextos toma el mapa (§10) |
@@ -306,6 +307,7 @@ new MapEngine({ host: adoptLeafletHost(map, { leaflet? }), … }) → engine
     - **Un `move` propio durante la interpolación.** Gana hasta el siguiente cuadro y no más: al terminar, la posición de llegada de la lectura pisa lo movido, porque la lectura es la verdad del archivo.
   - **`reload({ url, format, refresh })`** (handle de las tres capas) cambia lo que cambió y relee. Aborta la carga en vuelo y resuelve al aplicarse los datos o al fallar: nunca rechaza. En una capa que no nació con `url` con `url` lanza `TypeError`, porque sin los accessors por defecto sus features no se leerían; sin `url` ni `refresh` no hace nada.
   - **`click-action`.** Se valida en el alta: otro valor lanza `TypeError`, y `follow` en una capa que no es de puntos también. Sin `interactive` avisa una vez y no se suscribe. Escucha el canal `click` global y actúa sólo si el primer hit es de la capa: `fit` llama a `camera.fitToLayer(id, { ids: [hit.id] })` en los tres tipos —en un punto, o en una línea o un polígono de un solo lugar, acerca hasta `FIT_POINT_MIN_ZOOM` como mínimo y nunca aleja (§9); en una línea o un polígono encuadra su caja—, y `follow` llama a `camera.followPoint` (§9). La baja va con `removeLayer`.
+  - **`geometryOf(id)`.** Los handles de punto, línea y polígono la traen. Devuelve la geometría del ítem como la dibuja la capa, en `[lat, lng]`: `[lat, lng]` en un punto, lo que entrega `pathOf` en una línea y lo que entrega `ringsOf` en un polígono. `null` si el id no existe o la capa se dio con `geometry` y no con una `Source`. No copia. Un polígono con una parte da `[exterior, agujeros…]` y uno con varias, `[[exterior, …], …]`: la `url` agrupa por parte, así que `measure(geometryOf(id))` mide lo mismo que `relief()` del mismo ítem (§18).
   - **Señales.** `engine.on('dataload', fn)` recibe `{ layerId, url, count, skipped }`, y `engine.on('dataerror', fn)`, `{ layerId, url, code, message, status? }` (§10).
   - **Rótulos y texto.** `addTextLayer` y `addLabels` aceptan `fields.text` si no hay `textOf`; con ambos gana la función y se avisa una vez. En las burbujas de un cluster `fields.text` se ignora con aviso: su texto es el conteo.
 - **Sin globals:** el motor no lee ni escribe `window.L`, y `<cristae-map>` no registra plugins: los puntos, las líneas y los polígonos se dibujan con la superficie WebGL de cada capa ([`docs/render.md`](./docs/render.md)), y el Leaflet que usa el mapa propio es el de Cristae.
@@ -579,7 +581,7 @@ hace con lo que toma, y el resto de la firma lo deriva la gramática (`deriveSig
 
 | Rol | Qué hace | Qué alcanza | Hacia arriba | Elementos |
 |---|---|---|---|---|
-| `'leaf'` | dibuja; no envuelve | — | `produces` | capas base, editores, `<cristae-label-layer>` |
+| `'leaf'` | dibuja; no envuelve | — | `produces` | capas base, `<cristae-terrain-layer>`, editores, `<cristae-label-layer>` |
 | `'transform'` | cambia cada capa alcanzada, una por una | todo lo consumido que sube del subárbol | `produces` y lo alcanzado | `<cristae-geodesic>` |
 | `'aggregate'` | junta todo lo alcanzado en una sola aplicación | todo lo consumido que sube del subárbol | `produces`; lo consumido, sólo si `produces` repite alguno de sus kinds | `<cristae-cluster>` |
 | `'decorate'` | pone algo propio sobre cada capa alcanzada, ligado a ella | el productor más cercano | `produces` y lo alcanzado | `<cristae-overlay>`, `<cristae-labeled>` |
@@ -606,6 +608,22 @@ hace con lo que toma, y el resto de la firma lo deriva la gramática (`deriveSig
   | R3 | un modificador sin hijos | el mismo texto de R2 |
   | R4 | la firma no cuadra: un `role` fuera de los cuatro, un campo fuera de `role`, `consumes` y `produces`, una hoja con `consumes`, un modificador sin `consumes`, `produces` vacío o un kind fuera del universo | — |
   | R5 | un hijo que no es de la gramática ni configuración | — |
+
+### 8.11 `<cristae-terrain-layer>`
+
+Relieve de un modelo de elevación, en planta. La guía de uso está en [`docs/terrain-layer.md`](./docs/terrain-layer.md); acá, el contrato.
+
+- **Firma:** `{ role: 'leaf', produces: ['terrain'] }`. Ningún modificador consume `terrain`, así que la capa no se envuelve sola. No es de dato (sin `Source`) y no se pica: no tiene `interactive`, no emite `Hit` y no amplía su unión.
+- **Atributos:** `id`, `dem`, `hillshade`, `color-by`, `slope-breaks`, `slope-colors`, `elevation-range`, `contours`, `clip-to`, `opacity` y `visible`. `fetch` es propiedad y se lee al montar, igual que `pane` y `z`. El motor lee en `slope-colors` sólo hex y `rgb()`/`rgba()`; los nombres CSS los resuelve el elemento. Todo lo demás va en vivo por un solo `handle.update(parcial)`.
+- **`dem`:** un nombre de `terrainPresets` o un `TerrainSource` (`url` con `{z}`, `{x}` e `{y}`, `encoding`, `zoom` ≤ `maxZoom`, `tileSize` entero). Sin `dem` legible, o con un preset que no existe, no monta y avisa una vez.
+- **`hillshade`:** sin declarar vale encendido si `color-by` es `none` y apagado si no. `"false"` y `"0"` lo apagan.
+- **Pendiente:** por dentro es razón m/m, la de `relief()` (§18). El elemento convierte `%` y grados (`17°` o `17deg`) al leer, rechaza negativos y 90° o más, y admite hasta 15 cortes. Con n ≥ 1 cortes hay n + 1 colores; sin cortes la rampa es continua y basta uno o más.
+- **Unidades y coincidencia:** las clases se calculan al `zoom` del `dem`, el de `terrain()`, así que el color y las cifras de `measure()` coinciden celda a celda. En la vista general, cuando el viewport ya no entra en 2048 celdas, la capa baja de zoom y deja sólo el sombreado.
+- **`clip-to`:** id de una capa de polígonos, resuelto por nombre y en cualquier orden. Recorta el color y las curvas con la paridad par-impar, no el sombreado. Sin destino, o con un destino sin partes aún, queda sin resolver y dibuja sólo el sombreado; un destino que no es de polígonos avisa una vez.
+- **Atributo inválido:** en vivo no cambia nada y da `console.error`; al montar se omite y la capa monta con el resto. `addTerrainLayer` y `update` lanzan `TypeError` o `RangeError` sin tocar nada.
+- **Atribución:** el elemento le da al mapa el texto del `dem`, y `<cristae-map>` lo dibuja como texto (`part="attribution-dem"`) junto a la del proveedor. Un texto repetido de varias capas sale una vez. El motor no dibuja controles: en JS lo muestra quien monta el mapa.
+- **Apilado:** por orden de declaración, en el pane `cristae-terrain-<id>`. Declarada antes de los vectores queda debajo.
+- **Reservado:** `interactive` y `TerrainHit`, `light`, `contour-index`, `contour-color`, `elevation-ramp`, un `Terrain` ya cargado como `dem` y `controls.terrain`. `relief` y `exaggeration` serán atributos del mapa.
 
 ---
 
@@ -667,6 +685,7 @@ Hit = { layerId, kind: 'point'|'polygon'|'line'|'shape'|'html'|'circle', ref, id
 | `cristae:surfacechange` | `SurfaceInfo = {layerId, kind, pane, z, cssZoom, state, hasContent, visible}` | O(layers) — rara: sólo cuando una superficie WebGL cambia de estado |
 
 - **`dataload` y `dataerror`, en el motor y en el elemento.** `engine.on('dataload', fn)` y `engine.on('dataerror', fn)` entregan los detalles de arriba, con `layerId`. El elemento los reenvía filtrados por su capa como `cristae:load` y `cristae:error`, con `bubbles` y `composed`, así que se oyen en `<cristae-map>`. `<cristae-icon-set>` los emite con `set` (el `name`) en lugar de `layerId`, porque un set no es una capa. Sin oyente de `dataerror` el motor vuelca el fallo a `console.error`, una vez por capa (§6). `onLoad` y `onError` de un `IconSet` suelto (§5) son la misma forma con `set: null`.
+- **Terreno:** `<cristae-terrain-layer>` emite `cristae:load` con `{ layerId, url, count }`, donde `count` son las teselas servidas del mosaico, y `cristae:error` con `{ layerId, url, code, message, status? }`. Los `code` son `unauthorized` (401), `forbidden` (403), `http` (otro 4xx o 5xx), `network`, `range` y `decode`. Un 401 o un 403 nunca es «sin dato»; un 404 o un 204 sí lo es, y un mosaico sin ninguna tesela carga vacío con `count` 0. Un mosaico fallido se reintenta en la próxima vista asentada. En el motor son `dataload` y `dataerror`.
 - **`move`, sólo en el motor:** `engine.on('move', fn)` avisa cada paso del movimiento —arrastre, inercia, `panBy`, vuelo—, con `{}`; es para lo que sigue la vista en continuo, como la tarjeta de `<cristae-popup>` (§8.5) y el botón central de `<cristae-cluster>`. No tiene evento `cristae:`: la vista que viaja es la asentada, en `viewportchange`.
 - **`zoomlevelschange`, sólo en el motor:** `engine.on('zoomlevelschange', fn)` avisa con `{minZoom, maxZoom}` cada cambio de un tope de `getMinZoom()/getMaxZoom()` (§9) —un límite, o una capa que trae los suyos—. Abrir un tope no mueve la vista, así que no sale `viewportchange`; es para la UI que se deshabilita en los topes, como el zoom de `<cristae-map>`. No tiene evento `cristae:`.
 - **`drawingstart` / `drawingend`, sólo en el motor:** marcan la entrada y la salida del estado de dibujo, no de un trazo, con `{}`. El estado dura mientras algún editor toma la pulsación para dibujar —`draw` en cualquier kind, o `freehand` en `polygon` y `polyline`—, con el criterio de la puerta del puntero y sin mirar el dispositivo: con el mouse en `draw` el mapa sigue paneando, y el estado igual. `drawingstart` sale con el primero que entra, con su capa ya registrada, y `drawingend` con el último que sale, también por `removeLayer`, con la capa ya quitada; `destroy()` no avisa. No tienen evento `cristae:`: `<cristae-map>` las sigue con su indicador (§7.1).
@@ -778,6 +797,7 @@ La **ley** (MODELO §5.4) formalizada como contrato que un implementador debe cu
 - **Sin `try/catch` en bloque:** solo `safe`/`safeDispatch`.
 - **`onError`/callbacks estables** (refs de módulo), nunca clausuras por call.
 - **Cámara [0-alloc]:** `latLngToContainerPoint(latlng, out)` escribe en `out` y no asigna; en el anfitrión con EPSG:3857 sale sin asignar, con los mismos `x` e `y` que Leaflet. Lo que se reubica en cada cuadro (marcadores HTML, rótulos, popup) reusa un `out`.
+- **Terreno [0-alloc] (§8.11):** `TerrainLayer.redraw` no asigna: la matriz es del `FrameView`, los escalares viajan por `uniform1fv` y `uniform2fv` de arreglos tipados preasignados y el único `double` por llamada es el ancla de `FrameView.bind`. La carga del mosaico, que sí asigna, corre sólo al salir la vista del mosaico o cambiar el zoom que le toca. `elevationAt` delega en `elevation()` (§18).
 - **Tramos [0-alloc] (§10.1):** `begin`, `end`, `compose`, `viewTransform`, `renderAtView` y la composición del tramo no asignan: registros y la lista de composición preasignados, callbacks estables, y la composición agendada con `queueMicrotask` sobre un campo ligado una vez. Quedan fuera las lecturas de la cámara del anfitrión (`size`, `frameOrigin`, `center`, que en Leaflet devuelven objetos nuevos) y el `transform` del canvas al reasentarlo, que es un string: el canvas se reasienta una vez por miembro visible que se reasienta, y la composición no lo repite en esa tarea. Un dibujo de miembro paga un `bindFramebuffer` y el estado base; componer, un dibujo por miembro visible con contenido. Planificar (`setMembers`, el plan del gestor) no es hot-path. La imagen fija (K3) sólo corre por `move` mientras existe, con la vista en un registro preasignado; como el reasiento, paga `frameOrigin` y el string del `transform`. Componer suma una lectura de campo para saber si hay imagen.
 
 ---
@@ -798,6 +818,7 @@ La **ley** (MODELO §5.4) formalizada como contrato que un implementador debe cu
 | eventos | `hover` emite el set vigente de cada resolución y `hover:start`/`hover:end` sus cambios; `click` entrega hits ordenados; una pulsación quieta sale por `click` con su hit y, en el vacío, por `map:click`, y el `click` que dispara Leaflet no cuenta; cursor automático; sobre el Leaflet real, ningún payload lleva una instancia de Leaflet |
 | lifecycle | StrictMode doble-mount ⇒ 1 motor; `destroy()` cancela rAF y quita listeners (sin leak) |
 | lector GeoJSON (§17) | corpus de conformidad contra un **oráculo diferencial** sobre `JSON.parse`, nunca contra la implementación; las cuatro formas de entrada dan salidas idénticas byte a byte; fuzzer de mutación sin lectura fuera de rango ni excepción cruda; ausencia de grafo (conteo de asignaciones, no milisegundos) |
+| capa de terreno (§8.11) | la clase que pinta la GPU contra la de un gemelo float32 y contra `relief()` celda a celda, en el navegador; el preludio y `FrameView.bind` bit a bit contra `anchorMatrix`; la config: valores por defecto, validación y `update` parcial sin cambios ante un error; el recorte por id en cualquier orden y sin resolver; `measure(geometryOf(id))` igual a `relief()`; el núcleo del terreno fuera del chunk de entrada; el alta, el contexto perdido y `destroy` a medio construir; los atributos, la atribución como texto y `<b>x</b>` sin crear un nodo |
 | paridad con Leaflet (§19) | ver §19.5 |
 | geometría (§18) | referencias independientes (radios a mano, fórmulas distintas, valores publicados del elipsoide), nunca la misma haversine; las formas de llamada y de punto miden lo mismo; los bordes de §18.1; el tree-shaking del elipsoide, empaquetando; el octante y la banda contra fórmulas cerradas; geographiclib con f = 0 como implementación independiente de la esfera, anillos polares incluidos, y el destino y el rumbo del protocolo; el diámetro contra la fuerza bruta; el terreno con stubs de `fetch`, PNG sintéticos, un tile real de fixture y rampas de pendiente conocida; una segunda copia empaquetada; el tree-shaking del terreno |
 
@@ -1262,7 +1283,7 @@ ninguna lectura fuera de rango, ningún camino sin terminación, ninguna excepci
 | `arc` | `(model?, shape) → [lat, lng][]` | O(n) llamadas al destino del modelo | El borde curvo como path abierto; el contorno cerrado si la forma es entera. |
 | `geodesic` | `(model?, path) → [lat, lng][][]` | O(v + p) llamadas al modelo, con p los puntos insertados | El path partido como `toParts`, cada tramo largo curvado sobre la geodésica del modelo; `[]` sin tramos. |
 | `terrain` | `(model?, source, bounds, options?) → Promise<Terrain>` | O(tiles) de red + O(píxeles) | Lo único asíncrono; todo error es un rechazo. |
-| `terrainPresets` | `{ aws, mapterhorn }` | — | Datos, como `tilePresets`. |
+| `terrainPresets` | `{ aws, mapterhorn }` | — | Datos, como `tilePresets`, en un módulo sin imports que comparten `cristae/map` y `cristae/geometry`: es el mismo objeto en los dos. |
 | `relief` | `(terrain, polygon, breaks?) → Relief` | O(vértices + celdas de la caja de la zona) | Alturas en m, pendiente en razón, áreas de superficie por clase. |
 | `elevation` | `(terrain, point) → number` | O(1) **[0-alloc]** | m, bilineal entre centros de celda; `NaN` si el punto no es válido, sale de la caja o toca una celda sin dato. |
 | `sphere` | `(radius = 6371008.8) → EarthModel` | O(1) | El modelo por defecto de `distance`. |
@@ -1439,6 +1460,7 @@ en su centro. Los `NaN` de las tres están en §18.1.
 | la librería geodésica en el bundle de quien no usa el elipsoide | ni `distance` ni las medidas de zona importan `ellipsoid.js`, y ningún módulo del entry figura en `sideEffects` |
 | la composición de una zona —exterior menos huecos, suma de partes— atada al protocolo entre copias | el núcleo de área va por anillo; la composición vive en `area` |
 | el terreno en el bundle de quien no lo importa | ningún módulo de medida importa `terrain.js`; `terrainPresets` son datos |
+| la caché de teselas y la marca `GRID` como API | son internas: la capa de terreno comparte con `terrain()` el cargador y la caché, y la `GRID` del objeto congelado es de ella; ninguna figura en los entries |
 | un terreno como base de otro | `terrain` lo rechaza al construir |
 | un terreno de otra copia de la librería | `distance`, `area`, `perimeter` y `elevation` lo leen por sus marcas |
 | el layout del ráster como contrato entre copias | `relief` se despacha por la marca del terreno, que calcula con lo que guarda en su clausura |
