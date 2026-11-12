@@ -1,10 +1,10 @@
 # Campo de calor — `addHeatLayer`, `<cristae-heat-layer>`
 
-> Pieza de [Cristae](../MODELO.md). Densidad de puntos en un canvas 2D sobre la superficie del anfitrión:
-> no abre un contexto WebGL. Consume un [Source](./data.md).
+> Pieza de [Cristae](../MODELO.md). Densidad de puntos que se acumula en la GPU, dentro del contexto WebGL
+> de su [tramo](./render.md): comparte el contexto de sus vecinas GL y, solo, toma el suyo. Consume un [Source](./data.md).
 
 Cada punto estampa una brocha radial con un alpha chico proporcional a su peso. Donde los puntos se
-agolpan, el alpha se acumula, y una segunda pasada lo traduce a color con una rampa. Es el equivalente de
+agolpan, el alpha se acumula en una textura, y una segunda pasada lo traduce a color con una rampa. Es el equivalente de
 `leaflet.heat`. Un campo de calor no se pica: no tiene hit ni canales de click.
 
 ---
@@ -82,17 +82,38 @@ oculta (`visible: false` en el alta).
 
 ## Costo
 
-- Cada redibujo estampa los puntos visibles, lee el framebuffer con `getImageData` y lo escribe
-  colorizado. Es O(puntos visibles + píxeles del contenedor).
-- Un cambio de la Source redibuja en el mismo frame en que llega, ya coalescido por la Source. Los
-  eventos del mapa y los setters se agrupan en un rAF.
-- El canvas va en px CSS, sin escalar por DPR: un campo difuso no lo necesita.
-- `colorRamp` se muestrea 256 veces al cambiar. En React se compara por referencia, así que una función
+- Cada redibujo es O(n) instancias en la GPU, recortadas en el vértice, más una pasada de color sobre el
+  contenedor. No hay `getImageData` ni recorrido de píxeles en JS.
+- Un cambio de la Source sube los puntos una vez, O(n), y redibuja en el mismo frame en que llega, ya
+  coalescido por la Source. La cámara sola (paneo, zoom asentado) no sube nada: sólo redibuja.
+- La acumulación va en px CSS, sin escalar por DPR: un campo difuso no lo necesita.
+- `colorRamp` se muestrea a 256 texeles al cambiar. En React se compara por referencia, así que una función
   escrita en línea en el render rehace la paleta en cada render: conviene declararla fuera del componente
   o con `useCallback`.
+
+## Formato y respaldo
+
+La acumulación elige su formato una vez por contexto, según las extensiones que éste ofrece, sin detectar
+navegador:
+
+| Formato | Cuándo | Mezcla |
+|---|---|---|
+| R16F | el contexto ofrece `EXT_color_buffer_float` o `EXT_color_buffer_half_float` | suma de logaritmos: el aporte de cada punto se acumula en coma flotante |
+| RGBA8 | sin ninguna de las dos | `over` sobre el alfa de 8 bits |
+
+El respaldo RGBA8 cuantiza cada aporte a 8 bits y el error crece con el solape: llega a 8 niveles de los 255.
+Sin WebGL2 `addHeatLayer` lanza, como las demás capas GL, y el consumidor puede degradar a otra cosa. El calor en canvas 2D no
+lo necesitaba: es un cambio de contrato (ver el CHANGELOG).
+
+## Exactitud
+
+El índice que pinta la GPU se valida contra la ley ideal calculada en float64: el error máximo es de 2
+niveles en R16F y de 8 en RGBA8. El color puede diferir unos niveles del que daba el canvas 2D anterior; no
+es un cambio de la rampa ni de la ley.
 
 ## Límites
 
 - `focus-ids` atenúa el pane entero: el calor no atenúa puntos sueltos.
-- El campo no sigue el zoom animado: se oculta al empezar y reaparece al asentar.
+- El campo no sigue el zoom animado: se oculta al empezar y reaparece al asentar, porque lo compone el
+  tramo y no un canvas que el navegador escale.
 - No se pica.

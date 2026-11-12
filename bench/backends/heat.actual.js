@@ -1,13 +1,13 @@
-// Heatmap — la demo lo anuncia «(GPU)» y es CANVAS 2D. Exhibirlo es media razón de ser del banco.
+// Heatmap — capa GPU: acumula los puntos en una textura del contexto de su tramo y la colorea con la rampa.
 //
-// 🔴 N NO ES LA VARIABLE DOMINANTE. La cota es el VIEWPORT: cada redibujo hace `getImageData` del
-// framebuffer entero (≈8,3 MB a 1080p), recorre W×H píxeles en JS para colorear por rampa y devuelve
-// con `putImageData`. Duplicar los puntos casi no mueve la aguja; agrandar la ventana sí. Por eso la
-// lectura útil de esta capa es MB/s asignados y ms por redibujo — no ms por ítem.
+// 🔴 La cota ya no es el viewport en JS: no hay `getImageData` ni recorrido de píxeles. Cada redibujo es
+// O(puntos visibles) en la GPU más una pasada de color sobre el contenedor, y la subida de puntos, O(n),
+// sólo ocurre cuando cambia la Source; la cámara sola no sube nada. La lectura útil sigue siendo ms por
+// redibujo y MB/s asignados.
 //
 // De ahí que el guion tenga que MOVER dato: la capa se suscribe a la Source y redibuja completo ante
-// cualquier notificación (sin consultar dirtyIds), así que la fase viva revela el costo por frame que
-// una escena estática esconde.
+// cualquier notificación (sin consultar dirtyIds), así que la fase viva revela el costo por frame de la
+// subida que una escena estática esconde.
 
 import { createSource } from '../../src/index.js'
 
@@ -51,7 +51,7 @@ const armar = (_, i) => {
 
 export default {
   id      : 'heat',
-  backend : 'canvas-2d',
+  backend : 'gpu-splat',
 
   montar: contexto => {
     ctx    = contexto

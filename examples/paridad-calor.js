@@ -1,5 +1,6 @@
 // Verificación a ojo de <cristae-heat-layer>: radio en vivo, rampa propia, ocultar y mostrar, y que el
-// campo se reubica con el zoom. Sin tiles: el fondo es liso y el marco de líneas da la referencia.
+// campo se reubica con el zoom, y un campo denso de 100 000 puntos para ver que las pilas llegan al rojo
+// tope y que el redibujo es fluido (la acumulación corre en la GPU). Sin tiles: el fondo es liso y el marco de líneas da la referencia.
 
 import '../src/index.js'
 
@@ -14,9 +15,22 @@ const puntos = FOCOS.flatMap(([lat, lng, n], f) => Array.from({ length: n }, (_,
   lng : lng + (azar() - 0.5) * 0.05,
 })))
 
+// Campo denso: los puntos se agolpan en dos manchas gaussianas aproximadas (suma de tres uniformes), con la
+// misma semilla fija que los focos para que la captura se repita.
+const N_DENSO   = 100_000
+const MANCHAS   = [[-33.44, -70.68, 0.03], [-33.49, -70.62, 0.015]]   // [lat, lng, dispersión en grados]
+const gauss     = () => azar() + azar() + azar() - 1.5
+const denso = Array.from({ length: N_DENSO }, (_, i) => {
+  const [lat, lng, sd] = MANCHAS[i % MANCHAS.length]
+  return { id: 100000 + i, lat: lat + gauss() * sd, lng: lng + gauss() * sd }
+})
+document.getElementById('n-denso').textContent = String(N_DENSO)
+
 const calor = document.getElementById('calor')
 calor.accessors = { idOf: p => p.id, positionOf: p => ({ lat: p.lat, lng: p.lng }) }
 calor.data      = puntos
+
+document.getElementById('denso').addEventListener('change', e => calor.data = e.target.checked ? puntos.concat(denso) : puntos)
 
 const marco = document.getElementById('marco')
 marco.accessors = { idOf: m => m.id, pathOf: m => m.path }
