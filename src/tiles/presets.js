@@ -19,3 +19,9 @@ export const tilePresets = {
     maxZoom: 19, attribution: '© Esri',
   },
 }
+
+// Lo que `tile` admite → el proveedor. Un nombre propio de `tilePresets` da el preset (`__proto__` o
+// `toString` no cuentan), un objeto pasa tal cual y lo demás da null. Interno: no se reexporta.
+export const tileOf = tile =>
+  typeof tile === 'string' ? (Object.hasOwn(tilePresets, tile) ? tilePresets[tile] : null)
+    : tile && typeof tile === 'object' ? tile : null

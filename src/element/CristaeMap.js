@@ -3,6 +3,8 @@ import { unsafeHTML } from 'lit/directives/unsafe-html.js'
 import { surfaceCss } from '../host/styles.js'
 import { MapEngine } from '../engine/MapEngine.js'
 import { safe } from '../data/safe.js'
+import { tilePresets, tileOf } from '../tiles/presets.js'
+import { warnOnce } from './dataAttrs.js'
 
 // <cristae-map> — piel fina sobre MapEngine (SPECS §7). Monta el motor en el shadow DOM, expone
 // la cámara y los métodos del motor, y reenvía los eventos del motor como CustomEvent `cristae:*`.
@@ -64,10 +66,21 @@ function createResizeSync(target, sync) {
   }
 }
 
+// Un valor que empieza con `{` es JSON; si no parsea, da el texto crudo y `#applyTile` avisa una vez por elemento
+// y deja el proveedor vigente (sin `this` aquí, el conversor no puede avisar por elemento).
+function tileFromAttribute(value) {
+  if (value == null) return null
+  const text = value.trim()
+  if (!text.startsWith('{')) return text
+  try { return JSON.parse(text) } catch { return text }
+}
+
 export class CristaeMap extends LitElement {
 
   static properties = {
-    tile               : { type: Object },
+    // Un nombre de `tilePresets` (`tile="osm"`) o un proveedor `{ url, … }`: por atributo, un valor que
+    // empieza con `{` es JSON y cualquier otro texto es el nombre (docs/tiles.md). Es reactivo.
+    tile               : { converter: { fromAttribute: tileFromAttribute } },
     worldCopies        : { type: Boolean, attribute: 'world-copies' },
     noZoomControl      : { type: Boolean, attribute: 'no-zoom-control' },
     viewportInsets     : { type: Object, attribute: 'viewport-insets' },
@@ -176,6 +189,8 @@ export class CristaeMap extends LitElement {
   #pending        = []
   #mounted        = false
   #everMounted    = false
+  #appliedTile    = undefined     // lo último aplicado: tile y worldCopies
+  #appliedCopies  = undefined
   #resize         = null          // agendador del resize (observer + debounce trailing); dispose() al desmontar
   #resolveReady
   // Puenteo bajo demanda: nro de listeners DOM por tipo cristae:* (persiste entre reconexiones, porque
@@ -247,6 +262,7 @@ export class CristaeMap extends LitElement {
     this.#resize = null
     this.#engine?.destroy()
     this.#engine = null
+    this.#appliedTile = this.#appliedCopies = undefined
     this.#mounted = false
     this.#demandUnsub.clear()   // los unsub apuntan al bus del motor destruido; los counts DOM persisten para re-cablear
     if (this.#emptyRaf) { cancelAnimationFrame(this.#emptyRaf); this.#emptyRaf = 0 }
@@ -342,6 +358,27 @@ export class CristaeMap extends LitElement {
     if (changed.has('cursor')) this.#engine.setCursor(this.cursor)
     if (changed.has('viewportInsets')) this.#engine.camera.insets = this.viewportInsets
     if (LIMITS.some(key => changed.has(key))) this.#engine.setLimits(this.#limits())
+    if (changed.has('tile') || changed.has('worldCopies')) this.#applyTile()
+  }
+
+  // El único punto que provee el proveedor: lo llaman el montaje y `willUpdate`. Compara con lo último
+  // aplicado para no proveer dos veces en el primer ciclo. Un nombre desconocido avisa una vez y deja el
+  // proveedor vigente; quitar `tile` también (el anfitrión no tiene baja de proveedor).
+  #applyTile() {
+    const copies = !!this.worldCopies
+    if (this.tile === this.#appliedTile && copies === this.#appliedCopies) return
+    this.#appliedTile = this.tile
+    this.#appliedCopies = copies
+    if (!this.tile) return
+    const preset = tileOf(this.tile)
+    if (!preset) {
+      const name = String(this.tile)
+      if (name.trimStart().startsWith('{')) warnOnce(this, 'tile:json', 'tile: JSON inválido, se conserva el proveedor vigente')
+      else warnOnce(this, `tile:${name}`, `tile '${name}' no es un preset: ${Object.keys(tilePresets).join(', ')}`)
+      return
+    }
+    this.#engine.setTileProvider({ noWrap: !copies, ...preset })
+    this._attribution = this.#engine.getTileAttribution()
   }
 
   // La función recibe el indicador recién creado, ya en el shadow root, una sola vez.
@@ -379,7 +416,7 @@ export class CristaeMap extends LitElement {
       cursor: this.cursor,
       ...this.#limits(),
     })
-    if (this.tile) this.#engine.setTileProvider({ noWrap: !this.worldCopies, ...this.tile })
+    this.#applyTile()
     this._zoom        = this.#engine.camera.getZoom()
     this._attribution = this.#engine.getTileAttribution()
 
