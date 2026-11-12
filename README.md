@@ -83,6 +83,8 @@ la *Migración* de cada API. La política de retiro está en
 | `CristaeLabelLayerProps`, `CristaeLabelLayerElement` | `CristaeLabeledProps`, `CristaeLabeledElement` |
 | `<cristae-label-layer>` con `source` propio | `<cristae-text-layer>`, `<CristaeTextLayer>`, `engine.addTextLayer`: una capa base de texto ([texto suelto](docs/text-layer.md)) |
 | `<cristae-label-layer slot="bubble">` dentro de `<cristae-cluster>` | Un `<cristae-labeled>` por fuera del cluster, con `textOf` sobre `{ count, leaves }` |
+| Opciones de `tile` fuera de `url`, `subdomains`, `minZoom`, `maxZoom`, `maxNativeZoom` y `attribution` (se retiran con el anfitrión GL, no en v0.47.0) | El vocabulario de `TileProvider` ([tiles](docs/tiles.md#el-vocabulario-del-proveedor)) |
+| `tile.noWrap` (con el anfitrión GL, no en v0.47.0) | `worldCopies` en `MapEngine` y `setTileProvider`; `world-copies` en `<cristae-map>` |
 
 ## Antes de empujar: el gate
 

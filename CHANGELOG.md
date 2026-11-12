@@ -119,6 +119,11 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   `[lat, lng]`, sin copiarla, para pasarla directo a `measure()`, `relief()` o `area()`. Ver
   [`docs/polygons.md`](docs/polygons.md#geometría-de-un-ítem).
   *Migración*: ninguna.
+- **`worldCopies` en `MapEngineOptions`.** Dice si los tiles se repiten fuera de ±180, como `world-copies` de
+  `<cristae-map>` y al revés de `tile.noWrap`. Sin valor, el motor sigue repitiendo el mundo, y el elemento sigue sin
+  repetirlo si no se escribe nada. `setTileProvider(tile, { worldCopies })` lo fija para esa provisión. No limita la
+  cámara: eso es `maxBounds`. El tipo `TileProvider` documenta el vocabulario del proveedor.
+  *Migración*: ninguna.
 
 ### Cambiado
 - **El calor (`addHeatLayer`, `<cristae-heat-layer>`) se dibuja en GPU**, sin leer el framebuffer a CPU. En el prototipo
@@ -143,6 +148,20 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   afirma una compatibilidad que no verifica. Ver [Node](README.md#node).
   *Migración*: ninguna en el navegador. En Node 20 o 22, `npm install` avisa por `engines`; el código puede andar,
   pero no se prueba.
+
+### Deprecado
+- **Las opciones de `tile` fuera de `url`, `subdomains`, `minZoom`, `maxZoom`, `maxNativeZoom` y `attribution`.**
+  El proveedor promete esas seis claves, que son las que usan los presets y los mapas en uso; `crossOrigin` es
+  interno y anónimo, y `tileSize`, `zoomOffset`, `tms` y `referrerPolicy` no se prometen. El tipo
+  `TileProvider` las documenta y marca el resto con `@deprecated`. Hoy siguen pasando tal cual a la capa de
+  tiles y funcionan igual; desde esta versión `setTileProvider` y el atributo `tile` avisan una vez por clave y
+  por página cuando llega una de afuera. Se retiran con el anfitrión GL, que las ignora con aviso. Ver
+  [`docs/tiles.md`](docs/tiles.md#el-vocabulario-del-proveedor).
+  *Migración*: ninguna en esta versión. Antes del anfitrión GL, dejar el proveedor en las seis claves.
+- **`tile.noWrap`.** Su reemplazo es `worldCopies`: la opción nueva de `MapEngine` y la segunda forma de
+  `setTileProvider(tile, { worldCopies })`, que dicen lo mismo que `world-copies` de `<cristae-map>`. Avisa una
+  vez por página y sigue funcionando; un `noWrap` propio del proveedor sigue ganando.
+  *Migración*: `setTileProvider({ url, noWrap: true })` pasa a `new MapEngine({ container, worldCopies: false })`.
 
 ### Corregido
 - **`tile` y `world-copies` de `<cristae-map>` son reactivos.** La documentación lo decía, pero cambiarlos con el

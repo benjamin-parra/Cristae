@@ -193,3 +193,20 @@ Para tener material antes del salto, la retención precarga snapshots de niveles
 4. **Los canvas se liberan de verdad.** `discard` los saca del DOM y colapsa sus dimensiones a
    0 para soltar la memoria del bitmap, no solo la referencia.
 
+## El vocabulario del proveedor
+
+Un proveedor promete seis claves, el tipo `TileProvider`: `url` (con `{s}`, `{z}`, `{x}`, `{y}` y `{r}`),
+`subdomains`, `minZoom`, `maxZoom`, `maxNativeZoom` y `attribution`. `crossOrigin` no se ofrece: la petición es
+siempre anónima. `tileSize`, `zoomOffset`, `tms` y `referrerPolicy` no se prometen.
+
+Hoy el proveedor pasa tal cual a la capa de tiles de Leaflet, así que las claves de afuera siguen funcionando, pero
+están deprecadas: `setTileProvider` y el atributo `tile` avisan una vez por clave y por página, y el anfitrión GL las
+ignora, también con aviso. `noWrap` es una de ellas, y su reemplazo es `worldCopies`:
+
+```js
+new MapEngine({ container, worldCopies: false })     // antes: setTileProvider({ url, noWrap: true })
+engine.setTileProvider('osm', { worldCopies: false }) // o para una sola provisión
+```
+
+Sin `worldCopies`, el motor repite el mundo, y `<cristae-map>`, con `world-copies`, no lo repite si no se escribe
+nada. Un `noWrap` propio del proveedor gana, y avisa.

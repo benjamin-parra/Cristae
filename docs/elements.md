@@ -123,11 +123,13 @@ Contenedor. Monta el `MapEngine`, expone cámara/engine y reenvía los eventos d
 > agregado al mapa de Leaflet —fuera de contrato— queda sin posición ni estilo.
 
 > **`tile`:** un nombre de preset o un objeto, reactivo; cambiarlo **re-provee** los tiles
-> ([`tiles.md`](./tiles.md#el-proveedor-lo-pone-el-anfitrión)). Las opciones extra van tal cual a
-> `L.tileLayer` (`maxZoom`, `attribution`, `subdomains` para `{s}`, …). **`world-copies`** controla
-> `noWrap`: por defecto el mundo **no** se repite en horizontal (`noWrap:true`); se activa
-> `world-copies` para permitir las copias. No limita la cámara: eso es `max-bounds`. (El setter es
-> `setTileProvider`; con el web component no se llama directamente.) Presets públicos listos en
+> ([`tiles.md`](./tiles.md#el-proveedor-lo-pone-el-anfitrión)). Se prometen seis claves: `url`, `subdomains`,
+> `minZoom`, `maxZoom`, `maxNativeZoom` y `attribution`; las demás pasan por ahora a `L.tileLayer`, pero están
+> deprecadas y avisan una vez por clave ([`tiles.md`](./tiles.md#el-vocabulario-del-proveedor)).
+> **`world-copies`** decide si el mundo se repite en horizontal: por defecto **no** se repite; se activa
+> `world-copies` para permitir las copias. No limita la cámara: eso es `max-bounds`. (El motor tiene la misma
+> opción, `worldCopies`, con el default contrario: repite; el setter es `setTileProvider`, que con el web
+> component no se llama directamente.) Presets públicos listos en
 > `tilePresets`: `<cristae-map tile="osm">` o `map.tile = 'osm'` (`map.tile = tilePresets.osm` sigue valiendo) — ver [`tiles.md`](./tiles.md).
 > Un nombre que no es un preset avisa una vez en consola, con la lista, y deja el proveedor vigente; quitar `tile` también.
 
