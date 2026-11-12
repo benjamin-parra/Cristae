@@ -80,7 +80,7 @@ Contenedor. Monta el `MapEngine`, expone cámara/engine y reenvía los eventos d
 | `initial-center` | `"lat,lng"` \| `[lat,lng]` | atributo (o prop `initialCenter`) |
 | `initial-zoom` | number | atributo |
 | `hover-throttle` | number (ms) | atributo |
-| `world-copies` | boolean | atributo |
+| `world-copies` | boolean | atributo — **reactivo**: re-provee el `tile` vigente |
 | `no-zoom-control` | boolean; quita el zoom del elemento | atributo — **reactivo** |
 | `zoom-animation` | `"none"` (default) \| `"in-only"` \| `"on"`; qué anima cada uno, [SPECS §9](../SPECS.md) | atributo — **reactivo** |
 | `cursor` | valor CSS de `cursor` (`"crosshair"`, …); vacío o inválido = ninguno | atributo — **reactivo** |
@@ -89,7 +89,7 @@ Contenedor. Monta el `MapEngine`, expone cámara/engine y reenvía los eventos d
 | `max-bounds-viscosity` | 0 (default) a 1; cuánto resiste al arrastre el borde de `max-bounds` | atributo — **reactivo** |
 | `viewport-insets` | object | prop `viewportInsets` |
 | `model` | `sphere()` · `ellipsoid()` · `WGS84`; el modelo de la Tierra de las formas y las geodésicas, la esfera por defecto sin él. Se lee al montar | **prop**; un terreno lanza `TypeError` |
-| `tile` | `{ url, maxZoom?, attribution?, subdomains?, … }` | **prop** |
+| `tile` | el nombre de un preset (`"osm"`, [`tiles.md`](./tiles.md#proveedores-listos--tilepresets)) o `{ url, maxZoom?, attribution?, subdomains?, … }` | atributo (el nombre, o JSON si empieza con `{`) o prop — **reactivo** |
 | `drawingIndicator` | `(indicator) => void`, la función que altera el [indicador de dibujo](#indicador-de-dibujo); sin ella queda la base, y `null` lo quita | **prop** — **reactiva** |
 | `--cristae-map-background` | valor CSS de `background`; default, el gris `#ddd` de Leaflet | custom property — **en vivo** |
 | `--cristae-tile-filter` | valor CSS de `filter`; default, ninguno | custom property — **en vivo** |
@@ -122,13 +122,14 @@ Contenedor. Monta el `MapEngine`, expone cámara/engine y reenvía los eventos d
 > `camera.zoomIn()`/`camera.zoomOut()`. La hoja del shadow root no trae la de los controles de Leaflet: uno
 > agregado al mapa de Leaflet —fuera de contrato— queda sin posición ni estilo.
 
-> **`tile`:** objeto reactivo; reasignarlo **re-provee** los tiles
+> **`tile`:** un nombre de preset o un objeto, reactivo; cambiarlo **re-provee** los tiles
 > ([`tiles.md`](./tiles.md#el-proveedor-lo-pone-el-anfitrión)). Las opciones extra van tal cual a
 > `L.tileLayer` (`maxZoom`, `attribution`, `subdomains` para `{s}`, …). **`world-copies`** controla
 > `noWrap`: por defecto el mundo **no** se repite en horizontal (`noWrap:true`); se activa
 > `world-copies` para permitir las copias. No limita la cámara: eso es `max-bounds`. (El setter es
 > `setTileProvider`; con el web component no se llama directamente.) Presets públicos listos en
-> `tilePresets` (`map.tile = tilePresets.osm`) — ver [`tiles.md`](./tiles.md).
+> `tilePresets`: `<cristae-map tile="osm">` o `map.tile = 'osm'` (`map.tile = tilePresets.osm` sigue valiendo) — ver [`tiles.md`](./tiles.md).
+> Un nombre que no es un preset avisa una vez en consola, con la lista, y deja el proveedor vigente; quitar `tile` también.
 
 Acceso (getters/métodos): `el.engine`, `el.camera` (ver *Cámara* abajo), `el.ready`, `el.on(event,
 [layerId], cb)`, `el.getLayer(id)`, `el.invalidateCanvas()`. `el.engine` es la **escotilla de bajo
@@ -287,7 +288,7 @@ solo fijan la vista inicial). Es la **única** vía de viewport dentro del contr
 | Método | Notas |
 |---|---|
 | `setView(latlng, zoom)` · `panTo(latlng)` · `flyTo(latlng, zoom, opts?)` | un gesto imperativo **cancela** un `followPoint` en curso |
-| `fitBounds(bounds, {insets?, maxZoom?, animate?})` · `fitToLayer(layerId, {insets?, maxZoom?})` | encuadre de una caja `{ south, west, north, east }` o de un par de esquinas opuestas (lo que no lo es, `maxZoom` y `animate`: SPECS §9); `fitToLayer` usa la caja que la capa informa de lo que dibuja —la de formas y la de polígonos— y, si no la informa, la de sus posiciones válidas; el error de un accessor le llega al llamador |
+| `fitBounds(bounds, {insets?, maxZoom?, animate?})` · `fitToLayer(layerId, {insets?, maxZoom?, ids?})` | encuadre de una caja `{ south, west, north, east }` o de un par de esquinas opuestas (lo que no lo es, `maxZoom` y `animate`: SPECS §9); `fitToLayer` usa la caja que la capa informa de lo que dibuja (la de formas y la de polígonos) y, si no la informa, la de sus posiciones válidas. El error de un accessor le llega al llamador. Con `ids` encuadra sólo esos ítems, por la caja de los lugares que dibuja cada uno (vértices de líneas y polígonos; el centro en las formas, sin su radio), y si es un solo lugar acerca hasta el zoom 16 como mínimo sin alejar nunca (SPECS §9) |
 | `zoomIn(delta?)` · `zoomOut(delta?)` · `setZoom(zoom)` | el zoom es **ortogonal al follow**: no lo cancela (ajusta escala, no reposiciona) |
 | `followPoint(layerId, id, {zoom?})` · `stopFollow()` | sigue la posición **viva** del id (se actualiza con `move`/`patch` del Source), sin que el consumidor bombee |
 | `getCenter()` · `getZoom()` · `getBounds()` | lectura: `{ lat, lng }`, número y `{ south, west, north, east }`, con la longitud sin envolver (SPECS §9) |
@@ -438,13 +439,13 @@ kinds })` · `engine.unfocus(ids)` · `engine.unfocusAll()`.
 | `icon-set` | string (de fábrica o nombre registrado) \| objeto IconSet | atributo (string) o prop `iconSet` (objeto). Sin él, `dot` ([`icons.md`](icons.md#sets-de-fábrica)) |
 | `url` | string | atributo — la capa lee sus ítems de un archivo ([Datos sin script](#datos-sin-script-url-fields-y-click-action)) |
 | `format` | `FormatName` | atributo — fuerza el lector; sin él, extensión, `Content-Type` y bytes |
-| `refresh` | ms | atributo — relee `url` cada tanto, con la página visible; piso 1000 |
+| `refresh` | ms | atributo — relee `url` cada tanto, con la página visible; piso 1000. Aplica la diferencia por id e interpola la posición de los puntos |
 | `fetch` | `(url, init?) => Promise<Response>` | **prop** — descarga propia de `url`; se lee al montar |
 | `fields` | JSON `{ accessor: campo }` | atributo o prop — el gemelo serializable de `accessors`; se lee al montar |
 | `id-of` `variant-of` `heading-of` | nombre de campo | atributo — [los `-of`](#los-atributos--of-y-fields) |
 | `click-action` | `fit` \| `follow` | atributo — qué hace el clic sobre un ítem; se lee al montar |
 | `data` | `Item[]` (ruta A) | **prop** |
-| `source` | `Source` (ruta B/C) | **prop** |
+| `source` | `Source` (ruta B/C) | **prop** — siempre presente: sin la del consumidor, `el.source` es la propia de la capa, desde la construcción ([`data.md`](data.md#source-antes-de-ready)) |
 | `accessors` | `{ idOf, positionOf, variantOf?, headingOf?, sizeOf?, hashOf? }` | **prop** |
 | `filters` | `{id,f}[]` | **prop** |
 
@@ -892,8 +893,10 @@ geometría de la capa. En una capa de puntos, la posición es la del primer `Poi
 sin geometría del tipo de la capa se omite. `url` junto con `source` o `geometry` lanza `TypeError`.
 
 **`refresh`.** Milisegundos entre relecturas, mientras la página está visible. El piso es `1000`: un valor menor
-se acota y avisa. Oculta la pestaña, no se relee, y al volver se cobra lo debido. Cada relectura reemplaza los
-ítems con un `set`: el punto salta a su posición nueva, sin interpolar. El techo es `2147483647` ms (el mayor
+se acota y avisa. Oculta la pestaña, no se relee, y al volver se cobra lo debido. Cada relectura se compara con la
+anterior por `id`: lo que no cambió no se vuelve a encodar, y las altas y las bajas se aplican. En una capa de puntos,
+el que se mueve no salta: va de su posición a la nueva en línea recta durante un segundo (`REFRESH_TWEEN_MS`), y el
+rumbo no se interpola. Las líneas y los polígonos no interpolan. El techo es `2147483647` ms (el mayor
 retardo de `setTimeout`); un valor mayor se acota y avisa. Para un feed de alta frecuencia sirve más un socket con `source.move`
 ([`data.md`](data.md)). `refresh` sin `url` avisa y se ignora.
 
@@ -922,8 +925,8 @@ mapa.addEventListener('cristae:error', e => aviso(`${e.detail.layerId}: ${e.deta
 
 | Valor | Capa | Efecto |
 |---|---|---|
-| `fit` | puntos | centra el ítem, al zoom actual |
-| `fit` | líneas y polígonos | encuadra la caja del ítem |
+| `fit` | puntos | centra el ítem y, si el zoom está por debajo de 16, lo acerca hasta 16; con 16 o más no cambia el zoom |
+| `fit` | líneas y polígonos | encuadra la caja del ítem; si es un solo lugar, como un punto |
 | `follow` | sólo puntos | sigue el punto con `camera.followPoint` |
 
 Sin el atributo, nada. Un valor distinto, o `follow` fuera de una capa de puntos, lanza `TypeError`; sin

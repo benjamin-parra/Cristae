@@ -89,6 +89,8 @@ Las que pasan de ±85,05° sin alcanzar el polo se dibujan aplastadas contra el 
 - **Foco.** `setLayerFocus` atenúa por forma y `focus(ids, { kinds: ['shape'] })` por capa, como en los
   polígonos.
 - **Encuadre.** `fitToLayers` y `camera.fitToLayer` encuadran las figuras enteras, no sólo los centros.
+  Con `ids`, `camera.fitToLayer(id, { ids })` encuadra por los **centros** de esas formas (la posición de cada
+  una): una sola forma, o varias en el mismo sitio, acercan hasta el zoom 16 sin alejar nunca.
   Si la `version` de la Source ya avanzó, dibujan lo nuevo antes de que emita; con `defineSource` sin
   `version` propia, recién después del aviso. Un accessor que lanza le llega al primero que lee el
   cambio, el encuadre o la emisión, y la capa sigue con lo anterior hasta el próximo cambio.

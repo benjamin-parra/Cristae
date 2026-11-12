@@ -231,7 +231,7 @@ El `Emitter` interno corre en tunnel reactivo (interval 0, defer 'raf'). No hay 
 |---|---|---|
 | `set(items)` | Reemplazo total → diff de id-set. | O(n) |
 | `patch(items, dirtyIds)` | Patch parcial; rebuild solo si cambia membresía de filtro. | O(k) |
-| `move(id, lat, lng)` | Reposiciona **sin rebuild**. | O(1) `[0-alloc]` lado-dato |
+| `move(id, lat, lng, heading?)` | Reposiciona **sin rebuild** y, si se pasa `heading`, también rota. | O(1) `[0-alloc]` lado-dato |
 | `remove(id)` | Quita un ítem. | O(n) (filtra) |
 | `append(id, ...points)` | Suma puntos al final del path de un id (requiere `pathOf`); el path del consumidor no se toca. | O(puntos) |
 | `addFilter(f)` / `removeFilter(id)` | Filtros sobre el Store interno (computados una vez). | O(n·f) |
@@ -242,6 +242,11 @@ de posición que `move` actualiza; el `positionOf` efectivo del `Source` devuelv
 existe. Marca el id en un Set reusable (`moveDirtyIds()`) y notifica (coalescido a rAF). La
 escritura real al buffer GPU (slot-write sobre los dirty ids) la hace la PointLayer — aquí solo
 vive el lado-dato.
+
+**El rumbo de `move`.** `heading` es el rumbo en grados del ícono, si su set rota. Con uno que no es un número
+finito, o sin él, el ítem conserva el rumbo que tenía; `set`, `patch` y `remove` lo descartan, igual que a la
+posición movida. El `headingOf` efectivo del `Source` es el del `move`, luego el del ítem, luego `0`. La capa sube
+la posición y el ángulo en **una** escritura al buffer, con la misma cuenta con que codifica un ítem.
 
 **`append` (clave):** hace para el path lo que `move` para la posición: guarda lo sumado aparte, el
 `pathOf` efectivo lo devuelve al final del path —copiándolo: O(path) por lectura, lo mismo que cuesta
@@ -254,7 +259,7 @@ import { createSource } from './Source.js'
 const sensors = createSource({ idOf: m => m.id, positionOf: m => m.pos })
 sensorsLayer.source = sensors               // declarativo; mismo objeto a N vistas
 sensors.set([{ id: 1, pos: { lat: 0, lng: 0 } }])
-ws.onMsg(m => sensors.move(m.id, m.lat, m.lng))   // 0 rebuilds
+ws.onMsg(m => sensors.move(m.id, m.lat, m.lng, m.rumbo))   // 0 rebuilds; sin `m.rumbo`, el rumbo anterior
 ```
 
 **`fields` — los accessors como nombres de campo.** Un accessor que sólo lee un campo se escribe como string, y
@@ -282,6 +287,33 @@ flota.set([{ patente: 'AB-123', lat: -35.4, lng: -71.6, estado: 'activo', rumbo:
 - **Sin costo en estado estable.** El camino anidado se parte una vez, al compilar. El par `{ lat, lng }` armado de dos
   campos se guarda por ítem y se reusa mientras los dos valores no cambien, así que `move` y `patch` no asignan de más.
 - **Lo que no hace.** No hay expresiones ni formateo: lo que se transforma va por una función en `accessors`.
+
+### `Source` antes de `ready`
+
+`<cristae-point-layer>.source` existe **desde la construcción** del elemento. Sin una `Source` del consumidor, es
+una `Source` pendiente propia del elemento, que sirve antes de `ready`, con `data` o con `url`, y que tras el
+montaje es **la misma** que `handle.source`: la identidad no cambia, tampoco si el elemento se desmonta y vuelve a
+montarse.
+
+```js
+const flota = document.querySelector('#flota')       // <cristae-point-layer url="./flota.geojson" …>
+ws.onMsg(m => flota.source.move(m.id, m.lat, m.lng, m.rumbo))   // sin esperar a `ready`
+```
+
+- **La cola.** Antes de `ready` la pendiente encola `set`, `patch`, `remove`, `move`, `append`, `addFilter` y
+  `removeFilter`; los `move` del mismo id entre dos operaciones que no son `move` se colapsan en el último, y uno
+  sin rumbo conserva el del anterior. Las lecturas dan el neutro (sin ítems).
+- **Cuándo se aplica.** Al alta, el motor adopta la pendiente y reproduce la cola: con `data`, justo después de
+  cargarlo; con `url`, tras la primera aplicación o el primer fallo de la carga. Un `move` sobre un id que el
+  archivo no trae se ignora, como en cualquier `Source`.
+- **La del consumidor gana.** Con una `Source` asignada, es ésa la que devuelve `el.source`.
+- **Entre el alta y la primera carga.** Con `url`, la capa retiene lo escrito antes de `ready`. Un `move` hecho
+  después del alta y antes de que llegue la primera carga va a la `Source` ya ligada, que aún no trae el ítem, y se
+  ignora. Se espera al evento `cristae:data-load` para mover por `url`.
+- **Un `set` reemplaza la cola.** Escribir `set` varias veces antes de `ready` retiene sólo el último, con los filtros.
+- **Remontar.** Si el elemento se desconecta y se vuelve a conectar, conserva la misma `Source`, con los `accessors`,
+  los `fields`, `id-of` y los `variants` del primer montaje, y con los ítems que ya tenía. Para cambiarlos, se
+  asigna una `Source` propia o se crea un elemento nuevo.
 
 **Compartir entre vistas** — el filtro vive en la Source, no por componente:
 

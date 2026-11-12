@@ -24,7 +24,14 @@ configs de proveedores públicos que se asignan directo a `map.tile` (web compon
 import { tilePresets } from 'cristae/map'
 map.tile = tilePresets.osm                           // o esriImagery, cartoLight / cartoDark
 map.tile = { ...tilePresets.osm, maxZoom: 17 }       // con override
+map.tile = 'osm'                                     // o por nombre; el motor: engine.setTileProvider('osm')
 ```
+
+En HTML no hace falta script: `<cristae-map tile="osm">`. Un valor de `tile` que empieza con `{` es el JSON de un
+proveedor propio, y cualquier otro texto es el nombre de un preset. Los nombres son `osm`, `cartoLight`, `cartoDark`
+y `esriImagery`. Un nombre desconocido, o un JSON inválido, avisa una vez por elemento en consola y deja el proveedor
+vigente. `setTileProvider` lanza `TypeError` y tampoco lo cambia. Quitar `tile` no lo cambia. `tile` y `world-copies`
+son reactivos: cambiar cualquiera re-provee.
 
 | Preset | Proveedor | Clave |
 |---|---|---|

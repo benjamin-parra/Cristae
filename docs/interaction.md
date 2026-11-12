@@ -266,10 +266,11 @@ engine.addPointLayer({ id: 'flota', url: './datos/flota.geojson', interactive: t
 
 | Valor | Capa | Qué hace el clic sobre un ítem |
 |---|---|---|
-| `fit` | puntos | centra el ítem, al zoom que tiene el mapa: `camera.panTo` |
-| `fit` | líneas y polígonos | encuadra la caja del ítem: `camera.fitBounds` |
+| `fit` | puntos | centra el ítem y lo acerca hasta el zoom 16 como mínimo, sin alejar nunca: `camera.fitToLayer(id, { ids })` |
+| `fit` | líneas y polígonos | encuadra la caja del ítem: `camera.fitToLayer(id, { ids })` |
 | `follow` | sólo puntos | sigue el punto, con la vista actual: `camera.followPoint` |
 
+- **La regla del punto.** Un ítem que es un solo lugar (un punto, o una línea o un polígono de un único sitio) no tiene caja que encuadrar, así que la cámara lo lleva al zoom 16 (`FIT_POINT_MIN_ZOOM`): con el mapa más lejos, vuela hasta ahí; con 16 o más, sólo lo centra, y **nunca aleja**. El `max-zoom` del mapa topa el acercamiento. A z16 un píxel mide unos 2 m, así que una cuadra de 100 m ocupa 40 a 50 px y el ítem conserva su calle a la vista. Con extensión, es el encuadre de siempre.
 - **Sin el atributo, nada.** Es opt-in: una capa sin `click-action` se comporta como siempre.
 - **Sólo si el primer hit es de la capa.** La acción escucha el canal `click` del motor y actúa cuando el hit de más
   arriba (el orden top-first de arriba) es de su capa. Un ítem de otra capa que lo tape se lleva el clic y no

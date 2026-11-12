@@ -47,17 +47,41 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   `<cristae-labeled>`. Ver [`docs/data.md`](docs/data.md) y [`docs/labeled.md`](docs/labeled.md).
   *Migración*: ninguna.
 - **`refresh` y `handle.reload({ url, format, refresh })`.** El atributo `refresh` (milisegundos, piso de
-  1000 y techo de 2147483647) vuelve a pedir la url en un `setTimeout` encadenado, en pausa con la pestaña oculta. `reload`
-  aborta la carga anterior y resuelve al aplicar o al fallar, sin rechazar nunca. Ver
-  [`docs/data.md`](docs/data.md).
+  1000 y techo de 2147483647) vuelve a pedir la url en un `setTimeout` encadenado, en pausa con la pestaña oculta.
+  Cada relectura se aplica **por diferencia de id**: lo que no cambió conserva su objeto y no se vuelve a encodar,
+  y las altas y las bajas se aplican. En los puntos, la posición del que se mueve se **interpola** en línea
+  recta durante `REFRESH_TWEEN_MS` (1000 ms, el piso de `refresh`) en vez de saltar; el rumbo no se interpola, y
+  las líneas y los polígonos no interpolan. `reload` aborta la carga anterior y resuelve al aplicar o al
+  fallar, sin rechazar nunca. Ver [`docs/elements.md`](docs/elements.md#datos-sin-script-url-fields-y-click-action)
+  y [SPECS §6](SPECS.md).
   *Migración*: ninguna.
 - **`click-action`.** `"fit"` encuadra el ítem clicado y `"follow"` (sólo en puntos) lo sigue; exige
-  `interactive`. Ver [`docs/interaction.md`](docs/interaction.md).
+  `interactive`. `fit` va por `camera.fitToLayer(id, { ids })`: en un punto acerca hasta el zoom 16 como mínimo y
+  nunca aleja. Ver [`docs/interaction.md`](docs/interaction.md).
+  *Migración*: ninguna.
+- **`move(id, lat, lng, heading?)` con rumbo.** `source.move` (y `move` del handle y de `<cristae-point-layer>`)
+  acepta el rumbo en grados: la capa sube posición y ángulo en una sola escritura al buffer, sin rebuild. Sin
+  `heading`, o con uno que no es finito, el ítem conserva el rumbo que tenía; `set`, `patch` y `remove` lo
+  descartan. `headingOf` de la `Source` da el efectivo. Ver [`docs/data.md`](docs/data.md).
+  *Migración*: ninguna; una llamada sin rumbo hace lo de siempre.
+- **`el.source` antes de `ready`.** `<cristae-point-layer>.source` existe desde la construcción: sin `Source` del
+  consumidor es una `Source` pendiente que encola `set`, `patch`, `remove`, `move`, `append` y los filtros, y el
+  motor la adopta y reproduce al alta, con `data` o con `url`. Tras el montaje es la misma que `handle.source`.
+  Ver [`docs/data.md`](docs/data.md#source-antes-de-ready).
+  *Migración*: ninguna; una `Source` asignada por el consumidor sigue ganando.
+- **`camera.fitToLayer(layerId, { ids })`.** Encuadra sólo esos ítems, por la caja de lo que dibuja cada uno. Si
+  es un solo lugar, acerca hasta `FIT_POINT_MIN_ZOOM` (16) como mínimo y nunca aleja; ids vacíos o desconocidos no
+  mueven la cámara. Sin `ids`, el encuadre no cambia. Ver [SPECS §9](SPECS.md) y
+  [`docs/elements.md`](docs/elements.md).
+  *Migración*: ninguna.
+- **`tile` por nombre.** `<cristae-map tile="osm">`, `map.tile = 'osm'` y `engine.setTileProvider('osm')` aceptan
+  el nombre de un preset de `tilePresets`; un valor de atributo que empieza con `{` sigue siendo el JSON de un
+  proveedor. Un nombre desconocido avisa una vez (`setTileProvider` lanza `TypeError`) y deja el proveedor vigente.
+  Ver [`docs/tiles.md`](docs/tiles.md).
   *Migración*: ninguna.
 - **Popup sobre líneas y polígonos.** Con datos propios o `url`, `<cristae-popup for>` abre sobre ellos y ancla en
   el punto pulsado. `<cristae-labeled>` acepta `fields='{"text":…}'` como gemelo de `text-of`. Un fallo de
-  `url` sin oyentes de `cristae:error` se vuelca a `console.error`, y el evento es cancelable. Un `refresh` reemplaza
-  el ítem sin interpolar la posición.
+  `url` sin oyentes de `cristae:error` se vuelca a `console.error`, y el evento es cancelable.
   *Migración*: ninguna.
 - **Popup por plantilla.** `<cristae-popup>` toma su contenido de un `<template>` hijo: cada
   `[data-field]` recibe el campo del ítem escrito con `textContent`, nunca como HTML. `contentOf`, si
@@ -91,6 +115,15 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   afirma una compatibilidad que no verifica. Ver [Node](README.md#node).
   *Migración*: ninguna en el navegador. En Node 20 o 22, `npm install` avisa por `engines`; el código puede andar,
   pero no se prueba.
+
+### Corregido
+- **`tile` y `world-copies` de `<cristae-map>` son reactivos.** La documentación lo decía, pero cambiarlos con el
+  mapa montado no re-proveía los tiles. Ahora cualquiera de los dos re-provee el proveedor vigente, y el mismo
+  valor no hace nada. Ver [`docs/tiles.md`](docs/tiles.md).
+  *Migración*: ninguna.
+- **`camera.fitToLayer` sobre una capa de líneas sin curva lanzaba `TypeError`.** El respaldo sin caja informada
+  suponía `positionOf`, que una capa de líneas no tiene; ahora lee `pathOf`. Ver [SPECS §9](SPECS.md).
+  *Migración*: ninguna.
 
 ## [0.46.22] - 2026-11-07
 

@@ -197,7 +197,9 @@ picking y la caja:
   colorea: no se mezclan colores.
 - **`append` curva lo agregado desde el último vértice del path** y sube sólo eso.
 - **La capa informa la caja de la curva**, que es la que encuadran `fitToLayers` y `camera.fitToLayer`;
-  sin curva, el encuadre lee la Source.
+  sin curva, el encuadre lee la Source. Con `ids`, `camera.fitToLayer(id, { ids })` encuadra sólo esas líneas por su
+  caja, sobre la curva si la hay; una que cae en un solo lugar acerca hasta el zoom 16 sin alejar nunca
+  ([SPECS §9](../SPECS.md)).
 - **Panear y hacer zoom no re-teselan**: la tolerancia está en metros, no en píxeles.
 - **Costo.** Un track GPS paga sólo el prefiltro: 100 000 puntos se rearman en 37 ms en vez de 32. Cada
   punto insertado cuesta ~0,8 µs en la esfera y ~15 µs en WGS84, y un tramo de miles de kilómetros llega
