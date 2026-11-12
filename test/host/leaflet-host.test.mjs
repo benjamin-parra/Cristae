@@ -329,6 +329,117 @@ test('destruir un anfitrión adoptado devuelve el mapa como estaba', () => {
   map.remove()
 })
 
+// Leaflet agenda trabajo sin guardar con qué cortarlo —el cierre de un zoom animado a los 250 ms, el aviso
+// diferido de `invalidateSize` a los 200, la rueda a los 40, el cuadro del pinch y el de la inercia—, y
+// `map.remove()` no lo corta: vencido sobre un mapa sin panes lanzaba sin que nadie lo atrapara. Un error
+// así no pasa por la prueba que lo provoca sino por `uncaughtException` si viene de un temporizador, y por
+// el `error` de la ventana si viene de un cuadro.
+const DESPUES_DE_CERRAR = 450
+const PAUSA_DE_ARRASTRE = 5
+
+const pausa = ms => new Promise(resolve => setTimeout(resolve, ms))
+
+// Un evento sintético como el que Leaflet espera: `which` no entra por el constructor de jsdom.
+const raton = (type, x, y) => {
+  const evento = new window.MouseEvent(type, { bubbles: true, clientX: x, clientY: y, button: 0 })
+  Object.defineProperty(evento, 'which', { value: 1 })
+  return evento
+}
+const toques = (type, container, puntos) => {
+  const evento = new window.Event(type, { bubbles: true, cancelable: true })
+  evento.touches = puntos.map(([clientX, clientY]) => ({ clientX, clientY, target: container }))
+  return evento
+}
+
+// Cada caso arranca algo en un anfitrión propio, lo destruye y espera más que el temporizador más largo.
+const CASOS_DE_DESTRUCCION = {
+  'zoom animado'                          : { arrancar: ({ camera }) => camera.setZoom(12), cuadros: 1 },
+  'zoom animado antes de su primer cuadro': { arrancar: ({ camera }) => camera.setZoom(12), cuadros: 0 },
+  'paneo animado'                         : { arrancar: ({ camera }) => camera.panTo([-33.01, -70.01]), cuadros: 1 },
+  // Sin un tamaño distinto `invalidateSize` no agenda nada: el contenedor cambia antes de llamarlo.
+  'invalidateSize con aviso diferido'     : {
+    arrancar: ({ host, container }) => {
+      Object.defineProperty(container, 'clientWidth', { value: 700, configurable: true })
+      host.map.invalidateSize({ debounceMoveend: true })
+    },
+    cuadros: 0,
+  },
+  'rueda dentro de su espera'             : {
+    arrancar: ({ container }) => {
+      const rueda = new window.Event('wheel', { bubbles: true })
+      Object.assign(rueda, { deltaY: -120, deltaMode: 0 })
+      container.dispatchEvent(rueda)
+    },
+    cuadros: 0,
+  },
+  'pinch con su cuadro pendiente'         : {
+    arrancar: ({ host, container }) => {
+      host.map.touchZoom.enable()
+      container.dispatchEvent(toques('touchstart', container, [[300, 300], [400, 300]]))
+      container.dispatchEvent(toques('touchmove', container, [[250, 300], [450, 300]]))
+    },
+    cuadros: 0,
+  },
+  'inercia de un arrastre recién soltado' : {
+    arrancar: async ({ container }) => {
+      container.dispatchEvent(raton('mousedown', 100, 100))
+      for (const [x, y] of [[120, 110], [160, 130], [220, 160]]) {
+        await pausa(PAUSA_DE_ARRASTRE)
+        container.dispatchEvent(raton('mousemove', x, y))
+      }
+      await pausa(PAUSA_DE_ARRASTRE)
+      container.dispatchEvent(raton('mouseup', 220, 160))
+    },
+    cuadros: 0,
+  },
+}
+
+for (const [nombre, { arrancar, cuadros }] of Object.entries(CASOS_DE_DESTRUCCION)) {
+  test(`destruir un mapa propio con ${nombre} no deja nada que lance ni que avise`, async () => {
+    const lanzadas = []
+    const oir      = e => lanzadas.push(e.error ?? e)
+    process.on('uncaughtException', oir)
+    window.addEventListener('error', oir)
+    try {
+      const container = contenedor()
+      const host      = createLeafletHost({ container, view: VISTA })
+      host.camera.zoomPolicy = 'on'
+      const delMapa  = []
+      host.map.on('zoomend moveend', e => delMapa.push(e.type))
+      const oido = []
+      EVENTOS.forEach(tipo => host.camera.on(tipo, () => oido.push(tipo)))
+      await arrancar({ host, camera: host.camera, container })
+      for (let i = 0; i < cuadros; i++) await frame()
+      host.destroy()
+      oido.length = 0
+      delMapa.length = 0
+      await pausa(DESPUES_DE_CERRAR)
+      assert.deepEqual(lanzadas.map(error => error.message), [], 'sin excepciones')
+      assert.deepEqual(oido, [], 'la cámara no avisa')
+      assert.deepEqual(delMapa, [], 'el mapa muerto no avisa')
+    } finally {
+      process.off('uncaughtException', oir)
+      window.removeEventListener('error', oir)
+    }
+  })
+}
+
+// El mapa adoptado es de su dueño: soltar el anfitrión a mitad de un zoom animado no le corta la
+// transición, que cierra sola con sus propios avisos.
+test('soltar un anfitrión adoptado a mitad de un zoom animado deja que su dueño lo cierre', async () => {
+  const map   = L.map(contenedor()).setView(VISTA.center, VISTA.zoom)
+  const host  = adoptLeafletHost(map)
+  const dueno = []
+  map.on('zoomend moveend', e => dueno.push(e.type))
+  host.camera.setZoom(12)
+  await frame()
+  host.destroy()
+  await new Promise(resolve => setTimeout(resolve, DESPUES_DE_CERRAR))
+  assert.deepEqual(dueno, ['zoomend', 'moveend'])
+  assert.equal(map.getZoom(), 12)
+  map.remove()
+})
+
 // Un mapa adoptado sin vista la toma con su primer `setView`. Si el motor se destruye antes, esa vista
 // ya no es asunto suyo: su promesa no se cumple con un motor muerto.
 test('un mapa adoptado sin vista no despierta al motor destruido al tomarla', async () => {

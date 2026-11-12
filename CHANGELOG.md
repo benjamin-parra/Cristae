@@ -164,6 +164,12 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   *Migración*: `setTileProvider({ url, noWrap: true })` pasa a `new MapEngine({ container, worldCopies: false })`.
 
 ### Corregido
+- **Destruir un mapa de Cristae con una animación o un gesto en curso ya no lanza `TypeError`.** Leaflet deja
+  agendado, sin forma de cortarlo desde `map.remove()`, el cierre de un zoom animado (250 ms), el aviso diferido
+  de `invalidateSize`, la rueda, el cuadro de un pinch y el de la inercia de un arrastre, y al vencer movían un
+  mapa sin panes. El anfitrión de Leaflet los corta al destruir un mapa propio; un mapa adoptado sigue siendo
+  de su dueño y cierra sus animaciones solo.
+  *Migración*: ninguna.
 - **`tile` y `world-copies` de `<cristae-map>` son reactivos.** La documentación lo decía, pero cambiarlos con el
   mapa montado no re-proveía los tiles. Ahora cualquiera de los dos re-provee el proveedor vigente, y el mismo
   valor no hace nada. Ver [`docs/tiles.md`](docs/tiles.md).

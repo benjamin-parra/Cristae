@@ -28,7 +28,7 @@ export const contenedor = ({ caja = { left: 0, top: 0, width: 800, height: 600 }
   const container = document.createElement('div')
   document.body.appendChild(container)
   Object.entries({ clientWidth: 800, clientHeight: 600, offsetWidth: 800, offsetHeight: 600, clientLeft: borde, clientTop: borde })
-    .forEach(([k, value]) => Object.defineProperty(container, k, { value }))
+    .forEach(([k, value]) => Object.defineProperty(container, k, { value, configurable: true }))
   container.getBoundingClientRect = () => ({ ...caja, right: caja.left + caja.width, bottom: caja.top + caja.height, x: caja.left, y: caja.top })
   return container
 }

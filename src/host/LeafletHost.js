@@ -460,6 +460,24 @@ const hostOf = (map, leaflet, ownsMap, zoomPolicy) => {
     },
   }
 
+  // `map.remove()` corta el vuelo y el paneo, pero deja vivo lo que Leaflet agendó sin guardar con qué
+  // cortarlo, y al vencer sobre un mapa sin panes lanza, sin nadie que lo atrape. Un mapa propio muere con
+  // el anfitrión, así que se le corta cada cosa: el temporizador de 250 ms con que `_animateZoom` cierra un
+  // zoom animado (Map.js:1714) trae atado `_onZoomTransitionEnd`, que sale sin hacer nada si
+  // `_animatingZoom` está apagado (Map.js:1718); el aviso diferido de `invalidateSize` (Map.js:588); el
+  // temporizador de la rueda (Map.ScrollWheelZoom.js:57) y el cuadro del pinch (Map.TouchZoom.js:101), cuyos
+  // ids guardan sus manejadores; y el cuadro con que Drag.js:219 lanza la inercia, que no guarda su id y por
+  // eso se neutraliza en su único destino, `panBy`. El mapa de uno adoptado sigue siendo de su dueño, que
+  // cierra sus propias animaciones.
+  const removeOwnMap = () => {
+    map._animatingZoom = false
+    clearTimeout(map._sizeTimer)
+    clearTimeout(map.scrollWheelZoom?._timer)
+    leaflet.Util.cancelAnimFrame(map.touchZoom?._animRequest)
+    map.remove()
+    map.panBy = () => map
+  }
+
   // El `load` con que un mapa adoptado toma su primera vista lo oye el anfitrión, y el oyente se va con
   // él: un motor destruido no se entera de la vista que tome el mapa después.
   let onLoad = NOOP
@@ -480,7 +498,7 @@ const hostOf = (map, leaflet, ownsMap, zoomPolicy) => {
       ownerLimits && applyLimits(ownerLimits)
       map.off('load', onLoad)
       dragHeard && hearDrag('off', 'removeEventListener')
-      ownsMap && map.remove()
+      ownsMap && removeOwnMap()
     },
   }
 }
