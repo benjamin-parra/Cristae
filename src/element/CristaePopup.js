@@ -2,6 +2,7 @@ import { LitElement, nothing } from 'lit'
 import { safe } from '../data/safe.js'
 import { computePlacement, stagesFrom } from './popupPlacement.js'
 import { resolvePopupHit } from './popupResolution.js'
+import { fillTemplate } from './popupTemplate.js'
 import { parsePair, parseTokens, fitFromAttribute, boolDefaultOn, boolOff, finitePos } from './attrs.js'
 
 const ZERO_INSETS = { top: 0, right: 0, bottom: 0, left: 0 }
@@ -17,7 +18,9 @@ const onFlushError = e => console.error('[cristae-popup] contentOf/flush', e)
 // consumidor que vive en LIGHT DOM (nodos flotantes en document.body), así que el CSS de página lo
 // estiliza (a diferencia de un popup de Leaflet, que quedaría dentro del shadow root del mapa). Se
 // posiciona proyectando la posición del item a píxeles con la cámara y se reubica en cada cambio de
-// viewport/scroll. El contenido lo da la prop `contentOf(item) => string | Node`.
+// viewport/scroll. El contenido lo da la prop `contentOf(item) => string | Node`, o, sin ella, un
+// <template> hijo directo: cada nodo con `data-field="ruta"` (con `.` para anidar) recibe el valor del
+// ítem como TEXTO (textContent, nunca HTML ni atributos); null o campo ausente dan ''. `contentOf` gana.
 //
 //   <cristae-popup for="fleet"></cristae-popup>
 //   popup.contentOf = m => `<div class="card"><b>${m.patente}</b><br>${m.estado}</div>`
@@ -98,8 +101,9 @@ export class CristaePopup extends LitElement {
   // w, h, ro, unsub }. lat/lng son copia numérica del ancla (el override de `move()` se muta in
   // place; una ref compartida rompería la comparación de cambio).
   #popups     = new Map()
+  #readers    = new Map()      // lectores de `data-field` por nombre, compilados una vez
   #warned     = new Set()      // capas `for` no resolubles ya avisadas (un warning por capa)
-  #onClick    = e => this.#openFromHit(e.detail.hits)
+  #onClick    = e => this.#openFromHit(e.detail.hits, e.detail.originalEvent)
   #onViewport = () => this.#popups.forEach(p => this.#place(p))
   #onReady    = () => this.#bindMove()
   #onKey      = e => e.key === 'Escape' && this.close()
@@ -155,9 +159,9 @@ export class CristaePopup extends LitElement {
     const binding = this.#bindingFor(item)
     const anchor = latlng != null
       ? finitePos(latlng)
-      : binding && finitePos(binding.source.accessors.positionOf(binding.source.itemById(binding.id)))
+      : binding && finitePos(binding.source.accessors.positionOf?.(binding.source.itemById(binding.id)))
     if (!anchor) return
-    const content = this.contentOf?.(item)
+    const content = this.#contentFor(item)
     if (content == null) return
 
     const key = binding?.id ?? item
@@ -185,7 +189,7 @@ export class CristaePopup extends LitElement {
   // Para refrescos transversales del consumidor (p. ej. un cambio de idioma).
   refresh() {
     this.#popups.forEach(p => {
-      const content = this.contentOf?.(p.item)
+      const content = this.#contentFor(p.item)
       if (content == null) return
       this.#setContent(p, content)
       this.#place(p)
@@ -273,7 +277,7 @@ export class CristaePopup extends LitElement {
 
     const replaced = fresh !== popup.item
     popup.item = fresh                  // antes de contentOf: si lanza, no se reintenta por flush
-    const content = replaced ? this.contentOf?.(fresh) : null
+    const content = replaced ? this.#contentFor(fresh) : null
     if (content != null) this.#setContent(popup, content)
 
     const follows = popup.live && !boolOff(this.follow) && !boolOff(this.pinned)
@@ -284,6 +288,13 @@ export class CristaePopup extends LitElement {
     if (moved) { popup.lat = lat; popup.lng = lng }
 
     if (content != null || moved) this.#place(popup)
+  }
+
+  // Contenido efectivo: `contentOf` si existe; si no, la plantilla hija; sin ninguno, null (no abre).
+  #contentFor(item) {
+    if (this.contentOf) return this.contentOf(item)
+    const template = Array.prototype.find.call(this.children, c => c.localName === 'template')
+    return template ? fillTemplate(template, item, this.#readers) : null
   }
 
   // Vuelca el contenido al nodo y re-mide (1 reflow). La colocación la decide el caller.
@@ -305,22 +316,36 @@ export class CristaePopup extends LitElement {
   // otra capa interactiva — p. ej. una burbuja de cluster encima de un punto). Empty-safe: hits=[]
   // (click al vacío) → hit null → cierra. `hits` viene ordenado top-first (LayerRegistry.resolveHits);
   // el item se resuelve contra la Source de la capa del hit.
-  #openFromHit(hits) {
+  #openFromHit(hits, pointerEvent) {
     const hit = parseTokens(this.for).includes(hits[0]?.layerId) ? hits[0] : null
     if (!hit) { this.close(); return }
     const res = resolvePopupHit(this.#map.getLayer(hit.layerId), hit.id)
-    // Una capa `for` que no resuelve ítems por id (p. ej. polígonos) no puede vincular contenido: se
-    // avisa UNA vez por capa (un `for` mal apuntado no debe inundar la consola por click) y se cierra.
+    // Una capa `for` que no resuelve ítems por id (p. ej. un polígono por `geometry`, sin Source) no puede
+    // vincular contenido: se avisa UNA vez por capa (un `for` mal apuntado no debe inundar la consola por
+    // click) y se cierra.
     if (res.action === 'unresolvable' && !this.#warned.has(hit.layerId)) {
       this.#warned.add(hit.layerId)
       console.warn(`[cristae-popup] la capa "${hit.layerId}" del atributo \`for\` no resuelve ítems por id ` +
-        `(sin Source.itemById — p. ej. una capa de polígonos): el popup no puede vincular su contenido. ` +
-        '`for` requiere una capa de puntos, líneas o html.')
+        `(sin Source.itemById — p. ej. un polígono por \`geometry\`): el popup no puede vincular su contenido. ` +
+        '`for` requiere una capa de puntos, líneas, polígonos con datos o html.')
     }
     if (res.action !== 'open') { this.close(); return }
     // Hit con posición propia (overlay que presenta una hoja en su lugar desplegado) → ancla ahí,
-    // congelada; sin ella → ancla viva del item.
-    this.open(res.item, hit.latlng)
+    // congelada. Una línea o un polígono no tiene posición: se ancla en el punto pulsado, congelado. Sin
+    // ninguna de las dos → ancla viva del item.
+    this.open(res.item, hit.latlng ?? (this.#hasPosition(hit.layerId) ? undefined : this.#pressedAt(pointerEvent)))
+  }
+
+  // ¿La Source de la capa sabe la posición de sus ítems? Puntos y html sí; líneas y polígonos no.
+  #hasPosition(layerId) { return !!this.#map.getLayer(layerId)?.source?.accessors?.positionOf }
+
+  // El punto del mapa bajo un evento de puntero, o undefined si cae fuera de la superficie.
+  #pressedAt(ev) {
+    const cam  = this.#map?.camera
+    const rect = this.#map?.getBoundingClientRect?.()
+    if (!cam || !rect || !Number.isFinite(ev?.clientX) || !Number.isFinite(ev?.clientY)) return undefined
+    const at = cam.containerPointToLatLng({ x: ev.clientX - rect.left, y: ev.clientY - rect.top })
+    return at.onSurface ? { lat: at.lat, lng: at.lng } : undefined
   }
 
   /* ── Colocación ── */
