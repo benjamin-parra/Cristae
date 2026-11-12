@@ -1,5 +1,6 @@
 import { CristaeLayerElement } from './base.js'
 import { makeAutoId } from './autoId.js'
+import { DATA_PROPERTIES, bridgeLoad, dropLoad, remoteConfig, resolveOf, syncData } from './dataAttrs.js'
 
 // <cristae-line-layer> — capa de líneas GL declarativa. Como point-layer, dos entradas de dato:
 // `data` (array → el elemento posee la Source interna) y `source` (Source compartida del consumidor,
@@ -17,6 +18,7 @@ export class CristaeLineLayer extends CristaeLayerElement {
     accessors: { type: Object },
     interactive: { type: Boolean },
     visible: { type: Boolean },
+    ...DATA_PROPERTIES,                          // url, format, fields, refresh, fetch, click-action, id-of
   }
 
   constructor() {
@@ -27,22 +29,33 @@ export class CristaeLineLayer extends CristaeLayerElement {
 
   layerId() { return this.id || (this._auto ??= makeAutoId('line')) }
 
-  mountReady() { return !!(this.source || this.accessors) }
+  mountReady() { return !!(this.source || this.accessors || this.url || this.fields) }
 
   mountLayer(engine) {
-    return engine.addLineLayer({
+    const of     = resolveOf(this, this.source ? [] : ['id'])
+    const handle = engine.addLineLayer({
       id: this.layerId(),
       ...this._placement,
       source: this.source,
       data: this.data,
-      accessors: this.accessors,
+      accessors: of.accessors,
+      ...remoteConfig(this),
+      ...(of.fields && { fields: of.fields }),
       interactive: this.interactive,
       visible: this.visible,
     })
+    bridgeLoad(this, engine)
+    return handle
+  }
+
+  cristaeUnmount() {
+    dropLoad(this)
+    super.cristaeUnmount()
   }
 
   syncLayer(changed) {
     if (changed.has('data') && this.data) this._handle.set(this.data)
     if (changed.has('visible')) this._handle.setVisible(this.visible)
+    syncData(this, changed)
   }
 }

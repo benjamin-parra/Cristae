@@ -1,5 +1,6 @@
 import { CristaeLayerElement } from './base.js'
 import { makeAutoId } from './autoId.js'
+import { DATA_PROPERTIES, bridgeLoad, dropLoad, remoteConfig, resolveOf, syncData } from './dataAttrs.js'
 import { STYLE_PROPERTIES, styleConfig, syncStyle } from './layerStyle.js'
 
 // <cristae-polygon-layer> — polígonos para display + hit-testing por índice geométrico
@@ -24,6 +25,7 @@ export class CristaePolygonLayer extends CristaeLayerElement {
     accessors  : { type: Object },
     interactive: { type: Boolean },
     visible    : { type: Boolean },
+    ...DATA_PROPERTIES,                          // url, format, fields, refresh, fetch, click-action, id-of
     ...STYLE_PROPERTIES,
   }
 
@@ -35,26 +37,37 @@ export class CristaePolygonLayer extends CristaeLayerElement {
 
   layerId() { return this.id || (this._auto ??= makeAutoId('polygon')) }
 
-  // Necesita geometría tipada, una Source (que ya trae accessors) o accessors propios (ruta `data`).
-  mountReady() { return !!(this.geometry || this.source || this.accessors) }
+  // Necesita geometría tipada, una Source (que ya trae accessors), accessors propios (ruta `data`), una `url` o `fields`.
+  mountReady() { return !!(this.geometry || this.source || this.accessors || this.url || this.fields) }
 
   mountLayer(engine) {
-    return engine.addPolygonLayer({
+    const of     = resolveOf(this, this.source ? [] : ['id'])
+    const handle = engine.addPolygonLayer({
       id         : this.layerId(),
       ...this._placement,
       geometry   : this.geometry,                // tablas tipadas: sin Source que mutar
       source     : this.source,                  // si está, gana sobre `data` (el motor hace cfg.source ?? owned)
       data       : this.data,
-      accessors  : this.accessors,
+      accessors  : of.accessors,
+      ...remoteConfig(this),
+      ...(of.fields && { fields: of.fields }),
       interactive: this.interactive,
       visible    : this.visible,
       ...styleConfig(this),
     })
+    bridgeLoad(this, engine)
+    return handle
+  }
+
+  cristaeUnmount() {
+    dropLoad(this)
+    super.cristaeUnmount()
   }
 
   syncLayer(changed) {
     if (changed.has('data') && this.data) this._handle.set(this.data)
     if (changed.has('visible')) this._handle.setVisible(this.visible)
     syncStyle(this, changed)
+    syncData(this, changed)
   }
 }

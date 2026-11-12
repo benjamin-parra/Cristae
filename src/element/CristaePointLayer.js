@@ -1,5 +1,6 @@
 import { CristaeLayerElement } from './base.js'
 import { makeAutoId } from './autoId.js'
+import { DATA_PROPERTIES, POINT_OF, bridgeLoad, dropLoad, remoteConfig, resolveOf, syncData } from './dataAttrs.js'
 
 // <cristae-point-layer> — capa de puntos GL declarativa. Dos entradas de dato simétricas:
 // `data` (array plano → el elemento posee la Source interna) y `source` (una Source que el
@@ -23,6 +24,8 @@ export class CristaePointLayer extends CristaeLayerElement {
     visible    : { type: Boolean },
     enabled    : { type: Boolean },              // membresía de la ENTIDAD en la composición (default true): off → aporta ∅ a los modificadores (cluster), pane + ligados ocultos
     autoFit    : { attribute: 'auto-fit' },      // "once": encuadra la capa al llegar los primeros puntos
+    ...DATA_PROPERTIES,                          // url, format, fields, refresh, fetch, click-action, id-of
+    ...POINT_OF,                                 // variant-of, heading-of
   }
 
   #autoFitUnsub = null   // la espera de `auto-fit="once"` mientras no encuadró; null = no espera
@@ -36,16 +39,20 @@ export class CristaePointLayer extends CristaeLayerElement {
 
   layerId() { return this.id || (this._auto ??= makeAutoId('point')) }
 
-  // Necesita una Source (que ya trae accessors) o accessors propios (ruta `data`). Sin eso, diferir.
-  mountReady() { return !!(this.source || this.accessors) }
+  // Necesita una Source (que ya trae accessors), accessors propios (ruta `data`), una `url` o `fields`. Sin eso, diferir.
+  mountReady() { return !!(this.source || this.accessors || this.url || this.fields) }
 
+  // Con `source` los accessors viajan con ella: los cierres de `variant-of` y `heading-of` no aplican.
   mountLayer(engine) {
+    const of = resolveOf(this, this.source ? [] : ['id', 'variant', 'heading'])
     const handle = engine.addPointLayer({
       id         : this.layerId(),
       ...this._placement,
       source     : this.source,                  // si está, gana sobre `data` (el motor hace cfg.source ?? owned)
       data       : this.data,
-      accessors  : this.accessors,
+      accessors  : of.accessors,
+      ...remoteConfig(this),
+      ...(of.fields && { fields: of.fields }),
       iconSet    : this.iconSet,
       filters    : this.filters,
       where      : this.where,                   // membresía por-capa (filtra la Source compartida sin mutarla)
@@ -53,6 +60,7 @@ export class CristaePointLayer extends CristaeLayerElement {
       visible    : this.visible,
       enabled    : this.enabled,
     })
+    bridgeLoad(this, engine)
     if (this.autoFit) this.#autoFitOnce(engine, handle)
     return handle
   }
@@ -65,6 +73,12 @@ export class CristaePointLayer extends CristaeLayerElement {
     if (changed.has('where')) this._handle.setWhere(this.where)
     if (changed.has('visible')) this._handle.setVisible(this.visible)
     if (changed.has('enabled')) this._handle.setEnabled(this.enabled)
+    syncData(this, changed)
+  }
+
+  cristaeUnmount() {
+    dropLoad(this)
+    super.cristaeUnmount()
   }
 
   disconnectedCallback() {

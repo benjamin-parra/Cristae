@@ -1,6 +1,7 @@
 import { CristaeLayerElement } from './base.js'
 import { boolDefaultOn, boolOff } from './attrs.js'
 import { makeAutoId } from './autoId.js'
+import { FIELD_PROPERTIES, resolveOf, syncData, textOfValue } from './dataAttrs.js'
 import { STACK } from '../engine/stack.js'
 
 // Las opciones de los rótulos que la capa pasa al motor: las de `<cristae-labeled>` que valen sin trazo.
@@ -23,7 +24,7 @@ export class CristaeTextLayer extends CristaeLayerElement {
     data        : { type: Array },
     source      : { attribute: false },
     accessors   : { type: Object },
-    textOf      : { attribute: false },
+    textOf      : { attribute: 'text-of' },      // función, o un nombre de campo que se lee con un lector total
     htmlOf      : { attribute: false },
     renderer    : {},
     placement   : {},
@@ -32,6 +33,7 @@ export class CristaeTextLayer extends CristaeLayerElement {
     color       : {},
     halo        : {},
     paint       : { attribute: false },
+    ...FIELD_PROPERTIES,                        // fields, id-of
     interactive : { type: Boolean },
     visible     : { converter: boolDefaultOn },    // default true; "false" o "0" oculta sin desmontar
   }
@@ -44,21 +46,24 @@ export class CristaeTextLayer extends CristaeLayerElement {
 
   layerId() { return this.id || (this._auto ??= makeAutoId('text')) }
 
-  mountReady() { return !!(this.source || this.accessors) }
+  mountReady() { return !!(this.source || this.accessors || this.fields) }
 
   // Un TypeError de las opciones sale del motor antes de registrar la capa. Asignado como propiedad,
   // `visible` llega crudo, como en `<cristae-labeled>`. `STACK` la apila por su lugar en el documento.
   mountLayer(engine) {
+    const of  = resolveOf(this, this.source ? [] : ['id', 'text'])
     const cfg = {
       [STACK]     : this,
       id          : this.layerId(),
       source      : this.source,
       data        : this.data,
-      accessors   : this.accessors,
+      accessors   : of.accessors,
       interactive : this.interactive,
       visible     : !boolOff(this.visible),
     }
     KEYS.forEach(key => cfg[key] = this[key])
+    cfg.textOf = textOfValue(this.textOf)
+    of.fields && (cfg.fields = of.fields)
     return engine.addTextLayer(cfg)
   }
 
@@ -71,6 +76,8 @@ export class CristaeTextLayer extends CristaeLayerElement {
 
     const patch = {}
     KEYS.forEach(key => changed.has(key) && (patch[key] = this[key] ?? null))
+    'textOf' in patch && (patch.textOf = textOfValue(this.textOf) ?? null)
     Object.keys(patch).length && this._handle.update(patch)
+    syncData(this, changed)
   }
 }
