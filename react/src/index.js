@@ -117,6 +117,9 @@ export const CristaeLabelLayer = wrap('cristae-label-layer')
 export const CristaeImageLayer = wrap('cristae-image-layer')
 export const CristaeTextLayer = wrap('cristae-text-layer')
 export const CristaeHeatLayer = wrap('cristae-heat-layer')
+// Terreno: sin entrada en LAYER_BUS porque la capa no se pica. onLoad y onError llegan por cristaeEvent como
+// 'cristae:load' y 'cristae:error'.
+export const CristaeTerrainLayer = wrap('cristae-terrain-layer')
 export const CristaeEditablePolygon = wrap('cristae-editable-polygon')
 export const CristaeEditablePolyline = wrap('cristae-editable-polyline')
 export const CristaeEditablePoint = wrap('cristae-editable-point')
