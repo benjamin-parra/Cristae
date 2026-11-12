@@ -2,6 +2,7 @@ import { Store } from './Store.js'
 import { Emitter } from './Emitter.js'
 import { toUnsub } from './teardown.js'
 import { isNested, listOf } from './path.js'
+import { accessorsFromFields } from './fields.js'
 
 // Ruta B genérica: adapta CUALQUIER librería de reactividad a un Source, sin Store/Emitter
 // propios del motor. El emitter deja de ser house-first — `subscribe` ES el punto de
@@ -83,7 +84,10 @@ const crearVentana = emitter => {
 // Los acumuladores (move/estructural) se juntan por VENTANA de flush (ver `crearVentana`) y solo se
 // limpian al abrir la siguiente (tras un emit) → correctos bajo coalescing: N ops en un tick
 // colapsan en un emit con todos sus ids.
-export const createSource = (accessors, variants) => {
+export const createSource = (input, variants) => {
+  // `fields` es el gemelo serializable de los accessors: se compila a funciones antes del guard, y una
+  // función propia gana sobre su campo.
+  const accessors = input?.fields ? accessorsFromFields(input.fields, input) : input
   // `idOf` es lo ÚNICO universal: el Store indexa por id. La geometría la exige cada capa que la
   // consuma (`positionOf` para punto/label, `pathOf` para línea) — pedirla acá dejaría fuera a una
   // Source que sólo alimenta una tabla, que es un uso legítimo y no tiene geometría.
