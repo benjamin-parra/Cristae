@@ -10,7 +10,10 @@ import { POINT_ALPHA, MIN_OPACITY, CORE_MAX, TERM_FLOOR } from '../src/render/he
 //     mismo ideal (el máximo 2 salió con blur 0 en la Arc). R16F con pilas de cientos de aportes de borde NO está medido.
 //   · rgba8: máximo 8 y media 1,3, de la tabla de 20 000 puntos con blur 0 (máximo medido 8, media medida 0,97 de
 //     1,21 según la GPU): el máximo medido es IGUAL a la tolerancia, sin margen, y no se midió a 100 000 puntos.
-// Son tolerancias de prototipo: el escenario de navegador contra GPU real debe confirmarlas antes de llamarlas medidas.
+//   · El escenario de navegador las confirmó en una Intel UHD 730 (Mesa, ANGLE sobre GL) con el ideal en la posición fraccionaria
+//     de cada punto: r16f, máximo 1 y media hasta 0,24; rgba8, máximo 5 y media hasta 0,83. Con el ideal en el píxel redondeado
+//     que reporta la cámara el error sube a máximo 10 y media 1,4: lo redondeado es el ideal, no la GPU.
+//   · rgba8 no llega al tope: con 60 puntos coincidentes el índice se estanca en 251, igual que `gemeloOver8`.
 export const TOLERANCIA = {
   r16f : { max: 2, media: 0.3 },
   rgba8: { max: 8, media: 1.3 },

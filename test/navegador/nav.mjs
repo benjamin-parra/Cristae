@@ -314,24 +314,24 @@ const TERRENO = {
 // ───────────────────────── calor ─────────────────────────
 // Lo que el escenario `calor` necesita de la página: un calor con la rampa t => [0, 0, 0, 1], de modo que el alfa del canvas es el
 // índice acumulado (idx/255), y la lectura de ese alfa en una ventana. Los puntos llegan en px de contenedor; se pasan a lat/lng
-// con la cámara y se devuelven los px que ella reporta de vuelta, en float64, para que el ideal use la misma proyección.
+// con la cámara. El ideal usa esos mismos px, fraccionarios: `latLngToContainerPoint` redondea al píxel entero (como Leaflet) y
+// la GPU pinta en la posición exacta, así que el redondeo no sirve de referencia.
 const CALOR = {
   estado: null,
 
   // Da de alta el calor y, encima de él, una capa de puntos lejos de la ventana: así el calor queda entre dos capas de puntos
-  // (`marcas` y `extremos` van debajo). Devuelve los px proyectados y los contextos propios de antes del alta.
+  // (`marcas` y `extremos` van debajo). Devuelve los contextos propios de antes del alta.
   async montar({ id = 'calor', puntos, radius, blur, intensity = 1 }) {
     N.mapa.style.background = hex(FONDO)
     const cam = N.eng.camera
     const datos = puntos.map((p, i) => ({ id: i, w: p.peso, ...cam.containerPointToLatLng({ x: p.x, y: p.y }) }))
-    const px = datos.map(it => { const r = cam.latLngToContainerPoint([it.lat, it.lng]); return { x: r.x, y: r.y, peso: it.w } })
     await quieto(300, 5000)
     const antes = contar().propios
     this.estado = { id, cubre: `${id}-encima`, canvas: null }
     N.eng.addHeatLayer({ id, accessors: { idOf: it => it.id, positionOf: it => ({ lat: it.lat, lng: it.lng }), weightOf: it => it.w }, data: datos, radius, blur, intensity, colorRamp: () => [0, 0, 0, 1] })
     N.eng.addPointLayer({ id: this.estado.cubre, accessors: accesores('marcas'), iconSet: N.iconos, data: items([[1100, 700]], 900) })
     await quieto(500, 8000)
-    return { px, antes }
+    return { antes }
   },
 
   // El alfa (0..255) de los canvases GL del tramo del calor sobre la ventana {x0, y0, ancho, alto} de px de contenedor, fila a fila
