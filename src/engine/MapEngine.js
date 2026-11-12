@@ -22,11 +22,16 @@ import { createLabels } from './labels.js'
 import { mergeLabelOptions, resolvePlacement } from '../render/labelOptions.js'
 import { deprecated, RETIRO } from './deprecated.js'
 import { defineClusterIconSet } from '../atlas/IconSet.js'
+import { DEFAULT_SHAPE_COLOR, FACTORY_SHAPES, shapePresetIconSet } from '../atlas/shape-presets.js'
+import { accessorsFromFields, fieldReader } from '../data/fields.js'
+import { RemoteError } from '../data/remote-fetch.js'
+import { loadRemote } from './remote.js'
+import { itemsOf, URL_ACCESSORS } from './features.js'
 import { createSource } from '../data/index.js'
 import { createLeafletHost } from '../host/LeafletHost.js'
 import { iterable } from '../data/path.js'
 import { foldRuns } from '../geometry/polyline.js'
-import { emptyBounds, growBounds, growRun } from '../geometry/bounds.js'
+import { boundsOf, emptyBounds, growBounds, growRun } from '../geometry/bounds.js'
 import { byDefault, checkHeading, checkPlacer, isModel } from '../geometry/geodesic.js'
 
 // MapEngine — orquestador headless (SPECS §6). Framework-agnóstico, sin dominio. Monta sobre un
@@ -55,6 +60,15 @@ const HIGHLIGHT_Z   = TOP_PLANE - 1
 // «nada» y no se asigna nunca. Sale de los bits que declara el codec — nunca de un número repetido acá.
 const PICK_OBJ_MAX = (1 << OBJ_BITS) - 1
 const ITEM_DIM = 0.3            // opacidad del atenuado en el eje de foco por ÍTEM
+// Piso del período de `refresh` (ms). Una capa por `url` que se relee más de una vez por segundo ya no
+// sigue un archivo que cambia: es un bucle de descarga. Razonado: un servidor de archivos estáticos no
+// espera más de un pedido por segundo de un mismo cliente.
+const MIN_REFRESH_MS = 1000
+// Techo del período de `refresh` (ms): el mayor retardo que acepta `setTimeout` (un entero de 32 bits con signo).
+// Un valor mayor se trata como 1 ms y volvería la capa un bucle de descarga, justo lo que el piso evita.
+const MAX_REFRESH_MS = 2 ** 31 - 1
+// Lo que `click-action` sabe hacer con el ítem clicado.
+const CLICK_ACTIONS = ['fit', 'follow']
 const BUS_EVENTS = new Set(['click', 'secondary-click', 'hover', 'hover:start', 'hover:end', 'pointer:move'])
 // El detail de `move`: uno compartido, porque sale en cada paso del movimiento.
 const MOVE_DETAIL = Object.freeze({})
@@ -136,6 +150,8 @@ export class MapEngine {
   #signals            = new Map()      // eventos del motor (ready/viewportchange/interaction*) → handlers
   #drawing            = new Set()      // ids de los editores que toman la pulsación para dibujar
   #iconSets           = new Map()      // nombre → IconSet registrado (resolución por nombre)
+  #warned             = new Set()      // avisos de configuración ya dados (uno por clave)
+  #watchingVisibility = false          // `visibilitychange` suscripto (una sola vez por motor)
   #defaultClusters    = null           // cluster icon-set por defecto (lazy)
   #defaultSubClusters = null           // icon-set de sub-clusters de la espiral (jerarquía, lazy)
   #seq                = 0              // sólo para nombres (pane del overlay, id del pliegue): no apila
@@ -244,8 +260,11 @@ export class MapEngine {
   /* ── Capas de puntos ── */
 
   addPointLayer(cfg) {
-    const { id, data, accessors, iconSet, interactive = false, pane, visible = true, enabled = true, filters, where, cluster, capture, presentAs } = cfg
+    const { id, data, accessors: own, fields, iconSet = 'dot', interactive = false, pane, visible = true, enabled = true, filters, where, cluster, capture, presentAs,
+            url, format, refresh, fetch, clickAction } = cfg
     const paneName = pane ?? `cristae-point-${id}`
+    this.#checkData(id, 'point', cfg)
+    const accessors = this.#accessorsOf(id, 'point', own, fields, url)
 
     const set = this.#resolveIconSet(iconSet)
     this.#hookFontGate(set)                      // re-encode al re-rasterizar el atlas (font-gate)
@@ -278,6 +297,7 @@ export class MapEngine {
     if (cluster) this.addCluster({ hostId: id, ...cluster })   // azúcar: <cristae-cluster> usa addCluster directo
 
     this.#flushPendingBinds()
+    this.#startData(id, record, { url, format, refresh, fetch, clickAction })
     return this.#pointHandle(id, record, set)
   }
 
@@ -294,9 +314,12 @@ export class MapEngine {
   addPolygonLayer(cfg) {
     if (cfg.backend !== undefined)
       throw new Error('[cristae] los polígonos se dibujan siempre en GPU y no aceptan `backend`: quitalo (ver *Migración* en el CHANGELOG)')
-    const { id, data, accessors, pane, z: _z, [STACK]: _at, source: dado, geometry,
-            idOf = accessors?.idOf, styleOf = accessors?.styleOf,
-            interactive = true, visible = true, ...style } = cfg
+    const { id, data, accessors: own, fields, pane, z: _z, [STACK]: _at, source: dado, geometry,
+            url, format, refresh, fetch, clickAction,
+            interactive = true, visible = true, ...resto } = cfg
+    this.#checkData(id, 'polygon', cfg)
+    const accessors = this.#accessorsOf(id, 'polygon', own, fields, url)
+    const { idOf = accessors?.idOf, styleOf = accessors?.styleOf, ...style } = resto
     const paneName = pane ?? `cristae-polygon-${id}`
 
     // Sin `geometry`: dueño motor (data) vs consumidor (cfg.source). Con `geometry` no hay Source.
@@ -314,10 +337,12 @@ export class MapEngine {
 
     if (data && controls) controls.set(data)
     this.#flushPendingBinds()
+    this.#startData(id, record, { url, format, refresh, fetch, clickAction })
     return {
       id,
       source,
       set       : items => controls?.set(items),
+      reload    : options => this.#reload(id, options),
       setVisible: v => this.setLayerVisibility(id, v),
       redraw    : () => record.layer.redraw(),
       style     : options => record.layer.style(options),
@@ -338,7 +363,9 @@ export class MapEngine {
   addLineLayer(cfg) {
     if (cfg.vector !== undefined || cfg.backend !== undefined)
       throw new Error('[cristae] las líneas se dibujan siempre en GPU y no aceptan `vector` ni `backend`: quitalos (ver *Migración* en el CHANGELOG)')
-    const { id, data, accessors, interactive = false, pane, visible = true } = cfg
+    const { id, data, accessors: own, fields, interactive = false, pane, visible = true, url, format, refresh, fetch, clickAction } = cfg
+    this.#checkData(id, 'line', cfg)
+    const accessors = this.#accessorsOf(id, 'line', own, fields, url)
     const paneName = pane ?? `cristae-line-${id}`
 
     // `controls` = Source que posee el motor (ruta A/data); con `cfg.source` el dueño es el consumidor.
@@ -358,6 +385,7 @@ export class MapEngine {
 
     if (data && controls) controls.set(data)
     this.#flushPendingBinds()
+    this.#startData(id, record, { url, format, refresh, fetch, clickAction })
     // Handle = SÓLO las ACCIONES de la capa (empujar datos / togglear visibilidad). El estilo NO es
     // una acción: es estado (accessor `styleOf`) — para recolorear una línea se muta su item y se
     // set/patch la Source; el motor reescribe su color (incremental o rebuild). No hay `setStyle`.
@@ -370,6 +398,7 @@ export class MapEngine {
         if (!controls) throw new TypeError(`[cristae] la capa '${id}' lee una Source del consumidor: append va a esa Source`)
         return controls.append(itemId, ...points)
       },
+      reload:     options => this.#reload(id, options),
       setVisible: v => this.setLayerVisibility(id, v),
     }
   }
@@ -573,7 +602,8 @@ export class MapEngine {
 
   // `null` si `hostId` no es una capa que se rotula: un editor, el calor, la imagen o la burbuja de un
   // cluster con `slot="bubble"` de rótulo. Las opciones inválidas lanzan TypeError sin tocar nada.
-  addLabels({ hostId, ...props }) {
+  addLabels({ hostId, fields, ...props }) {
+    this.#textField(hostId, fields, props)
     const labels = this.#labels.add(hostId, props)
     labels && (this.#focused || this.#itemFocus.size) && this.#applyFocus()   // nacen con el foco vigente
     return labels
@@ -585,8 +615,10 @@ export class MapEngine {
   // HTML, sin contexto WebGL. Su z de picking es el del plano donde se pintan. `visible` e `interactive` son
   // de la capa; el resto, las opciones de los rótulos. Lo inválido lanza TypeError antes de registrar nada.
   // Entra al apilado como una primaria más, sin pane: su rango ordena su picking y el pane `html` de sus rótulos.
-  addTextLayer({ id, data, accessors, source: given, interactive = false, visible = true, [STACK]: at, ...props }) {
+  addTextLayer({ id, data, accessors: own, fields, source: given, interactive = false, visible = true, [STACK]: at, ...props }) {
     resolvePlacement('text', mergeLabelOptions(null, props))
+    const { text, ...sourceFields } = fields ?? {}      // `text` es de los rótulos, no de la Source
+    const accessors = given ? own : this.#accessorsOf(id, 'text', own, fields && sourceFields)
     if (typeof (given?.accessors ?? accessors)?.positionOf !== 'function')
       throw new TypeError(`[cristae] la capa de texto '${id}' pide accessors.positionOf`)
     const controls = given ? null : createSource(accessors)
@@ -595,7 +627,7 @@ export class MapEngine {
     const record = { kind: 'text', source, controls, ...seat, interactive, visible, enabled: true }
     this.#layers.set(id, record)
 
-    const labels = this.addLabels({ hostId: id, ...props })
+    const labels = this.addLabels({ hostId: id, fields: text === undefined ? undefined : { text }, ...props })
     const none   = () => null                // la capa no aporta partes: todas son de sus rótulos
     interactive && this.#registerResolver(id, 'text', record, none, none)
     this.#registry.setLayerVisibility(id, visible)
@@ -915,6 +947,8 @@ export class MapEngine {
     if (!record) return false
     const dibujaba = this.#drawing.delete(id)   // fuera del estado antes de su destroy, que así no avisa
     record.labels?.dispose()              // los rótulos mueren con su host
+    record.offClick?.()                   // click-action
+    record.remote && this.#stopRemote(record.remote)
     record.unsub?.()                      // bind de labels / suscripción de la capa
     record.layer?.destroy?.()
     record.editor?.destroy?.()            // editor de geometría (input controlado, sin record.layer)
@@ -1131,6 +1165,7 @@ export class MapEngine {
     glBudget.motion(this, false)        // un gesto cortado por el destroy no deja a la política esperando su fin
     this.camera.destroy()
     this.#layers.forEach((_, id) => this.removeLayer(id))
+    this.#watchingVisibility && document.removeEventListener('visibilitychange', this.#onVisible)
     this.#signals.clear()
     this.#tramos.destroy()
     this.#host.destroy()
@@ -1261,9 +1296,169 @@ export class MapEngine {
   // IconSet por instancia o por nombre registrado. Un nombre no registrado es error de config.
   #resolveIconSet(iconSet) {
     if (typeof iconSet !== 'string') return iconSet
-    const set = this.#iconSets.get(iconSet)
+    let set = this.#iconSets.get(iconSet)
+    // Los sets de fábrica nacen al primer uso, una vez por motor; uno registrado con su nombre gana.
+    if (!set && FACTORY_SHAPES.includes(iconSet)) {
+      set = shapePresetIconSet({ shape: iconSet, fallback: DEFAULT_SHAPE_COLOR })
+      this.#iconSets.set(iconSet, set)
+    }
     if (!set) throw new Error(`[MapEngine] iconSet '${iconSet}' no registrado`)
     return set
+  }
+
+  /* ── Datos por url, fields y click-action ── */
+
+  #warnOnce(key, message) {
+    if (this.#warned.has(key)) return
+    this.#warned.add(key)
+    console.warn(message)
+  }
+
+  // Lo declarativo se valida entero antes de tocar nada: un TypeError deja el motor como estaba.
+  #checkData(id, kind, { url, source, geometry, clickAction }) {
+    if (url && (source || geometry))
+      throw new TypeError(`[cristae] la capa '${id}' pide url y ${source ? 'source' : 'geometry'}: con url la Source es del motor`)
+    if (clickAction === undefined) return
+    if (!CLICK_ACTIONS.includes(clickAction))
+      throw new TypeError(`[cristae] click-action '${clickAction}' en la capa '${id}': usar ${CLICK_ACTIONS.join(' o ')}`)
+    if (clickAction === 'follow' && kind !== 'point')
+      throw new TypeError(`[cristae] click-action 'follow' sólo va en capas de puntos: la capa '${id}' es de ${kind}`)
+  }
+
+  // Los accessors efectivos de una capa: los del dato por defecto de `url`, los de `fields` y las funciones de
+  // `accessors`, de menor a mayor. Sin `fields` ni `url` son los de `accessors`, tal cual.
+  #accessorsOf(id, kind, accessors, fields, url) {
+    if (!fields && !url) return accessors
+    return accessorsFromFields(fields, accessors, {
+      fallback: url ? URL_ACCESSORS[kind] : undefined,
+      warn: key => this.#warnOnce(`${id}:${key}`, `[cristae] la capa '${id}' pide ${key}Of y fields.${key}: gana la función`),
+    })
+  }
+
+  // `fields.text` de los rótulos: lo que no da `textOf`. Con los dos gana la función, y avisa una vez.
+  #textField(hostId, fields, props) {
+    if (fields?.text === undefined) return
+    if (this.#layers.get(hostId)?.fold)
+      return this.#warnOnce(`${hostId}:text`, `[cristae] fields.text no aplica a la burbuja de '${hostId}': su texto es el conteo`)
+    if (props.textOf != null)
+      return this.#warnOnce(`${hostId}:text`, `[cristae] los rótulos de '${hostId}' piden textOf y fields.text: gana la función`)
+    props.textOf = fieldReader(fields.text, 'text')
+  }
+
+  // Tras registrar la capa: arranca la carga por url, el refresco y la acción del clic.
+  #startData(id, record, { url, format, refresh, fetch, clickAction }) {
+    if (url) {
+      record.remote = { url, format, fetch, refresh: 0, ctrl: null, seq: 0, timer: null, due: false, reported: false }
+      this.#setRefresh(id, record.remote, refresh)
+      this.#fetchLayer(id)
+    } else if (refresh) this.#warnOnce(`${id}:refresh`, `[cristae] la capa '${id}' pide refresh sin url: se ignora`)
+    if (clickAction === undefined) return
+    if (!record.interactive)
+      return this.#warnOnce(`${id}:click`, `[cristae] click-action en la capa '${id}' sin interactive: no recibe clics`)
+    record.offClick = this.on('click', hits => this.#onClickAction(id, record, clickAction, hits[0]))
+  }
+
+  #onClickAction(id, record, action, hit) {
+    if (hit?.layerId !== id) return
+    const item = record.source?.itemById?.(hit.id)
+    if (!item) return
+    if (action === 'follow') return void this.camera.followPoint(id, hit.id)
+    const a = record.source.accessors
+    if (record.kind === 'point') {
+      const p = a.positionOf(item)
+      return void (p && this.camera.panTo(p))
+    }
+    this.camera.fitBounds(boundsOf(record.kind === 'line' ? a.pathOf(item) : a.ringsOf(item)))
+  }
+
+  // `refresh` en ms; 0, null o false lo apagan. Fuera de [piso, techo] se acota, y avisa.
+  #setRefresh(id, remote, refresh) {
+    const ms = Number(refresh)
+    if (!(ms > 0) || !Number.isFinite(ms)) return void (remote.refresh = 0)
+    if (ms < MIN_REFRESH_MS)
+      this.#warnOnce(`${id}:min-refresh`, `[cristae] refresh de ${ms} ms en la capa '${id}': se acota a ${MIN_REFRESH_MS} ms`)
+    else if (ms > MAX_REFRESH_MS)
+      this.#warnOnce(`${id}:max-refresh`, `[cristae] refresh de ${ms} ms en la capa '${id}': se acota a ${MAX_REFRESH_MS} ms`)
+    remote.refresh = Math.min(Math.max(ms, MIN_REFRESH_MS), MAX_REFRESH_MS)
+  }
+
+  // Cambia url, formato o refresco y recarga. Resuelve al aplicar los datos o al fallar: nunca rechaza. Una carga
+  // anterior en vuelo se aborta y su respuesta se descarta.
+  #reload(id, { url, format, refresh } = {}) {
+    const remote = this.#layers.get(id)?.remote
+    if (!remote) {
+      if (url) throw new TypeError(`[cristae] la capa '${id}' no nació con url: reload({ url }) no la convierte en remota`)
+      return Promise.resolve()
+    }
+    if (url) remote.url = url
+    if (format !== undefined) remote.format = format
+    if (refresh !== undefined) this.#setRefresh(id, remote, refresh)
+    return this.#fetchLayer(id)
+  }
+
+  async #fetchLayer(id) {
+    const record = this.#layers.get(id)
+    const remote = record?.remote
+    if (!remote) return
+    clearTimeout(remote.timer)
+    remote.timer = null
+    remote.due   = false
+    remote.ctrl?.abort()
+    const ctrl = remote.ctrl = new AbortController()
+    const seq  = ++remote.seq
+    const { url } = remote
+    try {
+      const { read } = await loadRemote(url, { format: remote.format, fetch: remote.fetch, signal: ctrl.signal })
+      if (seq !== remote.seq) return
+      const { items, skipped } = itemsOf(read, record.kind)
+      if (!record.controls) return this.#stopRemote(remote)   // attachSource: los datos pasaron a ser del consumidor
+      record.controls.set(items)
+      this.#emit('dataload', { layerId: id, url, count: items.length, skipped })
+    } catch (e) {
+      if (seq !== remote.seq || e?.name === 'AbortError') return
+      this.#reportDataError(id, remote, e)
+    }
+    this.#scheduleRefresh(id, remote)
+  }
+
+  // Sin oyentes de `dataerror` el fallo no puede quedar mudo: se vuelca a la consola, una vez por capa.
+  #reportDataError(id, remote, e) {
+    const detail = {
+      layerId: id, url: remote.url,
+      code: e instanceof RemoteError ? e.code : 'format',
+      message: e?.message ?? String(e), status: e?.status,
+    }
+    if (this.#signals.get('dataerror')?.size) return this.#emit('dataerror', detail)
+    remote.reported || console.error(`[cristae] la capa '${id}' no cargó ${detail.url}: ${detail.message}`)
+    remote.reported = true
+  }
+
+  #scheduleRefresh(id, remote) {
+    if (!remote.refresh) return
+    if (!this.#watchingVisibility && typeof document !== 'undefined' && document.addEventListener) {
+      this.#watchingVisibility = true
+      document.addEventListener('visibilitychange', this.#onVisible)
+    }
+    remote.timer = setTimeout(() => {
+      remote.timer = null
+      if (this.#hidden()) remote.due = true     // oculta no se relee: `visibilitychange` cobra lo debido
+      else this.#fetchLayer(id)
+    }, remote.refresh)
+  }
+
+  #hidden() { return typeof document !== 'undefined' && document.visibilityState === 'hidden' }
+
+  #onVisible = () => {
+    if (this.#hidden()) return
+    this.#layers.forEach((record, id) => record.remote?.due && this.#fetchLayer(id))
+  }
+
+  #stopRemote(remote) {
+    remote.seq++
+    remote.ctrl?.abort()
+    clearTimeout(remote.timer)
+    remote.timer = null
+    remote.due   = false
   }
 
   #syncDemand(layerId) {
@@ -1643,6 +1838,8 @@ export class MapEngine {
       preloadIcons: variants => iconSet?.seed(variants),
       setFocus:     ids => this.setLayerFocus(id, ids),
       refresh:      () => record.layer.refresh(),
+      // Recarga la `url` de la capa, con otra url, formato o refresco si se pasan (resuelve al aplicar). Sólo una capa nacida con url.
+      reload:       options => this.#reload(id, options),
       setVisible:   v => this.setLayerVisibility(id, v),
       // Membresía de la ENTIDAD en la composición (eje ortogonal a setVisible, que es pintado
       // puro): off → la capa aporta ∅ a sus modificadores (el cluster re-indexa sin ella), pane
