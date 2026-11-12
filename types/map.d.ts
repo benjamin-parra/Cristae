@@ -4,10 +4,13 @@
 // que re-exporta, en ./geometry.d.ts.
 
 // El re-export de abajo NO liga los nombres en este archivo: lo que se usa acá se importa.
-import type { CristaeReadSource, CristaeSource, CristaeFilter, SourceAccessors } from "./core";
+import type { CristaeReadSource, CristaeSource, CristaeFilter, SourceAccessors, Fields, FieldPath } from "./core";
+import type { FormatName } from "./formats";
 import type { Bounds, BoundsLike, EarthModel, LatLng, LatLngPath, LatLngPoint, Shape } from "./geometry";
 
 export type {
+  Fields,
+  FieldPath,
   SourceAccessors,
   CristaeReadSource,
   CristaeSource,
@@ -38,7 +41,8 @@ export interface IconDescriptor {
   [k: string]: unknown;
 }
 
-export interface IconSetConfig {
+/** Set dibujado por canvas: `describe` y `renderers`. */
+export interface CanvasIconSetConfig {
   rotates?   : boolean;
   /** Variantes declaradas: dimensionan el atlas (cero regrow en runtime). Declararlas no las rasteriza ni las sube:
    *  cada una se dibuja al primer uso y el resto se adelanta en ratos ociosos. */
@@ -53,6 +57,43 @@ export interface IconSetConfig {
   /** Espera previa a la rasterización del atlas (fuentes web: sin esto el glifo queda "tofu"). */
   prerender? : () => Promise<void> | void;
 }
+
+/** Un ícono por imagen: `src` es una URL (SVG, PNG, …) que se descarga y se decodifica. */
+export interface IconSpec {
+  src : string;
+}
+
+/** Lo que publica `onError` de un set por imagen. `set` va en `null` en el detalle del JS; el elemento
+ *  `<cristae-icon-set>` lo completa con su nombre. */
+export interface ImageIconError {
+  set     : string | null;
+  /** El nombre del ícono que no cargó. */
+  icon    : string;
+  url     : string;
+  /** `network` y `cors` salen de la descarga; `format` de la decodificación de la imagen. */
+  code    : "network" | "cors" | "format";
+  message : string;
+}
+
+/**
+ * Set por imagen. Un nombre de `icons` es una VARIANTE del set: la que devuelve `variantOf`. El primero
+ * es el respaldo de una variante desconocida (avisa una vez por variante; `null`, `''` y `'default'` no
+ * avisan). Sin ningún `src` válido lanza `TypeError`. Mientras una imagen no decodifica, su tile queda
+ * transparente; al decodificar, el atlas se vuelve a rasterizar. No lleva `describe` ni `renderers`:
+ * mezclarlos lanza `TypeError`.
+ */
+export interface ImageIconSetConfig {
+  icons      : Readonly<Record<string, string | IconSpec>>;
+  rotates?   : boolean;
+  sizes?     : { default?: number; canvas?: number };
+  /** Una vez por catálogo, cuando todas las imágenes decodificaron. */
+  onLoad?    : (detail: { set: string | null; count: number }) => void;
+  /** Nunca lanza: los fallos de carga salen por acá. */
+  onError?   : (detail: ImageIconError) => void;
+}
+
+/** Alias de compatibilidad: era la forma única de `defineIconSet`. */
+export type IconSetConfig = CanvasIconSetConfig | ImageIconSetConfig;
 
 export interface ClusterIconSetConfig {
   /** Thresholds ascendentes de conteo (buckets de variante). */
@@ -69,20 +110,68 @@ export interface ClusterIconSetConfig {
   ) => void;
 }
 
-export function defineIconSet(config: IconSetConfig): IconSet;
+/** Con `icons` arma un set por imagen; con `describe` y `renderers`, uno por canvas. Mezclarlos lanza `TypeError`. */
+export function defineIconSet(config: ImageIconSetConfig): IconSet;
+export function defineIconSet(config: CanvasIconSetConfig): IconSet;
 export function defineClusterIconSet(config: ClusterIconSetConfig): IconSet;
 /** Devuelve un `prerender` que espera a que las fuentes web indicadas estén disponibles. */
 export function prerenderFonts(...families: string[]): () => Promise<void>;
 
-export type ShapePreset = "dot" | "pin" | "circle"
-/** IconSet de una FORMA agnóstica (dot/pin/circle); la VARIANTE que pasa `variantOf` es el color de
- *  relleno (hex) → un tile por color distinto, sin escribir un renderer canvas. */
-export function shapePresetIconSet(config?: { shape?: ShapePreset; size?: number }): IconSet;
+/** Las formas de fábrica. `arrow` apunta al norte y es la única que rota por `headingOf`. */
+export type ShapePreset = "dot" | "pin" | "circle" | "arrow"
+/** IconSet de una FORMA agnóstica (dot/pin/circle/arrow); la VARIANTE que pasa `variantOf` es el color de
+ *  relleno (hex) → un tile por color distinto, sin escribir un renderer canvas. `fallback` es el color
+ *  de una variante vacía o `default`; sin él, el descriptor es el de siempre. */
+export function shapePresetIconSet(config?: { shape?: ShapePreset; size?: number; fallback?: string }): IconSet;
 /** Renderers de forma por nombre, para componer un IconSet propio reusando una forma. */
 export const shapeRenderers: Record<
   string,
   (ctx: CanvasRenderingContext2D, size: number, descriptor: IconDescriptor) => void
 >;
+
+// ── Datos por url (capas de punto, línea y polígono) ────────────────────────
+/** Firma de `fetch` que acepta la descarga: la de `TerrainOptions['fetch']`, con `headers` opcional en
+ *  el init y en la respuesta (se lee `content-type` si está). */
+export type RemoteFetch = (url: string, init?: { signal: AbortSignal; headers?: Record<string, string> }) =>
+  Promise<Pick<Response, "ok" | "status" | "arrayBuffer"> & { headers?: Pick<Headers, "get"> }>;
+
+/**
+ * Datos que la capa trae sola. Con `url` (o con `fields`) los `accessors` pasan a opcionales: `url` pone
+ * los de lectura por geometría y `fields` los que cubre por nombre de campo. Un accessor que falta y que
+ * nada cubre lanza `TypeError`. Precedencia: valor por defecto de `url`, luego `fields`, luego las
+ * funciones de `accessors`. `url` es excluyente con `data`, `source` y `geometry`.
+ */
+export interface RemoteDataOptions {
+  /** Se descarga al montar. Formato: `format`, extensión, Content-Type y bytes, en ese orden. */
+  url?         : string;
+  format?      : FormatName;
+  /** Cómo leer cada ítem por nombre de campo; los lectores son totales sobre null y campo ausente. */
+  fields?      : Fields;
+  /** Milisegundos entre recargas; piso de 1000. `0`, `null` o `false` lo apagan. Pausa con la pestaña oculta. */
+  refresh?     : number | null | false;
+  fetch?       : RemoteFetch;
+  /** Qué hace un click sobre un ítem de la capa: `fit` centra el punto (`panTo`, sin cambiar el zoom) o encuadra la caja de la línea o el polígono, y `follow` sigue el punto (sólo puntos). Requiere `interactive`. */
+  clickAction? : "fit" | "follow";
+}
+
+/** La regla de los `accessors`, la misma de los props de React: completos si el dato no trae `url` ni `fields`; con
+ *  alguno de los dos, opcionales los que ésos cubren (y por la ruta `geometry` de polígonos, ninguno). Es una unión
+ *  para que un alta sin `idOf`, `url` ni `fields` no compile. */
+export type LayerAccessorsRule<A> =
+  | { url?: undefined; fields?: undefined; accessors?: A }
+  | { url: string;     fields?: Fields;    accessors?: Partial<A> }
+  | { url?: string;    fields: Fields;     accessors?: Partial<A> };
+
+export type PointLayerConfig<T>   = PointLayerConfigBase<T> & LayerAccessorsRule<PointAccessors<T>>;
+export type PolygonLayerConfig<T> = PolygonLayerConfigBase<T> & LayerAccessorsRule<PolygonAccessors<T>>;
+export type LineLayerConfig<T>    = LineLayerConfigBase<T> & LayerAccessorsRule<LineAccessors<T>>;
+
+/** Opciones de `reload`: cambia la `url` o el `format`, o el ritmo de `refresh`; sin opciones, recarga. */
+export interface ReloadOptions {
+  url?     : string;
+  format?  : FormatName;
+  refresh? : number | null | false;
+}
 
 // ── Polígonos (addPolygonLayer / <cristae-polygon-layer>) ───────────────────
 export interface PolygonAccessors<T> extends Pick<SourceAccessors<T>, "hashOf"> {
@@ -141,6 +230,8 @@ export interface LineHandle<T = unknown> {
    *  suma con su `append`. Un `set`/`patch`/`remove` del id descarta lo sumado (ver docs/lines.md). */
   append(itemId: string | number, ...points: unknown[]): void;
   setVisible(visible: boolean): void;
+  /** Recarga la capa de `url`: aborta lo en curso y resuelve al aplicar o al fallar; nunca rechaza. */
+  reload(options?: ReloadOptions): Promise<void>;
 }
 
 // ── Hits de picking ─────────────────────────────────────────────────────────
@@ -317,7 +408,35 @@ export interface SurfaceInfo {
   visible    : boolean;
 }
 
+/** `dataload`: una capa de `url` aplicó lo que descargó. */
+export interface DataLoadDetail {
+  layerId : string;
+  url     : string;
+  /** Ítems que entraron a la capa. */
+  count   : number;
+  /** Features que no tenían la geometría de la capa y se saltaron. */
+  skipped : number;
+}
+
+/** Por qué no cargó una capa de `url`. */
+export type DataErrorCode = "network" | "cors" | "format" | "unsupported";
+
+/** `dataerror`: la descarga o la lectura falló. La capa conserva lo que tenía. Sin oyentes, el motor vuelca
+ *  el fallo a la consola una vez por capa. */
+export interface DataErrorDetail {
+  layerId  : string;
+  url      : string;
+  code     : DataErrorCode;
+  message  : string;
+  /** El código HTTP, si hubo respuesta. */
+  status?  : number;
+}
+
 export interface EngineSignals {
+  /** Una capa de `url` cargó (SPECS §10). */
+  'dataload'         : (detail: DataLoadDetail) => void;
+  /** Una capa de `url` no pudo cargar. */
+  'dataerror'        : (detail: DataErrorDetail) => void;
   'ready'            : (detail: Record<string, never>) => void;
   'viewportchange'   : (detail: ViewportChangeDetail) => void;
   /** Cada paso del movimiento, para lo que sigue la vista en continuo (SPECS §10). */
@@ -447,6 +566,10 @@ export interface LabelProps<T = unknown> {
   interactive? : boolean;
   /** Muestra u oculta los rótulos sin desmontar. Default `true`. */
   visible?     : boolean;
+  /** `text` es el campo del ítem que da el contenido, el gemelo serializable de `textOf` (`.` anida; el
+   *  lector es total: ítem nulo o campo ausente dan `''`). Con `textOf` gana la función, y avisa una vez.
+   *  No aplica a una burbuja de cluster, cuyo texto es el conteo. */
+  fields?      : { readonly text?: FieldPath };
 }
 
 /** Lo que recibe `update`: `undefined` no cambia nada y `null` vuelve al valor por defecto. */
@@ -466,10 +589,12 @@ export interface TextAccessors<T> extends Pick<SourceAccessors<T>, "hashOf"> {
   positionOf : (item: T) => { lat: number; lng: number };
 }
 /** Las opciones de los rótulos que valen sin trazo. `auto` es `center`. */
-export type TextProps<T = unknown> = Omit<LabelProps<T>, "repeat" | "orientation" | "interactive" | "visible">;
+export type TextProps<T = unknown> = Omit<LabelProps<T>, "repeat" | "orientation" | "interactive" | "visible" | "fields">;
 export interface TextLayerConfig<T> extends TextProps<T> {
   id           : string;
-  accessors?   : TextAccessors<T>;
+  accessors?   : Partial<TextAccessors<T>>;
+  /** Campos que leen `id`, `position` y `text` del ítem; los lectores son totales. */
+  fields?      : Fields;
   data?        : T[];
   source?      : CristaeSource<T>;
   /** La capa se pica: click y hover sobre el texto. */
@@ -516,10 +641,11 @@ export interface ClusterConfig {
   bubble?    : Record<string, unknown>;
 }
 
-export interface PointLayerConfig<T> {
+interface PointLayerConfigBase<T> extends Omit<RemoteDataOptions, "url" | "fields"> {
   id           : string;
-  accessors    : PointAccessors<T>;
-  iconSet      : IconSet | string;
+  /** **Cambiado**: era obligatorio. Por defecto `dot`. Un nombre de fábrica (`dot`, `pin`, `circle`,
+   *  `arrow`) o el de un set registrado; sin ellos, un `IconSet`. */
+  iconSet?     : IconSet | string;
   /** Ruta `data` (el motor posee la Source) — mutuamente excluyente con `source`. */
   data?        : T[];
   /** Ruta `source` (el consumidor posee la Source; el motor sólo lee). */
@@ -549,6 +675,9 @@ export interface PointHandle<T = unknown> {
   /** Membresía por-capa: reconstruye SOLO esta capa (no toca la Source compartida). */
   setWhere(fn: ((item: T) => boolean) | null): void;
   preloadIcons(variants: string[]): void;
+  /** Recarga la capa de `url`: aborta lo en curso y resuelve al aplicar o al fallar; nunca rechaza. Lanza
+   *  `TypeError` en una capa que no nació con `url`. */
+  reload(options?: ReloadOptions): Promise<void>;
   /** Eje `focus` de la capa (ver `MapEngine.setLayerFocus`). */
   setFocus(ids?: Iterable<string | number> | null | false): void;
   refresh(): void;
@@ -558,7 +687,7 @@ export interface PointHandle<T = unknown> {
 }
 
 // ── Configs y handles de las demás capas ────────────────────────────────────
-export interface PolygonLayerConfig<T> {
+interface PolygonLayerConfigBase<T> extends Omit<RemoteDataOptions, "url" | "fields"> {
   /** Estilo de la capa: `styleOf` pisa por entidad todo salvo `stroke` y `fill`, que prenden o apagan
    *  el trazo y el relleno de la capa entera. */
   color?       : string;
@@ -569,8 +698,6 @@ export interface PolygonLayerConfig<T> {
   fillColor?   : string;
   fillOpacity? : number;
   id           : string;
-  /** Obligatorios salvo por la ruta `geometry`, donde no hay entidades que describir. */
-  accessors?   : PolygonAccessors<T>;
   /** Ruta `data` (el motor posee la Source) — mutuamente excluyente con `source`. */
   data?        : T[];
   /** Ruta `source` (el consumidor posee la Source; el motor sólo lee). Se lee al montar. */
@@ -599,6 +726,8 @@ export interface PolygonHandle<T = unknown> {
   redraw(): void;
   /** Cambia el estilo de la capa —las claves de `styleOf`— y reevalúa `styleOf` por entidad. */
   style(options: Record<string, unknown>): void;
+  /** Recarga la capa de `url`: aborta lo en curso y resuelve al aplicar o al fallar; nunca rechaza. */
+  reload(options?: ReloadOptions): Promise<void>;
 }
 
 // ── Formas en METROS (addShapeLayer) — círculos, elipses y sectores en la GPU, escalan con el zoom ──
@@ -759,9 +888,8 @@ export interface EditableHandle {
   destroy(): void;
 }
 
-export interface LineLayerConfig<T> {
+interface LineLayerConfigBase<T> extends Omit<RemoteDataOptions, "url" | "fields"> {
   id           : string;
-  accessors    : LineAccessors<T>;
   data?        : T[];
   source?      : CristaeSource<T>;
   interactive? : boolean;
@@ -1125,8 +1253,9 @@ export class CristaeTextLayer extends HTMLElement {}
  *  (docs/labeled.md); con `source` propio, `<cristae-text-layer>`. */
 export class CristaeLabelLayer extends HTMLElement {}
 /** Modificador que rotula lo que produce su hijo directo (docs/labeled.md). */
-export class CristaeLabeled<T = unknown> extends HTMLElement implements LabelProps<T> {
-  textOf?      : LabelProps<T>["textOf"];
+export class CristaeLabeled<T = unknown> extends HTMLElement implements Omit<LabelProps<T>, "textOf" | "fields"> {
+  /** Una función, o el nombre de un campo del ítem (atributo `text-of`): se lee con un lector total. */
+  textOf?      : LabelProps<T>["textOf"] | string;
   htmlOf?      : LabelProps<T>["htmlOf"];
   renderer?    : LabelRenderer;
   placement?   : LabelPlacement;
@@ -1139,6 +1268,18 @@ export class CristaeLabeled<T = unknown> extends HTMLElement implements LabelPro
   paint?       : LabelPaint;
   interactive? : boolean;
   visible?     : boolean;
+}
+/** `<cristae-icon-set name size rotates>` con hijos `<cristae-icon>`: un set por imagen declarado en HTML. El mapa
+ *  lo registra antes de montar sus capas. Los nombres de fábrica (`dot`, `pin`, `circle`, `arrow`) están reservados. */
+export class CristaeIconSet extends HTMLElement {
+  name?    : string;
+  size?    : number;
+  rotates? : boolean;
+}
+/** `<cristae-icon name src>`: una variante del `<cristae-icon-set>` que la contiene. */
+export class CristaeIcon extends HTMLElement {
+  name? : string;
+  src?  : string;
 }
 export class CristaeImageLayer extends HTMLElement {}
 export class CristaeHeatLayer extends HTMLElement {}

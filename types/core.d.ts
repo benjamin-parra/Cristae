@@ -80,9 +80,30 @@ export interface CristaeSource<T = unknown> extends CristaeReadSource<T> {
   appendedPoints(): Map<string | number, unknown[]>;
 }
 
-/** Crea una Source house-first (Store + Emitter propios del núcleo): lectura + dueño. */
+/** Nombre de un campo del ítem; con `.` anida (`"estado.codigo"`). */
+export type FieldPath = string;
+
+/**
+ * El gemelo serializable de `accessors`: cada clave es un accessor sin el `Of` (`id`, `position`,
+ * `variant`, `heading`, `text`, …) y cada valor, el nombre de un campo del ítem. `position` también
+ * acepta el par `[campoLat, campoLng]`. Viaja por un atributo HTML o por JSON.
+ *
+ * Todo lector que arma `fields` es total: un ítem nulo o un campo ausente dan el neutro del canal y
+ * nunca una excepción. `id` da `''`, `variant` da `''`, `heading` da `0` y `text` da `''`; el resto
+ * (tamaño, geometría, hash) devuelve el valor crudo. Precedencia: el valor por defecto de la capa,
+ * luego `fields`, luego las funciones de `accessors`.
+ */
+export type Fields = Readonly<Record<string, FieldPath | readonly [FieldPath, FieldPath]>>;
+
+/** Lo que acepta `createSource`: los accessors, con `fields` para los que se leen por nombre de campo. */
+export type SourceAccessorsInput<T> =
+  | (SourceAccessors<T> & { fields?: Fields })
+  | (Partial<SourceAccessors<T>> & { fields: Fields & { id: FieldPath } });
+
+/** Crea una Source house-first (Store + Emitter propios del núcleo): lectura + dueño. `idOf` es
+ *  obligatorio salvo que `fields.id` lo cubra; con `fields`, los accessors que cubre pasan a opcionales. */
 export function createSource<T = unknown>(
-  accessors: SourceAccessors<T>,
+  accessors: SourceAccessorsInput<T>,
   variants?: string[],
 ): CristaeSource<T>;
 

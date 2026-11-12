@@ -22,6 +22,9 @@ import {
   CristaeToolbar,
   CristaeScale,
   CristaeTable,
+  CristaeIconSet,
+  CristaeIcon,
+  CristaePolygonLayer,
   type CristaeHeatLayerElement,
   type CristaeImageLayerElement,
   type CristaeClusterElement,
@@ -37,7 +40,7 @@ import {
   type CristaeTableElement,
   type CristaeViewportChangeDetail,
 } from '@cristae/react'
-import { MapEngine, adoptLeafletHost, arc, createSource, defineSource, defineIconSet, distance, drawLabel, sphere, toParts, type Bounds, type ClusterBubble, type CristaeSource, type LatLng, type LineAccessors, type Point, type PointerSample, type ScreenPoint } from 'cristae/map'
+import { MapEngine, adoptLeafletHost, arc, createSource, defineSource, defineIconSet, shapePresetIconSet, distance, drawLabel, sphere, toParts, type Bounds, type ClusterBubble, type CristaeSource, type LatLng, type LineAccessors, type Point, type PointerSample, type ScreenPoint } from 'cristae/map'
 import { WGS84, boundsOf, boundsPad } from 'cristae/geometry'
 
 interface Movil {
@@ -457,3 +460,73 @@ export const BadHit = () => (
   // @ts-expect-error vertexIndex no existe en un hit sin discriminar
   <CristaePointLayer<Movil> id="fleet" data={moviles} accessors={acc} onClick={(hits) => void hits[0]?.vertexIndex} />
 )
+
+// Datos sin script: la capa trae sus datos por `url` y lee cada ítem por nombre de campo; `iconSet` se omite
+// (dot por defecto), `variantOf` y `headingOf` son campos, y la carga se oye por `onLoad` y `onError`.
+interface Camion { patente: string; color: string; rumbo: number }
+export const DatosPorUrl = () => (
+  <CristaeMap>
+    <CristaePointLayer<Camion>
+      id="flota"
+      url="flota.geojson"
+      format="geojson"
+      fields={{ id: 'patente', position: ['lat', 'lng'], variant: 'color', heading: 'rumbo' }}
+      variantOf="color"
+      headingOf="rumbo"
+      refresh={5000}
+      clickAction="follow"
+      interactive
+      fetch={(url, init) => fetch(url, { signal: init?.signal })}
+      onLoad={(e) => { void e.detail.count; void e.detail.skipped }}
+      onError={(e) => { void e.detail.code; void e.detail.status }}
+    />
+    <CristaePolygonLayer id="predios" url="predios.geojson" idOf="nombre" clickAction="fit" interactive />
+    <CristaeLineLayer id="rutas" url="rutas.kml" refresh={false} accessors={{ hashOf: () => 1 }} />
+    <CristaeTextLayer id="nombres" fields={{ id: 'id', position: 'pos', text: 'nombre' }} textOf="nombre" />
+    <CristaeLabeled textOf="patente">
+      <CristaePointLayer id="otros" url="otros.geojson" />
+    </CristaeLabeled>
+    <CristaePopup for="flota">
+      <template><span data-field="patente" /></template>
+    </CristaePopup>
+  </CristaeMap>
+)
+
+// Un set de íconos por imagen declarado en el árbol: se registra antes de las capas y se pide por nombre.
+export const ConSetDeIconos = () => (
+  <CristaeMap>
+    <CristaeIconSet name="flota" size={40} rotates onLoad={(e) => void e.detail.count} onError={(e) => void e.detail.icon}>
+      <CristaeIcon name="camion" src="camion.svg" />
+      <CristaeIcon name="grua" src="grua.svg" />
+    </CristaeIconSet>
+    <CristaePointLayer id="f" url="flota.geojson" iconSet="flota" variantOf="tipo" />
+  </CristaeMap>
+)
+
+// Sets de imágenes y formas de fábrica, y la Source con `fields`.
+export const sinDescribe = defineIconSet({ icons: { camion: 'camion.svg', grua: { src: 'grua.svg' } }, rotates: true })
+export const fuente = createSource<Camion>({ fields: { id: 'patente', position: ['lat', 'lng'] } })
+export const flecha = shapePresetIconSet({ shape: 'arrow', fallback: '#2563eb' })
+
+export const UsoInvalido = () => (
+  <CristaeMap>
+    {/* @ts-expect-error clickAction sólo admite 'fit' o 'follow' */}
+    <CristaePointLayer id="mal" url="x.geojson" clickAction="zoom" />
+    {/* @ts-expect-error el set por imagen exige name */}
+    <CristaeIconSet size={32} />
+  </CristaeMap>
+)
+
+// @ts-expect-error un set por imagen no mezcla `icons` con `describe`
+export const mezcla = defineIconSet({ icons: { a: 'a.svg' }, describe: () => ({ shape: 'dot' }) })
+// @ts-expect-error sin `idOf` ni `fields.id` la Source no tiene identidad
+export const sinId = createSource<Camion>({ fields: { text: 'patente' } })
+
+// El motor: capa de puntos por url sin accessors ni iconSet, recarga y señales de carga.
+export const MotorPorUrl = (engine: MapEngine) => {
+  const capa = engine.addPointLayer({ id: 'flota', url: 'flota.geojson', fields: { id: 'patente' }, clickAction: 'fit', interactive: true })
+  void capa.reload({ refresh: 10000 })
+  engine.on('dataload', (d) => void d.count)
+  engine.on('dataerror', (d) => void d.code)
+  engine.addPolygonLayer({ id: 'p', url: 'p.geojson', format: 'geojson' }).reload()
+}

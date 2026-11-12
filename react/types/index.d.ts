@@ -15,6 +15,7 @@
 
 import type { ForwardRefExoticComponent, ReactElement, ReactNode, RefAttributes } from 'react'
 import type {
+  Fields,
   PointAccessors,
   LineAccessors,
   PolygonAccessors,
@@ -80,6 +81,11 @@ import type {
   MapClickDetail,
   SurfaceInfo,
   DrawingIndicator,
+  RemoteDataOptions,
+  DataLoadDetail,
+  DataErrorDetail,
+  ImageIconError,
+  IconSpec,
 } from '../../types/map'
 import type { PagedTable } from '../../types/table'
 
@@ -308,6 +314,26 @@ export declare const CristaeMap: ForwardRefExoticComponent<CristaeMapProps & Ref
 // El `ref` de cada capa expone su `controls`: el handle del motor, camino soportado de la ruta caliente
 // (`move`/`patch`/`addFilter`/`setWhere`) sin re-render. Es `null` hasta que la capa monta.
 
+/** Lo que añade el tramo de datos sin script a las capas de punto, línea y polígono: `url` y `fields` con sus
+ *  hermanos, la acción del click y las señales de carga. Los nombres por atributo (`variantOf`, `headingOf`,
+ *  `idOf`) son un campo del ítem, no una función: la función va en `accessors`, y gana. `idOf` se lee al montar;
+ *  `variantOf` y `headingOf` repintan al cambiar. */
+interface CristaeRemoteLayerProps extends Omit<RemoteDataOptions, "url" | "fields"> {
+  /** Campo del ítem que da el id (atributo `id-of`). Se lee al montar. */
+  idOf?     : string;
+  /** Se emite al cargar la capa (`cristae:load`); `count` y `skipped` salen del motor. */
+  onLoad?   : CristaeEventHandler<DataLoadDetail>;
+  /** Se emite si la descarga o la lectura fallan (`cristae:error`); la capa conserva lo que tenía. */
+  onError?  : CristaeEventHandler<DataErrorDetail>;
+}
+
+/** La regla de los `accessors`: completos si el dato no trae `url` ni `fields`; con alguno de los dos, opcionales los
+ *  que ésos cubren. Es una unión para que `accessors` sin `idOf` ni `url` ni `fields` no compile. */
+type CristaeAccessorsRule<A> =
+  | { url?: undefined; fields?: undefined; accessors?: A }
+  | { url: string;     fields?: Fields;    accessors?: Partial<A> }
+  | { url?: string;    fields: Fields;     accessors?: Partial<A> }
+
 export interface CristaePointLayerElement<T = unknown> extends HTMLElement { readonly controls: PointHandle<T> | null }
 export interface CristaeLineLayerElement<T = unknown> extends HTMLElement { readonly controls: LineHandle<T> | null }
 export interface CristaePolygonLayerElement<T = unknown> extends HTMLElement { readonly controls: PolygonHandle<T> | null }
@@ -316,11 +342,15 @@ export interface CristaeHtmlLayerElement<T = unknown> extends HTMLElement { read
 /** @deprecated Se retira en v0.47.0 con `<cristae-label-layer>`: la reemplaza `CristaeLabeledElement`. */
 export interface CristaeLabelLayerElement extends HTMLElement { readonly controls: Omit<LabelHandle, "setLabels"> | null }
 
-export interface CristaePointLayerProps<T = unknown> extends CristaeDataLayerProps {
+interface CristaePointLayerBase<T> extends CristaeDataLayerProps, CristaeRemoteLayerProps {
   data?        : T[];
   source?      : CristaeReadSource<T>;
-  accessors?   : PointAccessors<T>;
+  /** Por defecto `dot`. Un nombre de fábrica (`dot`, `pin`, `circle`, `arrow`), el de un `<CristaeIconSet>`, o un `IconSet`. */
   iconSet?     : IconSet | string;
+  /** Campo del ítem que da la variante (atributo `variant-of`): un color si el set es de forma. */
+  variantOf?   : string;
+  /** Campo del ítem que da el rumbo en grados (atributo `heading-of`). Sólo rota con un set que rota. */
+  headingOf?   : string;
   filters?     : CristaeFilter<T>[];
   /** Membresía por-capa: filtra qué ítems entran a ESTA capa sin tocar la Source compartida. */
   where?       : (item: T) => boolean;
@@ -331,28 +361,29 @@ export interface CristaePointLayerProps<T = unknown> extends CristaeDataLayerPro
   /** `"once"`: encuadra la capa al llegar los primeros puntos. */
   autoFit?     : 'once';
 }
+/** `accessors` es obligatorio salvo con `url` o `fields`, donde pasan a opcionales los que ésos cubren. */
+export type CristaePointLayerProps<T = unknown> = CristaePointLayerBase<T> & CristaeAccessorsRule<PointAccessors<T>>
 export declare function CristaePointLayer<T = unknown>(
   props: CristaePointLayerProps<T> & RefAttributes<CristaePointLayerElement<T>>,
 ): ReactElement | null;
 
-export interface CristaeLineLayerProps<T = unknown> extends CristaeDataLayerProps {
+interface CristaeLineLayerBase<T> extends CristaeDataLayerProps, CristaeRemoteLayerProps {
   data?        : T[];
   source?      : CristaeReadSource<T>;
-  accessors?   : LineAccessors<T>;
   interactive? : boolean;
   visible?     : boolean;
 }
+export type CristaeLineLayerProps<T = unknown> = CristaeLineLayerBase<T> & CristaeAccessorsRule<LineAccessors<T>>
 export declare function CristaeLineLayer<T = unknown>(
   props: CristaeLineLayerProps<T> & RefAttributes<CristaeLineLayerElement<T>>,
 ): ReactElement | null;
 
-export interface CristaePolygonLayerProps<T = unknown> extends CristaeDataLayerProps {
+interface CristaePolygonLayerBase<T> extends CristaeDataLayerProps, CristaeRemoteLayerProps {
   data?        : T[];
   source?      : CristaeReadSource<T>;
   /** Las tablas del lector (`areasOf`), sin materializar un array. Trae su
    *  propia identidad: sin `accessors`, cada figura responde por su feature. */
   geometry?    : PolygonGpuGeometry;
-  accessors?   : PolygonAccessors<T>;
   interactive? : boolean;
   visible?     : boolean;
   /** Estilo de la capa, el de `PolygonLayerConfig`: `styleOf` lo pisa por polígono. `stroke` y `fill` prenden o
@@ -365,6 +396,7 @@ export interface CristaePolygonLayerProps<T = unknown> extends CristaeDataLayerP
   fillColor?   : string;
   fillOpacity? : number;
 }
+export type CristaePolygonLayerProps<T = unknown> = CristaePolygonLayerBase<T> & CristaeAccessorsRule<PolygonAccessors<T>>
 export declare function CristaePolygonLayer<T = unknown>(
   props: CristaePolygonLayerProps<T> & RefAttributes<CristaePolygonLayerElement<T>>,
 ): ReactElement | null;
@@ -427,10 +459,16 @@ export declare function CristaeLabelLayer<T = unknown>(
 export interface CristaeTextLayerElement<T = unknown> extends HTMLElement { readonly controls: TextHandle<T> | null }
 
 /** Capa base de texto con datos propios, con las opciones de `<CristaeLabeled>` que valen sin trazo. */
-export interface CristaeTextLayerProps<T = unknown> extends CristaeDataLayerProps, TextProps<T> {
+export interface CristaeTextLayerProps<T = unknown> extends CristaeDataLayerProps, Omit<TextProps<T>, "textOf"> {
   data?        : T[];
   source?      : CristaeReadSource<T>;
-  accessors?   : TextAccessors<T>;
+  accessors?   : Partial<TextAccessors<T>>;
+  /** Campos que leen `id`, `position` y `text` del ítem; los lectores son totales. */
+  fields?      : Fields;
+  /** Campo del ítem que da el id (atributo `id-of`). Se lee al montar. */
+  idOf?        : string;
+  /** La función, o el nombre de un campo del ítem (atributo `text-of`, lector total). Con `fields.text`, gana. */
+  textOf?      : string | TextProps<T>["textOf"];
   interactive? : boolean;
   visible?     : boolean;
 }
@@ -638,7 +676,10 @@ export type CristaeLabeledElement<T = unknown> = CristaeLabeledClass<T>
 /** `<CristaeLabeled>` rotula lo que produce su hijo directo: las capas que envuelve, o las burbujas de un
  *  `<CristaeCluster>` (`textOf` recibe `{ count, leaves }`). Para encender y apagar los rótulos va
  *  `visible`: envolver condicionalmente cambia el padre del host y React lo remonta. */
-export interface CristaeLabeledProps<T = unknown> extends CristaeLayerProps, LabelProps<T> {
+export interface CristaeLabeledProps<T = unknown> extends CristaeLayerProps, Omit<LabelProps<T>, "textOf"> {
+  /** La función, o el nombre de un campo del ítem (atributo `text-of`, lector total sobre null y campo ausente).
+   *  Sobre una burbuja de cluster un nombre de campo no aplica: su texto es el conteo. */
+  textOf?  : string | LabelProps<T>["textOf"];
   children : ReactNode;
 }
 export declare function CristaeLabeled<T = unknown>(
@@ -657,6 +698,8 @@ export interface CristaePopupElement<T = unknown> extends HTMLElement {
   refresh(): void;
 }
 
+/** El contenido de la tarjeta sale de `contentOf` o, sin ella, de un `<template>` hijo cuyos `data-field` se
+ *  escriben por `textContent` (nunca como HTML). Con `contentOf`, gana. */
 export interface CristaePopupProps<T = unknown> extends CristaeBaseProps {
   /** Id(s) de capa cuyos clicks abren la tarjeta (token-list separada por espacios). */
   for?            : string;
@@ -679,6 +722,33 @@ export interface CristaePopupProps<T = unknown> extends CristaeBaseProps {
 export declare function CristaePopup<T = unknown>(
   props: CristaePopupProps<T> & RefAttributes<CristaePopupElement<T>>,
 ): ReactElement | null;
+
+// ── <CristaeIconSet> e <CristaeIcon> ─────────────────────────────────────────
+/** Lo que llega en `cristae:load` de un set: el nombre del set y cuántas imágenes decodificaron. */
+export interface CristaeIconSetLoadDetail { set: string; count: number }
+/** Lo que llega en `cristae:error` de un set: el de `ImageIconError`, con el nombre del set. */
+export type CristaeIconSetErrorDetail = ImageIconError & { set: string }
+
+/** Un set de íconos por imagen declarado en el árbol, con `<CristaeIcon>` hijos. El mapa lo registra antes de
+ *  montar sus capas, así que va dentro de `<CristaeMap>` y se pide por su `name` en `iconSet`. Los nombres
+ *  de fábrica están reservados. No es una capa. */
+export interface CristaeIconSetProps extends CristaeBaseProps {
+  name      : string;
+  /** Tamaño del tile en px (default 32). */
+  size?     : number;
+  /** Si el set rota el ícono por `headingOf`. */
+  rotates?  : boolean;
+  onLoad?   : CristaeEventHandler<CristaeIconSetLoadDetail>;
+  onError?  : CristaeEventHandler<CristaeIconSetErrorDetail>;
+}
+export declare const CristaeIconSet: ForwardRefExoticComponent<CristaeIconSetProps & RefAttributes<HTMLElement>>;
+
+/** Una variante del set que la contiene: `name` es lo que devuelve `variantOf`, `src` la URL de la imagen. */
+export interface CristaeIconProps extends CristaeBaseProps {
+  name : string;
+  src  : IconSpec["src"];
+}
+export declare const CristaeIcon: ForwardRefExoticComponent<CristaeIconProps & RefAttributes<HTMLElement>>;
 
 // ── <CristaeToolbar> ─────────────────────────────────────────────────────────
 export interface CristaeToolbarItem {
