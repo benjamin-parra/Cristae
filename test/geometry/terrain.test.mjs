@@ -6,9 +6,7 @@
 // Corre con: node --test test/geometry/terrain.test.mjs
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { deflateSync } from 'node:zlib'
 import { build } from 'esbuild'
 import geographiclib from 'geographiclib-geodesic'
 import { terrain, terrainPresets, relief, elevation } from '../../src/geometry/terrain.js'
@@ -18,6 +16,7 @@ import { boundsOf } from '../../src/geometry/bounds.js'
 import { WGS84, ellipsoid } from '../../src/geometry/ellipsoid.js'
 import { ring, arc } from '../../src/geometry/shape.js'
 import { geodesic } from '../../src/geometry/curve.js'
+import { latDe, lngDe, terrarium, mapbox, terrariumDe, respuesta, mundo, TESELA_REAL, URL_TESELA_REAL } from '../../test-helpers/terreno.mjs'
 
 const R         = 6371008.8             // radio medio IUGG R1 (m)
 const RAD       = Math.PI / 180
@@ -35,9 +34,6 @@ const suma  = valores => valores.reduce((a, b) => a + b, 0)
 // ── La grilla del test: tiles de 64 a z14, 2^20 píxeles por vuelta, celdas de ~30 m ─────────────
 
 const FUENTE = { url: 'https://t.test/{z}/{x}/{y}.png', encoding: 'terrarium', zoom: 14, tileSize: 64 }
-
-const lngDe = (x, n = 2 ** 20) => x / n * 360 - 180
-const latDe = (y, n = 2 ** 20) => (2 * Math.atan(Math.exp(Math.PI * (1 - 2 * y / n))) - Math.PI / 2) / RAD
 
 // El píxel de referencia, cerca de (−37, −73): columna 20 y fila 20 del tile (4869, 10007).
 const PX   = 4869 * 64 + 20
@@ -65,76 +61,6 @@ const centrado = (x, y, m) => {
   const dLat = m / R / RAD
   const dLng = m / (R * Math.cos(lat * RAD)) / RAD
   return rect(lat - dLat, lng - dLng, lat + dLat, lng + dLng)
-}
-
-// ── PNG y stub de fetch ──────────────────────────────────────────────────────────────────────
-
-const CRC = Uint32Array.from({ length: 256 }, (_, n) => {
-  let c = n
-  for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1
-  return c >>> 0
-})
-const crc32 = bytes => {
-  let c = 0xFFFFFFFF
-  for (const v of bytes) c = CRC[(c ^ v) & 255] ^ (c >>> 8)
-  return (c ^ 0xFFFFFFFF) >>> 0
-}
-const chunk = (type, data) => {
-  const out = Buffer.alloc(12 + data.length)
-  out.writeUInt32BE(data.length, 0)
-  out.write(type, 4, 'latin1')
-  out.set(data, 8)
-  out.writeUInt32BE(crc32(out.subarray(4, 8 + data.length)), 8 + data.length)
-  return out
-}
-
-// Un PNG de `lado` × `lado`, RGB o RGBA según lo que devuelva `pixel(x, y)`, sin filtro.
-const png = (lado, pixel) => {
-  const bpp = pixel(0, 0).length
-  const raw = Buffer.alloc(lado * (1 + lado * bpp))
-  for (let y = 0; y < lado; y++)
-    for (let x = 0; x < lado; x++) raw.set(pixel(x, y), y * (1 + lado * bpp) + 1 + x * bpp)
-  const ihdr = Buffer.alloc(13)
-  ihdr.writeUInt32BE(lado, 0)
-  ihdr.writeUInt32BE(lado, 4)
-  ihdr.set([8, bpp === 4 ? 6 : 2, 0, 0, 0], 8)
-  return Buffer.concat([Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]), chunk('IHDR', ihdr),
-    chunk('IDAT', deflateSync(raw)), chunk('IEND', Buffer.alloc(0))])
-}
-
-// Las dos codificaciones, escritas desde su definición; `terrariumDe` es la altura que decodifica el tile.
-const terrarium   = h => {
-  const v = h + 32768
-  return [Math.floor(v / 256), Math.floor(v) % 256, Math.floor((v - Math.floor(v)) * 256)]
-}
-const mapbox      = h => (c => [c >> 16 & 255, c >> 8 & 255, c & 255])(Math.round((h + 10000) * 10))
-const terrariumDe = h => (([r, g, b]) => r * 256 + g + b / 256 - 32768)(terrarium(h))
-
-const respuesta = (status, bytes) => ({
-  ok          : status >= 200 && status < 300,
-  status,
-  arrayBuffer : async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
-})
-
-// Un mundo de alturas `h(lat, lng)` servido como tiles, plano a 500 m si no se da: `estados` responde un
-// código a esas URLs, `pixel` reemplaza la codificación y `lado` el tamaño del PNG. Registra las URLs, las
-// señales y los receptores.
-const mundo = ({ h = () => 500, lado = 64, codificar = terrarium, pixel, estados = {}, bytes = {} } = {}) => {
-  const urls      = []
-  const senales   = []
-  const receptores = []
-  const fetch = function (url, { signal }) {
-    urls.push(url)
-    senales.push(signal)
-    receptores.push(this)
-    if (estados[url]) return Promise.resolve(respuesta(estados[url], new Uint8Array(0)))
-    if (bytes[url]) return Promise.resolve(respuesta(200, bytes[url]))
-    const [z, tx, ty] = url.match(/(\d+)\/(\d+)\/(\d+)/).slice(1).map(Number)
-    const n           = lado * 2 ** z
-    return Promise.resolve(respuesta(200, png(lado, pixel ?? ((x, y) =>
-      codificar(h(latDe(ty * lado + y + 0.5, n), lngDe(tx * lado + x + 0.5, n)))))))
-  }
-  return { fetch, urls, senales, receptores }
 }
 
 // Rampa norte–sur de pendiente s: h lineal en los metros al norte, exacta en la esfera.
@@ -428,8 +354,8 @@ test('una zona dentro de una sola celda hereda su altura', async () => {
 })
 
 test('el tile real de AWS: la celda que contiene (−36,985, −72,993) vale 170,0 m', async () => {
-  const fixture = new Uint8Array(readFileSync(new URL('../fixtures/terrarium-12-1217-2501.png', import.meta.url)))
-  const url     = 'https://t.test/12/1217/2501.png'
+  const fixture = TESELA_REAL
+  const url     = URL_TESELA_REAL
   const fuente  = { ...FUENTE, zoom: 12, tileSize: 256 }
   const n       = 256 * 2 ** 12
   // El píxel (128, 127) del tile, con PIL (128, 170, 0).

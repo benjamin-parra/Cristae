@@ -42,6 +42,7 @@ const gMeasure = await import('../src/geometry/measure.js')
 const gShape = await import('../src/geometry/shape.js')
 const gCurve = await import('../src/geometry/curve.js')
 const gTerrain = await import('../src/geometry/terrain.js')
+const gPresets = await import('../src/geometry/terrain-presets.js')
 const fError = await import('../src/formats/core/error.js')
 const fDetect = await import('../src/formats/core/detect.js')
 const fKml = await import('../src/formats/kml.js')
@@ -327,7 +328,7 @@ test('cada export de cristae/geometry es el MISMO valor que define su módulo', 
     boundsOf: gBounds, boundsPad: gBounds, boundsContain: gBounds, boundsCenter: gBounds,
     area: gMeasure, perimeter: gMeasure, diameter: gMeasure,
     ring: gShape, arc: gShape, geodesic: gCurve,
-    terrain: gTerrain, terrainPresets: gTerrain, relief: gTerrain, elevation: gTerrain,
+    terrain: gTerrain, terrainPresets: gPresets, relief: gTerrain, elevation: gTerrain,
   }
   assert.deepEqual(Object.keys(origen).sort(), Object.keys(GEOMETRY).sort())
   for (const [k, mod] of Object.entries(origen))
@@ -341,9 +342,10 @@ const MAPA_GEOMETRIA = {
   './geometry/geodesic.js' : ['distance', 'sphere'],
   './geometry/polyline.js' : ['sampleAlong', 'toParts'],
   './geometry/shape.js'    : ['arc'],
+  './geometry/terrain-presets.js' : ['terrainPresets'],
 }
 
-test('cristae/map re-exporta distance, sphere, toParts, sampleAlong y arc, sin el elipsoide', () => {
+test('cristae/map re-exporta distance, sphere, toParts, sampleAlong, arc y terrainPresets, sin el elipsoide', () => {
   const fuente = readFileSync(raiz('src/index.js'), 'utf8')
   const reexporta = Object.fromEntries([...fuente.matchAll(/^export \{([^}]*)\} from '(\.\/geometry\/[^']+)'/gm)]
     .map(([, nombres, desde]) => [desde, nombres.split(',').map(n => n.trim()).sort()]))

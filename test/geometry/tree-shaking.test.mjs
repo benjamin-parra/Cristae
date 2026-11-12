@@ -68,6 +68,14 @@ test('terrainPresets solo son datos: no traen el cargador', async () => {
   assert.ok(!js.includes(TERRENO))
 })
 
+test('terrainPresets desde su módulo no trae el cargador ni height-tiles', async () => {
+  const js = await empaquetar("export { terrainPresets } from './src/geometry/terrain-presets.js'")
+  assert.ok(js.includes('elevation-tiles-prod'), 'el bundle trae los presets')
+  assert.ok(!js.includes(TERRENO))
+  assert.ok(!js.includes('respondió'), 'sin el cargador de tiles')
+  assert.ok(!js.includes('cristae.terrain.cache'), 'sin height-tiles')
+})
+
 test('quien importa WGS84 o ellipsoid sí la carga', async () => {
   for (const nombre of ['WGS84', 'ellipsoid'])
     assert.ok((await empaquetar(`export { ${nombre} } from './src/geometry/index.js'`)).includes(MARCA), nombre)

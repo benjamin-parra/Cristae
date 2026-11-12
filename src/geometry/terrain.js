@@ -10,11 +10,12 @@
 // sobre ese modelo y no hereda la escala de Mercator. Lo que no llega —un tile 404 o 204, un píxel de
 // alfa 0— queda NaN y no se rellena con el tile padre: mezclar resoluciones aparentaría un detalle que
 // no hay.
-import { AREA, ELEVATION, MODEL, RELIEF, byDefault, isModel } from './geodesic.js'
+import { AREA, ELEVATION, GRID, MODEL, RELIEF, byDefault, isModel } from './geodesic.js'
 import { coordOf, isPoint } from '../data/path.js'
 import { areaStep, foldRings } from './measure.js'
 import { readBounds } from './bounds.js'
-import { decodeTile } from './raster.js'
+import { TILE_CACHE, loadHeightTile } from './height-tiles.js'
+export { terrainPresets } from './terrain-presets.js'
 
 const D = Math.PI / 180
 
@@ -23,28 +24,6 @@ const MERCATOR_LIMIT = 85.0511287798066
 
 // Una celda cuenta si su cobertura pasa de esto: lo de abajo es polvo del redondeo de la acumulación.
 const DUST = 1e-9
-
-// Proveedores públicos, sin key ni cuenta. Los dos cargan la misma grilla, 2^20 píxeles por vuelta: AWS
-// a z12 con tiles de 256 y Mapterhorn a z11 con tiles de 512. Son 1,24″ por píxel, 38 m en el ecuador:
-// cerca del 1″ de SRTM y de GLO-30, sin llegar a él.
-export const terrainPresets = {
-  aws: {
-    url         : 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png',
-    encoding    : 'terrarium',
-    zoom        : 12,
-    maxZoom     : 15,
-    tileSize    : 256,
-    attribution : 'United States 3DEP (formerly NED) and global GMTED2010 and SRTM terrain data courtesy of the U.S. Geological Survey.',
-  },
-  mapterhorn: {
-    url         : 'https://tiles.mapterhorn.com/{z}/{x}/{y}.webp',
-    encoding    : 'terrarium',
-    zoom        : 11,
-    maxZoom     : 17,
-    tileSize    : 512,
-    attribution : '© Mapterhorn (https://mapterhorn.com/attribution) · Copernicus GLO-30: © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved',
-  },
-}
 
 const checkInteger = (name, value, min, max = Infinity) => {
   if (!(Number.isInteger(value) && value >= min && value <= max))
@@ -89,7 +68,7 @@ export const terrain = async (...args) => {
   if (source.encoding !== 'terrarium' && source.encoding !== 'mapbox')
     throw new RangeError(`[terrain] encoding desconocido: ${source.encoding}`)
   const { zoom, maxZoom = 24, tileSize: size = 256 } = source
-  const { maxTiles = 32, signal, fetch: fetchTile = globalThis.fetch } = options
+  const { maxTiles = 32, signal, fetch: fetchTile = globalThis.fetch, [TILE_CACHE]: cache } = options
   checkInteger('maxZoom', maxZoom, 0, 24)
   checkInteger('zoom', zoom, 0, maxZoom)
   checkInteger('tileSize', size, 1)
@@ -150,24 +129,16 @@ export const terrain = async (...args) => {
   // para no colgar de una señal de vida larga.
   const inner  = new AbortController()
   const abort  = () => inner.abort()
-  const wrap   = 2 ** zoom
   let next     = 0
   let served   = 0
   const worker = async () => {
     while (next < tiles && !inner.signal.aborted) {
-      const tile    = next++
-      const tx      = tx0 + tile % cols
-      const ty      = ty0 + Math.floor(tile / cols)
-      const url     = source.url.replaceAll('{z}', zoom).replaceAll('{x}', (tx % wrap + wrap) % wrap).replaceAll('{y}', ty)
-      const unheard = cause => { throw new Error(`[terrain] ${url} no respondió`, { cause }) }
-      const res     = await fetchTile(url, { signal: inner.signal }).catch(unheard)
-      if (res.status === 404 || res.status === 204) continue
-      if (!res.ok) throw new Error(`[terrain] ${url} respondió ${res.status}`)
-      const { width, height, heights: values } = await decodeTile(new Uint8Array(await res.arrayBuffer().catch(unheard)), source.encoding)
-        .catch(error => {
-          throw error.message.startsWith('[terrain]') ? error : new Error(`[terrain] ${url} no es un tile legible: ${error.message}`, { cause: error })
-        })
-      if (width !== size || height !== size) throw new Error(`[terrain] ${url} mide ${width}×${height}; se esperaban ${size}×${size}`)
+      const tile   = next++
+      const tx     = tx0 + tile % cols
+      const ty     = ty0 + Math.floor(tile / cols)
+      const params = { fetch: fetchTile, signal: inner.signal }
+      const values = await (cache ? cache.get(source, zoom, tx, ty, params) : loadHeightTile(source, zoom, tx, ty, params))
+      if (!values) continue
       if (inner.signal.aborted) return
 
       const x0 = Math.max(px0, tx * size)
@@ -417,6 +388,8 @@ export const terrain = async (...args) => {
     zoom,
     cellSize    : ew[H >> 1] / 2,
     attribution,
+    // La grilla cargada, para quien dibuja el mismo terreno: el arreglo es del terreno y no se escribe.
+    [GRID]      : Object.freeze({ heights, W, H, px0, py0, N, size, zoom, ew, ns }),
   })
 }
 

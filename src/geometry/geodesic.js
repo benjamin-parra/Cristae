@@ -40,6 +40,7 @@ export const DESTINATION = Symbol.for('cristae.geometry.destination')
 export const HEADING     = Symbol.for('cristae.geometry.heading')
 export const ELEVATION   = Symbol.for('cristae.geometry.elevation')
 export const RELIEF      = Symbol.for('cristae.geometry.relief')
+export const GRID        = Symbol.for('cristae.geometry.grid')
 export const isModel     = value => typeof value?.[MODEL] === 'function'
 
 // Un modelo es inmutable y se valida al construirlo, no en medio de un track: un radio o un semieje
