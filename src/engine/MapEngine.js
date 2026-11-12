@@ -23,6 +23,7 @@ import { createClusterFold } from '../cluster/ClusterFold.js'
 import { createLabels } from './labels.js'
 import { mergeLabelOptions, resolvePlacement } from '../render/labelOptions.js'
 import { deprecated, RETIRO } from './deprecated.js'
+import { warnTileKeys } from '../tiles/vocabulario.js'
 import { defineClusterIconSet } from '../atlas/IconSet.js'
 import { DEFAULT_SHAPE_COLOR, FACTORY_SHAPES, shapePresetIconSet } from '../atlas/shape-presets.js'
 import { accessorsFromFields, fieldReader } from '../data/fields.js'
@@ -193,6 +194,7 @@ export class MapEngine {
   #dimOpacity         = 0.3            // opacidad del resto mientras hay enfoque POR CAPA
   #focusKinds         = null           // kinds de capa que el enfoque por capa atenúa (null = todas)
   #itemFocus          = new Map()      // enfoque por ÍTEM: layerId → Set(id) declarado (vacío = todo atenuado)
+  #worldCopies        = undefined      // si los tiles se repiten fuera de ±180; sin valor, lo que haga el anfitrión (repite)
   #model              = null           // el modelo de la Tierra con que dibujan y pican las formas y las geodésicas
   #planeWarned        = false          // un z derivado ya llegó al techo de su plano
   #labels                              // los rótulos de `addLabels` (engine/labels.js)
@@ -204,12 +206,13 @@ export class MapEngine {
   // Lo que queda en `limits` son los límites de la cámara. Como la vista inicial, son del mapa propio: uno
   // adoptado trae los de su dueño. `model` se valida antes de crear el mapa: si lanza no deja uno suelto en el contenedor.
   constructor({
-    host, container, view, insets, hoverThrottleMs = 0, zoomAnimation, cursor, model = byDefault, ...limits
+    host, container, view, insets, hoverThrottleMs = 0, zoomAnimation, cursor, model = byDefault, worldCopies, ...limits
   } = {}) {
     if (!isModel(model)) throw new TypeError('[MapEngine] `model` tiene que ser sphere(), ellipsoid() o WGS84')
     checkPlacer(model, 'MapEngine', 'las formas y las geodésicas')
     checkHeading(model, 'MapEngine')
     this.#model = model
+    if (worldCopies !== undefined) this.#worldCopies = !!worldCopies
 
     this.#host      = host ?? createLeafletHost({ container, view, limits: limitsOf(limits) })
     // Sin modo explícito queda el del anfitrión: no anima en un mapa propio, y en uno adoptado no se
@@ -1219,12 +1222,17 @@ export class MapEngine {
   }
 
   // `tile` es un proveedor o el nombre de un preset (`tilePresets`). Un nombre que no existe es TypeError y deja el
-  // proveedor vigente.
-  setTileProvider(tile) {
+  // proveedor vigente. `worldCopies` dice si los tiles se repiten fuera de ±180 y, sin él, rige el de las opciones;
+  // sin ninguno el anfitrión repite. Un `noWrap` propio del proveedor gana, y avisa que está deprecado.
+  setTileProvider(tile, { worldCopies = this.#worldCopies } = {}) {
     const provider = tileOf(tile)
     if (provider === null && typeof tile === 'string')
       throw new TypeError(`[cristae] tile '${tile}' no es un preset: usar ${Object.keys(tilePresets).join(', ')}`)
-    this.#host.tiles.setProvider(provider ?? tile)
+    const given = provider ?? tile
+    warnTileKeys(given)
+    const own = given && typeof given === 'object' && Object.hasOwn(given, 'noWrap')
+    this.#host.tiles.setProvider(worldCopies === undefined || own || !given || typeof given !== 'object'
+      ? given : { noWrap: !worldCopies, ...given })
     return this
   }
 

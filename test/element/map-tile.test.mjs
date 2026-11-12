@@ -8,29 +8,34 @@ import { MapEngine } from '../../src/engine/MapEngine.js'
 import { CristaeMap } from '../../src/element/CristaeMap.js'
 import { tilePresets } from '../../src/tiles/presets.js'
 
-// Anota los proveedores que recibe el motor, y las atribuciones que dejan.
+// Anota los proveedores que recibe el motor y, aparte, el `worldCopies` con que los pide el elemento.
 const espiar = () => {
-  const dado = [], original = MapEngine.prototype.setTileProvider
-  MapEngine.prototype.setTileProvider = function (tile) { dado.push(tile); return original.call(this, tile) }
-  return { dado, soltar: () => { MapEngine.prototype.setTileProvider = original } }
+  const dado = [], copias = [], original = MapEngine.prototype.setTileProvider
+  MapEngine.prototype.setTileProvider = function (tile, opciones) {
+    dado.push(tile)
+    copias.push(opciones?.worldCopies)
+    return original.call(this, tile, opciones)
+  }
+  return { dado, copias, soltar: () => { MapEngine.prototype.setTileProvider = original } }
 }
 
 const conAdd = map => Object.assign(map, { addLayer: () => map })
 const convertir = CristaeMap.properties.tile.converter.fromAttribute
 
-test('tile="osm" da el preset con noWrap, y el montaje no provee dos veces', async () => {
-  const { dado, soltar } = espiar()
+test('tile="osm" da el preset sin repetir el mundo, y el montaje no provee dos veces', async () => {
+  const { dado, copias, soltar } = espiar()
   try {
     const { el } = await montarMapa({ tile: 'osm' }, conAdd(makeMap()))
     el.willUpdate(new Map([['tile', undefined]]))
-    assert.deepEqual(dado, [{ noWrap: true, ...tilePresets.osm }])
+    assert.deepEqual(dado, [tilePresets.osm])
+    assert.deepEqual(copias, [false])
     assert.equal(el._attribution, tilePresets.osm.attribution)
     el.disconnectedCallback()
   } finally { soltar() }
 })
 
 test('cambiar a otro nombre re-provee una vez y actualiza la atribución; world-copies re-provee', async () => {
-  const { dado, soltar } = espiar()
+  const { dado, copias, soltar } = espiar()
   try {
     const { el } = await montarMapa({ tile: 'osm' }, conAdd(makeMap()))
     el.tile = 'cartoDark'
@@ -42,7 +47,7 @@ test('cambiar a otro nombre re-provee una vez y actualiza la atribución; world-
     el.worldCopies = true
     el.willUpdate(new Map([['worldCopies', false]]))
     assert.equal(dado.length, 3)
-    assert.equal(dado[2].noWrap, false)
+    assert.equal(copias[2], true)
     el.disconnectedCallback()
   } finally { soltar() }
 })
@@ -67,11 +72,12 @@ test('un nombre desconocido avisa una vez y deja el proveedor vigente', async ()
 })
 
 test('un objeto sigue igual, y el conversor separa JSON de nombre', async () => {
-  const { dado, soltar } = espiar()
+  const { dado, copias, soltar } = espiar()
   try {
     const tile = { url: 'https://proveedor.test/{z}/{x}/{y}.png', attribution: 'P' }
     const { el } = await montarMapa({ tile }, conAdd(makeMap()))
-    assert.deepEqual(dado, [{ noWrap: true, ...tile }])
+    assert.deepEqual(dado, [tile])
+    assert.deepEqual(copias, [false])
     el.disconnectedCallback()
   } finally { soltar() }
   assert.equal(convertir('osm'), 'osm')

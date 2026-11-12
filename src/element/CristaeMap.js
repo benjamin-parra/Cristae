@@ -399,7 +399,7 @@ export class CristaeMap extends LitElement {
       else warnOnce(this, `tile:${name}`, `tile '${name}' no es un preset: ${Object.keys(tilePresets).join(', ')}`)
       return
     }
-    this.#engine.setTileProvider({ noWrap: !copies, ...preset })
+    this.#engine.setTileProvider(preset, { worldCopies: copies })
     this._attribution = this.#engine.getTileAttribution()
   }
 
