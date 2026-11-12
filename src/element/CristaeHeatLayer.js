@@ -10,7 +10,7 @@ const LIVE = {
   colorRamp : 'setColorRamp',
 }
 
-// <cristae-heat-layer> — campo de calor en canvas 2D (docs/heat.md). `source` y `accessors` se leen al
+// <cristae-heat-layer> — campo de calor en GPU, miembro de tramo (docs/heat.md). `source` y `accessors` se leen al
 // montar. `colorRamp` se compara por referencia: una función nueva por render re-muestrea la paleta.
 export class CristaeHeatLayer extends CristaeLayerElement {
 

@@ -37,7 +37,7 @@ globalThis.requestIdleCallback   = () => 1
 const host = () => {
   const pane = { nodeType: 1, style: {}, appendChild(hijo) { hijo.parentNode = this; return hijo } }
   return {
-    camera  : { size: () => ({ x: 8, y: 6 }), frameOrigin: () => ({ x: 0, y: 0 }), zoom: () => 3, center: () => ({ lat: 0, lng: 0 }), on: () => () => {} },
+    camera  : { hasView: () => true, size: () => ({ x: 8, y: 6 }), frameOrigin: () => ({ x: 0, y: 0 }), zoom: () => 3, center: () => ({ lat: 0, lng: 0 }), on: () => () => {} },
     surface : { mount: () => pane, unmount() {}, zOf: () => 1, followZoom() {} },
   }
 }

@@ -215,6 +215,18 @@ test('soltada, resetCanvasReference no dimensiona ni reposiciona nada', () => {
   assert.equal(espia.canvases[0].width, 0)
 })
 
+test('un mapa adoptado sin vista: resetCanvasReference no ancla ni lanza, y ancla cuando la vista llega', () => {
+  const { surface, espia, map } = montar()
+  surface.acquire()
+  map._loaded = false
+  const posiciones = espia.traslados.length
+  assert.doesNotThrow(() => surface.resetCanvasReference())
+  assert.equal(espia.traslados.length, posiciones, 'sin vista no hay origen que leer')
+  map._loaded = true
+  surface.resetCanvasReference()
+  assert.ok(espia.traslados.length > posiciones, 'con la vista ancla')
+})
+
 /* ── Receta Leaflet-canvas: posición por frame, realoque sólo cuando cambia el tamaño ── */
 
 test('resetCanvasReference dimensiona por DPR y ancla el canvas al origen del contenedor', () => {

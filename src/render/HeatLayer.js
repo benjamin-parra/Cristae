@@ -1,263 +1,442 @@
-import { toRGBA } from './color.js'
-import { frameTransform } from './frame.js'
+import { EditSurface, blendOver } from './EditSurface.js'
+import { createFrameView } from './frame-view.js'
+import { projX0, projY0, readView } from './project.js'
+import { heatFormat, heatPrograms } from './heat-shaders.js'
+import {
+  DEFAULT_RADIUS, DEFAULT_BLUR, DEFAULT_INTENSITY, GRAD_STEPS,
+  nonNeg, brushCore, defaultRamp, samplePalette,
+} from './heat-math.js'
 
-// Capa de CAMPO DE CALOR (heatmap) reactiva a un Source. Hermana de PointLayer/LineGpuLayer en el ciclo
-// de vida (constructor {..}, subscribe al Source + redibujo coalescido a rAF, redraw/refresh/destroy),
-// pero su BACKEND es un CANVAS 2D acumulativo (estilo leaflet.heat), no GL:
-//   1. cada punto estampa una BROCHA radial (degradado gris, opaco al centro → transparente al borde)
-//      con un globalAlpha CHICO ∝ su peso → con source-over el alpha se ACUMULA donde los puntos se
-//      agolpan (densidad). El aporte por punto es chico A PROPÓSITO: source-over es a+b·(1−a), que sólo
-//      crece mientras a<1; si un punto aportara 1 (peso uniforme o intensity=1 sobre un núcleo opaco)
-//      saturaría al toque y se verían discos sólidos, no densidad;
-//   2. una pasada de COLOR mapea ese alpha acumulado a una paleta pre-muestreada de `colorRamp`.
+// Capa de CAMPO DE CALOR (heatmap) en GPU, reactiva a un Source. Es un miembro de tramo como las demás capas GL: su
+// superficie sale de `surface({ host, pane, owner: this })`, y cuando esa superficie es la ranura de un tramo,
+// `begin()` enlaza el FBO del miembro y `end(view)` agenda la composición. Sin tramo, la superficie es propia y
+// `begin()` no hace nada. La capa no tiene canvas 2D.
 //
-// Por qué canvas y no GL: el heat aditivo real (splat gaussiano a un framebuffer + colorización en un
-// segundo pase) no sale de los shaders de la point-layer en UN paso (no hay programa de
-// acumulación ni FBO). El canvas es un PRIMER backend honesto; la interfaz es idéntica a la
-// que tendría el backend GL (misma firma de constructor y mismos accessors), así el swap posterior no
-// toca el call-site (addHeatLayer). Costo conocido del backend canvas: getImageData/putImageData
-// reservan el framebuffer por redibujo (inherente a la técnica; se acota coalesciendo a un frame). Ver
-// `risks` del manifiesto.
+// LA LEY. El calor es la unión probabilística de los aportes: cada punto suma una brocha radial (1 hasta el núcleo,
+// lineal a 0 en el borde) con un aporte CHICO ∝ su peso, y donde se agolpan el alfa acumulado a + b·(1−a) crece
+// sin saturar. La pasada 1 estampa un quad instanciado por punto en un FBO propio de la capa, en px CSS de la vista;
+// la pasada 2 lee ese índice, lo busca en la paleta de `colorRamp` y lo escribe, con la mezcla `over`, en la ranura del
+// tramo. El formato del acumulador lo decide `heatFormat` una vez por contexto, desde las extensiones y una sonda de
+// framebuffer, nunca desde el navegador: R16F con la suma logarítmica, o el respaldo RGBA8 con `over` cuantizado a
+// 8 bits (heat-shaders.js explica ambas y el error medido del respaldo).
 //
-// accessors: { idOf, positionOf, weightOf? }. `weightOf` (o 1) es el peso del punto; se NORMALIZA por el
-// peso máximo del snapshot y se escala por `intensity`. Agnóstico: sin dominio ni React.
+// LOS DATOS. El snapshot se baja a un espejo de CPU de 3 floats por punto —posición world0 relativa a un ancla, y peso
+// normalizado por el máximo del snapshot— que se sube al búfer de instancias. El ancla es el centro de la vista, en
+// float64: relativa a ella, la posición cabe en float32 sin perder píxeles, como en `PointLayer`. Una vista que se
+// aleja de su ancla hasta que el redondeo se acerca a `ANCHOR_TOL_PX` la reasienta y vuelve a subir. Con la cámara
+// sola —un paneo, un zoom— el dibujo no relee los accessors ni sube nada: sólo cambian la matriz y los uniformes.
+// `dropGl` conserva el espejo, así que un contexto nuevo resube sin volver a los datos.
+//
+// EL ZOOM ANIMADO. El campo no se escala con la transición CSS del canvas (se vería desfasado): al empezar el zoom se
+// pinta vacío, y el calor reaparece, ya reproyectado, al asentar la vista. Mientras dura, ni un flush de la Source ni un
+// evento de mapa lo pintan: quedan anotados como atrasados y los pinta el `zoomend`.
+//
+// accessors: { idOf, positionOf, weightOf? }. `weightOf` (o 1) es el peso del punto; se NORMALIZA por el peso máximo
+// del snapshot y se escala por `intensity`. Agnóstico: sin dominio ni React.
 
-const DEFAULT_RADIUS    = 25     // px del núcleo sólido de la brocha
-const DEFAULT_BLUR      = 15     // px de caída (núcleo → transparente)
-const DEFAULT_INTENSITY = 1      // multiplicador del aporte por punto (1 = default; >1 satura antes)
-const POINT_ALPHA       = 0.12   // techo del alpha que aporta UN punto de peso pleno: ~1/POINT_ALPHA
-                                 // puntos superpuestos llevan el campo al tope de la rampa. <1 para
-                                 // que source-over ACUMULE (densidad) en vez de saturar a disco sólido
-const MIN_OPACITY       = 0.05   // piso de alpha por punto (un punto aislado igual se ve)
-const GRAD_STEPS        = 256    // resolución de la paleta (alpha 0..255 indexa 1:1)
+// El error de float32 en un punto visible es |centro − ancla|·2^zoom·2^-24 px: el ancla se reasienta cuando eso
+// pasa de un dieciseisavo de px, que queda bajo el redondeo de la rejilla de píxeles.
+const ANCHOR_TOL_PX = 1 / 16
 
-const nonNeg = (v, dflt) => (v == null ? dflt : Math.max(0, v))   // radius/blur < 0 romperían createRadialGradient
+// Bits de mantisa de un float32, con el bit implícito.
+const FLOAT32_BITS = 24
 
-// Rampa por defecto: transparente → azul → cian → verde → amarillo → rojo. Stops [t, [r,g,b,a]] en 0..1
-// (el formato que `toRGBA` lee tal cual). Un consumidor puede pasar su propia `colorRamp(t)->rgba`.
-const DEFAULT_STOPS = [
-  [0.00, [0.13, 0.20, 0.80, 0]],
-  [0.35, [0.13, 0.20, 0.80, 1]],
-  [0.55, [0.00, 0.80, 0.80, 1]],
-  [0.70, [0.30, 0.85, 0.20, 1]],
-  [0.85, [0.95, 0.85, 0.10, 1]],
-  [1.00, [0.90, 0.10, 0.10, 1]],
-]
+// Un punto en el espejo y en el búfer de instancias: x e y relativas al ancla y el peso normalizado.
+const INSTANCE_FLOATS = 3
+const FLOAT_BYTES     = 4
+const INSTANCE_STRIDE = INSTANCE_FLOATS * FLOAT_BYTES
+const WEIGHT_OFFSET   = 2 * FLOAT_BYTES
 
-const lerp = (a, b, u) => a + (b - a) * u
+// Capacidad inicial del espejo, en puntos: una nube chica no crece. Después se duplica.
+const MIN_INSTANCES = 64
 
-// Interpola la rampa de stops en `t`. Sólo corre al construir la paleta (GRAD_STEPS veces), nunca en el
-// hot-path de redibujo → el array por llamada es inofensivo.
-const interpStops = (stops, t) => {
-  const x = t <= 0 ? 0 : t >= 1 ? 1 : t
-  let i = 1
-  while (i < stops.length && stops[i][0] < x) i++
-  const [t0, c0] = stops[i - 1]
-  const [t1, c1] = stops[Math.min(i, stops.length - 1)]
-  const u = t1 > t0 ? (x - t0) / (t1 - t0) : 0
-  return [lerp(c0[0], c1[0], u), lerp(c0[1], c1[1], u), lerp(c0[2], c1[2], u), lerp(c0[3], c1[3], u)]
+// El splat es un quad de 4 vértices por instancia, en TRIANGLE_STRIP.
+const QUAD_VERTICES = 4
+
+// La rampa es un triángulo de pantalla completa.
+const FULLSCREEN_VERTICES = 3
+
+const parameterTexture = (gl, filter) => {
+  const tex = gl.createTexture()
+  gl.bindTexture(gl.TEXTURE_2D, tex)
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filter)
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filter)
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+  return tex
 }
-
-const defaultRamp = t => interpStops(DEFAULT_STOPS, t)
 
 export class HeatLayer {
 
-  #camera; #surface; #paneName; #source; #accessors
-  #canvas  = null
-  #ctx     = null
-  #brush   = null               // canvas offscreen con el degradado radial (la "brocha" reusada por punto)
-  #palette = null               // Uint8ClampedArray(GRAD_STEPS*4): rampa pre-muestreada, alpha → color
+  #camera; #surface; #source; #accessors
   #radius; #blur; #intensity; #colorRamp
-  #agendado = false             // ya hay un redibujo pedido para este frame (coalescing)
-  #visible  = true              // oculta no pinta: el pane oculto no detiene el colorizado por flush
-  #unsub    = null
-  #offView  = []                // bajas del ciclo de vista
+  #palette    = null                // Uint8ClampedArray(GRAD_STEPS*4): rampa pre-muestreada, índice → color
+  #frame      = createFrameView()
+  #placed     = { anchorX: 0, anchorY: 0 }   // el ancla del espejo, world0 px (float64), con la forma que lee FrameView.bind
+  #mirror     = new Float32Array(MIN_INSTANCES * INSTANCE_FLOATS)
+  #count      = 0                   // puntos válidos en el espejo
+  #dirty      = true                // el snapshot cambió: el espejo se rehace desde los accessors
+  #pending    = false               // el espejo cambió y el búfer de la GPU no lo tiene
+  #uIntensity = new Float32Array(1)
+  #uRadius    = new Float32Array(1)   // R = radius + blur, px del FBO
+  #uCore      = new Float32Array(1)   // core·R
+  #uSize      = new Float32Array(2)   // el FBO en px
+  #uRatio     = new Float32Array(1)   // px del acumulador por px del dispositivo
+  #gl         = null
+  #format     = null
+  #programs   = null
+  #vao        = null
+  #vbo        = null
+  #accTex     = null
+  #accFbo     = null
+  #accW       = 0
+  #accH       = 0
+  #palTex     = null
+  #raf        = 0                   // rAF del redibujo coalescido a un frame; 0 = ninguno
+  #visible    = true                // oculta no dibuja: el pane oculto no detiene el trabajo por flush
+  #stale      = true                // algo pidió un dibujo mientras estaba oculta o sin contexto
+  #blank      = false               // el último cuadro fue el vacío del zoom animado
+  #destroyed  = false
+  #unsub      = null
+  #offView    = []                  // bajas del ciclo de vista
 
-  constructor({ host, pane, source, accessors = null, radius, blur, intensity, colorRamp, visible = true } = {}) {
-    const canvas = document.createElement('canvas')
-    canvas.className           = 'cristae-heat-canvas'
-    canvas.style.position      = 'absolute'
-    canvas.style.pointerEvents = 'none'
-
+  constructor({
+    host, pane, source, accessors = null, radius, blur, intensity, colorRamp, visible = true,
+    surface = opts => new EditSurface(opts),
+  } = {}) {
     this.#camera    = host.camera
-    this.#surface   = host.surface
-    this.#paneName  = pane
     this.#source    = source
     this.#accessors = accessors ?? source.accessors
     this.#radius    = nonNeg(radius, DEFAULT_RADIUS)
     this.#blur      = nonNeg(blur, DEFAULT_BLUR)
-    this.#intensity = intensity ?? DEFAULT_INTENSITY
     this.#colorRamp = colorRamp ?? defaultRamp
     this.#visible   = visible
-
-    this.#buildBrush()
-    // Consulta colorRamp GRAD_STEPS veces (una vez; se re-muestrea si cambia la rampa). Es código del
-    // consumidor y puede lanzar: va antes de montar, para que una capa que no nace no deje su pane.
+    this.#setIntensity(intensity)
+    this.#setBrush()
+    // Consulta colorRamp GRAD_STEPS veces. Es código del consumidor y puede lanzar: va antes de tomar la superficie,
+    // para que una capa que no nace no deje su pane.
     this.#buildPalette()
-    this.#canvas = canvas
-    this.#ctx    = canvas.getContext('2d')
-    this.#surface.mount(pane).appendChild(canvas)
-    // Ruta del Source: dibuja SÍNCRONO (como LineGpuLayer). El Emitter del Source ya coalesce sus
-    // notificaciones a UN rAF, así que un rAF propio acá sería un SEGUNDO frame de latencia sin ganancia.
-    // El rAF de #invalidate queda para los eventos de mapa (que Leaflet dispara sin coalescer).
-    this.#unsub = source.subscribe(() => this.#draw())
-    // El canvas vive en un pane que se traslada con el mapa (pan); en zoom hay que reproyectar y, durante
-    // el zoom-anim, ocultarlo (si no, el campo se desliza desfasado). Igual patrón que LabelLayer. Al
-    // asentar NO se revela: sólo se agenda el redibujo, y el canvas se muestra al FINAL de #draw, con el
-    // contenido fresco y colorizado. Revelar antes mostraría la vista anterior desubicada o, si colorize
-    // fallara, la acumulación negra cruda.
-    this.#offView = [
-      this.#camera.on('zoomstart', () => this.#canvas.style.visibility = 'hidden'),
-      this.#camera.on('moveend zoomend resize', () => this.#invalidate()),
-    ]
-    this.#draw()                // primer paint síncrono
+    // `cssZoom: true`, como las líneas y los polígonos: el campo no se reproyecta por cuadro (en el zoom animado se pinta
+    // vacío), así que dentro de un tramo la vista inyectada del zoom se conserva, y una superficie propia sigue la
+    // transición CSS del canvas, que en ese lapso está vacío.
+    this.#surface = surface({ host, pane, cssZoom: true, owner: this })
+    // Lo que sigue puede tirar, y un contexto que nadie devuelve no vuelve en toda la vida de la página.
+    try {
+      const gl = this.#surface.open(this.hasContent)
+      // Ruta del Source: dibuja SÍNCRONO. El Emitter del Source ya coalesce sus notificaciones a UN rAF, así que un
+      // rAF propio acá sería un SEGUNDO frame de latencia sin ganancia. El rAF de #invalidate queda para los eventos de
+      // mapa (que Leaflet dispara sin coalescer).
+      this.#unsub = source.subscribe(this.#onSource)
+      this.#offView = [
+        this.#camera.on('zoomstart', this.#onZoomStart),
+        this.#camera.on('zoomend', this.#onZoomEnd),
+        this.#camera.on('moveend resize', () => this.#invalidate()),
+      ]
+      gl || this.#draw()                   // si tomó el contexto, `buildGl` ya pintó
+    } catch (e) {
+      this.destroy()
+      throw e
+    }
   }
 
-  /* ── Ciclo de vida (interfaz de las capas hermanas; se auto-reproyecta, no va a #glLayers) ── */
+  get surface()    { return this.#surface }
+  get canvas()     { return this.#surface.canvas }
+  get hasContent() { return this.#source.getSnapshot().length > 0 }    // la política lo lee mientras la capa se construye
 
-  redraw() { this.#draw() }
-  resetCanvasReference() { this.#draw() }             // reposiciona + redibuja (el draw hace ambas)
-  refresh() { this.#buildPalette(); this.#draw() }    // re-encode (p. ej. cambio de tema en la rampa)
-  syncPickingSize() {}                                // sin picking (un heat no se pica)
+  /* ── Ciclo de vida ── */
 
-  // Lo llama setLayerVisibility del motor. Al volver repinta con el snapshot actual: oculta no siguió
-  // los flushes ni la vista.
-  setVisible(visible) {
+  redraw() { return this.#draw() }
+  resetCanvasReference() { return this.#draw() }                       // reposiciona + redibuja (el draw hace ambas)
+  refresh() { this.#buildPalette(); return this.#draw() }              // re-encode (p. ej. cambio de tema en la rampa)
+  syncPickingSize() {}                                                 // sin picking (un heat no se pica)
+
+  // Lo llama setLayerVisibility del motor. Oculta no dibuja y queda anotada como atrasada; al volver repinta si hacía
+  // falta, con el snapshot actual: oculta no siguió los flushes ni la vista. Devuelve si pintó.
+  setVisible(visible = true) {
     this.#visible = visible
-    visible && this.#draw()
+    this.#surface.setVisible(visible)
+    return visible && this.#stale && this.#draw()
   }
 
+  // Seguro a medio construir, e idempotente. Suelta la Source, los eventos y el rAF pendiente, y devuelve lo GL que
+  // tenga a un contexto vivo (en un tramo el contexto sigue siendo de las demás).
   destroy() {
-    if (!this.#canvas) return
+    if (this.#destroyed) return
+
+    this.#destroyed = true
     this.#unsub?.()
     this.#offView.forEach(off => off())
-    this.#canvas.remove()
-    this.#surface.unmount(this.#paneName)
-    this.#canvas = null
-    this.#ctx = null
+    cancelAnimationFrame(this.#raf)
+    this.#raf = 0
+    const gl = this.#gl
+    if (gl && !gl.isContextLost()) {
+      gl.deleteTexture(this.#accTex)
+      gl.deleteTexture(this.#palTex)
+      gl.deleteFramebuffer(this.#accFbo)
+      gl.deleteBuffer(this.#vbo)
+      gl.deleteVertexArray(this.#vao)
+    }
+    this.dropGl()
+    this.#surface?.destroy()
   }
 
   /* ── Props en vivo (el handle de addHeatLayer las cablea) ── */
 
-  set radius(v) { this.#radius = nonNeg(v, DEFAULT_RADIUS); this.#buildBrush(); this.#invalidate() }
-  set blur(v) { this.#blur = nonNeg(v, DEFAULT_BLUR); this.#buildBrush(); this.#invalidate() }
-  set intensity(v) { this.#intensity = v ?? DEFAULT_INTENSITY; this.#invalidate() }
+  set radius(v) { this.#radius = nonNeg(v, DEFAULT_RADIUS); this.#setBrush(); this.#invalidate() }
+  set blur(v) { this.#blur = nonNeg(v, DEFAULT_BLUR); this.#setBrush(); this.#invalidate() }
+  set intensity(v) { this.#setIntensity(v); this.#invalidate() }
   set colorRamp(fn) { this.#colorRamp = fn ?? defaultRamp; this.#buildPalette(); this.#invalidate() }
 
-  /* ── Coalescing a un frame para disparos NO coalescidos aguas arriba: eventos de mapa (Leaflet los
-     emite sync, pueden venir en ráfaga) y props en vivo (radius+blur+intensity juntos → un solo
-     redibujo, no tres framebuffers). La ruta del Source NO pasa por acá: ya viene coalescida. ── */
+  #setIntensity(v) {
+    this.#intensity = v ?? DEFAULT_INTENSITY
+    this.#uIntensity[0] = this.#intensity
+  }
 
+  // R = alcance de un punto en px y core·R = hasta dónde la brocha es opaca; son uniformes, así que cambiarlos no
+  // resube nada.
+  #setBrush() {
+    const R = this.#radius + this.#blur
+    this.#uRadius[0] = R
+    this.#uCore[0]   = brushCore(this.#radius, this.#blur) * R
+  }
+
+  /* ── Disparos ── */
+
+  // Ruta del Source: marca los datos sucios y dibuja en el acto. Con contenido, avisa a la política: si eso tomó el
+  // contexto, `buildGl` ya pintó.
+  #onSource = () => {
+    this.#dirty = true
+    ;(this.hasContent && this.#surface.need()) || this.#draw()    // en el zoom animado `#draw` no pinta: lo hace el `zoomend`
+  }
+
+  // El zoom animado va con la transición CSS del canvas, que escalaría un campo difuso desfasado: se pinta vacío.
+  #onZoomStart = () => this.#blank || (this.#blank = this.#drawEmpty())
+
+  // La vista asentó: el campo vuelve, reproyectado, en el próximo frame.
+  #onZoomEnd = () => {
+    this.#blank = false
+    this.#invalidate()
+  }
+
+  // Coalescing a un frame para disparos NO coalescidos aguas arriba: eventos de mapa (Leaflet los emite sync, pueden
+  // venir en ráfaga) y props en vivo (radius+blur+intensity juntos → un solo redibujo). La ruta del Source NO pasa
+  // por acá: ya viene coalescida.
   #invalidate() {
-    if (this.#agendado) return
-    this.#agendado = true
-    requestAnimationFrame(() => { this.#agendado = false; this.#draw() })
+    if (this.#destroyed) return
+
+    this.#raf ||= requestAnimationFrame(this.#onFrame)
   }
 
-  /* ── Redibujo: acumular densidad + colorizar ── */
+  #onFrame = () => {
+    this.#raf = 0
+    this.#draw()
+  }
 
-  // Sin vista no hay píxel que leer: un mapa adoptado que todavía no la tomó pinta en el `moveend` que la
-  // trae. El canvas se ancla al origen del contenedor —el pane lo traslada durante el paneo— y se
-  // redimensiona sólo si cambió el tamaño, que va en px CSS: el calor es un campo difuso, sin escalado
-  // por DPR (ver risks). Asignar el ancho lo limpia.
-  #draw() {
-    const ctx    = this.#ctx
-    const canvas = this.#canvas
-    if (!this.#visible || !ctx || !canvas || !this.#camera.hasView()) return
-    const rect = this.#surface.container.getBoundingClientRect()
-    const w    = Math.round(rect.width)
-    const h    = Math.round(rect.height)
-    if (w === 0 || h === 0) return
+  /* ── Espejo de CPU ── */
 
-    const origin = this.#camera.frameOrigin()
-    canvas.style.transform = frameTransform(origin.x, origin.y)
-    if (canvas.width !== w) canvas.width = w
-    if (canvas.height !== h) canvas.height = h
-    ctx.clearRect(0, 0, w, h)
-
+  // Rehace el espejo desde los accessors, relativo a un ancla nueva en el centro de la vista. Dos pasadas con bucle
+  // explícito (sin reduce ni clausuras): el peso máximo y la escritura. Omite las posiciones no finitas.
+  #rebuild(view) {
     const a        = this.#accessors
-    const items    = this.#source.getSnapshot()
     const weightOf = a.weightOf
+    const items    = this.#source.getSnapshot()
+    const placed   = this.#placed
     // Normaliza por el peso máximo del snapshot: la escala del campo no depende de las unidades del peso.
-    const maxW  = weightOf ? (items.reduce((m, it) => Math.max(m, weightOf(it) || 0), 0) || 1) : 1
-    const R     = this.#radius + this.#blur      // medio-lado de la brocha = alcance de un punto en px
-    const brush = this.#brush
+    let maxW = 0
+    if (weightOf)
+      for (let i = 0; i < items.length; i++) {
+        const w = weightOf(items[i]) || 0
+        if (w > maxW) maxW = w
+      }
+    maxW ||= 1
 
-    items.forEach(item => {
-      const pos = a.positionOf(item)
-      if (!pos || !Number.isFinite(pos.lat) || !Number.isFinite(pos.lng)) return
-      const p = this.#camera.toContainer(pos)
-      if (p.x < -R || p.x > w + R || p.y < -R || p.y > h + R) return   // culling: fuera del viewport
-      const wgt = (weightOf ? (weightOf(item) || 0) : 1) / maxW
-      // Aporte CHICO por punto (·POINT_ALPHA): con source-over la densidad ACUMULA en vez de saturar a
-      // disco sólido cuando los pesos son uniformes (weightOf ausente → wgt=1) o intensity es el default.
-      ctx.globalAlpha = Math.min(Math.max(wgt * this.#intensity * POINT_ALPHA, MIN_OPACITY), 1)
-      brush && ctx.drawImage(brush, p.x - R, p.y - R)
-    })
-    ctx.globalAlpha = 1
+    if (this.#mirror.length < items.length * INSTANCE_FLOATS)
+      this.#mirror = new Float32Array(Math.max(items.length, this.#mirror.length / INSTANCE_FLOATS * 2) * INSTANCE_FLOATS)
+    const mirror = this.#mirror
+    placed.anchorX = view.center.x
+    placed.anchorY = view.center.y
+    let n = 0
+    for (let i = 0; i < items.length; i++) {
+      const pos = a.positionOf(items[i])
+      if (!pos || !Number.isFinite(pos.lat) || !Number.isFinite(pos.lng)) continue
 
-    this.#colorize(w, h)
-    canvas.style.visibility = ''    // recién ahora hay un frame válido → revelar (ver el zoomstart del constructor)
-  }
-
-  // Alpha acumulado (densidad) → color de la paleta. El alpha del pixel indexa 1:1 la rampa; el color
-  // del punto se toma de la paleta y el alpha final se atenúa por el alpha de la rampa (una rampa que
-  // arranca transparente desvanece las densidades bajas).
-  #colorize(w, h) {
-    const ctx  = this.#ctx
-    const img  = ctx.getImageData?.(0, 0, w, h)
-    const data = img?.data
-    if (!data) return
-    const pal = this.#palette
-    for (let i = 0; i < data.length; i += 4) {
-      const alpha = data[i + 3]
-      if (!alpha) continue
-      const j = alpha << 2                   // alpha·4 → offset en la paleta (0..1020)
-      data[i]     = pal[j]
-      data[i + 1] = pal[j + 1]
-      data[i + 2] = pal[j + 2]
-      data[i + 3] = (alpha * pal[j + 3]) / 255
+      const o = n * INSTANCE_FLOATS
+      mirror[o]     = projX0(pos.lng) - placed.anchorX
+      mirror[o + 1] = projY0(pos.lat) - placed.anchorY
+      mirror[o + 2] = (weightOf ? (weightOf(items[i]) || 0) : 1) / maxW
+      n++
     }
-    ctx.putImageData(img, 0, 0)
+    this.#count   = n
+    this.#dirty   = false
+    this.#pending = true
   }
 
-  /* ── Brocha + paleta (se reconstruyen sólo al cambiar radius/blur o la rampa) ── */
+  #upload(gl) {
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.#vbo)
+    gl.bufferData(gl.ARRAY_BUFFER, this.#mirror.subarray(0, this.#count * INSTANCE_FLOATS), gl.DYNAMIC_DRAW)
+    this.#pending = false
+  }
 
-  // Brocha: círculo gris con degradado radial opaco-al-centro → transparente-al-borde. Se estampa por
-  // punto con globalAlpha variable; el alpha se acumula por composición → densidad.
-  #buildBrush() {
-    const R      = this.#radius + this.#blur
-    const size   = Math.max(R * 2, 1)
-    const canvas = document.createElement('canvas')
-    canvas.width  = size
-    canvas.height = size
-    const ctx  = canvas.getContext('2d')
-    const grad = ctx.createRadialGradient?.(R, R, 0, R, R, R)
-    if (grad) {
-      // R>0 evita el 0/0 (NaN → addColorStop throwea) cuando radius y blur son ambos 0.
-      const core = R > 0 && this.#blur > 0 ? Math.min(this.#radius / R, 0.99) : 0
-      grad.addColorStop(0, 'rgba(0,0,0,1)')
-      grad.addColorStop(core, 'rgba(0,0,0,1)')
-      grad.addColorStop(1, 'rgba(0,0,0,0)')
-      ctx.fillStyle = grad
-      ctx.fillRect(0, 0, size, size)
+  /* ── Dibujo ── */
+
+  // El FBO del miembro, o el framebuffer por defecto si la superficie es propia, ya limpio.
+  #begin(gl) {
+    if (!this.#surface.begin()) {
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null)
+      gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight)
     }
-    this.#brush = canvas
+    gl.clearColor(0, 0, 0, 0)
+    gl.clear(gl.COLOR_BUFFER_BIT)
   }
 
-  // Paleta: muestrea `colorRamp` en GRAD_STEPS pasos → Uint8ClampedArray(GRAD_STEPS*4). `toRGBA`
-  // normaliza el retorno de la rampa (hex string o [r,g,b,a] en 0..1) a 0..1; se escala a 0..255.
+  // Devuelve si pintó el cuadro vacío.
+  #drawEmpty() {
+    const gl = this.#gl
+    if (!gl || !this.#visible || !this.#camera.hasView()) return false
+
+    this.#begin(gl)
+    this.#surface.end(readView(this.#camera, this.#frame))
+    return true
+  }
+
+  // Acumular densidad y colorear. Sin vista no hay píxel que leer: un mapa adoptado que todavía no la tomó pinta en el
+  // `moveend` que la trae. Oculta o sin contexto no dibuja y queda atrasada; al volver, `buildGl` o `setVisible` pintan.
+  // Con la cámara sola no asigna. [0-alloc]
+  #draw() {
+    const gl = this.#gl
+    if (!gl || !this.#visible) {
+      this.#stale = true
+      return false
+    }
+    if (this.#blank) {                  // zoom animado: el campo se repinta en el `zoomend`
+      this.#stale = true
+      return false
+    }
+    if (!this.#camera.hasView()) return false
+
+    const view = readView(this.#camera, this.#frame)
+    const w    = Math.round(view.size.x)
+    const h    = Math.round(view.size.y)
+    if (!(w > 0 && h > 0)) return false
+
+    this.#stale = false
+    this.#surface.resetCanvasReference()
+    const placed = this.#placed
+    const drift  = Math.max(Math.abs(view.center.x - placed.anchorX), Math.abs(view.center.y - placed.anchorY))
+    if (this.#dirty || drift * 2 ** (view.zoom - FLOAT32_BITS) > ANCHOR_TOL_PX) this.#rebuild(view)
+    this.#pending && this.#upload(gl)
+
+    this.#accumulate(gl, w, h)
+    this.#colorize(gl, w)
+    this.#surface.end(view)
+    return true
+  }
+
+  // Pasada 1: los splats al FBO de acumulación, que se realoca sólo si cambió el tamaño de la vista.
+  #accumulate(gl, w, h) {
+    const format = this.#format
+    gl.activeTexture(gl.TEXTURE0)
+    if (!this.#accTex) {
+      this.#accTex = parameterTexture(gl, gl.LINEAR)    // la rampa interpola el acumulador en px CSS: en DPR 2 no se escalona
+      this.#accFbo = gl.createFramebuffer()
+    }
+    gl.bindTexture(gl.TEXTURE_2D, this.#accTex)
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.#accFbo)
+    if (w !== this.#accW || h !== this.#accH) {
+      gl.texImage2D(gl.TEXTURE_2D, 0, format.internalFormat, w, h, 0, format.format, format.type, null)   // mutable: realocar no crea
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, this.#accTex, 0)
+      this.#accW = w
+      this.#accH = h
+    }
+    gl.viewport(0, 0, w, h)
+    gl.disable(gl.DEPTH_TEST)
+    gl.disable(gl.STENCIL_TEST)
+    gl.disable(gl.SCISSOR_TEST)
+    gl.disable(gl.CULL_FACE)
+    gl.colorMask(true, true, true, true)
+    gl.clearColor(0, 0, 0, 0)
+    gl.clear(gl.COLOR_BUFFER_BIT)
+    if (!this.#count || !(this.#uRadius[0] > 0)) return
+
+    const splat = this.#programs.splat
+    this.#uSize[0] = w
+    this.#uSize[1] = h
+    gl.enable(gl.BLEND)
+    gl.blendFunc(format.blendSrc, format.blendDst)
+    gl.useProgram(splat.program)
+    this.#frame.bind(gl, splat, this.#placed)
+    gl.uniform1fv(splat.uIntensity, this.#uIntensity)
+    gl.uniform1fv(splat.uRadius, this.#uRadius)
+    gl.uniform1fv(splat.uCore, this.#uCore)
+    gl.uniform2fv(splat.uAccSize, this.#uSize)
+    gl.bindVertexArray(this.#vao)
+    gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, QUAD_VERTICES, this.#count)
+    gl.bindVertexArray(null)
+  }
+
+  // Pasada 2: el índice acumulado → color de la paleta, con la mezcla `over` de la ranura. El alfa final se atenúa por
+  // el de la rampa: una rampa que arranca transparente desvanece las densidades bajas.
+  #colorize(gl, w) {
+    this.#begin(gl)
+    const ramp = this.#programs.ramp
+    this.#uRatio[0] = gl.drawingBufferWidth ? w / gl.drawingBufferWidth : 1
+    blendOver(gl)
+    gl.useProgram(ramp.program)
+    gl.uniform1fv(ramp.uAccPorDispositivo, this.#uRatio)
+    gl.activeTexture(gl.TEXTURE0)
+    gl.bindTexture(gl.TEXTURE_2D, this.#accTex)
+    gl.activeTexture(gl.TEXTURE1)
+    gl.bindTexture(gl.TEXTURE_2D, this.#palTex)
+    gl.activeTexture(gl.TEXTURE0)
+    gl.drawArrays(gl.TRIANGLES, 0, FULLSCREEN_VERTICES)
+  }
+
+  /* ── Paleta ── */
+
+  // Muestrea `colorRamp` en GRAD_STEPS pasos y, con contexto, actualiza la textura de la paleta.
   #buildPalette() {
-    const pal = this.#palette ?? new Uint8ClampedArray(GRAD_STEPS * 4)
-    // Sólo corre al (re)construir la paleta, nunca por frame → el array de rango es inofensivo.
-    Array.from({ length: GRAD_STEPS }, (_, i) => i).forEach(i => {
-      const [r, g, b, alpha] = toRGBA(this.#colorRamp(i / (GRAD_STEPS - 1)))
-      const o = i * 4
-      pal[o]     = r * 255
-      pal[o + 1] = g * 255
-      pal[o + 2] = b * 255
-      pal[o + 3] = alpha * 255
-    })
-    this.#palette = pal
+    this.#palette = samplePalette(this.#colorRamp, this.#palette ?? new Uint8ClampedArray(GRAD_STEPS * 4))
+    const gl = this.#gl
+    if (!gl) return
+
+    gl.activeTexture(gl.TEXTURE1)       // la unidad de la paleta, que es la que la rampa lee
+    gl.bindTexture(gl.TEXTURE_2D, this.#palTex)
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, GRAD_STEPS, 1, gl.RGBA, gl.UNSIGNED_BYTE, this.#palette)
+    gl.activeTexture(gl.TEXTURE0)
+  }
+
+  /* ── Contexto: la superficie lo toma y lo suelta, y la capa rehace su parte GL desde el espejo de CPU ── */
+
+  // Al construirse y cada vez que la superficie vuelve a tomar un contexto: formato, programas, el VAO de instancias, el
+  // búfer (que se sube del espejo, sin releer los accessors) y la textura de la paleta. El FBO de acumulación nace al
+  // dibujar. Pinta en el acto, porque el contexto nace en blanco.
+  buildGl(gl) {
+    this.#gl       = gl
+    this.#format   = heatFormat(gl)
+    this.#programs = heatPrograms(gl, this.#format)
+    this.#vbo      = gl.createBuffer()
+    this.#vao      = gl.createVertexArray()
+    gl.bindVertexArray(this.#vao)
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.#vbo)
+    gl.enableVertexAttribArray(0)
+    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, INSTANCE_STRIDE, 0)
+    gl.vertexAttribDivisor(0, 1)
+    gl.enableVertexAttribArray(1)
+    gl.vertexAttribPointer(1, 1, gl.FLOAT, false, INSTANCE_STRIDE, WEIGHT_OFFSET)
+    gl.vertexAttribDivisor(1, 1)
+    gl.bindVertexArray(null)
+    this.#palTex = parameterTexture(gl, gl.NEAREST)
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, GRAD_STEPS, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, this.#palette)
+    this.#accW = this.#accH = 0
+    this.#pending = !this.#dirty && this.#count > 0
+    return this.#draw()
+  }
+
+  // Olvida lo GL sin tocar el contexto, que se perdió o que la superficie va a soltar con `loseContext`. El espejo y
+  // la paleta son de CPU y siguen.
+  dropGl() {
+    this.#gl = this.#format = this.#programs = this.#vao = this.#vbo = null
+    this.#accTex = this.#accFbo = this.#palTex = null
+    this.#accW = this.#accH = 0
   }
 }

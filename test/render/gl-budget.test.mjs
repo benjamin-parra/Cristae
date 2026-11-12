@@ -69,7 +69,7 @@ const host = (() => {
   }).get(name)
   return {
     pane,
-    camera  : { size: () => ({ x: 800, y: 600 }), frameOrigin: () => ({ x: 0, y: 0 }), zoom: () => 3, center: () => ({ lat: 0, lng: 0 }), on: () => () => {} },
+    camera  : { hasView: () => true, size: () => ({ x: 800, y: 600 }), frameOrigin: () => ({ x: 0, y: 0 }), zoom: () => 3, center: () => ({ lat: 0, lng: 0 }), on: () => () => {} },
     surface : { mount: pane, unmount() {}, zOf: name => (z => z ? +z : null)(panes.get(name)?.style.zIndex), followZoom() {} },
   }
 })()

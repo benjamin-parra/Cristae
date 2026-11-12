@@ -1,278 +1,524 @@
-// Contrato de HeatLayer (backend canvas 2D acumulativo): monta contra el harness headless, estampa una
-// brocha por punto EN pantalla (culling de los de afuera), consulta `colorRamp` para armar la paleta y
-// coloriza (getImageData → putImageData) sin throwear. El harness se importa PRIMERO (shimea
-// window/document + expone makeMap). El ctx del canvas se instrumenta acá con un spy funcional (el ctx
-// no-op del harness no ejercería createRadialGradient/getImageData), para verificar el pipeline entero.
+// Contrato de HeatLayer, la capa GPU del calor como miembro de tramo, sobre un doble de GL que anota cada llamada y una
+// superficie falsa con `begin`/`end`. Lo que se fija:
+//   · el orden de las pasadas: el FBO de acumulación antes del splat, `begin` antes de la rampa y `end` con la vista;
+//   · las instancias son los puntos válidos, con el peso normalizado por el máximo;
+//   · `intensity` sólo cambia el uniforme; un paneo corto no re-ancla y uno lejano a zoom alto sí;
+//   · la paleta se muestrea 256 veces al construir, en `colorRamp=` y en `refresh`, y una rampa que lanza no deja el pane;
+//   · radius/blur negativos valen 0 y R = 0 no emite splat;
+//   · oculta no dibuja; `zoomstart` pinta vacío; `destroy` cancela el rAF;
+//   · `dropGl` + `buildGl` resube desde el espejo; sin extensiones usa RGBA8 con `over`; suelta, la rampa va al framebuffer
+//     por defecto; y `redraw()` con la cámara sola no asigna.
+// Corre con: node --test test/render/heat-layer.test.mjs
 import { makeMap } from '../../test-helpers/engine-stub.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { HeatLayer } from '../../src/render/HeatLayer.js'
+import { GRAD_STEPS } from '../../src/render/heat-math.js'
 import { adoptLeafletHost } from '../../src/host/LeafletHost.js'
 import { createSource } from '../../src/data/Source.js'
+import { bytesPorLlamada } from '../../test-helpers/asignaciones.mjs'
 
-/* ── Spy de canvas 2D: cuenta las llamadas del pipeline y CAPTURA lo que hace falta para morder los
-   bugs: el globalAlpha con que se estampa cada brocha (densidad vs saturación) y el framebuffer que se
-   escribe colorizado (mapeo alpha→color). `createRadialGradient` throwea con radio<0 como el API real
-   (el ctx no-op no lo haría → el guard de radius/blur negativo quedaría sin cobertura). ── */
+/* ── Dobles: un contexto que anota, una cámara con eventos y una superficie que toma contextos ── */
 
-const installCanvasSpy = () => {
-  const calls = { gradient: 0, drawImage: 0, getImageData: 0, putImageData: 0, alphas: [], lastImageData: null }
-  const ctx = {
-    globalAlpha: 1,
-    fillStyle: null,
-    clearRect() {}, fillRect() {},
-    createRadialGradient(x0, y0, r0, x1, y1, r1) {
-      // El API real (CanvasRenderingContext2D) lanza IndexSizeError si algún radio es negativo.
-      if (r0 < 0 || r1 < 0) throw new Error('IndexSizeError: radio negativo en createRadialGradient')
-      calls.gradient++
-      return { addColorStop() {} }
-    },
-    drawImage() { calls.drawImage++; calls.alphas.push(this.globalAlpha) },
-    getImageData(x, y, w, h) {
-      calls.getImageData++
-      // Alpha 128 en cada pixel → la colorización recorre la paleta para todos con un alpha CONOCIDO.
-      const data = new Uint8ClampedArray(Math.max(w * h, 1) * 4)
-      for (let i = 3; i < data.length; i += 4) data[i] = 128
-      return { data, width: w, height: h }
-    },
-    putImageData(img) { calls.putImageData++; calls.lastImageData = img?.data },
+const NOOP = () => undefined
+
+const METODOS = ['getExtension', 'getParameter', 'checkFramebufferStatus', 'getProgramParameter', 'getProgramInfoLog',
+  'getUniformLocation', 'createProgram', 'createShader', 'createBuffer', 'createVertexArray', 'createFramebuffer',
+  'createTexture', 'shaderSource', 'compileShader', 'attachShader', 'linkProgram', 'deleteShader', 'useProgram', 'uniform1i',
+  'uniform1f', 'uniform1fv', 'uniform2fv', 'uniformMatrix4fv', 'bindVertexArray', 'bindBuffer', 'bufferData',
+  'enableVertexAttribArray', 'vertexAttribPointer', 'vertexAttribDivisor', 'bindTexture', 'texParameteri', 'texImage2D',
+  'texSubImage2D', 'activeTexture', 'bindFramebuffer', 'framebufferTexture2D', 'deleteFramebuffer', 'deleteTexture',
+  'deleteBuffer', 'deleteVertexArray', 'viewport', 'enable', 'disable', 'colorMask', 'clearColor', 'clear', 'blendFunc',
+  'blendFuncSeparate', 'drawArrays', 'drawArraysInstanced']
+
+const CONSTANTES = ['ARRAY_BUFFER', 'DYNAMIC_DRAW', 'FLOAT', 'TEXTURE_2D', 'TEXTURE_MIN_FILTER', 'TEXTURE_MAG_FILTER',
+  'TEXTURE_WRAP_S', 'TEXTURE_WRAP_T', 'NEAREST', 'CLAMP_TO_EDGE', 'TEXTURE0', 'TEXTURE1', 'FRAMEBUFFER', 'COLOR_ATTACHMENT0',
+  'FRAMEBUFFER_COMPLETE', 'FRAMEBUFFER_BINDING', 'TEXTURE_BINDING_2D', 'R16F', 'RGBA8', 'RED', 'RGBA', 'HALF_FLOAT',
+  'UNSIGNED_BYTE', 'ONE', 'ZERO', 'ONE_MINUS_SRC_ALPHA', 'SRC_ALPHA', 'BLEND', 'DEPTH_TEST', 'STENCIL_TEST', 'SCISSOR_TEST',
+  'CULL_FACE', 'COLOR_BUFFER_BIT', 'TRIANGLE_STRIP', 'TRIANGLES', 'VERTEX_SHADER', 'FRAGMENT_SHADER', 'LINK_STATUS']
+
+// Con `grabar` cada método anota [nombre, ...args] y las constantes valen su nombre; sin él es un objeto plano de no-ops
+// con constantes numéricas, porque un rest o un acceso de Proxy asigna y quien mide asignaciones no puede medir al doble.
+const glDoble = ({ grabar = true, ext = true, calls = [] } = {}) => {
+  let ids = 0
+  const gl = {
+    calls,
+    drawingBufferWidth  : 800,
+    drawingBufferHeight : 600,
+    isContextLost       : () => false,
   }
-  const orig = document.createElement
-  document.createElement = (tag) => (String(tag).toLowerCase() === 'canvas'
-    ? { width: 0, height: 0, className: '', style: {}, getContext: () => ctx, appendChild() {}, remove() {} }
-    : orig.call(document, tag))
-  return { calls, restore: () => { document.createElement = orig } }
+  CONSTANTES.forEach((name, k) => (gl[name] = grabar ? name : k + 1))
+  const devuelve = {
+    getExtension           : name => (ext && name === 'EXT_color_buffer_float' ? {} : null),
+    checkFramebufferStatus : () => gl.FRAMEBUFFER_COMPLETE,
+    getParameter           : () => null,
+    getProgramParameter    : () => true,
+    getProgramInfoLog      : () => '',
+    getUniformLocation     : (_p, name) => ({ name }),
+    createProgram          : () => ({}),
+    createShader           : () => ({}),
+    createBuffer           : () => ({ id: ids++ }),
+    createVertexArray      : () => ({ id: ids++ }),
+    createFramebuffer      : () => ({ id: ids++ }),
+    createTexture          : () => ({ id: ids++ }),
+  }
+  METODOS.forEach(name => {
+    const fn = devuelve[name] ?? NOOP
+    gl[name] = grabar ? (...args) => (calls.push([name, ...args]), fn(...args)) : fn
+  })
+  return gl
 }
 
-const idOf = (it) => it.id
-const positionOf = (it) => it.pos
-const weightOf = (it) => it.w
+const llamadas = (calls, ...names) => calls.filter(c => names.includes(c[0]))
+const indice   = (calls, name, desde = 0) => calls.findIndex((c, i) => i >= desde && c[0] === name)
 
-// Puntos EN pantalla: latLngToContainerPoint del harness = {x: lng*100, y: lat*100}; viewport 800×600.
-const onScreen = [
+// Una cámara reducida a lo que la capa lee. Los objetos que devuelve se reusan: así el dibujo no asigna.
+const camara = ({ zoom = 3, lat = 0, lng = 0, w = 800, h = 600 } = {}) => {
+  const estado  = { zoom, lat, lng, w, h }
+  const centro  = { lat, lng }
+  const tam     = { x: w, y: h }
+  const oyentes = new Map()
+  return {
+    estado,
+    hasView : () => true,
+    zoom    : () => estado.zoom,
+    center  : () => { centro.lat = estado.lat; centro.lng = estado.lng; return centro },
+    size    : () => { tam.x = estado.w; tam.y = estado.h; return tam },
+    on      : (types, fn) => {
+      const tipos = types.split(' ')
+      tipos.forEach(t => (oyentes.get(t) ?? oyentes.set(t, new Set()).get(t)).add(fn))
+      return () => tipos.forEach(t => oyentes.get(t).delete(fn))
+    },
+    fire    : type => oyentes.get(type)?.forEach(fn => fn()),
+    oyentes : type => oyentes.get(type)?.size ?? 0,
+  }
+}
+
+// La ranura de un tramo, reducida: toma el contexto con `open(true)` o `need()` y anota el protocolo en el mismo registro
+// que el contexto. `enTramo` hace que `begin()` devuelva un destino, como la ranura real; sin él, como una superficie propia.
+// El destino que enlaza `begin` en un tramo: uno solo, porque un objeto nuevo por llamada asignaría.
+const DESTINO = {}
+
+const superficie = (gls, calls, { enTramo = true } = {}) => {
+  let siguiente = 0
+  const s = {
+    gl: null, owner: null, destroyed: false, vistas: [], visible: [],
+    open(contenido) { calls.push(['SURFACE_OPEN', contenido]); return contenido ? s.acquire() : null },
+    need() { calls.push(['SURFACE_NEED']); return !s.gl && !!s.acquire() },
+    acquire() {
+      s.gl = gls[siguiente++]
+      s.owner.buildGl(s.gl)
+      return s.gl
+    },
+    perder() { s.owner.dropGl(); s.gl = null },
+    recuperar() { return s.acquire() },
+    resetCanvasReference() {},
+    begin() { calls.push(['SURFACE_BEGIN']); return enTramo ? DESTINO : undefined },
+    end(view) { calls.push(['SURFACE_END', view.zoom, view.center.x, view.center.y]); s.vistas.push(view.zoom) },
+    setVisible(v) { s.visible.push(v) },
+    destroy() { calls.push(['SURFACE_DESTROY']); s.destroyed = true },
+    canvas: {},
+  }
+  return s
+}
+
+const idOf       = it => it.id
+const positionOf = it => it.pos
+const weightOf   = it => it.w
+
+const puntos = [
   { id: 1, pos: { lat: 1, lng: 1 }, w: 1 },
   { id: 2, pos: { lat: 2, lng: 3 }, w: 5 },
   { id: 3, pos: { lat: 1.5, lng: 4 }, w: 3 },
 ]
 
-const mount = (points, opts = {}, accessors = { idOf, positionOf, weightOf }) => {
-  const spy = installCanvasSpy()
-  const map = makeMap()
+const montar = (items, { opts = {}, accessors = { idOf, positionOf, weightOf }, vista = {}, ext = true, enTramo = true, cam = camara(vista),
+  gls = [glDoble({ ext })] } = {}) => {
+  const calls  = gls[0].calls
   const source = createSource(accessors)
-  source.set(points)
-  const layer = new HeatLayer({ host: adoptLeafletHost(map), pane: 'heat', source, ...opts })
-  return { spy, map, source, layer }
+  source.set(items)
+  const surf = superficie(gls, calls, { enTramo })
+  let altas  = 0
+  const layer = new HeatLayer({
+    host: { camera: cam }, pane: 'heat', source, ...opts,
+    surface: o => { altas++; surf.owner = o.owner; return surf },
+  })
+  return { layer, source, cam, surf, gls, gl: gls[0], calls, altas: () => altas }
 }
 
-test('construye sin throwear, consulta colorRamp para la paleta y arma la brocha', () => {
-  let rampCalls = 0
-  const colorRamp = (t) => { rampCalls++; return [t, 0, 1 - t, 1] }
-  const { spy, layer } = mount(onScreen, { colorRamp })
-
-  assert.ok(rampCalls >= 256, `colorRamp se muestrea GRAD_STEPS veces (fue ${rampCalls})`)
-  assert.ok(spy.calls.gradient >= 1, 'la brocha se construye con un degradado radial')
-  assert.ok(layer, 'la capa se construyó')
-  layer.destroy()
-  spy.restore()
-})
-
-test('estampa una brocha por cada punto EN pantalla y coloriza (getImageData → putImageData)', () => {
-  const { spy, layer } = mount(onScreen)
-  // El primer paint (constructor) ya dibujó; reseteo y fuerzo un redraw síncrono para contar limpio.
-  spy.calls.drawImage = 0
-  spy.calls.getImageData = 0
-  spy.calls.putImageData = 0
-  layer.redraw()
-
-  assert.equal(spy.calls.drawImage, onScreen.length, 'una estampa por punto visible')
-  assert.ok(spy.calls.getImageData >= 1, 'lee el framebuffer para colorizar')
-  assert.ok(spy.calls.putImageData >= 1, 'escribe el framebuffer colorizado')
-  layer.destroy()
-  spy.restore()
-})
-
-test('descarta (cull) los puntos fuera del viewport', () => {
-  const puntos = [
-    { id: 1, pos: { lat: 1, lng: 1 }, w: 1 },       // dentro
-    { id: 2, pos: { lat: 999, lng: 999 }, w: 1 },    // y = 99900 px → muy afuera
-  ]
-  const { spy, layer } = mount(puntos)
-  spy.calls.drawImage = 0
-  layer.redraw()
-
-  assert.equal(spy.calls.drawImage, 1, 'sólo el punto dentro del viewport se estampa')
-  layer.destroy()
-  spy.restore()
-})
-
-// Bug #1 (EL bug): con pesos uniformes (weightOf ausente) e intensity=1 default, el aporte por punto NO
-// debe ser 1 (saturaría los cores a disco sólido). Debe ser CHICO para que source-over acumule densidad.
-test('bug#1: weightOf ausente + intensity default ⇒ alpha por punto CHICO (densidad ACUMULA, no satura)', () => {
-  const { spy, layer } = mount(onScreen, {}, { idOf, positionOf })   // sin weightOf → pesos uniformes
-  spy.calls.alphas.length = 0
-  spy.calls.drawImage = 0
-  layer.redraw()
-
-  assert.equal(spy.calls.alphas.length, onScreen.length, 'una estampa por punto')
-  // Sin peso, todos los puntos comparten el MISMO aporte (uniforme)…
-  assert.ok(spy.calls.alphas.every((a) => a === spy.calls.alphas[0]), 'aporte uniforme sin weightOf')
-  // …y ese aporte es CHICO: con alpha=1 (el bug) los cores opacos saturarían a disco sólido.
-  for (const a of spy.calls.alphas) {
-    assert.ok(a > 0 && a < 0.5, `el aporte por punto es chico para acumular densidad (fue ${a}, debe ser <0.5)`)
-    assert.ok(a < 1, 'un aporte de 1 satura source-over al toque (disco sólido, no densidad)')
-  }
-  layer.destroy()
-  spy.restore()
-})
-
-// Contrapositivo: subir intensity acerca el aporte a la saturación (semántica "más caliente").
-test('bug#1: intensity>1 sube el aporte por punto (satura antes), pero nunca pasa de 1', () => {
-  const alto = mount(onScreen, { intensity: 100 }, { idOf, positionOf })
-  alto.spy.calls.alphas.length = 0
-  alto.layer.redraw()
-  for (const a of alto.spy.calls.alphas)
-    assert.ok(a === 1, `intensity alto clampa el aporte a 1 (fue ${a})`)
-  alto.layer.destroy(); alto.spy.restore()
-
-  const bajo = mount(onScreen, { intensity: 1 }, { idOf, positionOf })
-  bajo.spy.calls.alphas.length = 0
-  bajo.layer.redraw()
-  const aporteDefault = bajo.spy.calls.alphas[0]
-  assert.ok(aporteDefault < 1, 'con intensity default el aporte deja margen para acumular')
-  bajo.layer.destroy(); bajo.spy.restore()
-})
-
-// Bug #2: un radius/blur negativo en el setter NO debe throwear (createRadialGradient con radio<0 lanza).
-// Se elige un negativo cuyo R = radius+blur quede < 0 SIN el guard (blur default 15, radius -30 → R=-15).
-test('bug#2: radius/blur negativo en el setter no throwea (no createRadialGradient con radio<0)', () => {
-  const { spy, layer } = mount(onScreen)
-
-  // Sin el guard: radius=-30 + blur=15 ⇒ R=-15 ⇒ createRadialGradient(...,-15) throwea.
-  assert.doesNotThrow(() => { layer.radius = -30 }, 'radius negativo se satura a >=0')
-  // Sin el guard: blur=-30 + radius=25 ⇒ R=-5 ⇒ throwea.
-  assert.doesNotThrow(() => { layer.blur = -30 }, 'blur negativo se satura a >=0')
-  // Y radius=blur=0 (ambos al piso) tampoco throwea (0/0 → NaN en el core sin el guard R>0).
-  assert.doesNotThrow(() => { layer.radius = 0; layer.blur = 0 }, 'radius=blur=0 no rompe el core del degradado')
-
-  layer.destroy()
-  spy.restore()
-})
-
-// Bug #3: la ruta del Source debe dibujar SÍNCRONO en el callback (el Emitter ya coalescó a rAF); un rAF
-// propio ahí sería un doble rAF (2º frame de latencia). El rAF queda SÓLO para eventos de mapa.
-//   - El Emitter entrega vía setTimeout(0) (rAF cacheado del harness) → se drena con un macrotask real.
-//   - El rAF del layer usa globalThis.requestAnimationFrame (resuelto al llamar) → se intercepta acá.
-test('bug#3: la ruta del Source dibuja SÍNCRONO (sin doble rAF); el rAF queda para eventos de mapa', async () => {
-  const rafQ = []
-  const origRaf = globalThis.requestAnimationFrame
-  globalThis.requestAnimationFrame = (cb) => { rafQ.push(cb); return rafQ.length }
+// Un rAF que anota en vez de correr: los redibujos coalescidos se disparan a mano.
+const conRaf = fn => {
+  const cola       = []
+  const canceladas = []
+  let id           = 0
+  const orig      = [globalThis.requestAnimationFrame, globalThis.cancelAnimationFrame]
+  globalThis.requestAnimationFrame = cb => { cola.push(cb); return ++id }
+  globalThis.cancelAnimationFrame  = id => canceladas.push(id)
+  const correr = () => cola.splice(0).forEach(cb => cb(0))
+  const restaurar = () => { ;[globalThis.requestAnimationFrame, globalThis.cancelAnimationFrame] = orig }
+  let resultado
   try {
-    const { spy, layer, source, map } = mount(onScreen)
-    // Drena el emit del `set` inicial (agendado antes de suscribir el layer) y limpia contadores.
-    await new Promise((r) => setTimeout(r, 5))
-    rafQ.length = 0
-    spy.calls.putImageData = 0
-
-    // Cambio del Source: el Emitter lo entrega en un macrotask; el callback del layer debe dibujar YA.
-    source.set([...onScreen, { id: 9, pos: { lat: 1, lng: 2 }, w: 1 }])
-    await new Promise((r) => setTimeout(r, 5))
-
-    assert.equal(rafQ.length, 0, 'la ruta del Source NO agenda un rAF propio (sin doble rAF)')
-    assert.ok(spy.calls.putImageData >= 1, 'dibujó SÍNCRONO al recibir el cambio del Source')
-
-    // En cambio, un evento de MAPA sí coalesce a rAF: no dibuja hasta el frame.
-    spy.calls.putImageData = 0
-    map.fire('moveend')
-    assert.equal(rafQ.length, 1, 'un evento de mapa agenda exactamente un rAF')
-    assert.equal(spy.calls.putImageData, 0, 'no dibuja hasta que llega el frame')
-    rafQ.splice(0).forEach((cb) => cb(0))                 // corre el frame
-    assert.ok(spy.calls.putImageData >= 1, 'dibuja al llegar el frame del evento de mapa')
-
-    layer.destroy()
-    spy.restore()
-  } finally {
-    globalThis.requestAnimationFrame = origRaf
+    resultado = fn({ cola, canceladas, correr })
+  } catch (e) {
+    restaurar()
+    throw e
   }
-})
+  if (!resultado?.then) {
+    restaurar()
+    return resultado
+  }
+  return resultado.finally(restaurar)    // una prueba async conserva el rAF falso hasta terminar
+}
 
-// Bug #4: la colorización mapea el alpha ACUMULADO al color de la rampa. Se captura el framebuffer que
-// va a putImageData y se asertan índice (qué entrada de la paleta) Y canales (r,g,b,a en su lugar). La
-// rampa tiene 3 canales DISTINTOS en función de t → un swap de canal o un índice corrido se detecta.
-test('bug#4: colorize mapea un alpha conocido al color EXACTO de la rampa (índice y canales)', () => {
-  const ramp = (t) => [t, t * 0.5, 1 - t, 1]
-  const { spy, layer } = mount(onScreen, { colorRamp: ramp })
-  spy.calls.lastImageData = null
+/* ── Las pasadas ── */
+
+test('el FBO de acumulación se enlaza antes del splat, y begin viene antes de la rampa, con end(view) al final', () => {
+  const { layer, calls } = montar(puntos)
+  calls.length = 0
   layer.redraw()
-
-  const out = spy.calls.lastImageData
-  assert.ok(out, 'putImageData recibió el framebuffer colorizado')
-
-  // El spy alimenta alpha=128 en cada pixel. Reproduzco la MISMA aritmética + clamp del layer para el
-  // esperado (paleta muestreada en t=alpha/255; alpha final = alpha·paleta.a/255).
-  const A = 128
-  const c = ramp(A / (256 - 1))
-  const pal = new Uint8ClampedArray(4)
-  pal[0] = c[0] * 255; pal[1] = c[1] * 255; pal[2] = c[2] * 255; pal[3] = c[3] * 255
-  const finalA = new Uint8ClampedArray(1)
-  finalA[0] = (A * pal[3]) / 255
-
-  // Valores concretos (que el índice/canal correctos deben producir): [128, 64, 127, 128].
-  assert.equal(pal[0], 128); assert.equal(pal[1], 64); assert.equal(pal[2], 127); assert.equal(finalA[0], 128)
-
-  assert.equal(out[0], pal[0], 'R = paleta[alpha].r (índice del alpha correcto)')
-  assert.equal(out[1], pal[1], 'G = paleta[alpha].g (sin swap de canal)')
-  assert.equal(out[2], pal[2], 'B = paleta[alpha].b')
-  assert.equal(out[3], finalA[0], 'alpha final = alpha·paleta[alpha].a/255')
-
-  // Un pixel con alpha 0 (no acumulado) se salta: queda transparente, no toma color.
-  assert.equal(out[4 * 1 + 3] !== undefined, true)   // el buffer cubre >1 pixel
-
+  const iFbo  = indice(calls, 'bindFramebuffer')
+  const iSplat = indice(calls, 'drawArraysInstanced')
+  const iBegin = indice(calls, 'SURFACE_BEGIN')
+  const iRampa = indice(calls, 'drawArrays')
+  const iEnd   = indice(calls, 'SURFACE_END')
+  assert.ok(iFbo >= 0 && iFbo < iSplat, 'el FBO de acumulación va antes del splat')
+  assert.ok(iSplat < iBegin, 'la ranura se enlaza después de acumular')
+  assert.ok(iBegin < iRampa && iRampa < iEnd, 'la rampa va entre begin y end')
+  assert.deepEqual(calls[iRampa].slice(1), ['TRIANGLES', 0, 3])
+  assert.equal(calls[iEnd][1], 3, 'end recibe la vista con que pintó')
+  assert.equal(llamadas(calls, 'SURFACE_BEGIN').length, 1)
+  assert.equal(llamadas(calls, 'SURFACE_END').length, 1)
   layer.destroy()
-  spy.restore()
 })
 
-test('redibuja ante cambios del Source y props en vivo sin throwear', () => {
-  const { spy, layer, source } = mount(onScreen)
-  assert.doesNotThrow(() => {
-    layer.radius = 40           // reconstruye la brocha
-    layer.intensity = 2
-    layer.colorRamp = (t) => [0, t, 0, 1]   // re-muestrea la paleta
-    source.set([...onScreen, { id: 4, pos: { lat: 2, lng: 2 }, w: 2 }])
-    layer.refresh()
-    layer.resetCanvasReference()
-    layer.redraw()
-  })
+test('las instancias son los puntos válidos, con el peso normalizado por el máximo', () => {
+  const items = [...puntos, { id: 4, pos: { lat: NaN, lng: 0 }, w: 9 }, { id: 5, pos: null, w: 2 }, { id: 6, pos: { lat: 1, lng: Infinity }, w: 1 }]
+  const { layer, calls } = montar(items)
+  const [datos] = llamadas(calls, 'bufferData').map(c => c[2])
+  const [draw]  = llamadas(calls, 'drawArraysInstanced')
+  assert.equal(draw[4], 3, 'sólo los 3 puntos finitos')
+  assert.equal(datos.length, 9)
+  assert.deepEqual([datos[2], datos[5], datos[8]].map(v => +v.toFixed(4)), [0.1111, 0.5556, 0.3333], 'peso / máximo del snapshot (9)')
   layer.destroy()
-  spy.restore()
 })
 
-// Oculta, la capa no colorea: el pane oculto no frena el `getImageData` de cada flush, la capa sí. Al
-// volver repinta con el snapshot que llegó mientras tanto.
-test('setVisible(false) corta el colorizado ante flushes y eventos de mapa; al volver repinta', async () => {
-  const rafQ    = []
-  const origRaf = globalThis.requestAnimationFrame
-  globalThis.requestAnimationFrame = cb => rafQ.push(cb)
-  try {
-    const { spy, layer, source, map } = mount(onScreen)
-    await new Promise(r => setTimeout(r, 5))
-    layer.setVisible(false)
-    spy.calls.getImageData = 0
-    spy.calls.drawImage    = 0
+test('sin weightOf el peso es 1 por punto', () => {
+  const { layer, calls } = montar(puntos, { accessors: { idOf, positionOf } })
+  const [datos] = llamadas(calls, 'bufferData').map(c => c[2])
+  assert.deepEqual([datos[2], datos[5], datos[8]], [1, 1, 1])
+  layer.destroy()
+})
 
-    source.set([...onScreen, { id: 9, pos: { lat: 1, lng: 2 }, w: 1 }])
-    await new Promise(r => setTimeout(r, 5))
-    map.fire('moveend')
-    rafQ.splice(0).forEach(cb => cb(0))
-    layer.redraw()
-    assert.equal(spy.calls.getImageData, 0, 'oculta no lee el framebuffer')
-    assert.equal(spy.calls.drawImage, 0, 'oculta no estampa')
+test('intensity cambia sólo el uniforme: no resube el búfer', () => conRaf(({ correr }) => {
+  const { layer, calls } = montar(puntos)
+  const subidas = llamadas(calls, 'bufferData').length
+  calls.length  = 0
+  layer.intensity = 3
+  correr()
+  assert.equal(llamadas(calls, 'bufferData').length, 0)
+  assert.equal(subidas, 1)
+  const u = llamadas(calls, 'uniform1fv').find(c => c[1].name === 'uIntensity')
+  assert.deepEqual(Array.from(u[2]), [3])
+  layer.destroy()
+}))
 
-    layer.setVisible(true)
-    assert.equal(spy.calls.getImageData, 1, 'al volver colorea una vez, en el acto')
-    assert.equal(spy.calls.drawImage, onScreen.length + 1, 'con el punto que llegó oculta')
-    layer.destroy()
-    spy.restore()
-  } finally {
-    globalThis.requestAnimationFrame = origRaf
-  }
+test('un paneo corto no re-ancla y uno lejano a zoom alto sí', () => {
+  let lecturas = 0
+  const { layer, cam, calls } = montar(puntos, { vista: { zoom: 22 }, accessors: { idOf, positionOf: it => (lecturas++, it.pos), weightOf } })
+  const base = lecturas
+  assert.equal(base, puntos.length, 'el primer dibujo lee cada punto una vez')
+  cam.estado.lng = 0.0001
+  layer.redraw()
+  assert.equal(lecturas, base, 'un paneo corto no relee los accessors')
+  cam.estado.lng = 3
+  const subidas = llamadas(calls, 'bufferData').length
+  layer.redraw()
+  assert.equal(lecturas, base + puntos.length, 'uno lejano a zoom alto reasienta el ancla')
+  assert.equal(llamadas(calls, 'bufferData').length, subidas + 1, 'y resube')
+  layer.destroy()
+})
+
+test('un paneo lejano a zoom bajo no re-ancla: el redondeo float32 sigue bajo la tolerancia', () => {
+  let lecturas = 0
+  const { layer, cam } = montar(puntos, { vista: { zoom: 3 }, accessors: { idOf, positionOf: it => (lecturas++, it.pos), weightOf } })
+  const base = lecturas
+  cam.estado.lng = 100
+  layer.redraw()
+  assert.equal(lecturas, base)
+  layer.destroy()
+})
+
+/* ── La paleta ── */
+
+test('la paleta se muestrea 256 veces al construir, en colorRamp= y en refresh', () => {
+  let n = 0
+  const rampa = t => { n++; return [t, 0, 1 - t, 1] }
+  const { layer, calls } = montar(puntos, { opts: { colorRamp: rampa } })
+  assert.equal(GRAD_STEPS, 256)
+  assert.equal(n, GRAD_STEPS, 'al construir')
+  const subidas = llamadas(calls, 'texSubImage2D').length
+  layer.colorRamp = t => { n++; return [0, t, 0, 1] }
+  assert.equal(n, 2 * GRAD_STEPS, 'en colorRamp=')
+  layer.refresh()
+  assert.equal(n, 3 * GRAD_STEPS, 'en refresh')
+  assert.equal(llamadas(calls, 'texSubImage2D').length, subidas + 2, 'cada muestreo actualiza la textura')
+  const sub = llamadas(calls, 'texSubImage2D').at(-1)
+  assert.deepEqual(sub.slice(2, 9), [0, 0, 0, GRAD_STEPS, 1, 'RGBA', 'UNSIGNED_BYTE'])
+  assert.equal(sub[9].length, GRAD_STEPS * 4)
+  layer.destroy()
+})
+
+test('la paleta sube con la textura al construir el contexto, con el color exacto de la rampa', () => {
+  const { layer, calls } = montar(puntos, { opts: { colorRamp: t => [t, t * 0.5, 1 - t, 1] } })
+  const tex = llamadas(calls, 'texImage2D').find(c => c[3] === 'RGBA8' && c[4] === GRAD_STEPS && c[5] === 1)
+  assert.ok(tex, 'una textura de 256 × 1 RGBA8')
+  const pal = tex[9]
+  const k = 128
+  assert.deepEqual(Array.from(pal.subarray(k * 4, k * 4 + 4)), [128, 64, 127, 255], 'índice y canales en su lugar')
+  assert.equal(pal[255 * 4 + 3], 255)
+  layer.destroy()
+})
+
+test('una rampa que lanza al construir no deja el pane: la superficie ni se toma', () => {
+  const calls = []
+  const cam   = camara()
+  const source = createSource({ idOf, positionOf, weightOf })
+  source.set(puntos)
+  let altas = 0
+  assert.throws(() => new HeatLayer({
+    host: { camera: cam }, pane: 'heat', source, colorRamp: () => { throw new Error('rampa rota') },
+    surface: () => { altas++; return superficie([glDoble({ calls })], calls) },
+  }), /rampa rota/)
+  assert.equal(altas, 0)
+  assert.equal(cam.oyentes('moveend'), 0, 'tampoco suscribió la vista')
+})
+
+/* ── Radio y desenfoque ── */
+
+test('radius y blur negativos valen 0, y R = 0 no emite splat', () => conRaf(({ correr }) => {
+  const { layer, calls } = montar(puntos)
+  assert.equal(llamadas(calls, 'drawArraysInstanced').length, 1)
+  calls.length = 0
+  layer.radius = -30
+  correr()
+  const R = llamadas(calls, 'uniform1fv').find(c => c[1].name === 'uRadius')
+  assert.deepEqual(Array.from(R[2]), [15], 'radius −30 vale 0 y R = blur por defecto')
+  assert.equal(llamadas(calls, 'drawArraysInstanced').length, 1)
+  calls.length = 0
+  layer.blur = -2
+  correr()
+  assert.equal(llamadas(calls, 'drawArraysInstanced').length, 0, 'R = 0: sin splat')
+  assert.equal(llamadas(calls, 'drawArrays').length, 1, 'la rampa pinta igual el campo vacío')
+  assert.equal(llamadas(calls, 'SURFACE_END').length, 1)
+  layer.destroy()
+}))
+
+/* ── Visibilidad, zoom y destrucción ── */
+
+test('oculta no dibuja ante un flush ni un evento de mapa; setVisible(true) dibuja', async () => conRaf(async ({ correr }) => {
+  const { layer, calls, source, cam, surf } = montar(puntos, { opts: { visible: false } })
+  assert.equal(llamadas(calls, 'SURFACE_BEGIN').length, 0, 'oculta desde el alta no pinta')
+  source.set([...puntos, { id: 9, pos: { lat: 1, lng: 2 }, w: 1 }])
+  await new Promise(r => setTimeout(r, 5))
+  cam.fire('moveend')
+  correr()
+  layer.redraw()
+  assert.equal(llamadas(calls, 'SURFACE_BEGIN').length, 0)
+  assert.equal(llamadas(calls, 'drawArraysInstanced').length, 0)
+
+  assert.equal(layer.setVisible(true), true)
+  assert.deepEqual(surf.visible, [true])
+  assert.equal(llamadas(calls, 'SURFACE_BEGIN').length, 1, 'al volver pinta una vez, en el acto')
+  assert.equal(llamadas(calls, 'drawArraysInstanced')[0][4], 4, 'con el punto que llegó oculta')
+  assert.equal(layer.setVisible(true), false, 'visible y al día no repinta')
+  layer.destroy()
+}))
+
+test('zoomstart pinta vacío; el campo vuelve en el zoomend', () => conRaf(({ correr }) => {
+  const { layer, calls, cam } = montar(puntos)
+  calls.length = 0
+  cam.fire('zoomstart')
+  assert.deepEqual(calls.map(c => c[0]).filter(n => n.startsWith('SURFACE')), ['SURFACE_BEGIN', 'SURFACE_END'])
+  assert.equal(llamadas(calls, 'drawArraysInstanced').length, 0)
+  assert.equal(llamadas(calls, 'drawArrays').length, 0)
+  assert.equal(llamadas(calls, 'clear').length, 1)
+  cam.fire('zoomstart')
+  assert.equal(llamadas(calls, 'SURFACE_BEGIN').length, 1, 'un segundo zoomstart sin dibujo de por medio no repite el vacío')
+  cam.fire('zoomend')
+  correr()
+  assert.equal(llamadas(calls, 'drawArraysInstanced').length, 1, 'el zoomend repinta el campo')
+  cam.fire('zoomstart')
+  assert.equal(llamadas(calls, 'SURFACE_BEGIN').length, 3, 'tras un dibujo lleno el vacío vuelve a pintarse')
+  layer.destroy()
+}))
+
+test('un flush de la Source en pleno zoom animado no pinta el campo: lo pinta el zoomend', async () => conRaf(async ({ correr }) => {
+  const { layer, source, calls, cam } = montar(puntos)
+  cam.fire('zoomstart')
+  calls.length = 0
+  source.set([...puntos, { id: 9, pos: { lat: 2, lng: 2 }, w: 2 }])
+  await new Promise(r => setTimeout(r, 5))    // el flush de la Source llega en pleno zoom
+  layer.redraw()
+  cam.fire('resize')
+  correr()
+  assert.equal(llamadas(calls, 'drawArraysInstanced').length, 0, 'ni el flush, ni redraw, ni un evento de mapa pintan splats')
+  assert.equal(llamadas(calls, 'drawArrays').length, 0)
+  cam.fire('zoomend')
+  correr()
+  const [splat] = llamadas(calls, 'drawArraysInstanced')
+  assert.equal(splat[4], 4, 'al asentar pinta con los datos nuevos')
+  layer.destroy()
+}))
+
+test('tras destroy, los setters no programan un rAF', () => conRaf(({ cola }) => {
+  const { layer } = montar(puntos)
+  layer.destroy()
+  layer.radius = 5
+  layer.intensity = 2
+  assert.equal(cola.length, 0)
+}))
+
+test('los eventos de mapa se coalescen a un rAF, y destroy lo cancela', () => conRaf(({ cola, canceladas, correr }) => {
+  const { layer, calls, cam } = montar(puntos)
+  calls.length = 0
+  cam.fire('moveend')
+  cam.fire('resize')
+  cam.fire('zoomend')
+  assert.equal(cola.length, 1, 'una ráfaga agenda un solo rAF')
+  assert.equal(llamadas(calls, 'SURFACE_BEGIN').length, 0, 'no dibuja hasta el frame')
+  correr()
+  assert.equal(llamadas(calls, 'SURFACE_BEGIN').length, 1)
+
+  cam.fire('moveend')
+  assert.equal(cola.length, 1)
+  layer.destroy()
+  assert.deepEqual(canceladas.slice(-1), [2], 'destroy cancela el rAF pendiente con su id')
+  assert.equal(cam.oyentes('moveend') + cam.oyentes('zoomstart'), 0, 'y suelta los eventos de la vista')
+  layer.destroy()
+  assert.equal(llamadas(calls, 'SURFACE_DESTROY').length, 1, 'destroy es idempotente')
+}))
+
+test('la ruta del Source dibuja síncrona, sin rAF propio', async () => conRaf(async ({ cola }) => {
+  const { layer, source, calls } = montar(puntos)
+  await new Promise(r => setTimeout(r, 5))
+  calls.length = 0
+  cola.length  = 0
+  source.set([...puntos, { id: 9, pos: { lat: 1, lng: 2 }, w: 1 }])
+  await new Promise(r => setTimeout(r, 5))
+  assert.equal(cola.length, 0)
+  assert.equal(llamadas(calls, 'SURFACE_BEGIN').length, 1)
+  assert.equal(llamadas(calls, 'drawArraysInstanced')[0][4], 4)
+  layer.destroy()
+}))
+
+test('con un mapa adoptado, zoomstart y moveend llegan por la cámara del anfitrión', () => conRaf(({ correr }) => {
+  const map  = makeMap()
+  const calls = []
+  const gl   = glDoble({ calls })
+  const surf = superficie([gl], calls)
+  const source = createSource({ idOf, positionOf, weightOf })
+  source.set(puntos)
+  const layer = new HeatLayer({ host: adoptLeafletHost(map), pane: 'heat', source, surface: o => { surf.owner = o.owner; return surf } })
+  calls.length = 0
+  map.fire('zoomstart')
+  assert.equal(llamadas(calls, 'SURFACE_END').length, 1)
+  map.fire('zoomend')
+  map.fire('moveend')
+  correr()
+  assert.equal(llamadas(calls, 'drawArraysInstanced').length, 1)
+  layer.destroy()
+}))
+
+/* ── El contexto ── */
+
+test('dropGl seguido de buildGl resube desde el espejo, sin llamar a positionOf', () => {
+  let lecturas = 0
+  const gls = [glDoble(), glDoble()]
+  const { layer, surf } = montar(puntos, { gls, accessors: { idOf, positionOf: it => (lecturas++, it.pos), weightOf } })
+  const base = lecturas
+  surf.perder()
+  surf.recuperar()
+  assert.equal(lecturas, base, 'el espejo de CPU basta')
+  const [datos] = llamadas(gls[1].calls, 'bufferData').map(c => c[2])
+  assert.equal(datos.length, 9)
+  assert.equal(llamadas(gls[1].calls, 'drawArraysInstanced')[0][4], 3, 'y pinta en el acto')
+  assert.equal(llamadas(gls[1].calls, 'texImage2D').filter(c => c[3] === 'RGBA8' && c[5] === 1).length, 1, 'con su paleta')
+  layer.destroy()
+})
+
+test('destroy devuelve lo GL a un contexto vivo y no a uno perdido', () => {
+  const { layer, calls } = montar(puntos)
+  calls.length = 0
+  layer.destroy()
+  assert.deepEqual(llamadas(calls, 'deleteTexture', 'deleteFramebuffer', 'deleteBuffer', 'deleteVertexArray').map(c => c[0]).sort(),
+    ['deleteBuffer', 'deleteFramebuffer', 'deleteTexture', 'deleteTexture', 'deleteVertexArray'])
+
+  const perdido = glDoble()
+  perdido.isContextLost = () => true
+  const otra = montar(puntos, { gls: [perdido] })
+  otra.calls.length = 0
+  otra.layer.destroy()
+  assert.equal(llamadas(otra.calls, 'deleteTexture').length, 0)
+})
+
+test('sin extensiones usa la mezcla over y el acumulador RGBA8; con ellas, la suma en R16F', () => {
+  const sin = montar(puntos, { ext: false })
+  assert.deepEqual(llamadas(sin.calls, 'blendFunc').at(-1).slice(1), ['ONE', 'ONE_MINUS_SRC_ALPHA'])
+  const accSin = llamadas(sin.calls, 'texImage2D').find(c => c[4] === 800)
+  assert.deepEqual([accSin[3], accSin[7], accSin[8]], ['RGBA8', 'RGBA', 'UNSIGNED_BYTE'])
+  sin.layer.destroy()
+
+  const con = montar(puntos, { ext: true })
+  assert.deepEqual(llamadas(con.calls, 'blendFunc').at(-1).slice(1), ['ONE', 'ONE'])
+  const accCon = llamadas(con.calls, 'texImage2D').find(c => c[4] === 800)
+  assert.deepEqual([accCon[3], accCon[7], accCon[8]], ['R16F', 'RED', 'HALF_FLOAT'])
+  assert.equal(llamadas(con.calls, 'texImage2D').filter(c => c[4] === 800).length, 1, 'el acumulador se aloca una vez')
+  con.layer.redraw()
+  assert.equal(llamadas(con.calls, 'texImage2D').filter(c => c[4] === 800).length, 1, 'y con la misma vista no se realoca')
+  con.cam.estado.w = 640
+  con.layer.redraw()
+  assert.equal(llamadas(con.calls, 'texImage2D').filter(c => c[4] === 640).length, 1, 'al cambiar el tamaño sí')
+  con.layer.destroy()
+})
+
+test('suelta, la rampa va al framebuffer por defecto; en un tramo, el que enlazó begin', () => {
+  const suelta = montar(puntos, { enTramo: false })
+  suelta.calls.length = 0
+  suelta.layer.redraw()
+  const iBegin = indice(suelta.calls, 'SURFACE_BEGIN')
+  const defecto = suelta.calls.findIndex((c, i) => i > iBegin && c[0] === 'bindFramebuffer' && c[2] === null)
+  assert.ok(defecto > iBegin && defecto < indice(suelta.calls, 'drawArrays'), 'bindFramebuffer(null) tras begin y antes de la rampa')
+  assert.deepEqual(suelta.calls[defecto + 1].slice(1), [0, 0, 800, 600], 'con el viewport del drawing buffer')
+  suelta.layer.destroy()
+
+  const tramo = montar(puntos, { enTramo: true })
+  tramo.calls.length = 0
+  tramo.layer.redraw()
+  const b = indice(tramo.calls, 'SURFACE_BEGIN')
+  assert.equal(tramo.calls.some((c, i) => i > b && c[0] === 'bindFramebuffer'), false, 'el destino del tramo no se pisa')
+  tramo.layer.destroy()
+})
+
+test('el estado del acumulador queda neutro para sus vecinas: sin profundidad, stencil ni scissor', () => {
+  const { layer, calls } = montar(puntos)
+  calls.length = 0
+  layer.redraw()
+  const desactivados = llamadas(calls, 'disable').map(c => c[1])
+  ;['DEPTH_TEST', 'STENCIL_TEST', 'SCISSOR_TEST', 'CULL_FACE'].forEach(c => assert.ok(desactivados.includes(c), c))
+  layer.destroy()
+})
+
+test('redraw() con la cámara sola asigna 0 bytes', () => {
+  const quieto = glDoble({ grabar: false })
+  const cam    = camara()
+  const source = createSource({ idOf, positionOf, weightOf })
+  source.set(puntos)
+  const surf = superficie([quieto], [])
+  surf.begin = () => DESTINO
+  surf.end   = () => {}
+  const layer = new HeatLayer({ host: { camera: cam }, pane: 'heat', source, surface: o => { surf.owner = o.owner; return surf } })
+  const medir = () => bytesPorLlamada(() => layer.redraw(), 20_000, { calentar: 100_000 })
+  const b = medir()
+  assert.ok(b < 1, `redraw con la cámara sola: ${b} bytes por llamada`)
+  layer.destroy()
 })

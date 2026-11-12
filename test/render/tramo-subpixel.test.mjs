@@ -83,6 +83,7 @@ const makeHost = () => {
     },
     zoom        : () => v.zoom,
     size        : () => v.size,
+    hasView     : () => true,
     frameOrigin : () => ({ x: -v.mapa.x, y: -v.mapa.y }),
     center() {
       const c = v.exacto ?? { x: (v.po.x - v.mapa.x + v.size.x / 2) / k(), y: (v.po.y - v.mapa.y + v.size.y / 2) / k() }

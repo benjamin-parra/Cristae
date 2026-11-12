@@ -88,6 +88,7 @@ export class GlTramo {
       this.#onForeign?.(node)
     }
     if (!this.#compositor || this.#surface.state !== 'live') return 0
+    if (!this.#injected && !this.#camera.hasView()) return 0       // un mapa adoptado sin vista: se compone en el `moveend` que la trae
 
     anchored || this.#surface.resetCanvasReference()
     const view    = this.#injected ? this.#view : readView(this.#camera, this.#now)

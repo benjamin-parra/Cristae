@@ -91,6 +91,7 @@ const makeHost = () => {
   const panes   = new Map()
   const vista   = { zoom: 10, center: { lat: 0, lng: 0 }, size: { x: 800, y: 600 } }
   const camera  = {
+    hasView     : () => true,
     on(nombres, fn) {
       const tipos = nombres.split(' ')
       tipos.forEach(t => (oyentes.get(t) ?? oyentes.set(t, new Set()).get(t)).add(fn))
@@ -435,6 +436,24 @@ test('T5 componer reasienta el canvas; renderAtView inyecta la vista hasta zoome
   await drenar()
   assert.equal(composiciones().at(-1)[2].zoom, 10, 'el sync de unos puntos sí')
   assert.equal(composiciones().length, 6, 'una composición por tarea')
+})
+
+test('T5 un mapa adoptado sin vista no compone, ni lanza, hasta que la vista llega', async () => {
+  const { host, tramo, miembro, composiciones, log } = montar()
+  const a = miembro('a')
+  a.slot.open(true)
+  await drenar()
+  log.length = 0
+
+  host.camera.hasView = () => false
+  tramo.touch()
+  await drenar()
+  assert.equal(composiciones().length, 0, 'sin vista no hay composición')
+
+  host.camera.hasView = () => true
+  tramo.touch()
+  await drenar()
+  assert.equal(composiciones().length, 1, 'con la vista compone')
 })
 
 test('T5 un miembro oculto que reasienta no compone; varios que reasienten en una tarea, una composición sin reanclar de nuevo', async () => {

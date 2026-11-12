@@ -141,7 +141,7 @@ export class EditSurface {
     const gl = canvas.getContext('webgl2', this.#attrs)
     if (!gl) {
       this.#owner && glBudget.failed()
-      throw new Error('[cristae] sin WebGL2: la geometría editable en GPU necesita gl_VertexID y texelFetch')
+      throw new Error('[cristae] sin WebGL2: las capas en GPU necesitan gl_VertexID y texelFetch')
     }
     // Esclusa ruidosa: un contexto sin stencil falla EN SILENCIO y se ve como «el relleno a veces cubre
     // la pantalla entera». Se suelta antes de tirar porque el consumidor puede degradar a edición DOM.
@@ -280,6 +280,7 @@ export class EditSurface {
   // sale el transform del zoom animado.
   #anclar() {
     const camera = this.#camera
+    if (!camera.hasView()) return                       // un mapa adoptado sin vista: se ancla en el `moveend` que la trae
     const a      = this.#ancla
     const p      = camera.frameOrigin()
     this.#canvas.style.transform = frameTransform(p.x, p.y)

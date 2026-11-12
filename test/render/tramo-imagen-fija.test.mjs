@@ -100,6 +100,7 @@ const makeHost = () => {
     zoom        : () => vista.zoom,
     center      : () => vista.center,
     size        : () => vista.size,
+    hasView     : () => true,
     frameOrigin : () => ({ x: 0, y: 0 }),
     project     : (ll, z) => ({ x: ll.lng * 2 ** z, y: ll.lat * 2 ** z }),
   }
