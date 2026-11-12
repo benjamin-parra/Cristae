@@ -3,8 +3,8 @@
 // de 180, y con el oeste al este del este no es una caja. Es la caja de la API, de los encuadres y de lo
 // que una capa informa como propia; las cajas de trabajo de los índices, sin regla de lugar, viven en
 // bbox.js. Módulo puro, como geodesic.js: sin Leaflet, sin DOM.
-import { coordOf, isPlace, isPoint } from '../data/path.js'
-import { foldArgs } from './polyline.js'
+import { coordOf, isPlace, isPoint, iterable } from '../data/path.js'
+import { foldArgs, foldRuns } from './polyline.js'
 
 // La caja vacía, que el primer lugar que se le suma vuelve la caja de un punto. Hasta entonces no es una
 // caja: `readBounds` la rechaza, y con él decide todo el que acumula si le quedó alguna.
@@ -28,6 +28,37 @@ export const growBounds = (box, lat, lng) => (isPlace(lat, lng) ? stretch(box, l
 export const growRun = (box, vertices, first, count) => {
   for (let i = first; i < first + count; i++)
     stretch(box, coordOf(vertices[i], 0), coordOf(vertices[i], 1))
+  return box
+}
+
+// Un tipado plano, intercalado [lat, lng, …], sumado a la caja.
+const growTyped = (box, v) => {
+  for (let i = 0; i + 1 < v.length; i += 2) growBounds(box, v[i], v[i + 1])
+  return box
+}
+
+// Una coordenada de positionOf o de ringsOf llega como `{lat,lng}`, `[lat,lng]`, un anidado, un iterable
+// o un tipado plano. Se recorre sin materializar pares. Estable en el módulo: sin clausura por ítem.
+const walk = (box, v) => {
+  if (ArrayBuffer.isView(v)) return growTyped(box, v)
+  if (Array.isArray(v)) {
+    if (typeof v[0] === 'number') return growBounds(box, v[0], v[1])
+    for (let i = 0; i < v.length; i++) walk(box, v[i])
+    return box
+  }
+  if (typeof v?.lat === 'number') return growBounds(box, v.lat, v.lng)
+  if (iterable(v)) for (const x of v) walk(box, x)
+  return box
+}
+
+// Suma a `box` lo que dibuja un ítem, según el accessor que tenga su Source: `positionOf`, si no `pathOf`
+// —con el contrato de path de las líneas, sus formas de punto y su regla de corte: ahí una vista tipada es
+// un vértice, no un plano—, si no `ringsOf`. Un ítem sin lugares no estira nada. No sale de este módulo
+// hacia geometry/index.js: lo usan el motor y la cámara.
+export const growItem = (box, accessors, item) => {
+  if (accessors.positionOf) return walk(box, accessors.positionOf(item))
+  if (accessors.pathOf) return foldRuns(accessors.pathOf(item), growRun, box)
+  if (accessors.ringsOf) return walk(box, accessors.ringsOf(item))
   return box
 }
 

@@ -4,7 +4,7 @@
 // Corre con: node --test test/geometry/bounds.test.mjs
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { boundsOf, boundsPad, boundsContain, boundsCenter } from '../../src/geometry/bounds.js'
+import { boundsOf, boundsPad, boundsContain, boundsCenter, emptyBounds, growItem, readBounds } from '../../src/geometry/bounds.js'
 
 const caja = (south, west, north, east) => ({ south, west, north, east })
 
@@ -113,4 +113,28 @@ test('boundsContain no envuelve la longitud, ni la de la caja ni la del punto', 
 test('boundsCenter promedia los lados, también de la caja de un punto', () => {
   assert.deepEqual(boundsCenter(caja(-10, 100, 30, 140)), { lat: 10, lng: 120 })
   assert.deepEqual(boundsCenter(boundsOf([7, 8])), { lat: 7, lng: 8 })
+})
+
+// ── growItem ──────────────────────────────────────────────────────────────────
+
+test('growItem suma lo que dibuja el ítem según su accessor: posición, trazo o anillos', () => {
+  const posicion = growItem(emptyBounds(), { positionOf: o => o.p }, { p: { lat: 3, lng: 4 } })
+  assert.deepEqual(posicion, caja(3, 4, 3, 4))
+
+  const trazo = growItem(emptyBounds(), { pathOf: o => o.t }, { t: [[1, 2], [5, 9]] })
+  assert.deepEqual(trazo, caja(1, 2, 5, 9))
+
+  const anillos = growItem(emptyBounds(), { ringsOf: o => o.r }, { r: [[[0, 0], [0, 4], [3, 4]]] })
+  assert.deepEqual(anillos, caja(0, 0, 3, 4))
+})
+
+test('growItem lee tipados e iterables de las posiciones, y salta lo que no es lugar', () => {
+  const tipado = growItem(emptyBounds(), { ringsOf: o => o.r }, { r: new Float64Array([1, 2, 7, 8]) })
+  assert.deepEqual(tipado, caja(1, 2, 7, 8))
+
+  const iterable = growItem(emptyBounds(), { ringsOf: o => o.r }, { r: new Set([[1, 2], [6, 5]]) })
+  assert.deepEqual(iterable, caja(1, 2, 6, 5))
+
+  const fuera = growItem(emptyBounds(), { positionOf: o => o.p }, { p: { lat: 95, lng: 0 } })
+  assert.equal(readBounds(fuera), null)
 })

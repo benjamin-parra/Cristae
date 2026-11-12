@@ -1,5 +1,5 @@
 import { coordOf, isPlace } from '../data/path.js'
-import { emptyBounds, growBounds, readBounds } from '../geometry/bounds.js'
+import { emptyBounds, growBounds, growItem, readBounds } from '../geometry/bounds.js'
 import { byDefault } from '../geometry/geodesic.js'
 
 // Camera — la ÚNICA vía de movimiento del viewport tras el montaje (SPECS §9, MODELO §5.4).
@@ -12,6 +12,12 @@ import { byDefault } from '../geometry/geodesic.js'
 // punto entra en cualquier forma de cristae/geometry y una caja por su lector.
 
 const ZERO_INSETS = { top: 0, right: 0, bottom: 0, left: 0 }
+
+// El zoom al que un ítem de un solo lugar queda a la vista con su entorno: a z16 un px CSS mide
+// 156543,03·cos(lat)/2^16 ≈ 2,4 m en el ecuador y ≈ 1,9 m a 37°, así que una cuadra de 100 m ocupa unos 40 a
+// 50 px y el ítem conserva su calle a la vista. Queda tres niveles bajo el techo de tilePresets.osm (19):
+// todavía se puede acercar. El tope de la cámara (max-zoom) lo aplica el anfitrión.
+export const FIT_POINT_MIN_ZOOM = 16
 
 // Un zoom o una viscosidad que no es un número finito no limita: ni como límite de la cámara, ni como
 // tope de un encuadre.
@@ -90,19 +96,48 @@ export class Camera {
   }
 
   // Encuadra una capa por la caja de lo que dibuja, si la informa —una forma es más que su centro—, o por la
-  // de sus posiciones válidas: O(n) sobre el snapshot del Source.
-  fitToLayer(layerId, { insets, maxZoom } = {}) {
+  // de lo que dibuja cada ítem de su Source: O(n) sobre el snapshot. Con `ids` (iterable) encuadra sólo esos
+  // ítems, por los lugares que dibuja cada uno (vértices de una línea o polígono; en las formas, su centro y
+  // no su radio); si esa caja es un solo lugar acerca hasta FIT_POINT_MIN_ZOOM sin alejar nunca, y ids
+  // vacíos o desconocidos no mueven la cámara. Sin `ids` el encuadre no cambia: la regla del punto no aplica.
+  fitToLayer(layerId, { insets, maxZoom, ids } = {}) {
+    if (ids != null) return this.#fitItems(layerId, ids, insets, maxZoom)
     const drawn = this.#boundsOf(layerId)
     if (drawn) return this.fitBounds(drawn, { insets, maxZoom })
     const source = this.#resolveSource(layerId)
     if (!source) return this
-    const positionOf = source.accessors.positionOf
-    const box        = emptyBounds()
-    source.getSnapshot().forEach(item => {
-      const p = positionOf(item)
-      p && growBounds(box, p.lat, p.lng)
-    })
+    const accessors = source.accessors
+    const box       = emptyBounds()
+    source.getSnapshot().forEach(item => growItem(box, accessors, item))
     return this.fitBounds(box, { insets, maxZoom })
+  }
+
+  #fitItems(layerId, ids, insets, maxZoom) {
+    const source = this.#resolveSource(layerId)
+    if (!source) return this
+    const accessors = source.accessors
+    const box       = emptyBounds()
+    for (const id of ids) {
+      const item = source.itemById?.(id)
+      item && growItem(box, accessors, item)
+    }
+    if (!readBounds(box)) return this
+    if (box.south !== box.north || box.west !== box.east) return this.fitBounds(box, { insets, maxZoom })
+    const center = { lat: box.south, lng: box.west }
+    const z0     = this.#hostCamera.zoom()
+    if (z0 >= FIT_POINT_MIN_ZOOM) {
+      this.stopFollow()
+      this.#hostCamera.panTo(this.#centeredFor(center, z0, insets))
+      return this
+    }
+    const cap = finite(maxZoom)
+    return this.#flyCentered(center, Math.max(z0, cap === null ? FIT_POINT_MIN_ZOOM : Math.min(FIT_POINT_MIN_ZOOM, cap)), insets)
+  }
+
+  #flyCentered(center, z, insets) {
+    this.stopFollow()
+    this.#hostCamera.flyTo(this.#centeredFor(center, z, insets), z)
+    return this
   }
 
   // Encuadra (one-shot) el SUBCONJUNTO `ids` de una capa por la caja de sus posiciones válidas. Es a
@@ -251,8 +286,9 @@ export class Camera {
 
   // Corre el centro según los insets: el objetivo queda en el centro de la región VISIBLE.
   // Sin insets, es el punto tal cual (offset 0 → sin proyección extra); la forma la valida el anfitrión.
-  #centeredFor(point, zoom) {
-    const { top, right, bottom, left } = this.#insets
+  // `extra` son los insets de una llamada, que se componen con los de la cámara como en fitBounds.
+  #centeredFor(point, zoom, extra) {
+    const { top, right, bottom, left } = extra ? { ...this.#insets, ...extra } : this.#insets
     if (!top && !right && !bottom && !left) return point
     const { x, y } = this.#hostCamera.project(point, zoom)
     return this.#hostCamera.unproject({ x: x - (left - right) / 2, y: y - (top - bottom) / 2 }, zoom)
