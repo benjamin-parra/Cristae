@@ -5,9 +5,9 @@
 import '../../test-helpers/engine-stub.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { shapePresetIconSet, RENDERERS } from '../../src/atlas/shape-presets.js'
+import { shapePresetIconSet, RENDERERS, FACTORY_SHAPES, DEFAULT_SHAPE_COLOR } from '../../src/atlas/shape-presets.js'
 
-const FORMAS = ['dot', 'pin', 'circle']
+const FORMAS = ['dot', 'pin', 'circle']   // las que no rotan; arrow se prueba aparte
 const ROJO = '#ff0000'
 const AZUL = '#0000ff'
 
@@ -73,9 +73,9 @@ test('forma desconocida lanza en construcción (no degrada silenciosa)', () => {
   assert.throws(() => shapePresetIconSet({ shape: 'hexagono' }), /forma desconocida/)
 })
 
-test('RENDERERS expone las tres formas para composición', () => {
-  assert.deepEqual(Object.keys(RENDERERS).sort(), ['circle', 'dot', 'pin'])
-  for (const f of FORMAS) assert.equal(typeof RENDERERS[f], 'function')
+test('RENDERERS expone las formas para composición', () => {
+  assert.deepEqual(Object.keys(RENDERERS).sort(), ['arrow', 'circle', 'dot', 'pin'])
+  for (const f of FACTORY_SHAPES) assert.equal(typeof RENDERERS[f], 'function')
 })
 
 // --- Cada forma DIBUJA algo (nada de pintar un tile vacío en silencio) -----------------------------
@@ -129,4 +129,49 @@ test('pin: dibuja bulbo + punta rellenos (arc + lineTo + fill) y la PUNTA marca 
   // El bulbo queda ARRIBA de la punta (centro del arco con menor y que la punta central).
   const [, cy] = arcs[0].args
   assert.ok(cy < SIZE / 2, 'el bulbo del pin debe quedar por encima de la punta')
+})
+
+// --- arrow, fallback y constantes de fábrica --------------------------------------------------------
+
+test('arrow rota y dot no', () => {
+  assert.equal(shapePresetIconSet({ shape: 'arrow' }).rotates, true)
+  for (const f of FORMAS) assert.equal(shapePresetIconSet({ shape: f }).rotates, false)
+})
+
+test('arrow: polígono relleno con la punta al norte del tile, centrado', () => {
+  const ctx = spyCtx()
+  RENDERERS.arrow(ctx, SIZE, { shape: 'arrow', color: ROJO })
+  assert.ok(ctx.called('fill'))
+  assert.equal(ctx.fillStyle, ROJO)
+  const pts = [...ctx.of('moveTo'), ...ctx.of('lineTo')].map(c => c.args)
+  const tip = pts.reduce((a, b) => (b[1] < a[1] ? b : a))
+  assert.equal(tip[0], SIZE / 2)                    // la punta en el eje vertical del tile
+  assert.ok(tip[1] < SIZE / 2)                      // y arriba del centro: norte
+  for (const [x, y] of pts) assert.ok(x >= 0 && x <= SIZE && y >= 0 && y <= SIZE)
+})
+
+test('FACTORY_SHAPES y DEFAULT_SHAPE_COLOR', () => {
+  assert.deepEqual(FACTORY_SHAPES, ['dot', 'pin', 'circle', 'arrow'])
+  assert.equal(DEFAULT_SHAPE_COLOR, '#2563eb')
+})
+
+// describe no es público: se observa por el color que recibe el renderer (espía sobre RENDERERS).
+test('fallback sólo actúa con variante vacía; sin él el descriptor no cambia', async () => {
+  const forma = 'dot'
+  const original = RENDERERS[forma]
+  const vistos = []
+  RENDERERS[forma] = (ctx, size, d) => { vistos.push(d.color); original(ctx, size, d) }
+  try {
+    // El renderer se captura al construir: construir DESPUÉS del espía.
+    const conFallback = shapePresetIconSet({ shape: forma, fallback: DEFAULT_SHAPE_COLOR })
+    conFallback.resolve('')
+    conFallback.resolve(ROJO)
+    assert.deepEqual(vistos, [DEFAULT_SHAPE_COLOR, ROJO])
+    vistos.length = 0
+    const sinFallback = shapePresetIconSet({ shape: forma })
+    sinFallback.resolve('')
+    assert.deepEqual(vistos, [''])
+  } finally {
+    RENDERERS[forma] = original
+  }
 })

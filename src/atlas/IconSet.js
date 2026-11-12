@@ -1,4 +1,5 @@
 import Atlas from './Atlas.js'
+import { imageIconSet } from './image-icons.js'
 
 // IconSet — rasteriza variantes (string opaca) a tiles de píxeles y las administra en un Atlas.
 // Declarativo (describe: variante → descriptor) + imperativo (renderers: forma → canvas).
@@ -39,6 +40,15 @@ const MIN_IDLE_MS      = 2      // una ranura con menos ocio que un tile no se u
 const IDLE_TIMEOUT_MS  = 1000   // si la página nunca queda ociosa, igual avanza (un tile por ranura vencida)
 const IDLE_FALLBACK_MS = 50     // sin `requestIdleCallback` (Safari, node) se agenda por tiempo
 
+// Señales internas del módulo (no se reexportan en `src/index.js`): las usan los sets que se completan
+// después de nacer (imágenes que decodifican, configuración tardía) sin abrir API pública.
+//   REBAKE      re-rasteriza lo resuelto en una generación nueva del atlas; varias llamadas en el mismo
+//               turno se funden en una sola, en una microtarea.
+//   RECONFIGURE muta la descripción del set ({ describe, renderers, rotates, defaultSize, variants }) y
+//               pide un REBAKE.
+export const REBAKE      = Symbol('IconSet.rebake')
+export const RECONFIGURE = Symbol('IconSet.reconfigure')
+
 const capacityFor = count => Math.max(MIN_CAPACITY, Math.ceil((count || 1) * HEADROOM))
 
 // Escala de footprint declarada por el descriptor (`scale`): multiplicador del tamaño en pantalla
@@ -56,6 +66,7 @@ export class IconSet {
                  // estables ante grow, así que este arreglo sigue alineado entre generaciones.
   #variants = []   // índice de tile → variante ya resuelta. Alineado con el atlas (índices estables
                    // ante grow) → permite re-rasterizar en bloque cuando cargan las fuentes (font-gate).
+  #rebakeQueued = false      // hay un REBAKE agendado a la microtarea
   #fontsPending = false      // hay una re-rasterización encolada a document.fonts.ready
   #waiting                   // `prerender` no terminó: el adelanto espera, que dibujaría sin lo que el raster necesita
   #ctx                       // contexto 2D de trabajo (tileSize², `willReadFrequently`): el mismo para toda variante
@@ -217,17 +228,27 @@ export class IconSet {
     fonts.ready.then(() => this.#onFontsReady()).catch(() => {})
   }
 
-  // Cargaron las fuentes: re-rasteriza en bloque las variantes ya resueltas. Se hornea una generación
-  // NUEVA del atlas con la MISMA capacidad → los índices no se mueven (`#variants`/`#scales` siguen
-  // alineados) y sólo cambian los tiles. La identidad distinta es la señal que el binding GPU ya
-  // entiende (re-sube todo en el próximo sync), sin agregar un canal de "tile sucio". Luego se emite
-  // 'atlasrefreshed' para que el consumidor gatille ese sync. Idempotente: corre una sola vez.
-  // Los sprites entregados se arman de nuevo (eran del tile viejo) y lo declarado arranca el adelanto.
+  // Cargaron las fuentes: re-rasteriza en bloque lo ya resuelto (ver `#rebake`). Idempotente: corre una sola vez.
   #onFontsReady() {
     if (!this.#fontsPending) return
     this.#fontsPending = false
+    this.#rebake(false)
+  }
+
+  // Re-rasteriza lo resuelto: se hornea una generación NUEVA del atlas con la MISMA capacidad → los índices
+  // no se mueven (`#variants`/`#scales` siguen alineados) y sólo cambian los tiles. La identidad distinta es
+  // la señal que el binding GPU ya entiende (re-sube todo en el próximo sync), sin agregar un canal de
+  // "tile sucio". Luego se emite 'atlasrefreshed' para que el consumidor gatille ese sync. Los sprites
+  // entregados eran del tile viejo y se arman de nuevo. Con `fresh` (REBAKE: cambió lo que se dibuja, no sólo
+  // la fuente) también se descarta lo adelantado (`#prepared`) y el adelanto de lo declarado parte de cero;
+  // el camino de las fuentes los conserva, como antes de existir REBAKE.
+  #rebake(fresh) {
     const prev = this.#atlas
     this.#sprites.clear()
+    if (fresh) {
+      this.#prepared.clear()
+      this.#next = 0
+    }
     this.#arm()
     if (prev.count === 0) return                 // nada resuelto aún: no hay generación que rehacer
     const next = new Atlas(prev.capacity, this.#tileSize, prev.generation + 1)
@@ -239,9 +260,39 @@ export class IconSet {
     this.#atlas = next
     this.#onRefresh.forEach(fn => fn())
   }
+
+  // Coalesce: N pedidos en el mismo turno hacen un solo re-rasterizado, en una microtarea.
+  [REBAKE]() {
+    if (this.#rebakeQueued) return
+    this.#rebakeQueued = true
+    queueMicrotask(() => {
+      this.#rebakeQueued = false
+      this.#rebake(true)
+    })
+  }
+
+  [RECONFIGURE]({ describe, renderers, rotates, defaultSize, variants } = {}) {
+    if (describe)                this.#describe    = describe
+    if (renderers)               this.#renderers   = renderers
+    if (rotates !== undefined)   this.rotates      = rotates
+    if (defaultSize !== undefined) this.defaultSize = defaultSize
+    if (variants)                this.#declared    = [...variants]
+    this[REBAKE]()
+  }
 }
 
-export const defineIconSet = cfg => new IconSet(cfg)
+// Despacha por forma de la config: `icons` (imágenes por nombre) arma el set de imágenes, que trae
+// su propio describe y renderers; `describe`/`renderers` (canvas) van al IconSet de siempre. Mezclar
+// ambas formas es ambiguo —¿quién dibuja?—, así que se rechaza en vez de elegir una en silencio.
+export const defineIconSet = cfg => {
+  if (cfg && cfg.icons) {
+    if (cfg.describe || cfg.renderers) {
+      throw new TypeError('defineIconSet: `icons` no se combina con `describe` ni `renderers`; elegir imágenes o canvas')
+    }
+    return imageIconSet(cfg)
+  }
+  return new IconSet(cfg)
+}
 
 // Helper de `prerender`: espera a que una o más fuentes web estén disponibles antes de rasterizar
 // glifos al canvas — si no, el primer raster sale en blanco/tofu. Componer en la config del IconSet:

@@ -55,19 +55,49 @@ const pin = (ctx, size, d) => {
   ctx.fill()
 }
 
+// Flecha de un color con la punta al NORTE del tile (rumbo 0), para rotar por `headingOf`. Es una punta de
+// flecha con muesca en la cola (chevron relleno). Anclaje como `dot`: el centro del tile es el punto, y la
+// flecha queda centrada en él para que al rotar gire sobre su centro. Las fracciones de `size` salen de
+// dejar el mismo margen que `dot` (0.42 de radio → 0.08 libre) y de una base más angosta que el largo,
+// que es lo que hace legible el rumbo a tamaños chicos.
+const ARROW_TIP_Y   = -0.42   // punta, sobre el centro (el margen del dot)
+const ARROW_WING_Y  = 0.42    // esquinas de la cola, bajo el centro (simétrico a la punta)
+const ARROW_WING_X  = 0.32    // semiancho de la base: ~0.76 del largo
+const ARROW_NOTCH_Y = 0.2     // muesca de la cola: a ~3/4 del largo desde la punta
+const arrow = (ctx, size, d) => {
+  const c = size / 2
+  ctx.beginPath()
+  ctx.moveTo(c, c + size * ARROW_TIP_Y)
+  ctx.lineTo(c + size * ARROW_WING_X, c + size * ARROW_WING_Y)
+  ctx.lineTo(c, c + size * ARROW_NOTCH_Y)
+  ctx.lineTo(c - size * ARROW_WING_X, c + size * ARROW_WING_Y)
+  ctx.closePath()
+  ctx.fillStyle = d.color
+  ctx.fill()
+}
+
 // Mapa forma → renderer. Exportado para que un consumidor COMPONGA su propio IconSet reusando una forma
 // (p. ej. mezclar `dot` con un renderer propio) sin re-implementarla.
-export const RENDERERS = { dot, pin, circle }
+export const RENDERERS = { dot, pin, circle, arrow }
+
+// Formas que ofrecen los sets de fábrica, en orden estable.
+export const FACTORY_SHAPES = ['dot', 'pin', 'circle', 'arrow']
+
+// Color de respaldo de los sets de fábrica cuando el dato no trae variante: el azul de las burbujas de
+// cluster del motor (`#2563eb`), para que un marcador sin color se vea de la misma familia.
+export const DEFAULT_SHAPE_COLOR = '#2563eb'
 
 // Fabrica un IconSet de forma fija donde la variante es el color de relleno. `size` = tamaño en pantalla
 // por defecto del sprite (default del IconSet). El tile del canvas queda en el default del IconSet.
-export const shapePresetIconSet = ({ shape = 'dot', size } = {}) => {
+// `fallback` (opcional): color para la variante vacía. Sin él, el descriptor es el de siempre. Sólo `arrow`
+// rota: es la única forma con rumbo.
+export const shapePresetIconSet = ({ shape = 'dot', size, fallback } = {}) => {
   const render = RENDERERS[shape]
   if (!render) throw new Error(`[shapePresetIconSet] forma desconocida '${shape}' (usar ${Object.keys(RENDERERS).join('/')})`)
   return defineIconSet({
-    rotates:   false,                  // una forma coloreada no tiene rumbo: nunca rota
+    rotates:   shape === 'arrow',      // la flecha apunta al norte y rota por rumbo; el resto no tiene rumbo
     sizes:     size ? { default: size } : undefined,
-    describe:  variant => ({ shape, color: variant }),
+    describe:  fallback ? variant => ({ shape, color: variant || fallback }) : variant => ({ shape, color: variant }),
     renderers: { [shape]: render },
   })
 }
