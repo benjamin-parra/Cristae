@@ -7,6 +7,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { fileURLToPath } from 'node:url'
+import { basename } from 'node:path'
 import { build } from 'esbuild'
 
 const raiz = fileURLToPath(new URL('../../', import.meta.url))
@@ -79,8 +80,36 @@ test('quien importa sólo ellipsoid no construye WGS84', async () => {
   assert.ok((await empaquetar("export { WGS84 } from './src/geometry/index.js'")).includes('ellipsoid(6378137'), 'la marca sirve')
 })
 
+// El entry se parte en chunks: los lectores de formato se importan diferidos (src/engine/remote.js), y el
+// zip de KMZ y shapefile-zip nombra `DecompressionStream`. Lo que se mide es lo que baja de entrada, el
+// entry y los chunks que importa de forma estática, y no lo que baja quien pide un formato con `url`.
+const empaquetarEntry = async contents => {
+  const r = await build({
+    stdin    : { contents, resolveDir: raiz, sourcefile: 'consumidor.js' },
+    bundle   : true,
+    write    : false,
+    metafile : true,
+    splitting: true,
+    outdir   : 'salida',
+    format   : 'esm',
+    platform : 'browser',
+    logLevel : 'silent',
+  })
+  const salidas  = r.metafile.outputs
+  const relativa = ruta => Object.keys(salidas).find(k => basename(k) === basename(ruta))
+  const pendientes = Object.keys(salidas).filter(k => basename(k) === 'stdin.js')
+  const vistos = new Set()
+  while (pendientes.length) {
+    const k = pendientes.pop()
+    if (vistos.has(k)) continue
+    vistos.add(k)
+    for (const i of salidas[k].imports) if (i.kind === 'import-statement') pendientes.push(i.path)
+  }
+  return r.outputFiles.filter(f => vistos.has(relativa(f.path))).map(f => f.text).join('\n')
+}
+
 test('el entry del mapa no los carga: su grafo no llega al elipsoide ni al terreno', async () => {
-  const js = await empaquetar("export * from './src/index.js'")
+  const js = await empaquetarEntry("export * from './src/index.js'")
   assert.ok(js.includes('cristae-map'), 'el bundle trae el mapa')
   assert.ok(!js.includes(MARCA))
   assert.ok(!js.includes(TERRENO))
