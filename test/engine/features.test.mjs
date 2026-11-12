@@ -50,7 +50,7 @@ test('líneas: LineString y MultiLineString como path anidado [lat,lng]', () => 
   assert.equal(items[1][FEATURE], 1)
 })
 
-test('polígonos: anillos de todas las partes, con hoyos, como multi-anillo', () => {
+test('polígonos: una parte es [exterior, hoyos…] y varias, partes anidadas', () => {
   const ext = [[0, 0], [4, 0], [4, 4], [0, 0]], hoyo = [[1, 1], [2, 1], [2, 2], [1, 1]], otro = [[8, 8], [9, 8], [9, 9], [8, 8]]
   const r = leer([
     feat({ type: 'Polygon', coordinates: [ext, hoyo] }),
@@ -58,8 +58,9 @@ test('polígonos: anillos de todas las partes, con hoyos, como multi-anillo', ()
   ])
   const { items } = itemsOf(r, 'polygon')
   assert.equal(items[0][RINGS].length, 2)
-  assert.equal(items[1][RINGS].length, 3)
-  assert.deepEqual(items[1][RINGS][2], [[8, 8], [8, 9], [9, 9], [8, 8]])
+  assert.equal(items[1][RINGS].length, 2, 'dos partes')
+  assert.equal(items[1][RINGS][0].length, 2, 'la primera con su hoyo')
+  assert.deepEqual(items[1][RINGS][1][0], [[8, 8], [8, 9], [9, 9], [8, 8]])
   assert.equal(URL_ACCESSORS.polygon.ringsOf(items[0]), items[0][RINGS])
 })
 

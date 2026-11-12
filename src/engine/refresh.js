@@ -24,18 +24,11 @@ export const REFRESH_TWEEN_MS = MIN_REFRESH_MS
 const FULL_TURN = 360
 const HALF_TURN = 180
 
-// Dos listas de pares [lat, lng] iguales por valor, con salida temprana.
-const sameRing = (a, b) => {
-  if (a.length !== b.length) return false
-  for (let i = 0; i < a.length; i++) if (a[i][0] !== b[i][0] || a[i][1] !== b[i][1]) return false
-  return true
-}
-
-// Lista de anillos o partes ([[lat,lng]...] por elemento): path y rings de `itemsOf` tienen esta forma.
+// Una forma por valor: anillos o partes, anidados a la profundidad que traiga (`[lat, lng]` es la hoja).
 const sameShapes = (a, b) => {
   if (a === b) return true
-  if (!a || !b || a.length !== b.length) return false
-  for (let i = 0; i < a.length; i++) if (!sameRing(a[i], b[i])) return false
+  if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) if (!sameShapes(a[i], b[i])) return false
   return true
 }
 

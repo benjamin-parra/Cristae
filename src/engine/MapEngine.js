@@ -69,6 +69,22 @@ const MOVE_DETAIL = Object.freeze({})
 // Estable: el ciclo de render la pasa a cada capa GL en move y zoom sin crear una clausura por evento.
 const resetLayer  = layer => layer.resetCanvasReference()
 
+// Lo que la capa dibuja de un ítem, tal como lo entrega su accessor (`positionOf`, `pathOf` o `ringsOf`), para
+// medirlo con `geometry`: `[lat, lng]` en un punto, el path o los anillos en lo demás. null si el id no existe o
+// la capa no tiene Source (la ruta `geometry` son tablas tipadas). La Source se lee en cada llamada: la de
+// `record` cambia con `attachSource`.
+const geometryOf = (record, accessor, id) => {
+  const source = record.source
+  const item   = source?.itemById?.(id)
+  const read   = source?.accessors?.[accessor]
+  if (item == null || !read) return null
+  const geometry = read(item)
+  if (accessor !== 'positionOf') return geometry ?? null
+  const lat = geometry?.lat ?? geometry?.[0]
+  const lng = geometry?.lng ?? geometry?.[1]
+  return typeof lat === 'number' && typeof lng === 'number' ? [lat, lng] : null
+}
+
 // Lado del sprite de la burbuja default (px). El radio es `size * 0.42` y el texto escala con `size`,
 // así que esto fija el tamaño visible de toda la burbuja. El consumidor lo cambia con `bubble.sizes`.
 const DEFAULT_CLUSTER_SIZE = 43
@@ -342,6 +358,7 @@ export class MapEngine {
       id,
       source,
       set       : items => controls?.set(items),
+      geometryOf: itemId => geometryOf(record, 'ringsOf', itemId),
       reload    : options => this.#reload(id, options),
       setVisible: v => this.setLayerVisibility(id, v),
       redraw    : () => record.layer.redraw(),
@@ -394,6 +411,7 @@ export class MapEngine {
       id,
       source,
       set:        items => controls?.set(items),
+      geometryOf: itemId => geometryOf(record, 'pathOf', itemId),
       append:     (itemId, ...points) => {
         if (!controls) throw new TypeError(`[cristae] la capa '${id}' lee una Source del consumidor: append va a esa Source`)
         return controls.append(itemId, ...points)
@@ -1824,6 +1842,7 @@ export class MapEngine {
       get source() { return record.source },
       get layer() { return record.layer },
       set:          items => record.controls?.set(items),
+      geometryOf:   itemId => geometryOf(record, 'positionOf', itemId),
       patch:        (items, dirtyIds) => record.controls?.patch(items, dirtyIds),
       move:         (itemId, lat, lng, heading) => record.controls?.move(itemId, lat, lng, heading),
       remove:       itemId => record.controls?.remove(itemId),

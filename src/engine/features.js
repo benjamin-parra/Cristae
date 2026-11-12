@@ -64,9 +64,19 @@ export const itemsOf = (read, kind) => {
         if (v < vertexAt[ringAt[partAt[g + 1]]]) { position = { lat: xy[v * 2 + 1], lng: xy[v * 2] }; break }
         continue
       }
-      for (let p = partAt[g]; p < partAt[g + 1]; p++)
-        for (let r = ringAt[p]; r < ringAt[p + 1]; r++) (shapes ??= []).push(ring(read, r))
+      for (let p = partAt[g]; p < partAt[g + 1]; p++) {
+        if (kind === 'line') {
+          for (let r = ringAt[p]; r < ringAt[p + 1]; r++) (shapes ??= []).push(ring(read, r))
+          continue
+        }
+        const piece = []
+        for (let r = ringAt[p]; r < ringAt[p + 1]; r++) piece.push(ring(read, r))
+        if (piece.length) (shapes ??= []).push(piece)
+      }
     }
+    // Un polígono conserva `[exterior, agujeros…]`; con varias partes la forma es la de multipolígono,
+    // `[[exterior, …], …]`, que cada pieza dibuja como parte propia en vez de restarse como agujero.
+    if (kind === 'polygon' && shapes !== null && shapes.length === 1) shapes = shapes[0]
 
     if (kind === 'point' ? position === null : shapes === null) { skipped++; continue }
     const item = propertiesOf(read, f)
