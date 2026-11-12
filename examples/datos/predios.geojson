@@ -1,0 +1,13 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    { "type": "Feature", "properties": { "codigo": "P-01", "nombre": "Predio norte", "rumbo": 90 },
+      "geometry": { "type": "Polygon", "coordinates": [[[-70.68, -33.41], [-70.62, -33.41], [-70.62, -33.44], [-70.68, -33.44], [-70.68, -33.41]]] } },
+    { "type": "Feature", "properties": { "codigo": "P-02", "nombre": "Predio sur", "rumbo": 180 },
+      "geometry": { "type": "Polygon", "coordinates": [[[-70.63, -33.47], [-70.56, -33.47], [-70.56, -33.50], [-70.63, -33.50], [-70.63, -33.47]]] } },
+    { "type": "Feature", "properties": { "codigo": "A-01", "nombre": "Acceso norte", "rumbo": 90 },
+      "geometry": { "type": "Point", "coordinates": [-70.62, -33.425] } },
+    { "type": "Feature", "properties": { "codigo": "A-02", "nombre": "Acceso sur", "rumbo": 0 },
+      "geometry": { "type": "Point", "coordinates": [-70.595, -33.47] } }
+  ]
+}

@@ -30,8 +30,63 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   lo que cae fuera del rectángulo, que se recorta y deja panear) y no lo pican.
   Ver [SPECS §9](SPECS.md) y [`docs/elements.md`](docs/elements.md).
   *Migración*: ninguna; el retorno sigue siendo asignable a `Point` y a `LatLng`.
+- **Datos por `url`, sin script.** `url` y `format` en `<cristae-point-layer>`, `<cristae-polygon-layer>`
+  y `<cristae-line-layer>` (y `url`, `format`, `fetch` y `refresh` en `engine.addPointLayer`,
+  `addPolygonLayer` y `addLineLayer`) cargan GeoJSON, KML, KMZ, GPX y shapefile. El formato sale de
+  `format`, de la extensión, del `Content-Type` y, al final, de los bytes. Los lectores se importan
+  diferidos: el chunk de entrada no trae el de un formato que la página no usa. Un fallo llega como
+  `RemoteError` (`network`, `cors`, `format` o `unsupported`). Ver [`docs/data.md`](docs/data.md) y
+  [`docs/formats.md`](docs/formats.md).
+  *Migración*: ninguna.
+- **`fields` y `id-of`, `variant-of`, `heading-of`, `text-of`.** `fields` (atributo JSON, propiedad y
+  opción de `createSource`) y los atributos `-of` dicen de qué campo sale el id, la posición, la
+  variante, el rumbo o el texto, con caminos con punto (`a.b`). Los lectores son totales: un valor
+  `null` o un campo ausente dan el neutro del canal. Una función de `accessors` gana al atributo `-of`,
+  y éste gana a `fields`, con un aviso por choque. `id-of` se lee al montar; las funciones visuales
+  se actualizan con `refresh()`. `text-of` también vale en `<cristae-text-layer>` y
+  `<cristae-labeled>`. Ver [`docs/data.md`](docs/data.md) y [`docs/labeled.md`](docs/labeled.md).
+  *Migración*: ninguna.
+- **`refresh` y `handle.reload({ url, format, refresh })`.** El atributo `refresh` (milisegundos, piso de
+  1000 y techo de 2147483647) vuelve a pedir la url en un `setTimeout` encadenado, en pausa con la pestaña oculta. `reload`
+  aborta la carga anterior y resuelve al aplicar o al fallar, sin rechazar nunca. Ver
+  [`docs/data.md`](docs/data.md).
+  *Migración*: ninguna.
+- **`click-action`.** `"fit"` encuadra el ítem clicado y `"follow"` (sólo en puntos) lo sigue; exige
+  `interactive`. Ver [`docs/interaction.md`](docs/interaction.md).
+  *Migración*: ninguna.
+- **Popup sobre líneas y polígonos.** Con datos propios o `url`, `<cristae-popup for>` abre sobre ellos y ancla en
+  el punto pulsado. `<cristae-labeled>` acepta `fields='{"text":…}'` como gemelo de `text-of`. Un fallo de
+  `url` sin oyentes de `cristae:error` se vuelca a `console.error`, y el evento es cancelable. Un `refresh` reemplaza
+  el ítem sin interpolar la posición.
+  *Migración*: ninguna.
+- **Popup por plantilla.** `<cristae-popup>` toma su contenido de un `<template>` hijo: cada
+  `[data-field]` recibe el campo del ítem escrito con `textContent`, nunca como HTML. `contentOf`, si
+  existe, gana. Ver [`docs/elements.md`](docs/elements.md).
+  *Migración*: ninguna.
+- **Sets de fábrica `dot`, `pin`, `circle` y `arrow`.** Se piden por nombre en `icon-set` o `iconSet`;
+  `arrow` rota con el rumbo. Sin `variant-of`, el color es el azul por defecto de los presets. Ver
+  [`docs/icons.md`](docs/icons.md).
+  *Migración*: ninguna.
+- **Íconos por imagen.** `<cristae-icon-set name rotates>` con hijos `<cristae-icon name src>`,
+  `<CristaeIconSet>` y `<CristaeIcon>` en React, y `defineIconSet({ icons })` en JS declaran un set
+  de imágenes sin `describe` ni renderers; mezclar `icons` con `describe` lanza `TypeError`. El atlas se
+  re-rasteriza al decodificar cada imagen. Ver [`docs/icons.md`](docs/icons.md).
+  *Migración*: ninguna.
+- **Eventos y señales de carga.** `cristae:load` (`{ layerId, url, count, skipped }`) y `cristae:error`
+  (`{ layerId, url, code, message, status }`) salen de las capas con `url` y de `<cristae-icon-set>`, con
+  `bubbles` y `composed`; en React son `onLoad` y `onError`. El motor emite `dataload` y `dataerror`.
+  Sin oyentes, el error va a `console.error` una vez por capa. Ver [`docs/data.md`](docs/data.md).
+  *Migración*: ninguna.
+- **Ejemplo [`examples/datos-sin-script.html`](examples/datos-sin-script.html)**: flota y predios con un
+  único `<script type="module">` y el resto en HTML.
 
 ### Cambiado
+- **`iconSet` es opcional en `addPointLayer`.** Sin él se usa `'dot'`, igual que antes para quien ya lo
+  pasaba. Los tipos pasan de obligatorio a opcional. Ver [`docs/icons.md`](docs/icons.md).
+  *Migración*: ninguna; quien pasaba `iconSet` sigue igual.
+- **`textOf` de `<cristae-labeled>` y `<cristae-text-layer>` acepta un nombre de campo**, además de una
+  función. Ver [`docs/labeled.md`](docs/labeled.md) y [`docs/text-layer.md`](docs/text-layer.md).
+  *Migración*: ninguna.
 - **`engines` declara `node >=24`.** Antes decía `>=20`, pero sólo se prueba en Node 24 y 26: la librería ya no
   afirma una compatibilidad que no verifica. Ver [Node](README.md#node).
   *Migración*: ninguna en el navegador. En Node 20 o 22, `npm install` avisa por `engines`; el código puede andar,

@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Cristae · Datos sin script</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #f8fafc; color: #0f172a;
+    font: 13px/1.5 ui-sans-serif, system-ui, -apple-system, sans-serif; overflow: hidden; }
+  cristae-map { position: fixed; inset: 0; background: #e2e8f0; }
+  #panel { position: fixed; top: 14px; right: 14px; z-index: 1000; width: 300px; background: #fff;
+    border: 1px solid #cbd5e1; border-radius: 10px; padding: 10px 12px; }
+  h1 { font-size: 13px; margin: 0 0 6px; }
+  p { color: #475569; font-size: 12px; margin: 4px 0; }
+  .tarjeta { font-size: 12px; }
+  .tarjeta b { display: block; font-size: 13px; }
+</style>
+<!-- Único script de la página: registra los elementos. Todo lo demás es HTML. -->
+<script type="module" src="../src/index.js"></script>
+</head>
+<body>
+<cristae-map initial-center="-33.45,-70.62" initial-zoom="11">
+  <!-- Íconos propios por imagen: dos variantes, y rotan con el rumbo. -->
+  <cristae-icon-set name="flota" rotates>
+    <cristae-icon name="camion" src="./iconos/camion.svg"></cristae-icon>
+    <cristae-icon name="grua" src="./iconos/grua.svg"></cristae-icon>
+  </cristae-icon-set>
+
+  <!-- Polígonos por url, con el id leído del campo «codigo»; un clic encuadra el predio. -->
+  <cristae-polygon-layer id="predios" url="./datos/predios.geojson"
+    fields='{"id":"codigo"}' interactive click-action="fit"></cristae-polygon-layer>
+
+  <!-- Set de fábrica «arrow»: los puntos del mismo archivo, con su rumbo. -->
+  <cristae-point-layer id="accesos" url="./datos/predios.geojson" icon-set="arrow"
+    id-of="codigo" heading-of="rumbo" interactive click-action="fit"></cristae-point-layer>
+
+  <!-- La flota se vuelve a pedir cada 5 s y un clic la sigue. -->
+  <cristae-labeled text-of="patente">
+    <cristae-point-layer id="flota" url="./datos/flota.geojson" refresh="5000"
+      icon-set="flota" id-of="patente" variant-of="tipo" heading-of="rumbo"
+      interactive click-action="follow"></cristae-point-layer>
+  </cristae-labeled>
+
+  <!-- La tarjeta sale de la plantilla: data-field escribe texto, nunca HTML. -->
+  <cristae-popup for="flota predios">
+    <template>
+      <div class="tarjeta">
+        <b data-field="patente"></b>
+        <span data-field="nombre"></span>
+        <span data-field="tipo"></span> · <span data-field="estado"></span>
+      </div>
+    </template>
+  </cristae-popup>
+</cristae-map>
+
+<div id="panel">
+  <h1>Datos sin script</h1>
+  <p>Camiones y grúas con sus íconos propios, rumbo y patente, recargados cada 5 s. Predios por
+    <code>url</code>, flechas de fábrica en los accesos y una tarjeta por plantilla.</p>
+  <p>Hay que servir la carpeta por HTTP: <code>fetch</code> no abre <code>file://</code>.</p>
+</div>
+</body>
+</html>
