@@ -384,6 +384,9 @@ export class CristaeMap extends LitElement {
     this._attribution = this.#engine.getTileAttribution()
 
     this.#wireEvents()
+    // Los sets de íconos declarados van antes que las capas: una capa que pide `icon-set` ya los encuentra.
+    // A cualquier profundidad, salvo los de un mapa anidado: cada set es del mapa más cercano.
+    this.querySelectorAll?.('cristae-icon-set')?.forEach(el => el.closest?.('cristae-map') === this && el.cristaeRegister?.(this.#engine))
     this.#pending.forEach(el => el.cristaeMount(this.#engine))
     this.#pending = []
 

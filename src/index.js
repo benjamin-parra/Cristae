@@ -28,6 +28,8 @@ import { CristaeLabeled } from './element/CristaeLabeled.js'
 import { CristaeToolbar } from './element/CristaeToolbar.js'
 import { CristaeScale } from './element/CristaeScale.js'
 import { CristaePopup } from './element/CristaePopup.js'
+import { CristaeIconSet } from './element/CristaeIconSet.js'
+import { CristaeIcon } from './element/CristaeIcon.js'
 
 // Registrar las firmas de la gramática de composición ANTES de customElements.define:
 // así `_enclosingModifier` (base.js) ya sabe qué tags son wrappers cuando el navegador
@@ -79,6 +81,8 @@ define('cristae-labeled', CristaeLabeled)
 define('cristae-toolbar', CristaeToolbar)
 define('cristae-scale', CristaeScale)
 define('cristae-popup', CristaePopup)
+define('cristae-icon-set', CristaeIconSet)
+define('cristae-icon', CristaeIcon)
 
 export { MapEngine } from './engine/MapEngine.js'
 export { adoptLeafletHost } from './host/LeafletHost.js'   // un mapa de Leaflet existente, para el motor
@@ -100,4 +104,5 @@ export { tilePresets } from './tiles/presets.js'
 export { CristaeMap, CristaePointLayer, CristaePolygonLayer, CristaeShapeLayer, CristaeLineLayer, CristaeHtmlLayer, CristaeLabelLayer, CristaeCluster, CristaeOverlay, CristaeGeodesic, CristaeToolbar, CristaePopup }
 export { CristaeLabeled, CristaeTextLayer, CristaeImageLayer, CristaeHeatLayer, CristaeScale }
 export { CristaeEditablePolygon, CristaeEditablePolyline, CristaeEditablePoint, CristaeEditableRectangle }
+export { CristaeIconSet, CristaeIcon }
 export { CristaeEditableCircle, CristaeEditableEllipse, CristaeEditableSector }
