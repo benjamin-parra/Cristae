@@ -14,6 +14,7 @@ import { CristaeLabelLayer } from './element/CristaeLabelLayer.js'
 import { CristaeTextLayer } from './element/CristaeTextLayer.js'
 import { CristaeImageLayer } from './element/CristaeImageLayer.js'
 import { CristaeHeatLayer } from './element/CristaeHeatLayer.js'
+import { CristaeTerrainLayer } from './element/CristaeTerrainLayer.js'
 import { CristaeEditablePolygon } from './element/CristaeEditablePolygon.js'
 import { CristaeEditablePolyline } from './element/CristaeEditablePolyline.js'
 import { CristaeEditablePoint } from './element/CristaeEditablePoint.js'
@@ -43,6 +44,7 @@ grammar.register('cristae-label-layer', CristaeLabelLayer.cristaeSignature)
 grammar.register('cristae-text-layer', CristaeTextLayer.cristaeSignature)
 grammar.register('cristae-image-layer', CristaeImageLayer.cristaeSignature)
 grammar.register('cristae-heat-layer', CristaeHeatLayer.cristaeSignature)
+grammar.register('cristae-terrain-layer', CristaeTerrainLayer.cristaeSignature)
 grammar.register('cristae-editable-polygon', CristaeEditablePolygon.cristaeSignature)
 grammar.register('cristae-editable-polyline', CristaeEditablePolyline.cristaeSignature)
 grammar.register('cristae-editable-point', CristaeEditablePoint.cristaeSignature)
@@ -67,6 +69,7 @@ define('cristae-label-layer', CristaeLabelLayer)
 define('cristae-text-layer', CristaeTextLayer)
 define('cristae-image-layer', CristaeImageLayer)
 define('cristae-heat-layer', CristaeHeatLayer)
+define('cristae-terrain-layer', CristaeTerrainLayer)
 define('cristae-editable-polygon', CristaeEditablePolygon)
 define('cristae-editable-polyline', CristaeEditablePolyline)
 define('cristae-editable-point', CristaeEditablePoint)
@@ -101,8 +104,9 @@ export { distance, sphere } from './geometry/geodesic.js'
 export { toParts, sampleAlong } from './geometry/polyline.js'
 export { arc } from './geometry/shape.js'
 export { tilePresets } from './tiles/presets.js'
+export { terrainPresets } from './geometry/terrain-presets.js'   // los proveedores de dem que `dem` nombra; la misma identidad que `cristae/geometry`
 export { CristaeMap, CristaePointLayer, CristaePolygonLayer, CristaeShapeLayer, CristaeLineLayer, CristaeHtmlLayer, CristaeLabelLayer, CristaeCluster, CristaeOverlay, CristaeGeodesic, CristaeToolbar, CristaePopup }
-export { CristaeLabeled, CristaeTextLayer, CristaeImageLayer, CristaeHeatLayer, CristaeScale }
+export { CristaeLabeled, CristaeTextLayer, CristaeImageLayer, CristaeHeatLayer, CristaeTerrainLayer, CristaeScale }
 export { CristaeEditablePolygon, CristaeEditablePolyline, CristaeEditablePoint, CristaeEditableRectangle }
 export { CristaeIconSet, CristaeIcon }
 export { CristaeEditableCircle, CristaeEditableEllipse, CristaeEditableSector }

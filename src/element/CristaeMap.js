@@ -168,6 +168,8 @@ export class CristaeMap extends LitElement {
       .attribution { padding: 0 5px; background: rgba(255, 255, 255, 0.8); color: #333; }
       .attribution a { color: #0078a8; text-decoration: none; }
       .attribution a:hover, .attribution a:focus { text-decoration: underline; }
+      .attribution [part="attribution-dem"] { margin-left: 0.5em; }
+      .attribution [part="attribution-dem"]:first-child { margin-left: 0; }
       /* Estado "sin datos": mensaje centrado sobre el mapa, POR DEBAJO de los overlays de control
          (z-index 900 < 1000) y sin capturar el puntero (no bloquea drag/zoom del mapa vacío). El
          contenido sloteado sí reactiva el puntero (un CTA clickeable). Oculto salvo estado vacio. */
@@ -202,6 +204,8 @@ export class CristaeMap extends LitElement {
   // el recómputo. Las capas se dan de alta/baja solas por `cristaeLayerMounted`/`cristaeLayerUnmounted`
   // (las llama cada capa al montar/desmontar); el recómputo lee el snapshot de cada Source.
   #dataLayers = new Map()
+  // La atribución del dem de cada capa de terreno montada (elemento → texto), en el orden en que llegó.
+  #demAttributions = new Map()
   #emptyRaf   = 0
   // El indicador de dibujo que pinta el template, y el recién creado que espera la función en `updated`.
   #indicator    = null
@@ -233,8 +237,7 @@ export class CristaeMap extends LitElement {
         <div class="zone cr"><slot name="center-right"></slot></div>
         <div class="zone bl"><slot name="bottom-left"></slot></div>
         <div class="zone bc"><slot name="bottom-center"></slot></div>
-        <div class="zone br"><slot name="bottom-right"></slot>${this._attribution ? html`
-          <div class="attribution" part="attribution">${unsafeHTML(this._attribution)}</div>` : nothing}</div>
+        <div class="zone br"><slot name="bottom-right"></slot>${this.#attributionBox()}</div>
       </div>
       <div class="empty-state" part="empty" ?hidden=${!this._empty}>
         <slot name="empty">${this.emptyMessage ?? ''}</slot>
@@ -318,6 +321,25 @@ export class CristaeMap extends LitElement {
     if (!src) return
     this.#dataLayers.set(el, src.subscribe(() => this.#scheduleEmpty()))
     this.#scheduleEmpty()
+  }
+
+  // La atribución del dem de una capa de terreno: `text` la pone o la cambia y `null` la quita. Es texto, no HTML:
+  // la de una fuente propia puede traer cualquier cosa, y el binding de Lit la entrega como nodo de texto.
+  cristaeAttribution(el, text) {
+    const had = this.#demAttributions.get(el)
+    const next = typeof text === 'string' && text ? text : null
+    if (next === (had ?? null)) return
+    next === null ? this.#demAttributions.delete(el) : this.#demAttributions.set(el, next)
+    this.requestUpdate()
+  }
+
+  // La caja de atribución: la del proveedor como HTML y, detrás, la de cada dem como texto, sin repetir.
+  #attributionBox() {
+    const dems = [...new Set(this.#demAttributions.values())]
+    if (!dems.length) return this._attribution ? html`
+          <div class="attribution" part="attribution">${unsafeHTML(this._attribution)}</div>` : nothing
+    return html`
+          <div class="attribution" part="attribution">${this._attribution ? unsafeHTML(this._attribution) : nothing}${dems.map(text => html`<span part="attribution-dem">${text}</span>`)}</div>`
   }
 
   // Baja de una capa: corta su suscripción y recomputa (una capa quitada ya no cuenta para "vacío").
