@@ -230,7 +230,10 @@ Si los datos están en un archivo (GeoJSON, KML, GPX, Shapefile…), no hace fal
   `code` `network`, `cors`, `unsupported` o `format`.
 - **`fields`** es JSON `{ accessor: campo }` (`.` anida; `position` admite `["lat","lng"]`), y un campo ausente da el neutro, nunca una excepción.
 - **`icon-set`**: `dot`, `pin`, `circle` y `arrow` son de fábrica (la variante es el color, y `arrow` rota); sin `icon-set`, `dot`.
-- **`click-action`**: `fit` (centra un punto, encuadra una línea o un polígono) o `follow` (sólo puntos).
+- **`click-action`**: `fit` (acerca a un punto sin alejar nunca, encuadra una línea o un polígono) o `follow` (sólo puntos).
+- **`tile="osm"`** en `<cristae-map>` elige el fondo por nombre de `tilePresets` y es reactivo; un nombre desconocido avisa y deja el fondo vigente.
+- **`refresh` interpola**: lo que cambió de lugar entre dos lecturas se desliza en vez de saltar; altas y bajas se aplican por `id`.
+- **`el.source`** de `<cristae-point-layer>` existe antes de `ready`: `el.source.move(id, lat, lng, rumbo)` (el rumbo es opcional) se encola y se reproduce al alta.
 - **Es reactivo** `url`/`format`/`refresh` (relee), `variant-of`/`heading-of` (repinta) y `text-of`; **al montar** `id-of`, `fields`, `click-action`.
 - **Sigue siendo JS:** `contentOf` o un `textOf` que formatea, `fetch`, `filters`, un set dibujado en canvas.
 
@@ -344,7 +347,8 @@ if (p.visible) place(p.x, p.y)                                            // en 
 | glify | Cristae |
 |---|---|
 | `L.map(el)` | `<cristae-map>` (HTML) |
-| `L.tileLayer(url, opts).addTo(map)` | `map.tile = { url, ...opts }` (o `tilePresets.osm`) |
+| `L.tileLayer(url, opts).addTo(map)` | `tile="osm"` en `<cristae-map>`, o `map.tile = { url, ...opts }` si es un proveedor propio |
+| `engine.setTileProvider({ ... })` a mano con un objeto | `tile` por nombre (`tile="osm"`); el objeto queda para un proveedor propio |
 | `glify.points({ data, size, color })` | `<cristae-point-layer>` + `accessors` + `iconSet` + `source` |
 | `data: [[lat,lng],…]` | `accessors.positionOf = m => ({ lat, lng })` (los objetos propios, sin tuplas) |
 | `size: 18` / `size: p=>…` | `sizes.default` del IconSet / `accessors.sizeOf` |
@@ -361,7 +365,8 @@ if (p.visible) place(p.x, p.y)                                            // en 
 | fijar la esfera o el elipsoide con que se colocan las formas | `model` en `<cristae-map>` (`<CristaeMap model={WGS84}>`), leído en el alta |
 | `click/hover` callbacks | eventos `cristae:click`/`cristae:hover` → `e.detail.hits[]` |
 | `L.geoJSON(await fetch(url))` + `fitBounds` al clic | `url="./x.geojson"` + `click-action="fit"` en la capa ([`docs/elements.md`](./docs/elements.md#datos-sin-script-url-fields-y-click-action)) |
-| `setInterval` + `layer.setData` para releer un archivo | `refresh="15000"` en la capa con `url` |
+| `setInterval` + `layer.setData` para releer un archivo | `refresh="15000"` en la capa con `url` (la posición se interpola) |
+| mover y girar un punto desde un mensaje antes de que el mapa esté listo | `el.source.move(id, lat, lng, rumbo)` |
 | `L.icon({ iconUrl })` por tipo | `<cristae-icon-set>` con `<cristae-icon name src>` y `variant-of` ([`docs/icons.md`](./docs/icons.md#sets-por-imagen)) |
 | `bindPopup(feature => html)` con campos | `<cristae-popup>` con `<template>` y `data-field` (texto, no HTML) |
 | `map.setView/panTo/flyTo` · zoom `+/−` | `map.camera.setView/panTo/flyTo/zoomIn/zoomOut` (qué anima, `zoom-animation`: SPECS §9) |

@@ -26,6 +26,10 @@ Una capa lee su archivo y nombra sus campos desde el HTML: `url` (GeoJSON, KML, 
 cargados al usarse), `fields`, `variant-of`, `refresh` y `click-action`, un popup por `<template>` y íconos propios con
 `<cristae-icon-set>`, sin una línea de JS ([`docs/elements.md`](docs/elements.md#datos-sin-script-url-fields-y-click-action)).
 
+El fondo se elige por nombre con `tile="osm"` (reactivo), `refresh` interpola la posición de lo que se movió en vez de
+saltar, `source.move(id, lat, lng, rumbo)` mueve y gira un punto, y `el.source` de la capa de puntos existe antes de
+`ready`: lo movido o cargado antes del alta se reproduce al montar.
+
 ## Leaflet
 
 Leaflet es el **anfitrión** del mapa —cámara, tiles y entrada del navegador— y un detalle interno: la API
