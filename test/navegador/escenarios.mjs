@@ -9,6 +9,7 @@ import { terrain } from '../../src/geometry/terrain.js'
 import { GRID } from '../../src/geometry/geodesic.js'
 import { claseGemela } from '../../test-helpers/clase-gemela.mjs'
 import { latDe, lngDe, mundo } from '../../test-helpers/terreno.mjs'
+import { conjunto, ideal, comparar, TOLERANCIA } from '../../test-helpers/calor-ideal.mjs'
 
 const SATURACION = /el techo de contextos WebGL está lleno/
 
@@ -278,6 +279,84 @@ const ESCENARIO_TERRENO = {
   },
 }
 
+// ───────────────────────── calor ─────────────────────────
+// El índice que acumula la GPU (el alfa del canvas del tramo, con la rampa t => [0, 0, 0, 1]) contra el ideal float64, en R16F y en
+// el respaldo RGBA8. La ventana es un rincón del contenedor sin otras capas: lo que se lee ahí es sólo el calor. La media de
+// TOLERANCIA se midió con 0,0025 a 0,05 puntos por px (5 000 a 100 000 en ~2 M px): una ventana de 256×192 con 5 000 a 20 000 puntos
+// es de 0,1 a 0,4, mucho más agolpada, y la cuantización de 8 bits acumula con el solape. Por eso los casos `densos` comparan sólo el
+// máximo (que no depende de la densidad) y los `medidos` llevan la densidad de la medición y comparan también la media.
+const VENTANA_CALOR = { x0: 440, y0: 200, ancho: 256, alto: 192 }
+const PUNTOS_COINCIDENTES = 60         // con c = 0,12 por punto, 40 dejan 254 en el ideal (1 − 0,88^40 = 0,994): 60 llegan a 255
+const CASOS_CALOR = [
+  { id: 'denso-5000',   n: 5000,  radius: 25, blur: 15, media: false },
+  { id: 'denso-20000',  n: 20000, radius: 25, blur: 15, media: false },
+  { id: 'chico-5000',   n: 5000,  radius: 10, blur: 5,  media: false },
+  { id: 'medido',       n: 200,   radius: 25, blur: 15, media: true },
+  { id: 'chico-medido', n: 800,   radius: 10, blur: 5,  media: true },
+  { id: 'blur-0',       n: 300,   radius: 20, blur: 0,  media: true },
+  { id: 'intensa',      n: 300,   radius: 25, blur: 15, intensity: 20, media: false },   // c·g = 1 en el núcleo
+]
+
+// Vuelve a abrir la página con banderas de instrumentación (como `servir.mjs`), que ejecutar.mjs no pasa.
+const reabrir = async (c, banderas) => {
+  const url = new URL(c.pagina.url())
+  for (const [k, v] of Object.entries(banderas)) url.searchParams.set(k, v)
+  await c.pagina.goto(url.href)
+  await c.pagina.waitForFunction('window.__listo === true')
+  await c.ev('__nav.montar()')
+}
+
+const ESCENARIO_CALOR = {
+  id: 'calor', titulo: 'calor en GPU: el índice que pinta coincide con el ideal float64 en R16F y en el respaldo RGBA8, y no suma contextos', motores: ['chromium', 'shell'],
+  async correr(c) {
+    const { x0, y0, ancho, alto } = VENTANA_CALOR
+    const dePagina = async (etiqueta, caso, puntos) => {
+      const cfg = { puntos: puntos.map(p => ({ ...p, x: p.x + x0, y: p.y + y0 })), radius: caso.radius, blur: caso.blur, intensity: caso.intensity ?? 1 }
+      const m = await c.ev(`__nav.calor.montar(${JSON.stringify(cfg)})`)
+      await c.ev('__nav.quieto(400, 8000)')
+      const l = await c.ev(`__nav.calor.leer(${JSON.stringify(VENTANA_CALOR)})`)
+      return { m, l, locales: m.px.map(p => ({ x: p.x - x0, y: p.y - y0, peso: p.peso })) }
+    }
+    const variante = async (etiqueta, banderas, tol) => {
+      await reabrir(c, banderas)
+      let base = null
+      for (const caso of CASOS_CALOR) {
+        const puntos = conjunto({ semilla: 11, n: caso.n, ancho, alto })
+        const { m, l, locales } = await dePagina(etiqueta, caso, puntos)
+        base ??= m.antes
+        const ref = ideal({ ancho, alto, puntos: locales, radius: caso.radius, blur: caso.blur, intensity: caso.intensity ?? 1 }).indice
+        const cmp = comparar(l.alfa, ref)
+        const nombre = `${etiqueta} ${caso.id}`
+        c.nota(nombre, { media: cmp.media, max: cmp.max, histograma: cmp.histograma, pane: l.pane, renderer: l.renderer })
+        c.comprobar(`${nombre}: la página preserva el búfer y lee el canal`, l.preservado === true && l.sinFlotante === !!banderas.sinflotante, { preservado: l.preservado, sinFlotante: l.sinFlotante })
+        c.comprobar(`${nombre}: hay calor pintado`, ref.some(v => v > 0) && l.alfa.some(v => v > 0), { maxIdeal: Math.max(...ref), maxGpu: Math.max(...l.alfa) })
+        c.comprobar(`${nombre}: el máximo del error está dentro de ${tol.max} niveles`, cmp.max <= tol.max, { max: cmp.max, histograma: cmp.histograma })
+        caso.media && c.comprobar(`${nombre}: la media del error está dentro de ${tol.media}`, cmp.media <= tol.media, { media: cmp.media })
+        const est = await c.ev('__nav.estado()')
+        c.comprobar(`${nombre}: el calor no suma contextos`, est.propios.creados === m.antes.creados && est.propios.vivos === m.antes.vivos, { antes: m.antes, ahora: est.propios })
+        await c.ev('__nav.calor.quitar()')
+        await c.ev('__nav.quieto(400, 8000)')
+      }
+      // coincidentes: el índice llega al tope, algo que el canvas 2D no lograba
+      const centro = { x: Math.floor(ancho / 2), y: Math.floor(alto / 2) }
+      const caso = { radius: 25, blur: 15 }
+      const unidos = Array.from({ length: PUNTOS_COINCIDENTES }, () => ({ x: centro.x + 0.5, y: centro.y + 0.5, peso: 1 }))
+      const { l } = await dePagina(etiqueta, caso, unidos)
+      c.comprobar(`${etiqueta}: con ${PUNTOS_COINCIDENTES} puntos coincidentes el índice llega a 255`, l.alfa[centro.y * ancho + centro.x] === 255, l.alfa[centro.y * ancho + centro.x])
+      // se quita todo: vuelve la línea base y la ventana queda vacía
+      await c.ev('__nav.calor.quitar()')
+      await c.ev('__nav.quieto(800, 10000)')
+      const fin = await c.ev('__nav.estado()')
+      const vacio = await c.ev(`__nav.calor.leer(${JSON.stringify(VENTANA_CALOR)})`)
+      c.comprobar(`${etiqueta}: tras quitarlo los contextos vuelven a la línea base`, fin.propios.vivos === base.vivos && fin.propios.perdidos === 0, { antes: base, ahora: fin.propios })
+      c.comprobar(`${etiqueta}: tras quitarlo no queda nada pintado`, vacio.alfa.every(v => v === 0), vacio.alfa.filter(v => v > 0).length)
+      c.comprobar(`${etiqueta}: la página no tuvo errores`, fin.errores.length === 0, fin.errores)
+    }
+    await variante('R16F', { preservar: 1 }, TOLERANCIA.r16f)
+    await variante('RGBA8', { preservar: 1, sinflotante: 1 }, TOLERANCIA.rgba8)
+  },
+}
+
 export const ESCENARIOS = [
   {
     id: 'a', titulo: 'montaje: creados == vivos tras el ocioso, sin errores', motores: ['chromium', 'shell', 'firefox'],
@@ -478,5 +557,6 @@ export const ESCENARIOS = [
   },
   MOSTRAR,
   ESCENARIO_TERRENO,
+  ESCENARIO_CALOR,
   ...MEDICIONES,
 ]

@@ -14,11 +14,15 @@
 // tramos (un canvas compartido por varias capas, en un pane `cristae-tramo-*`, y un marcador sin contexto en el pane de cada capa).
 // Con `?dibujos=1` cuenta las llamadas de dibujo de los contextos propios según el framebuffer enlazado: al de pantalla
 // (`pantalla`) o a uno propio (`fbo`: el FBO de un miembro de tramo, o el del picking). `__nav.dibujos()` los lee.
+// Con `?sinflotante=1` getExtension devuelve null para las extensiones de color flotante (EXT_color_buffer_float y
+// EXT_color_buffer_half_float): el calor cae en su respaldo RGBA8 sin perillas internas en el bundle.
 
 const q      = new URLSearchParams(location.search)
 const DIST   = q.get('dist') ?? '/dist/'
 const PRESERVAR = q.get('preservar') === '1'
 const DIBUJOS   = q.get('dibujos') === '1'
+const SIN_FLOTANTE = q.get('sinflotante') === '1'
+const EXT_FLOTANTES = new Set(['EXT_color_buffer_float', 'EXT_color_buffer_half_float'])
 const ESC    = { w: 1200, h: 760 }
 const VISTA  = { lat: -33.45, lng: -70.66, z: 11 }
 const ahora  = () => performance.now()
@@ -67,6 +71,10 @@ const vigilar = (win, ventana) => {
     return gl
   }
   DIBUJOS && contarDibujos(win.WebGL2RenderingContext.prototype)
+  if (SIN_FLOTANTE) {
+    const proto = win.WebGL2RenderingContext.prototype, original = proto.getExtension
+    proto.getExtension = function (nombre) { return EXT_FLOTANTES.has(nombre) ? null : original.call(this, nombre) }
+  }
   win.addEventListener('error', e => T.errores.push(`${ventana}: ${e.message}`))
   win.addEventListener('unhandledrejection', e => T.errores.push(`${ventana}: ${e.reason?.stack ?? e.reason}`))
   for (const [nivel, lista] of [['error', T.errores], ['warn', T.avisos]]) {
@@ -303,9 +311,64 @@ const TERRENO = {
   },
 }
 
+// ───────────────────────── calor ─────────────────────────
+// Lo que el escenario `calor` necesita de la página: un calor con la rampa t => [0, 0, 0, 1], de modo que el alfa del canvas es el
+// índice acumulado (idx/255), y la lectura de ese alfa en una ventana. Los puntos llegan en px de contenedor; se pasan a lat/lng
+// con la cámara y se devuelven los px que ella reporta de vuelta, en float64, para que el ideal use la misma proyección.
+const CALOR = {
+  estado: null,
+
+  // Da de alta el calor y, encima de él, una capa de puntos lejos de la ventana: así el calor queda entre dos capas de puntos
+  // (`marcas` y `extremos` van debajo). Devuelve los px proyectados y los contextos propios de antes del alta.
+  async montar({ id = 'calor', puntos, radius, blur, intensity = 1 }) {
+    N.mapa.style.background = hex(FONDO)
+    const cam = N.eng.camera
+    const datos = puntos.map((p, i) => ({ id: i, w: p.peso, ...cam.containerPointToLatLng({ x: p.x, y: p.y }) }))
+    const px = datos.map(it => { const r = cam.latLngToContainerPoint([it.lat, it.lng]); return { x: r.x, y: r.y, peso: it.w } })
+    await quieto(300, 5000)
+    const antes = contar().propios
+    this.estado = { id, cubre: `${id}-encima`, canvas: null }
+    N.eng.addHeatLayer({ id, accessors: { idOf: it => it.id, positionOf: it => ({ lat: it.lat, lng: it.lng }), weightOf: it => it.w }, data: datos, radius, blur, intensity, colorRamp: () => [0, 0, 0, 1] })
+    N.eng.addPointLayer({ id: this.estado.cubre, accessors: accesores('marcas'), iconSet: N.iconos, data: items([[1100, 700]], 900) })
+    await quieto(500, 8000)
+    return { px, antes }
+  },
+
+  // El alfa (0..255) de los canvases GL del tramo del calor sobre la ventana {x0, y0, ancho, alto} de px de contenedor, fila a fila
+  // de arriba abajo. El canvas es el que más alfa tiene sobre la ventana (el calor es lo único que pinta ahí) y se recuerda, para
+  // poder leerlo vacío tras quitar la capa. Pide `?preservar=1`.
+  leer({ x0, y0, ancho, alto }) {
+    const E = this.estado, cont = N.mapa.getBoundingClientRect()
+    const canvases = E.canvas ? [E.canvas] : [...N.mapa.shadowRoot.querySelectorAll('canvas')].filter(c => vivo(c) && c.isConnected)
+    const leerDe = c => {
+      const gl = T.canvas.get(c), r = c.getBoundingClientRect(), k = c.width / r.width
+      const cx = Math.round((cont.left + x0 - r.left) * k), cy = c.height - Math.round((cont.top + y0 - r.top) * k) - alto
+      const b = new Uint8Array(ancho * alto * 4)
+      gl.readPixels(cx, cy, ancho, alto, gl.RGBA, gl.UNSIGNED_BYTE, b)
+      const alfa = new Array(ancho * alto)
+      for (let j = 0; j < alto; j++) for (let i = 0; i < ancho; i++) alfa[j * ancho + i] = b[((alto - 1 - j) * ancho + i) * 4 + 3]
+      return { c, alfa, suma: alfa.reduce((s, v) => s + v, 0), gl }
+    }
+    const lecturas = canvases.map(leerDe).sort((a, b) => b.suma - a.suma)
+    const mejor = lecturas[0]
+    if (mejor && !E.canvas && mejor.suma > 0) E.canvas = mejor.c
+    return {
+      alfa: mejor?.alfa ?? new Array(ancho * alto).fill(0), pane: mejor ? nombreDe(mejor.c) : null,
+      preservado: !!mejor && mejor.gl.getContextAttributes().preserveDrawingBuffer, sinFlotante: SIN_FLOTANTE, renderer: T.renderer ?? null,
+    }
+  },
+
+  // Quita las dos capas.
+  quitar() {
+    const { id, cubre } = this.estado
+    return [N.eng.removeLayer(cubre), N.eng.removeLayer(id)]
+  },
+}
+
 window.__nav = {
   config: { ESC, VISTA, COLOR },
   terreno: TERRENO,
+  calor: CALOR,
 
   async montar({ animacion = 'none' } = {}) {
     const t0 = ahora()
