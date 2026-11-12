@@ -232,7 +232,8 @@ export function arc(model: EarthModel, shape: Shape | null | undefined): [number
 export function geodesic(path: LatLngPath | null | undefined): [number, number][][];
 export function geodesic(model: EarthModel, path: LatLngPath | null | undefined): [number, number][][];
 
-/** Proveedores públicos, sin key ni cuenta. Son datos y no un camino de código. */
+/** Proveedores públicos, sin key ni cuenta. Son datos y no un camino de código. Es el mismo objeto que
+ *  reexporta `cristae/map`, y el que resuelve `dem="aws"` en la capa de terreno. */
 export const terrainPresets: { readonly aws: TerrainSource; readonly mapterhorn: TerrainSource };
 
 /** Carga las alturas de `bounds` y devuelve un terreno apoyado en `model`, que por defecto es la

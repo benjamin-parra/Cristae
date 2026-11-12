@@ -33,6 +33,8 @@ import type {
   CristaeSource,
   LineHandle,
   PolygonHandle,
+  TerrainLayerConfig,
+  TerrainLayerHandle,
   ShapeHandle,
   HtmlHandle,
   LabelHandle,
@@ -346,6 +348,7 @@ export interface CristaePointLayerElement<T = unknown> extends HTMLElement {
 }
 export interface CristaeLineLayerElement<T = unknown> extends HTMLElement { readonly controls: LineHandle<T> | null }
 export interface CristaePolygonLayerElement<T = unknown> extends HTMLElement { readonly controls: PolygonHandle<T> | null }
+export interface CristaeTerrainLayerElement extends HTMLElement { readonly controls: TerrainLayerHandle | null }
 export interface CristaeShapeLayerElement<T = unknown> extends HTMLElement { readonly controls: ShapeHandle<T> | null }
 export interface CristaeHtmlLayerElement<T = unknown> extends HTMLElement { readonly controls: HtmlHandle<T> | null }
 /** @deprecated Se retira en v0.47.0 con `<cristae-label-layer>`: la reemplaza `CristaeLabeledElement`. */
@@ -409,6 +412,19 @@ export type CristaePolygonLayerProps<T = unknown> = CristaePolygonLayerBase<T> &
 export declare function CristaePolygonLayer<T = unknown>(
   props: CristaePolygonLayerProps<T> & RefAttributes<CristaePolygonLayerElement<T>>,
 ): ReactElement | null;
+
+/** La capa de terreno no se pica: no tiene canales de hit. `slopeBreaks` acepta el atributo ("15% 30%", "17°") o
+ *  razones m/m; `elevationRange` el atributo ("200 600") o el par. */
+export interface CristaeTerrainLayerProps extends CristaeLeafLayerProps,
+  Omit<TerrainLayerConfig, 'id' | 'pane' | 'z' | 'slopeBreaks' | 'slopeColors' | 'elevationRange' | 'onLoad' | 'onError'> {
+  id?             : string;
+  slopeBreaks?    : string | readonly number[];
+  slopeColors?    : string | readonly string[];
+  elevationRange? : string | readonly [number, number];
+  onLoad?         : CristaeEventHandler<{ layerId: string; url: string; count: number }>;
+  onError?        : CristaeEventHandler<{ layerId: string; url: string; code: string; message: string }>;
+}
+export declare const CristaeTerrainLayer: ForwardRefExoticComponent<CristaeTerrainLayerProps & RefAttributes<CristaeTerrainLayerElement>>;
 
 export interface CristaeShapeLayerProps<T = unknown> extends CristaeDataLayerProps {
   data?        : T[];

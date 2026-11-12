@@ -6,7 +6,7 @@
 // El re-export de abajo NO liga los nombres en este archivo: lo que se usa acá se importa.
 import type { CristaeReadSource, CristaeSource, CristaeFilter, SourceAccessors, Fields, FieldPath } from "./core";
 import type { FormatName } from "./formats";
-import type { Bounds, BoundsLike, EarthModel, LatLng, LatLngPath, LatLngPoint, Shape } from "./geometry";
+import type { Bounds, BoundsLike, EarthModel, LatLng, LatLngPath, LatLngPoint, LatLngPolygon, Relief, Shape, TerrainOptions, TerrainSource } from "./geometry";
 
 export type {
   Fields,
@@ -18,8 +18,8 @@ export type {
   CristaeListener,
 } from "./core";
 export { createSource, defineSource, makeFilter, makeListener } from "./core";
-export type { Bounds, BoundsLike, EarthModel, LatLng, LatLngPoint, LatLngPath } from "./geometry";
-export { distance, sphere, toParts, sampleAlong, arc } from "./geometry";
+export type { Bounds, BoundsLike, EarthModel, LatLng, LatLngPoint, LatLngPath, Relief, TerrainSource } from "./geometry";
+export { distance, sphere, toParts, sampleAlong, arc, terrainPresets } from "./geometry";
 
 // ── IconSets (src/atlas/IconSet.js) ─────────────────────────────────────────
 /** Tipo opaco del IconSet — se asigna a `layer.iconSet`; `sprite()` reusa el tile fuera del mapa. */
@@ -224,6 +224,8 @@ export interface LineHandle<T = unknown> {
   readonly id     : string;
   /** Lectura: el handle expone la Source que la capa consume, no la del dueño. */
   readonly source : CristaeReadSource<T>;
+  /** La geometría de la línea `id` como la lee la capa (`pathOf`), en `[lat, lng]`, o `null` si no la tiene. */
+  geometryOf(id: string | number): LatLngPath | null;
   /** Reemplaza el conjunto de líneas (ruta `data`; rebuild O(n)). */
   set(items: T[]): void;
   /** Suma `points` al final del path de `itemId` en O(puntos): un track que crece sin rearmar su path
@@ -234,6 +236,53 @@ export interface LineHandle<T = unknown> {
   setVisible(visible: boolean): void;
   /** Recarga la capa de `url`: aborta lo en curso y resuelve al aplicar o al fallar; nunca rechaza. */
   reload(options?: ReloadOptions): Promise<void>;
+}
+
+// ── Capa de terreno (addTerrainLayer / <cristae-terrain-layer>) ─────────────
+/** Los proveedores de `terrainPresets`. */
+export type TerrainPresetName = "aws" | "mapterhorn";
+
+/** Configuración de la capa de terreno: sombreado, color por altura o por pendiente y curvas de nivel, en planta. */
+export interface TerrainLayerConfig {
+  id              : string;
+  /** El nombre de un `terrainPresets` o un `TerrainSource`. */
+  dem             : TerrainPresetName | TerrainSource;
+  /** Por defecto, encendido si `colorBy` es `none` y apagado si se declara otro. */
+  hillshade?      : boolean;
+  colorBy?        : "none" | "elevation" | "slope";
+  /** Razón m/m, como `relief()`; el elemento convierte "15%" y "8.5°". */
+  slopeBreaks?    : readonly number[];
+  /**
+   * n + 1 colores con n cortes; sin cortes, una rampa continua de uno o más. El motor lee sólo hex y `rgb()`/`rgba()`:
+   * un nombre CSS lanza `TypeError`; `<cristae-terrain-layer>` sí los resuelve. Sin ellos, de verde a rojo.
+   */
+  slopeColors?    : readonly string[];
+  /** Dos alturas en m; `null` o ausente, se recalcula al asentar la vista. */
+  elevationRange? : readonly [number, number] | null;
+  /** Intervalo de las curvas en m; ausente o 0, sin curvas. */
+  contours?       : number;
+  /** Id de una capa de polígonos, resuelto en cualquier orden: recorta el color y las curvas, no el sombreado. */
+  clipTo?         : string;
+  opacity?        : number;
+  visible?        : boolean;
+  /** Se lee al alta: `update` con otro `pane` lanza `TypeError`. */
+  pane?           : string;
+  z?              : number;
+  /** Se lee al alta. */
+  fetch?          : TerrainOptions["fetch"];
+}
+
+/** Handle de la capa de terreno. Se quita con `MapEngine.removeLayer(id)`. La capa no se pica. */
+export interface TerrainLayerHandle {
+  readonly id : string;
+  /** Cambia las opciones dadas. Lanza `TypeError` ante una opción inválida, sin cambiar nada; `id` y `fetch` no cambian. */
+  update(options: Partial<Omit<TerrainLayerConfig, "id">>): void;
+  setVisible(visible: boolean): void;
+  setOpacity(opacity: number): void;
+  /** m, síncrono, desde las teselas ya cargadas; `NaN` si no están o el punto cae fuera. */
+  elevationAt(latlng: LatLngPoint): number;
+  /** `relief()` de la zona con los cortes y las teselas de la capa: lo medido coincide con lo dibujado. */
+  measure(polygon: LatLngPolygon, options?: { signal?: AbortSignal }): Promise<Relief>;
 }
 
 // ── Hits de picking ─────────────────────────────────────────────────────────
@@ -410,21 +459,25 @@ export interface SurfaceInfo {
   visible    : boolean;
 }
 
-/** `dataload`: una capa de `url` aplicó lo que descargó. */
+/** `dataload`: una capa de `url` aplicó lo que descargó. La capa de terreno lo emite por cada mosaico cargado,
+ *  con `count` las teselas de alturas servidas (0 si ninguna tenía dato) y sin `skipped`. */
 export interface DataLoadDetail {
   layerId : string;
   url     : string;
   /** Ítems que entraron a la capa. */
   count   : number;
-  /** Features que no tenían la geometría de la capa y se saltaron. */
-  skipped : number;
+  /** Features que no tenían la geometría de la capa y se saltaron. Ausente en la capa de terreno. */
+  skipped? : number;
 }
 
 /** Por qué no cargó una capa de `url`. */
-export type DataErrorCode = "network" | "cors" | "format" | "unsupported";
+export type DataErrorCode = "network" | "cors" | "format" | "unsupported"
+  /** Sólo la capa de terreno: un 401, un 403 o un 4xx/5xx distinto de 404, la tesela fuera de rango o
+   *  la que no decodifica. Un 404 o 204 no es error: la celda queda sin dato. */
+  | "unauthorized" | "forbidden" | "http" | "range" | "decode";
 
 /** `dataerror`: la descarga o la lectura falló. La capa conserva lo que tenía. Sin oyentes, el motor vuelca
- *  el fallo a la consola una vez por capa. */
+ *  el fallo a la consola una vez por capa. La capa de terreno lo emite con los códigos propios de su carga. */
 export interface DataErrorDetail {
   layerId  : string;
   url      : string;
@@ -685,6 +738,8 @@ export interface PointHandle<T = unknown> {
   reload(options?: ReloadOptions): Promise<void>;
   /** Eje `focus` de la capa (ver `MapEngine.setLayerFocus`). */
   setFocus(ids?: Iterable<string | number> | null | false): void;
+  /** La posición del punto `id` como `[lat, lng]`, o `null` si la capa no lo tiene. */
+  geometryOf(id: string | number): [number, number] | null;
   refresh(): void;
   setVisible(visible: boolean): void;
   /** Membresía de la ENTIDAD (ortogonal a visible): off → aporta ∅ a sus modificadores. */
@@ -727,6 +782,10 @@ export interface PolygonHandle<T = unknown> {
   readonly source? : CristaeReadSource<T> | null;
   set(items: T[]): void;
   setVisible(visible: boolean): void;
+  /** La zona del ítem `id` como la lee la capa (`ringsOf`), en `[lat, lng]`: un polígono `[exterior, ...huecos]` o,
+   *  con varias partes, un multipolígono. Es lo que recibe `TerrainLayerHandle.measure`. `null` si el id no existe
+   *  y por la ruta `geometry`, que no materializa ítems. */
+  geometryOf(id: string | number): LatLngPolygon | null;
   /** Repinta con la vista vigente. */
   redraw(): void;
   /** Cambia el estilo de la capa —las claves de `styleOf`— y reevalúa `styleOf` por entidad. */
@@ -1145,6 +1204,8 @@ export class MapEngine {
   /** @deprecated Se retira en v0.47.0: la reemplaza `addPolygonLayer({ geometry })`. */
   addPolygonGpuLayer(config: PolygonGpuLayerConfig): PolygonGpuHandle;
   addLineLayer<T>(config: LineLayerConfig<T>): LineHandle<T>;
+  /** Terreno en planta sobre las alturas de `dem`. Lanza `TypeError` o `RangeError` ante una opción inválida. */
+  addTerrainLayer(config: TerrainLayerConfig): TerrainLayerHandle;
   addHtmlLayer<T>(config: HtmlLayerConfig<T>): HtmlHandle<T>;
   /** @deprecated Se retira en v0.47.0: con `bindTo` la reemplaza `addLabels({ hostId })` o `<cristae-labeled>`
    *  sobre la capa de puntos (docs/labeled.md); con `source` propio, `addTextLayer` o `<cristae-text-layer>`. */
