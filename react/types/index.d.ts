@@ -30,6 +30,7 @@ import type {
   MapEngine,
   PointHandle,
   TilePresetName,
+  TileProvider,
   CristaeSource,
   LineHandle,
   PolygonHandle,
@@ -95,7 +96,7 @@ import type { PagedTable } from '../../types/table'
 
 /** Re-export de conveniencia: los tipos de Source con los que se anotan las props de dato. Una Source
  *  de `defineSource` es `CristaeReadSource`; sólo `createSource` devuelve la `CristaeSource` mutable. */
-export type { CristaeReadSource, CristaeSource, TilePresetName } from '../../types/map'
+export type { CristaeReadSource, CristaeSource, TilePresetName, TileProvider } from '../../types/map'
 
 // ── Núcleo del binding (imperativo) ─────────────────────────────────────────
 
@@ -230,13 +231,7 @@ interface CristaeDataLayerProps extends CristaeLeafLayerProps {
 
 export type CristaeTilePresetName = TilePresetName
 
-export interface CristaeTileProvider {
-  url          : string;
-  maxZoom?     : number;
-  attribution? : string;
-  subdomains?  : string | string[];
-  [k: string]: unknown;
-}
+export type CristaeTileProvider = TileProvider
 
 // ── <CristaeMap> ─────────────────────────────────────────────────────────────
 
@@ -267,6 +262,7 @@ export interface CristaeMapElement extends HTMLElement {
 export interface CristaeMapProps extends CristaeBaseProps {
   /** Proveedor de tiles (capa base): un objeto o el nombre de un preset (`"osm"`, `"cartoDark"`…). Reactivo. */
   tile?               : CristaeTileProvider | CristaeTilePresetName;
+  /** Si los tiles se repiten fuera de ±180 (`world-copies`). Reactivo; sin valor, el mundo no se repite. */
   worldCopies?        : boolean;
   noZoomControl?      : boolean;
   /** Franjas del contenedor ocluidas por UI del consumidor (paneles) — reactivo. */

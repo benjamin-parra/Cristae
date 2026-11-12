@@ -674,6 +674,44 @@ export const tilePresets: Record<
   string,
   { url: string; maxZoom?: number; attribution?: string }
 >;
+/** El proveedor de tiles: las seis claves que se prometen. Hoy el motor entrega el objeto tal cual a la capa de
+ *  tiles de Leaflet, así que las demás claves siguen funcionando, pero están deprecadas: avisan una vez por clave
+ *  por consola y el anfitrión GL las ignora (se retiran con él). `crossOrigin` no se ofrece: es interno y
+ *  anónimo. `tileSize`, `zoomOffset`, `tms` y `referrerPolicy` no se prometen. */
+export interface TileProvider {
+  /** La URL con `{s}`, `{z}`, `{x}`, `{y}` y `{r}`. */
+  url            : string;
+  /** Los valores de `{s}`: una cadena de letras (`"abcd"`) o un arreglo. */
+  subdomains?    : string | string[];
+  /** El zoom más bajo que sirve el proveedor. */
+  minZoom?       : number;
+  /** El zoom más alto que sirve el proveedor. */
+  maxZoom?       : number;
+  /** El zoom más alto con teselas propias: por encima, se escalan las de ese nivel. */
+  maxNativeZoom? : number;
+  /** La atribución, en HTML: la dibuja quien usa el mapa (docs/tiles.md#la-atribución). */
+  attribution?   : string;
+  /** @deprecated Se retira con el anfitrión GL, que ignora la clave. Lo reemplaza `worldCopies` en `MapEngineOptions` (`world-copies` en `<cristae-map>`). Avisa por consola una vez. */
+  noWrap?        : boolean;
+  /** @deprecated Se retira con el anfitrión GL, que ignora la clave. Avisa por consola una vez. */
+  tileSize?      : number;
+  /** @deprecated Se retira con el anfitrión GL, que ignora la clave. Avisa por consola una vez. */
+  zoomOffset?    : number;
+  /** @deprecated Se retira con el anfitrión GL, que ignora la clave. Avisa por consola una vez. */
+  tms?           : boolean;
+  /** @deprecated Se retira con el anfitrión GL: la petición es siempre anónima. Avisa por consola una vez. */
+  crossOrigin?   : boolean | string;
+  /** @deprecated Se retira con el anfitrión GL, que ignora la clave. Avisa por consola una vez. */
+  referrerPolicy?: string | boolean;
+  /** @deprecated Se retira con el anfitrión GL, que ignora la clave. Avisa por consola una vez. */
+  className?     : string;
+  /** @deprecated Se retira con el anfitrión GL, que ignora la clave. Avisa por consola una vez. */
+  updateWhenIdle?: boolean;
+  /** @deprecated Se retira con el anfitrión GL, que ignora la clave. Avisa por consola una vez. */
+  keepBuffer?    : number;
+  /** @deprecated Cualquier otra opción de `L.tileLayer` se retira con el anfitrión GL, que la ignora. Avisa por consola una vez por clave. */
+  [option: string]: unknown;
+}
 
 // ── Puntos (addPointLayer / <cristae-point-layer>) ──────────────────────────
 export interface PointAccessors<T> extends Pick<SourceAccessors<T>, "hashOf"> {
@@ -1183,6 +1221,11 @@ export interface MapEngineOptions {
   zoomAnimation?      : "none" | "in-only" | "on";
   /** Cursor inicial del contenedor, con las reglas de `setCursor`. */
   cursor?             : string | null;
+  /** Si los tiles se repiten en horizontal fuera de ±180: el mismo sentido que `world-copies` de `<cristae-map>` y
+   *  la inversa del `noWrap` deprecado de `tile`. Sin valor, el motor repite el mundo. No limita la cámara: eso
+   *  es `maxBounds`. Lo lee `setTileProvider`, que acepta el suyo en su segundo argumento; un `tile.noWrap`
+   *  propio gana. */
+  worldCopies?        : boolean;
   /** Límites de la cámara del mapa propio, con las reglas de `setLimits`. */
   minZoom?            : number | null;
   maxZoom?            : number | null;
@@ -1273,8 +1316,9 @@ export class MapEngine {
   registerIconSet(name: string, set: IconSet): this;
   createIcon(config: { size?: number; draw?: (ctx: CanvasRenderingContext2D, size: number) => void }): HTMLCanvasElement;
   /** Un nombre de `tilePresets` o un proveedor. Un nombre desconocido lanza `TypeError` (con la lista de
-   *  presets) y deja el proveedor vigente. */
-  setTileProvider(tile: TilePresetName | { url: string; [k: string]: unknown }): this;
+   *  presets) y deja el proveedor vigente. Una clave fuera de `TileProvider` avisa una vez por consola, y `noWrap`
+   *  también: ambas están deprecadas. `options.worldCopies` manda sobre el de `MapEngineOptions` en esta provisión. */
+  setTileProvider(tile: TilePresetName | TileProvider, options?: { worldCopies?: boolean }): this;
   /** Atribución del proveedor vigente, tal como se dio —HTML, como en Leaflet—, o `null`. El motor no la
    *  dibuja: docs/tiles.md#la-atribución. */
   getTileAttribution(): string | null;

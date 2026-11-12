@@ -535,3 +535,11 @@ export const MotorPorUrl = (engine: MapEngine) => {
 
 // `tile` por nombre de preset, sin armar el proveedor.
 export const PorNombre = () => <CristaeMap tile="osm" />
+
+// Las seis claves que promete el proveedor de `tile`, y las copias del mundo.
+export const ProveedorPrometido = () => (
+  <CristaeMap
+    worldCopies
+    tile={{ url: 'https://tiles/{s}/{z}/{x}/{y}.png', subdomains: 'abc', minZoom: 1, maxZoom: 19, maxNativeZoom: 17, attribution: 'P' }}
+  />
+)
