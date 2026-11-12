@@ -6,7 +6,9 @@ import { STACK, createStack } from './stack.js'
 import { PointLayer } from '../render/PointLayer.js'
 import { OBJ_BITS } from '../render/Picking.js'
 import { LineGpuLayer } from '../render/LineGpuLayer.js'
-import { PolygonGpuLayer } from '../render/PolygonGpuLayer.js'
+import { PolygonGpuLayer, tablesFromRings } from '../render/PolygonGpuLayer.js'
+import { TerrainLayer } from '../render/TerrainLayer.js'
+import { readTerrainConfig, updateTerrainConfig } from './terrain-config.js'
 import { ShapeLayer } from '../render/ShapeLayer.js'
 import { ImageLayer } from '../render/ImageLayer.js'
 import { HeatLayer } from '../render/HeatLayer.js'
@@ -83,6 +85,20 @@ const geometryOf = (record, accessor, id) => {
   const lat = geometry?.lat ?? geometry?.[0]
   const lng = geometry?.lng ?? geometry?.[1]
   return typeof lat === 'number' && typeof lng === 'number' ? [lat, lng] : null
+}
+
+// La caché de teselas de altura del motor, compartida por todas sus capas de terreno. El módulo que la crea trae
+// el decodificador de teselas, que no entra al chunk de entrada: el primer pedido lo importa, y quien no pide
+// terreno nunca lo descarga. Un fallo del import no se guarda: el siguiente pedido lo intenta de nuevo.
+const lazyHeightCache = () => {
+  let loading = null
+  const real = () => (loading ??= import('../geometry/height-tiles.js').then(
+    tiles => tiles.createHeightTileCache(),
+    error => { loading = null; throw error }))
+  return {
+    get  : async (...args) => (await real()).get(...args),
+    clear: () => loading?.then(cache => cache.clear(), () => {}),
+  }
 }
 
 // Lado del sprite de la burbuja default (px). El radio es `size * 0.42` y el texto escala con `size`,
@@ -180,6 +196,7 @@ export class MapEngine {
   #model              = null           // el modelo de la Tierra con que dibujan y pican las formas y las geodésicas
   #planeWarned        = false          // un z derivado ya llegó al techo de su plano
   #labels                              // los rótulos de `addLabels` (engine/labels.js)
+  #heightCache        = null           // la caché de teselas de altura del motor (perezosa, ver lazyHeightCache)
 
   camera
   ready
@@ -306,6 +323,7 @@ export class MapEngine {
       this.#registerResolver(id, 'point', record, sample => record.layer.resolveClick(sample), sample => record.layer.resolveHover(sample), { capture, presentAs })
     }
     this.#applyVisibility(id, paneName, visible && enabled)
+    this.#syncClipsTo(id)
 
     filters?.forEach(f => controls?.addFilter(f))
     if (data && controls) controls.set(data)
@@ -344,7 +362,7 @@ export class MapEngine {
     const { layer, ...seat } = this.#build(id, cfg, BASE_Z, paneName,
       () => new PolygonGpuLayer({ host: this.#host, pane: paneName, source, geometry, idOf, styleOf, interactive, ...style, surface: this.#tramos.surface }))
 
-    const record = { kind: 'polygon', source, layer, controls, paneName, ...seat, interactive, visible, enabled: true }
+    const record = { kind: 'polygon', source, geometry, layer, controls, paneName, ...seat, interactive, visible, enabled: true }
     this.#layers.set(id, record)
 
     if (interactive)   // resolvers leen record.layer (no capturan). Síncrono, no va a #pickLayers (como línea).
@@ -353,6 +371,7 @@ export class MapEngine {
 
     if (data && controls) controls.set(data)
     this.#flushPendingBinds()
+    this.#syncClipsTo(id)
     this.#startData(id, record, { url, format, refresh, fetch, clickAction })
     return {
       id,
@@ -364,6 +383,130 @@ export class MapEngine {
       redraw    : () => record.layer.redraw(),
       style     : options => record.layer.style(options),
     }
+  }
+
+  /* ── Terreno (capa GPU sobre la textura de altura de un `dem`) ── */
+
+  // La capa de terreno en planta: sombreado, color por altura o por pendiente y curvas de nivel sobre las alturas
+  // del `dem`, con la misma clase que `relief()`. Es de las capas de abajo: ocupa su lugar en el orden de declaración
+  // y comparte contexto con las de su tramo. No tiene Source ni se pica: no registra resolver, así que ni `on('click')`
+  // ni el pase de picking la ven. No hay `set` ni `remove`: se quita con `removeLayer`.
+  //
+  // `clipTo` es el id de una capa de polígonos que recorta el color y las curvas, y se resuelve por id en cualquier
+  // orden: declarado antes que el polígono, la capa espera en `'pending'` (sólo el sombreado), y el recorte se pone
+  // cuando el polígono llega y se rehace con cada cambio de su Source. `dataload` y `dataerror` salen por la vía de los
+  // datos por url, con la misma lista de campos.
+  addTerrainLayer(cfg) {
+    const config   = readTerrainConfig(cfg)
+    const { id }   = config
+    const paneName = config.pane ?? `cristae-terrain-${id}`
+    const cache    = this.#heightCache ??= lazyHeightCache()
+    const terrain  = { config, clipSource: null, offClip: null, reported: false, pushed: null }
+    const { layer, ...seat } = this.#build(id, cfg, BASE_Z, paneName, () => new TerrainLayer({
+      host: this.#host, pane: paneName, config: this.#terrainStyle(id, terrain, config), model: this.#model, cache,
+      surface: this.#tramos.surface,
+    }))
+
+    const record = { kind: 'terrain', source: null, layer, controls: null, paneName, ...seat, interactive: false, visible: config.visible, enabled: true, terrain }
+    this.#layers.set(id, record)
+    this.setLayerVisibility(id, config.visible)
+    this.#syncClip(id)
+    this.#syncClipsTo(id)
+    const handle = {
+      id,
+      update: partial => {
+        if (this.#layers.get(id) !== record) return                // quitada: no hay nada que cambiar
+        const previous = terrain.config
+        const { config: next, changed } = updateTerrainConfig(previous, partial)   // lanza antes de cambiar nada
+        terrain.config = next
+        if (changed.dem || changed.style) layer.configure(this.#terrainStyle(id, terrain, next))
+        if (next.visible !== previous.visible) this.setLayerVisibility(id, next.visible)
+        if (next.z !== previous.z) this.setLayerZ(id, next.z)
+        if (changed.clip) this.#syncClip(id)
+      },
+      setVisible : v => this.setLayerVisibility(id, v),
+      // Un solo dueño de la opacidad: el uniforme de la capa, que es lo que `config.opacity` dice. La del pane no se toca.
+      setOpacity : alpha => { Number.isFinite(alpha) && handle.update({ opacity: Math.min(1, Math.max(0, alpha)) }) },
+      elevationAt: latlng => layer.elevationAt(latlng),
+      measure    : (polygon, options) => layer.measure(polygon, options),
+    }
+    return handle
+  }
+
+  // Lo que la capa recibe: la configuración normalizada con el `dem` ya resuelto y los avisos del motor.
+  #terrainStyle(id, terrain, config) {
+    return {
+      ...config,
+      dem    : config.source,
+      onLoad : ({ url, count }) => this.#emit('dataload', { layerId: id, url, count }),
+      onError: detail => this.#reportTerrainError(id, terrain, detail),
+    }
+  }
+
+  // Igual que un fallo de carga por url: sin oyentes de `dataerror` se vuelca a la consola, una vez por capa.
+  #reportTerrainError(id, terrain, { url, code, message, status }) {
+    if (this.#signals.get('dataerror')?.size) return this.#emit('dataerror', { layerId: id, url, code, message, status })
+    terrain.reported || console.error(`[cristae] la capa '${id}' no cargó ${url}: ${message}`)
+    terrain.reported = true
+  }
+
+  // Resuelve el `clipTo` de la capa de terreno `id` contra lo que hay hoy y se lo entrega. Sigue la Source del
+  // destino mientras sea de polígonos; si deja de serlo, la suscripción se suelta con ella.
+  #syncClip(id) {
+    const record = this.#layers.get(id)
+    const terrain = record?.terrain
+    if (!terrain || this.#destroying) return
+    const target = terrain.config.clipTo == null ? null : this.#layers.get(terrain.config.clipTo)
+    const polygon = target?.kind === 'polygon' ? target : null
+    if (target && !polygon)
+      this.#warnOnce(`${id}->${terrain.config.clipTo}:clip`, `[cristae] la capa de terreno '${id}' recorta con '${terrain.config.clipTo}', que no es de polígonos: queda sin recorte`)
+    const source = polygon?.source ?? null
+    if (terrain.clipSource !== source) {
+      terrain.offClip?.()
+      terrain.clipSource = source
+      terrain.offClip = source ? source.subscribe(() => this.#pushClip(id)) : null
+    }
+    this.#pushClip(id)
+  }
+
+  // Las tablas del destino: las de la ruta `geometry`, o las que salen de los anillos de su Source. Sin partes
+  // todavía —un polígono por url que no cargó— el recorte espera.
+  #pushClip(id) {
+    const record = this.#layers.get(id)
+    const terrain = record?.terrain
+    if (!terrain || this.#destroying) return
+    const { clipTo } = terrain.config
+    if (clipTo == null) {
+      terrain.pushed = null
+      return void record.layer.setClip(null)
+    }
+    const target = this.#layers.get(clipTo)
+    let clip = 'pending'
+    let items = null
+    if (target?.kind === 'polygon') {
+      let tables = target.geometry
+      if (!tables) {
+        items = target.source.getSnapshot()
+        // Un refresco en vivo que no cambió ningún ítem no rehace ni vuelve a subir el recorte.
+        const last = terrain.pushed
+        if (last && last.target === target && last.items.length === items.length && last.items.every((item, i) => item === items[i])) return
+        tables = tablesFromRings(items, target.source.accessors.ringsOf)
+      }
+      if (tables.partCount > 0) clip = tables
+    }
+    terrain.pushed = items && clip !== 'pending' ? { target, items: items.slice() } : null
+    try {
+      record.layer.setClip(clip)
+    } catch (e) {
+      terrain.pushed = null
+      this.#warnOnce(`${id}->${clipTo}:clip-tables`, `[cristae] la capa de terreno '${id}' no pudo recortar con '${clipTo}': ${e?.message ?? e}`)
+    }
+  }
+
+  // Las capas de terreno que recortan con `targetId`: el destino llegó, se fue o cambió.
+  #syncClipsTo(targetId) {
+    if (this.#destroying) return
+    this.#layers.forEach((record, id) => record.terrain?.config.clipTo === targetId && this.#syncClip(id))
   }
 
   /** @deprecated Se retira en v0.47.0: la reemplaza `addPolygonLayer({ geometry })`. */
@@ -399,6 +542,7 @@ export class MapEngine {
       this.#registerResolver(id, 'line', record, sample => record.layer.resolveClick(sample), sample => record.layer.resolveHover(sample))
     }
     this.#applyVisibility(id, paneName, visible)
+    this.#syncClipsTo(id)
 
     if (data && controls) controls.set(data)
     this.#flushPendingBinds()
@@ -969,6 +1113,7 @@ export class MapEngine {
     record.offClick?.()                   // click-action
     record.remote && this.#stopRemote(record.remote)
     record.unsub?.()                      // bind de labels / suscripción de la capa
+    record.terrain?.offClip?.()           // la suscripción del terreno a la Source de su recorte
     record.layer?.destroy?.()
     record.editor?.destroy?.()            // editor de geometría (input controlado, sin record.layer)
     this.#separators.get(record.layer ?? record.editor)?.()   // su pane deja de separar tramos
@@ -989,6 +1134,7 @@ export class MapEngine {
     // La superficie cuenta quién sostiene cada pane: el propio de la capa se va con ella, y uno
     // compartido por varias con el mismo `cfg.pane`, con la última.
     record.paneName && this.#host.surface.unmount(record.paneName)
+    this.#syncClipsTo(id)                 // un terreno que recortaba con esta capa vuelve a esperarla
     declarabaFoco && this.#applyFocus()
     dibujaba && !this.#drawing.size && !this.#destroying && this.#emit('drawingend', {})
     return true
@@ -1175,6 +1321,8 @@ export class MapEngine {
     this.#layers.forEach((_, id) => this.removeLayer(id))
     this.#watchingVisibility && document.removeEventListener('visibilitychange', this.#onVisible)
     this.#signals.clear()
+    this.#heightCache?.clear()          // las teselas de altura no sobreviven al motor
+    this.#heightCache = null
     this.#tramos.destroy()
     this.#host.destroy()
   }
