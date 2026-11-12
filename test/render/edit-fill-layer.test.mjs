@@ -66,6 +66,9 @@ const espiar = base => {
     enable             : capacidad => anota('enable', capacidad),
     disable            : capacidad => anota('disable', capacidad),
     clear              : () => anota('clear'),
+    colorMask          : (...mascara) => anota('colorMask', ...mascara),
+    stencilMask        : bits => anota('stencilMask', bits),
+    bindVertexArray    : vao => anota('bindVertexArray', vao),
   }
   return new Proxy(base, { get: (t, p) => propio[p] ?? CONSTANTES[p] ?? t[p] })
 }
@@ -569,4 +572,70 @@ test('la derivación de la arista del shader es la que reimplementa el oráculo'
   // El oráculo lee las entradas de dos en dos porque monta sobre el arena entrelazado. Si el default
   // del paso cambia, los 17 tests siguen verdes midiendo un layout que ya no es el que se dibuja.
   assert.ok(fuente.includes('step = 2 }'), 'el paso por default dejó de ser el del arena: revisá ARISTAS.uEdges')
+})
+
+/* ── 6. La máscara par-impar separable ── */
+
+const ESTADO = new Set(['enable', 'disable', 'colorMask', 'stencilMask', 'stencilFunc', 'stencilOp', 'bindVertexArray'])
+
+test('mask deja el estado del contrato: stencil y scissor encendidos, color apagado, VAO enlazado', () => {
+  const escena = montar([cuadrado(48, 0.02)])
+  escena.gl.log.length = 0
+  assert.equal(escena.capa.mask(escena.vista), true)
+  const log = escena.gl.log
+  const ultimo = op => log.filter(l => l.op === op).at(-1)
+
+  assert.ok(log.some(({ op, args }) => op === 'enable' && args[0] === 'STENCIL_TEST'))
+  assert.ok(log.some(({ op, args }) => op === 'enable' && args[0] === 'SCISSOR_TEST'))
+  assert.ok(!log.some(({ op, args }) => op === 'disable' && (args[0] === 'STENCIL_TEST' || args[0] === 'SCISSOR_TEST')))
+  assert.deepEqual(ultimo('colorMask').args, [false, false, false, false])
+  assert.deepEqual(ultimo('stencilMask').args, [1], 'el relleno vive en el bit 0')
+  assert.deepEqual(ultimo('stencilOp').args, ['KEEP', 'KEEP', 'INVERT'])
+  assert.notEqual(ultimo('bindVertexArray').args[0], null, 'el VAO de la capa queda enlazado')
+})
+
+test('mask no pinta: ni colorMask(true…) ni la cobertura, y las aristas son las de draw', () => {
+  const escena = montar([cuadrado(48, 0.02)])
+  const completo = [...dibujar(escena)]
+  escena.gl.log.length = 0
+  escena.capa.mask(escena.vista)
+  const log = escena.gl.log
+
+  assert.ok(!log.some(({ op, args }) => op === 'colorMask' && args.some(Boolean)))
+  assert.ok(!log.some(({ op }) => op === 'uColor'), 'sin color no hay cobertura')
+  assert.deepEqual(log.filter(({ op }) => op === 'drawArrays'),
+    completo.filter(({ op }) => op === 'drawArrays').slice(0, -1), 'draw = las mismas aristas + 1 triángulo')
+})
+
+test('draw es mask más la cobertura, con la misma secuencia de llamadas de siempre', () => {
+  const escena = montar([cuadrado(24, 0.02)])
+  const drag   = { ring: 0, vertex: refs(escena.rings[0].path)[6], ...enMundo(-33.44, -70.65) }
+  const completo = [...dibujar(escena, drag)]
+  escena.gl.log.length = 0
+  escena.capa.mask({ ...escena.vista, drag })
+  const mascara = [...escena.gl.log]
+
+  assert.deepEqual(completo.slice(0, mascara.length), mascara, 'draw empieza por mask')
+  const cola = completo.slice(mascara.length)
+  assert.deepEqual(cola.map(({ op, args }) => [op, ...(ESTADO.has(op) || op === 'drawArrays' ? args : [])]), [
+    ['useProgram'],
+    ['colorMask', true, true, true, true],
+    ['enable', 'BLEND'],
+    ['stencilFunc', 'NOTEQUAL', 0, 1],
+    ['stencilOp', 'KEEP', 'KEEP', 'ZERO'],
+    ['uColor'],
+    ['drawArrays', 0, 3],
+    ['disable', 'STENCIL_TEST'],
+    ['disable', 'SCISSOR_TEST'],
+    ['stencilMask', 0xff],
+    ['bindVertexArray', null],
+  ].map(([op, ...a]) => [op, ...a]))
+})
+
+test('mask devuelve falso sin tocar el estado si no queda nada que marcar', () => {
+  const vacia = montar([cuadrado(24, 0.02)])
+  vacia.capa.rings = []
+  vacia.gl.log.length = 0
+  assert.equal(vacia.capa.mask(vacia.vista), false)
+  assert.equal(vacia.gl.log.length, 0)
 })

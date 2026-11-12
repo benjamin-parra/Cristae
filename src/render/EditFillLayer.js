@@ -172,9 +172,16 @@ export class EditFillLayer {
     return this
   }
 
-  // `drag` = { ring, vertex, x, y } con la posición viva en world0 px. Devuelve si dibujó: el contorno
-  // puede quedar entero fuera de pantalla.
-  draw({ zoom, center, size, drag = null }) {
+  // Sólo la paridad: el scissor de la caja del contorno y el par-impar de todos los anillos (con el vértice
+  // promovido si hay `drag` = { ring, vertex, x, y } en world0 px) en el bit 0 del stencil, sin pintar color.
+  // Devuelve si marcó algo: el contorno puede quedar entero fuera de pantalla.
+  //
+  // CONTRATO. Al volver quedan STENCIL_TEST y SCISSOR_TEST encendidos, `colorMask(false…)`, `stencilMask(BIT)`
+  // y el VAO de la capa enlazado, con el bit 0 en uno donde el relleno es impar. Quien cubre usa
+  // `stencilFunc(NOTEQUAL, 0, 1)` y `stencilOp(KEEP, KEEP, ZERO)` —la cobertura deja el stencil limpio sin un
+  // `clear`—, enciende `colorMask(true…)` si pinta, y al final apaga STENCIL_TEST y SCISSOR_TEST y deja
+  // `stencilMask(0xff)`. Si `mask` devuelve falso no tocó el estado: no hay nada que cubrir ni que restaurar.
+  mask({ zoom, center, size, drag = null }) {
     const gl = this.#gl
     if (!this.rings.length) return false
 
@@ -221,7 +228,13 @@ export class EditFillLayer {
       gl.bindTexture(gl.TEXTURE_2D, arena.texture)
       gl.drawArrays(gl.TRIANGLES, 0, 6)
     }
+    return true
+  }
 
+  // Máscara más la cobertura de color. Devuelve si dibujó.
+  draw(view) {
+    if (!this.mask(view)) return false
+    const gl = this.#gl
     const cover = this.#cover
     const rgba  = this.#rgba
     gl.useProgram(cover.program)

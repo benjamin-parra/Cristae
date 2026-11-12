@@ -7,7 +7,7 @@ import assert from 'node:assert/strict'
 // Import al módulo nuevo tras la mudanza. En el paso 1 el oráculo corrió contra la ubicación ACTUAL
 // (toRGBA/DEFAULT_COLOR; withAlpha extraído verbatim de LabelLayer.js,
 // no importable en node porque LabelLayer acopla leaflet). Los mismos asserts deben seguir verdes acá.
-import { toRGBA, DEFAULT_COLOR, withAlpha } from '../../src/render/color.js'
+import { toRGBA, DEFAULT_COLOR, withAlpha, parseColor } from '../../src/render/color.js'
 
 const hasNaN = (arr) => arr.some((n) => Number.isNaN(n))
 
@@ -77,4 +77,30 @@ test('withAlpha: lo que NO es hex se devuelve sin tocar (nombres CSS, rgb(), nul
   assert.equal(withAlpha('red', 0.5), 'red')
   assert.equal(withAlpha('rgb(1,2,3)', 0.5), 'rgb(1,2,3)')
   assert.equal(withAlpha(null, 0.5), null)
+})
+
+test('parseColor: hex como toRGBA, con el alfa propio', () => {
+  assert.deepEqual(parseColor('#f00'), [1, 0, 0, 1])
+  assert.deepEqual(parseColor(' #00ff0080 '), toRGBA('#00ff0080'))
+  assert.deepEqual(parseColor('0000ff'), [0, 0, 1, 1])
+})
+
+test('parseColor: rgb() y rgba() con números, porcentajes y sintaxis moderna', () => {
+  assert.deepEqual(parseColor('rgb(255, 0, 51)'), [1, 0, 0.2, 1])
+  assert.deepEqual(parseColor('rgba(0,0,0,.5)'), [0, 0, 0, 0.5])
+  assert.deepEqual(parseColor('RGB(100% 50% 0%)'), [1, 0.5, 0, 1])
+  assert.deepEqual(parseColor('rgb(0 255 0 / 25%)'), [0, 1, 0, 0.25])
+  assert.deepEqual(parseColor('rgba(300, 0, 0, 2)'), [1, 0, 0, 1], 'fuera de rango se acota')
+})
+
+test('parseColor: lo inválido es null, no el gris de toRGBA', () => {
+  for (const malo of ['', 'red', '#12', '#12345', '#ggg', 'rgb(1,2)', 'rgb(-1,0,0)', 'rgb(1,2,3', 'rgb(a,b,c)',
+    'hsl(0,0%,0%)', null, undefined, 12, [1, 0, 0, 1], {}]) {
+    assert.equal(parseColor(malo), null, String(malo))
+  }
+  assert.deepEqual(toRGBA('red'), DEFAULT_COLOR, 'toRGBA no cambia')
+})
+
+test('parseColor devuelve un array nuevo cada vez', () => {
+  assert.notEqual(parseColor('#f00'), parseColor('#f00'))
 })
