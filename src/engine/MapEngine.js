@@ -27,11 +27,12 @@ import { accessorsFromFields, fieldReader } from '../data/fields.js'
 import { RemoteError } from '../data/remote-fetch.js'
 import { loadRemote } from './remote.js'
 import { itemsOf, URL_ACCESSORS } from './features.js'
+import { MAX_REFRESH_MS, MIN_REFRESH_MS, createRefresher } from './refresh.js'
 import { createSource } from '../data/index.js'
+import { BIND } from '../data/Source.js'
+import { tileOf, tilePresets } from '../tiles/presets.js'
 import { createLeafletHost } from '../host/LeafletHost.js'
-import { iterable } from '../data/path.js'
-import { foldRuns } from '../geometry/polyline.js'
-import { boundsOf, emptyBounds, growBounds, growRun } from '../geometry/bounds.js'
+import { emptyBounds, growBounds, growItem } from '../geometry/bounds.js'
 import { byDefault, checkHeading, checkPlacer, isModel } from '../geometry/geodesic.js'
 
 // MapEngine — orquestador headless (SPECS §6). Framework-agnóstico, sin dominio. Monta sobre un
@@ -60,13 +61,6 @@ const HIGHLIGHT_Z   = TOP_PLANE - 1
 // «nada» y no se asigna nunca. Sale de los bits que declara el codec — nunca de un número repetido acá.
 const PICK_OBJ_MAX = (1 << OBJ_BITS) - 1
 const ITEM_DIM = 0.3            // opacidad del atenuado en el eje de foco por ÍTEM
-// Piso del período de `refresh` (ms). Una capa por `url` que se relee más de una vez por segundo ya no
-// sigue un archivo que cambia: es un bucle de descarga. Razonado: un servidor de archivos estáticos no
-// espera más de un pedido por segundo de un mismo cliente.
-const MIN_REFRESH_MS = 1000
-// Techo del período de `refresh` (ms): el mayor retardo que acepta `setTimeout` (un entero de 32 bits con signo).
-// Un valor mayor se trata como 1 ms y volvería la capa un bucle de descarga, justo lo que el piso evita.
-const MAX_REFRESH_MS = 2 ** 31 - 1
 // Lo que `click-action` sabe hacer con el ítem clicado.
 const CLICK_ACTIONS = ['fit', 'follow']
 const BUS_EVENTS = new Set(['click', 'secondary-click', 'hover', 'hover:start', 'hover:end', 'pointer:move'])
@@ -270,7 +264,12 @@ export class MapEngine {
     this.#hookFontGate(set)                      // re-encode al re-rasterizar el atlas (font-gate)
     // `controls` = la Source que posee el motor (ruta A/data); con `cfg.source` el dueño es el
     // consumidor → el motor solo lee, no escribe. El objeto ES el Source (handle colapsado).
-    const controls          = cfg.source ? null : createSource(accessors, set?.variants)
+    // La Source pendiente que crea el elemento (antes de su capa) la adopta la capa: se liga a sus accessors y la
+    // retiene hasta que el dato inicial cae, para que lo movido antes de `ready` se aplique sobre él. Es del
+    // elemento y sobrevive al remontaje: el motor la usa como suya (`controls`) pero nunca la destruye.
+    const pend              = cfg.source?.[BIND] ? cfg.source : null
+    const release           = pend ? pend[BIND](accessors, set?.variants, { hold: !!(url || data) }) : null
+    const controls          = pend ?? (cfg.source ? null : createSource(accessors, set?.variants))
     const source            = cfg.source ?? controls
     // `where`: membresía por-capa (filtra qué ítems de la Source compartida entran a ESTA capa
     // sin mutar la Source). Otras vistas de la misma Source no se ven afectadas.
@@ -281,7 +280,7 @@ export class MapEngine {
     // de los hosts HABILITADOS (no la Source cruda) → cuenta lo que la capa REALMENTE muestra.
     // setWhere/setLayerEnabled los actualizan y re-indexan el cluster. `visible` (pintado puro) se
     // persiste para componer la visibilidad EFECTIVA del pane (visible ∧ enabled).
-    const record = { kind: 'point', source, layer, controls, paneName, ...seat, interactive, where: where ?? null, visible, enabled }
+    const record = { kind: 'point', source, layer, controls, paneName, ...seat, interactive, where: where ?? null, visible, enabled, adopted: !!pend }
     this.#layers.set(id, record)
     if (!enabled) layer.enabled = false          // nace gateada: no reacciona a la Source hasta setLayerEnabled(true)
 
@@ -297,7 +296,8 @@ export class MapEngine {
     if (cluster) this.addCluster({ hostId: id, ...cluster })   // azúcar: <cristae-cluster> usa addCluster directo
 
     this.#flushPendingBinds()
-    this.#startData(id, record, { url, format, refresh, fetch, clickAction })
+    this.#startData(id, record, { url, format, refresh, fetch, clickAction, release })
+    if (!url) release?.()                                      // con data ya cayó el set; sin dato no hay nada que esperar
     return this.#pointHandle(id, record, set)
   }
 
@@ -914,6 +914,7 @@ export class MapEngine {
     }
     if (record.kind !== 'point') return this
     const { focus } = record.layer
+    record.remote?.refresher?.stop()            // la interpolación del refresh no escribe en una Source que ya no es del motor
     record.source   = source
     record.controls = null
     this.#swapLayer(record, () => new PointLayer({
@@ -954,7 +955,7 @@ export class MapEngine {
     record.editor?.destroy?.()            // editor de geometría (input controlado, sin record.layer)
     this.#separators.get(record.layer ?? record.editor)?.()   // su pane deja de separar tramos
     this.#separators.delete(record.layer ?? record.editor)
-    record.controls?.destroy()
+    record.adopted || record.controls?.destroy()   // la Source adoptada es del elemento
     record.cluster?.dispose()             // libera burbujas + sibling y su listener de zoom
     const declarabaFoco = this.#itemFocus.delete(id)
     this.#registry.removeByLayerId(id)
@@ -1053,8 +1054,13 @@ export class MapEngine {
     return canvas
   }
 
+  // `tile` es un proveedor o el nombre de un preset (`tilePresets`). Un nombre que no existe es TypeError y deja el
+  // proveedor vigente.
   setTileProvider(tile) {
-    this.#host.tiles.setProvider(tile)
+    const provider = tileOf(tile)
+    if (provider === null && typeof tile === 'string')
+      throw new TypeError(`[cristae] tile '${tile}' no es un preset: usar ${Object.keys(tilePresets).join(', ')}`)
+    this.#host.tiles.setProvider(provider ?? tile)
     return this
   }
 
@@ -1128,30 +1134,14 @@ export class MapEngine {
   // respeta insets/maxZoom, y sin ninguna posición no encuadra.
   fitToLayers(ids = null, { insets, maxZoom } = {}) {
     const box       = emptyBounds()
-    const growTyped = v => {                     // tipado plano, intercalado [lat, lng, …]
-      for (let i = 0; i + 1 < v.length; i += 2) growBounds(box, v[i], v[i + 1])
-    }
-    // Una coordenada de positionOf o ringsOf llega como `{lat,lng}`, `[lat,lng]`, un anidado, un
-    // iterable o un tipado plano. Se recorre sin materializar pares.
-    const walk = v =>
-      ArrayBuffer.isView(v)        ? growTyped(v)
-      : Array.isArray(v)           ? (typeof v[0] === 'number' ? growBounds(box, v[0], v[1]) : v.forEach(walk))
-      : typeof v?.lat === 'number' ? growBounds(box, v.lat, v.lng)
-      : iterable(v)                ? [...v].forEach(walk)
-      : undefined
     const recs = ids ? [...ids].map(id => this.#layers.get(id)) : [...this.#layers.values()]
     recs.forEach(r => {
       const b = r?.layer?.bounds
       if (b) { growBounds(box, b.south, b.west); growBounds(box, b.north, b.east); return }
       if (!r?.source) return
 
-      const { accessors: a, getSnapshot } = r.source
-      // pathOf se lee con el contrato de path de las líneas —sus formas de punto y su regla de corte—:
-      // el encuadre cubre los tramos que la capa dibuja. Ahí una vista tipada es un vértice, no un plano.
-      getSnapshot().forEach(it =>
-        a.positionOf ? walk(a.positionOf(it))
-        : a.pathOf   ? foldRuns(a.pathOf(it), growRun, box)
-        : walk(a.ringsOf(it)))
+      const { accessors, getSnapshot } = r.source
+      getSnapshot().forEach(it => growItem(box, accessors, it))
     })
     this.camera.fitBounds(box, { insets, maxZoom })
     return this
@@ -1316,8 +1306,9 @@ export class MapEngine {
 
   // Lo declarativo se valida entero antes de tocar nada: un TypeError deja el motor como estaba.
   #checkData(id, kind, { url, source, geometry, clickAction }) {
-    if (url && (source || geometry))
-      throw new TypeError(`[cristae] la capa '${id}' pide url y ${source ? 'source' : 'geometry'}: con url la Source es del motor`)
+    const ajena = source && !source[BIND]       // la Source pendiente del elemento sí admite url: la liga la capa
+    if (url && (ajena || geometry))
+      throw new TypeError(`[cristae] la capa '${id}' pide url y ${ajena ? 'source' : 'geometry'}: con url la Source es del motor`)
     if (clickAction === undefined) return
     if (!CLICK_ACTIONS.includes(clickAction))
       throw new TypeError(`[cristae] click-action '${clickAction}' en la capa '${id}': usar ${CLICK_ACTIONS.join(' o ')}`)
@@ -1346,9 +1337,16 @@ export class MapEngine {
   }
 
   // Tras registrar la capa: arranca la carga por url, el refresco y la acción del clic.
-  #startData(id, record, { url, format, refresh, fetch, clickAction }) {
+  #startData(id, record, { url, format, refresh, fetch, clickAction, release = null }) {
     if (url) {
-      record.remote = { url, format, fetch, refresh: 0, ctrl: null, seq: 0, timer: null, due: false, reported: false }
+      // `release`: la Source adoptada retiene lo escrito antes de ready hasta el primer resultado de la carga.
+      record.remote = { url, format, fetch, refresh: 0, ctrl: null, seq: 0, timer: null, due: false, reported: false, release,
+        // Los cuadros se toman de `globalThis` al alta: sin esos globales (SSR) una capa de líneas o polígonos, que no
+        // interpola, monta igual, y el reloj queda en el valor lazy por defecto.
+        refresher: record.controls && createRefresher({
+          source: record.controls, kind: record.kind,
+          frame: globalThis.requestAnimationFrame, cancelFrame: globalThis.cancelAnimationFrame,
+        }) }
       this.#setRefresh(id, record.remote, refresh)
       this.#fetchLayer(id)
     } else if (refresh) this.#warnOnce(`${id}:refresh`, `[cristae] la capa '${id}' pide refresh sin url: se ignora`)
@@ -1363,12 +1361,7 @@ export class MapEngine {
     const item = record.source?.itemById?.(hit.id)
     if (!item) return
     if (action === 'follow') return void this.camera.followPoint(id, hit.id)
-    const a = record.source.accessors
-    if (record.kind === 'point') {
-      const p = a.positionOf(item)
-      return void (p && this.camera.panTo(p))
-    }
-    this.camera.fitBounds(boundsOf(record.kind === 'line' ? a.pathOf(item) : a.ringsOf(item)))
+    this.camera.fitToLayer(id, { ids: [hit.id] })   // la regla del punto (zoom mínimo, nunca alejar) vive en la cámara
   }
 
   // `refresh` en ms; 0, null o false lo apagan. Fuera de [piso, techo] se acota, y avisa.
@@ -1412,12 +1405,13 @@ export class MapEngine {
       if (seq !== remote.seq) return
       const { items, skipped } = itemsOf(read, record.kind)
       if (!record.controls) return this.#stopRemote(remote)   // attachSource: los datos pasaron a ser del consumidor
-      record.controls.set(items)
+      remote.refresher.apply(items)
       this.#emit('dataload', { layerId: id, url, count: items.length, skipped })
     } catch (e) {
       if (seq !== remote.seq || e?.name === 'AbortError') return
       this.#reportDataError(id, remote, e)
     }
+    this.#releaseRemote(remote)
     this.#scheduleRefresh(id, remote)
   }
 
@@ -1453,12 +1447,21 @@ export class MapEngine {
     this.#layers.forEach((record, id) => record.remote?.due && this.#fetchLayer(id))
   }
 
+  // Suelta lo que la Source adoptada retuvo, una sola vez: tras el primer resultado de la carga o al cortarla.
+  #releaseRemote(remote) {
+    const { release } = remote
+    remote.release = null
+    release?.()
+  }
+
   #stopRemote(remote) {
     remote.seq++
     remote.ctrl?.abort()
     clearTimeout(remote.timer)
     remote.timer = null
     remote.due   = false
+    remote.refresher?.stop()
+    this.#releaseRemote(remote)
   }
 
   #syncDemand(layerId) {
@@ -1822,7 +1825,7 @@ export class MapEngine {
       get layer() { return record.layer },
       set:          items => record.controls?.set(items),
       patch:        (items, dirtyIds) => record.controls?.patch(items, dirtyIds),
-      move:         (itemId, lat, lng) => record.controls?.move(itemId, lat, lng),
+      move:         (itemId, lat, lng, heading) => record.controls?.move(itemId, lat, lng, heading),
       remove:       itemId => record.controls?.remove(itemId),
       addFilter:    f => record.controls?.addFilter(f),
       removeFilter: fid => record.controls?.removeFilter(fid),

@@ -1,5 +1,5 @@
-// `clickAction` en las altas: 'fit' encuadra el ítem clicado (panTo en puntos, fitBounds por caja en polígonos y
-// líneas) y 'follow' lo sigue; lo demás es TypeError, y sin `interactive` avisa y no se suscribe. El pick de GL no
+// `clickAction` en las altas: 'fit' encuadra el ítem clicado (fitToLayer con su id: la regla del punto en puntos, fitBounds por caja en
+// polígonos y líneas) y 'follow' lo sigue; lo demás es TypeError, y sin `interactive` avisa y no se suscribe. El pick de GL no
 // corre en node: el test reemplaza `resolveClick` de la capa, que el registro lee en cada clic, y dispara el clic
 // real por el contenedor. Corre con: node --test test/engine/click-action.test.mjs
 import '../../test-helpers/engine-stub.mjs'
@@ -9,6 +9,7 @@ import { after, mock, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { MapEngine } from '../../src/engine/MapEngine.js'
 import { adoptLeafletHost } from '../../src/host/LeafletHost.js'
+import { FIT_POINT_MIN_ZOOM } from '../../src/engine/Camera.js'
 
 after(conNavegador(crearNavegador({ crearGl: () => makeEditGl() })))
 
@@ -17,11 +18,16 @@ const puntos = { idOf: i => i.id, positionOf: i => ({ lat: i.lat, lng: i.lng }) 
 const rings  = { idOf: i => i.id, ringsOf: i => i.rings }
 const trazas = { idOf: i => i.id, pathOf: i => i.path }
 
-const montar = () => {
-  const map    = makeMap()
-  const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeLeaflet() }) })
+const montar = (zoom = 3) => {
+  const map    = makeMap({ zoom })
+  const host   = adoptLeafletHost(map, { leaflet: makeLeaflet() })
+  const engine = new MapEngine({ host })
   const camera = engine.camera
-  const espiar = nombre => mock.method(camera, nombre, () => camera)
+  // fitToLayer con ids mueve la cámara del anfitrión (panTo / flyTo), no la pública; fitBounds y followPoint sí son públicos.
+  const delAnfitrion = new Set(['panTo', 'flyTo'])
+  const espiar = nombre => delAnfitrion.has(nombre)
+    ? mock.method(host.camera, nombre, () => {})
+    : mock.method(camera, nombre, () => camera)
   return { engine, container: map.getContainer(), espiar }
 }
 
@@ -36,12 +42,28 @@ const clickear = async (container, x = 400, y = 300) => {
   container.emitir('pointerup', { clientX: x, clientY: y })
 }
 
-test('fit en un punto centra la cámara en su posición', async () => {
+test('fit en un punto con zoom bajo vuela a su posición con el zoom mínimo del punto', async () => {
   const { engine, container, espiar } = montar()
+  const flyTo = espiar('flyTo')
   const panTo = espiar('panTo')
   engine.addPointLayer({ id: 'flota', accessors: puntos, data: [{ id: 'a', lat: 5, lng: 6 }], interactive: true, clickAction: 'fit', iconSet: makeIconSet() })
   respondeCon(engine, 'flota', 'a')
   await clickear(container)
+  assert.equal(panTo.mock.callCount(), 0)
+  assert.equal(flyTo.mock.callCount(), 1)
+  assert.deepEqual(flyTo.mock.calls[0].arguments[0], { lat: 5, lng: 6 })
+  assert.equal(flyTo.mock.calls[0].arguments[1], FIT_POINT_MIN_ZOOM)
+  engine.destroy()
+})
+
+test('fit en un punto con el zoom ya alto centra sin alejar ni acercar', async () => {
+  const { engine, container, espiar } = montar(FIT_POINT_MIN_ZOOM + 1)
+  const flyTo = espiar('flyTo')
+  const panTo = espiar('panTo')
+  engine.addPointLayer({ id: 'flota', accessors: puntos, data: [{ id: 'a', lat: 5, lng: 6 }], interactive: true, clickAction: 'fit', iconSet: makeIconSet() })
+  respondeCon(engine, 'flota', 'a')
+  await clickear(container)
+  assert.equal(flyTo.mock.callCount(), 0)
   assert.deepEqual(panTo.mock.calls.map(c => c.arguments[0]), [{ lat: 5, lng: 6 }])
   engine.destroy()
 })
@@ -76,7 +98,7 @@ test('follow sigue el ítem clicado por su id', async () => {
 })
 
 test('un clic que cae en otra capa, encima, no actúa; y la baja suelta la suscripción', async () => {
-  const { engine, container, espiar } = montar()
+  const { engine, container, espiar } = montar(FIT_POINT_MIN_ZOOM + 1)
   const panTo = espiar('panTo')
   const config = { accessors: puntos, data: [{ id: 'a', lat: 5, lng: 6 }], interactive: true, iconSet: makeIconSet() }
   engine.addPointLayer({ id: 'abajo', ...config, clickAction: 'fit' })
