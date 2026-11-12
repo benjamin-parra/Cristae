@@ -93,6 +93,8 @@ defineIconSet({
   renderers,      // { [shape]: (ctx, size, descriptor) => void }  — IMPERATIVO
   prerender,      // async () => void  — precarga assets antes de rasterizar (fuentes, imágenes)
 })
+
+defineIconSet({ icons, rotates, sizes, onLoad, onError })   // por imagen: sin describe ni renderers (ver abajo)
 ```
 
 | Método / prop | Firma | Complejidad | Notas |
@@ -202,6 +204,93 @@ defineIconSet({ /* … */, prerender: prerenderFonts('unicons-line') })
 Los codepoints de las fuentes de iconos suelen vivir en el área de uso privado (PUA): se pasan como
 `String.fromCharCode(0xe91d)` (o el escape Unicode equivalente), nunca como carácter literal — un glifo
 literal en el fuente es invisible y frágil.
+
+---
+
+## Sets de fábrica
+
+Cuatro sets existen en todo motor sin registrar nada, y se piden por nombre: `icon-set="dot"`, `"pin"`,
+`"circle"` y `"arrow"`. Nacen al primer uso, uno por motor. Una capa de puntos sin `icon-set` usa `dot`.
+
+| Nombre | Dibuja | Gira con `heading-of` |
+|---|---|---|
+| `dot` | un disco relleno | no |
+| `pin` | un marcador de gota, con la punta en el punto | no |
+| `circle` | un anillo, con el centro transparente | no |
+| `arrow` | una flecha con la punta al norte con rumbo 0 | **sí**: es la única forma con rumbo |
+
+- **La variante es el color.** `variant-of="color"` (o `variantOf`) devuelve un color CSS y el set lo usa de relleno:
+  `'#16a34a'`, `'red'`. Una variante vacía, ausente o `'default'` toma el azul de las burbujas de cluster
+  (`#2563eb`), así que un punto sin color no desaparece.
+- **`arrow` rota, el resto no.** La flecha mira al norte con rumbo `0` y está centrada en su tile, así que gira
+  sobre su centro. Con `heading-of="rumbo"` en grados apunta hacia donde va el móvil. Una capa con `dot` ignora `heading-of`.
+- **Los nombres están tomados.** Un `<cristae-icon-set name="dot">` da `console.error` y se ignora. Un set que se
+  registra por JS con `registerIconSet('dot', set)` gana en ese motor.
+- **Por JS**, el mismo molde es `shapePresetIconSet({ shape, size?, fallback? })`: `fallback` es el color de la
+  variante vacía. Sin él, el descriptor es el de siempre (`color: variant`).
+
+```html
+<cristae-point-layer id="flota" url="./datos/flota.geojson" icon-set="arrow"
+                     variant-of="color" heading-of="rumbo"></cristae-point-layer>
+```
+
+---
+
+## Sets por imagen
+
+`defineIconSet({ icons })` crea un set donde cada variante es una **imagen**: un SVG, un PNG o un WebP que el
+navegador decodifica. El nombre de cada entrada es la variante que devuelve `variantOf`.
+
+```js
+import { defineIconSet } from 'cristae/map'
+
+const flota = defineIconSet({
+  rotates: true,
+  sizes: { default: 32 },
+  icons: {
+    camion: './iconos/camion.svg',                 // string o { src }
+    grua  : { src: './iconos/grua.svg' },
+  },
+  onLoad : ({ count }) => console.log(`${count} íconos listos`),
+  onError: ({ icon, url, code, message }) => console.warn(icon, url, code, message),
+})
+engine.registerIconSet('flota', flota)
+engine.addPointLayer({ id: 'flota', url: './datos/flota.geojson', iconSet: 'flota',
+                       fields: { id: 'patente', variant: 'tipo', heading: 'rumbo' } })
+```
+
+- **Variantes.** El primer nombre de `icons` es el respaldo: una variante que el set no tiene dibuja ese y avisa
+  una vez por variante. `null`, `undefined`, `''` y `'default'` no avisan: son el neutro de `variantOf`.
+  `describe` sigue siendo total.
+- **Una forma o la otra.** `icons` junto con `describe` o `renderers` lanza `TypeError`: son dos caminos y mezclarlos
+  no tiene sentido. Un `icons` vacío, o sin ninguna entrada con `src`, también lanza.
+- **Tamaño del dibujo.** La imagen se dibuja entera dentro del tile, sin deformarla (modo *contain*).
+- **Carga.** Cada `src` se pide una vez, con el `fetch` global, y se decodifica con `Image.decode()`. Un SVG sin tipo
+  declarado se trata como `image/svg+xml`. Una imagen de otro origen necesita CORS.
+- **Mientras decodifica.** El set nace antes que sus imágenes. Lo que ya se pidió queda **transparente** hasta
+  que la imagen decodifica, nunca con error. Cada decodificación pide al atlas un re-rasterizado: descarta los
+  tiles resueltos y los hornea de nuevo con la misma capacidad, y las capas re-suben la generación nueva a la
+  GPU por el mismo camino que ya sigue una fuente web que termina de cargar. No hace falta esperar a `ready`.
+- **Errores.** Nada lanza al dibujar. `onError({ set, icon, url, code, message })` entrega `network`, `cors` o
+  `format` (la imagen no decodifica), una vez por ícono afectado. `onLoad({ set, count })` sale una vez, cuando
+  todas las `src` decodificaron. En un set suelto `set` es `null`; lo completa `<cristae-icon-set>` con su `name`.
+- **Cambiar el catálogo.** Un set vivo cambia sus íconos sin cambiar de identidad: sólo se piden las `src` nuevas y
+  se descartan las que dejaron de usarse. Es lo que hace `<cristae-icon-set>` cuando se agrega o quita un hijo.
+
+---
+
+## Cuál camino aplica a cada set
+
+| Quiero | Uso | Necesita JS |
+|---|---|---|
+| un punto de color, o una flecha que rota | set de fábrica: `icon-set="dot"`, `"pin"`, `"circle"` o `"arrow"` | no |
+| mis propias imágenes, con la variante como nombre | `<cristae-icon-set>` con `<cristae-icon name src>` ([`elements.md`](elements.md#cristae-icon-set-y-cristae-icon--íconos-propios-sin-js)) | no |
+| mis propias imágenes, desde el código | `defineIconSet({ icons })` | sí |
+| dibujar cada variante en canvas, con lógica | `defineIconSet({ describe, renderers })` | sí |
+| burbujas de cluster por conteo | `defineClusterIconSet` | sí |
+
+Una capa pide el set por nombre (`icon-set="flota"`) o lo recibe como objeto (`iconSet`). El nombre resuelve
+primero entre los registrados, y si no está, entre los de fábrica.
 
 ---
 

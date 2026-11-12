@@ -104,7 +104,7 @@ dueño — no hay handle aparte. Se adjunta por la prop declarativa de la vista 
 componente).
 
 ```ts
-createSource(accessors, variants?) → Source & Writable
+createSource(accessors | { fields, ...accessors }, variants?) → Source & Writable
 interface Writable {
   set(items: Item[]): void                 // reemplazo total → diff de id-set
   patch(items: Item[], dirtyIds: Set<id>): void
@@ -122,8 +122,9 @@ interface Writable {
 | `move(id, lat, lng)` | O(1), **[0-alloc]** en WebGL2 | nunca rebuild: `bufferSubData` al slot del vértice en el VBO de la capa. Ver MODELO §17.5 |
 | `remove(id)` | O(1) amort. | patch (o rebuild si afecta cluster/filtro) |
 
-- **Ejemplo:** `const s = createSource(accessors); layer.source = s; ws.onMsg(m => s.move(m.id, m.lat, m.lng))`.
-- **Test:** `s.set([a,b]); s.move(a.id, 1, 2)` → la posición de `a` cambia con **0** rebuilds (verificar contador interno de rebuild).
+- **`fields`:** el gemelo serializable de los accessors. Cada clave es un accessor sin el `Of` (`id`, `position`, `variant`, `heading`, `text`) y cada valor, el nombre de un campo del ítem, con `.` para anidar; `position` admite también el par `['lat', 'lng']`. `createSource` lo compila antes de exigir `idOf`, así que `fields.id` basta. Precedencia: el valor por defecto de la capa, luego `fields`, luego las funciones de `accessors`; cuando una función choca con su campo gana la función y se avisa una vez por clave. Los lectores son **totales**: un ítem `null` o un campo ausente dan el neutro del canal (`id` y `variant` `''`, `heading` `0`, `text` `''`), nunca una excepción; el resto devuelve el valor crudo. Un par `[lat, lng]` se arma una vez por ítem y se reutiliza mientras los dos valores no cambien, así que el estado estable no asigna. El resultado es el mismo de pasar funciones: `fields` no cambia ninguna complejidad. No hay expresiones ni formateo: un valor que se transforma va por una función en `accessors`.
+- **Ejemplo:** `const s = createSource(accessors); layer.source = s; ws.onMsg(m => s.move(m.id, m.lat, m.lng))`; sin funciones, `createSource({ fields: { id: 'patente', position: ['lat', 'lng'], variant: 'estado' } })`.
+- **Test:** `s.set([a,b]); s.move(a.id, 1, 2)` → la posición de `a` cambia con **0** rebuilds (verificar contador interno de rebuild). Con `fields`, un ítem `null` o un campo ausente dan el neutro del canal y no lanzan.
 - **Borde eliminado:** `set` durante zoom/pan **no** descarta el update (MODELO §16-9): el rebuild se difiere pero el dato queda pendiente y se aplica al terminar la interacción.
 
 ---
@@ -219,6 +220,7 @@ defineIconSet(cfg: {
   prerender?(): Promise<void>                 // opcional: SVG/imágenes async
 }) → IconSet & { ready: Promise<IconSet> }
 
+defineIconSet(cfg: { icons: Record<string, string | { src }>, rotates?, sizes?, onLoad?, onError? }) → IconSet   // por imagen
 defineClusterIconSet(cfg: { buckets: number[], draw(ctx, size, count) → void }) → IconSet
 createIcon(descriptor) → IconHandle           // icono suelto, no toca el atlas de una capa
 ```
@@ -233,8 +235,17 @@ createIcon(descriptor) → IconHandle           // icono suelto, no toca el atla
 - **Reactividad (clave):** asignar `layer.iconSet = pack` es **reactivo** (MODELO §5.4/§7.2): reseed automático (de `pack.variants` ∪ variantes presentes en datos) + rebuild, coalescido a rAF. Reasignar = swap controlado (genera `Atlas` nuevo). **Sin timing privilegiado** (HTML, `<script src module>`, `import()`, swap en caliente — idénticos).
 - **`preloadIcons(variants)`** (método de capa): seeding manual idempotente — agrega variantes al seed sin esperar a que lleguen en los datos.
 - **Ruta declarativa por nombre:** `map.registerIconSet('flota', pack)` + atributo `icon-set="flota"`; resuelve orden-independiente (mientras no resuelve, la capa usa un IconSet por defecto, nunca en blanco).
+- **Sets de fábrica:** `icon-set="dot"`, `"pin"`, `"circle"` y `"arrow"` existen en todo motor sin registrar nada, y nacen al primer uso, uno por motor. La variante es el color de relleno, como en `shapePresetIconSet`; una variante vacía toma el azul de las burbujas de cluster (`#2563eb`), así que un ítem sin variante no queda invisible. `arrow` es la única forma que rota (`rotates`): su punta mira al norte con rumbo 0 y gira por `headingOf`. Un set registrado con uno de esos nombres gana sobre el de fábrica en el motor, y el elemento `<cristae-icon-set>` los rechaza (§8.1). `addPointLayer` sin `iconSet` usa `dot`: es un cambio declarado, antes el alta sin set lanzaba.
+- **Sets por imagen:** `defineIconSet({ icons })` con `icons` como `{ variante: src | { src } }` devuelve un `IconSet` normal cuyo único renderer, `image`, dibuja la imagen decodificada en el tile en modo *contain*. Reglas:
+  - **La variante es el nombre del ícono**, y el primero declarado es el respaldo: una variante desconocida dibuja ese y avisa una vez por variante. `null`, `undefined`, `''` y `'default'` no avisan, porque son los neutros de `variantOf`. `describe` sigue siendo total (arriba).
+  - **`icons` junto a `describe` o `renderers` lanza `TypeError`**: son dos caminos y mezclarlos no tiene significado. `icons` sin una entrada con `src` válido también lanza.
+  - **Carga:** cada `src` se pide una vez por set con la misma descarga clasificada que `url` (§6) y el `fetch` global, se decodifica con `Image.decode()` y no se pide de nuevo. Un SVG sin tipo declarado se trata como `image/svg+xml`. Una imagen de otro origen sin CORS no puede subirse al atlas: da `code: 'cors'`.
+  - **Re-rasterizado al decodificar:** el set nace antes que sus imágenes. Cada decodificación (y el fin de `prerender`) pide un re-rasterizado interno que descarta los tiles ya resueltos, los hornea otra vez con la misma capacidad y avisa al atlas, así que las capas re-suben la generación nueva por el mismo camino del font-gate (§4.2). Lo resuelto antes de decodificar queda transparente hasta entonces, nunca con error. Sin nada resuelto no hay tile que rehacer.
+  - **Errores:** nunca lanzan al dibujar. `onError({ set, icon, url, code, message })` entrega `network`, `cors` o `format` (la imagen no decodifica); `onLoad({ set, count })` sale una vez por catálogo, cuando todas las `src` decodificaron. `set` es `null` en el detalle del IconSet suelto y lo completa quien lo registra con un nombre (`<cristae-icon-set>`, §8.1).
+  - **Catálogo vivo:** el elemento cambia los íconos de un set ya registrado sin cambiar su identidad: carga sólo las `src` nuevas, descarta las que dejaron de usarse y pide el re-rasterizado.
+- **Test (por imagen):** un set por imagen con `src` sin decodificar resuelve su variante sin lanzar (tile transparente); al decodificar, el atlas cambia de generación y el tile queda pintado; una `src` caída da `onError` con su `code` y el resto del catálogo sigue; `icons` con `describe` lanza `TypeError`.
 - **Test:** definir `variants:['a','b']` no rasteriza ni sube nada; render con datos que usan `'a'` → exactamente 1 append (`'a'`) y 1 subida, `'b'` no sube. Llega un `'c'` no declarado → exactamente 1 append, 0 repack, marcador visible en ese mismo cuadro.
-- **Bordes ELIMINADOS:** los listados en §4.2 (todos derivan del atlas). **Borde que requiere manejo:** `prerender()` que rechaza → `ready` rechaza; la capa sigue con el IconSet por defecto (no rompe).
+- **Bordes ELIMINADOS:** los listados en §4.2 (todos derivan del atlas). **Borde que requiere manejo:** `prerender()` que rechaza → `ready` rechaza; la capa sigue con el IconSet por defecto (no rompe). Con un set por imagen, una `src` que falla no hace rechazar `ready`: se reporta por `onError` y su variante queda transparente.
 
 ---
 
@@ -274,6 +285,25 @@ new MapEngine({ host: adoptLeafletHost(map, { leaflet? }), … }) → engine
 - **El mapa:** sin `host`, el motor crea su propio mapa sobre `container` —con `preferCanvas`, sin el fundido de tiles ni la animación de marcadores de Leaflet y sin controles: el zoom y la atribución los dibuja `<cristae-map>`, y sin él la atribución la da `getTileAttribution()` ([`docs/tiles.md`](./docs/tiles.md#la-atribución))—, con la vista inicial de `view` (default `[0, 0]`, zoom 2) y los límites de la cámara (§9), y `destroy()` lo remueve. Con `host` trabaja sobre un mapa que ya existe, adoptado con `adoptLeafletHost(map, { leaflet })`: el mapa sigue siendo de quien lo creó, y `destroy()` le quita los listeners del ciclo de vista y del arrastre, la política de zoom de §9 y la capa de tiles que le puso, con el pane de su retención, le devuelve los límites de la cámara que tenía si el motor le puso los suyos (§9), y lo deja vivo. Un mapa adoptado es de un solo motor. `leaflet` es el Leaflet que construyó el mapa (default: el de Cristae): con dos copias en la página, las capas del motor tienen que salir de la del mapa.
 - **`getLeafletMap()` está fuera de contrato.** El mapa de Leaflet es el anfitrión del motor y un detalle suyo: lo que se haga con el mapa crudo —un control, un evento, un pane— no tiene garantía entre versiones, y Cristae no lo prueba. Sigue devolviéndolo, y avisa por consola la primera vez que se lo pide cada motor. Se retira en v0.47.0; lo que se bajaba a buscar ahí lo dan la cámara (§9), los tiles (`setTileProvider`), el cursor (`setCursor`) y las señales del motor.
 - **Apilado de las capas imperativas.** Sin `z`, una capa dada de alta con `addXLayer` se apila sobre las declaradas por elementos (§7.3), en orden de alta. Darla de baja y otra vez de alta la pone sobre las demás imperativas; su z no crece, porque sale de su posición y no de cuántas altas hubo. `setLayerZ(id, z)` le fija un z explícito, y `setLayerZ(id, null)` lo borra: la capa vuelve a su lugar (§8, `z`).
+- **Datos por `url`, `fields` y `click-action`.** `addPointLayer`, `addLineLayer` y `addPolygonLayer` aceptan, además de lo de siempre:
+
+  | Opción | Tipo | Efecto |
+  |---|---|---|
+  | `url` | string | la capa pide el archivo, lo lee y fija sus ítems. La `Source` es del motor: `url` junto con `source` o `geometry` lanza `TypeError` antes de tocar nada |
+  | `format` | `FormatName` | fuerza el lector; sin él, extensión, `Content-Type` y, al final, los bytes (§20.7) |
+  | `fields` | `Record<accessor, campo>` | el gemelo serializable de `accessors` (§3). Con `url`, la geometría ya da `position`, `path` o `rings` y los `fields` leen las propiedades |
+  | `refresh` | ms | relee la `url` cada tanto, mientras la página está visible. `0`, `null` o `false` lo apagan; sin `url` avisa y se ignora |
+  | `fetch` | `(url, init?) → Promise<Response>` | descarga propia (credenciales, cabeceras). Sólo propiedad |
+  | `clickAction` | `'fit' \| 'follow'` | qué hace un clic sobre un ítem de la capa |
+
+  - **Qué lee `url`.** Cada feature se vuelve **un** ítem: sus propiedades más la geometría que la capa dibuja, que cuelga de claves `Symbol` para no chocar con ningún campo ni verse al enumerar. En un punto es la primera posición de su primer `Point` o `MultiPoint`; en una línea o un polígono, los anillos de todas sus partes. Un feature sin geometría del tipo de la capa se omite y suma a `skipped`. Los accessors por defecto de `url` son el id del feature —el `id` del documento cuando lo trae (el `id` de GeoJSON) y, sólo si falta, su índice en el archivo— y la geometría; `fields` y `accessors` los pisan. Con ids propios un `refresh` que reordena, agrega o quita features no cambia de dueño a los ítems (popups abiertos, seguimiento, selecciones).
+  - **Orden de la carga.** Descarga, resolución del formato, lectura con un lector que se importa **diferido** (cada formato es un `import()` aparte, §12), conversión a ítems, `set` de la `Source` y, al final, la señal `dataload`. Una respuesta de una carga que ya fue reemplazada, o abortada por `removeLayer`, se descarta sin tocar la capa.
+  - **Errores.** Nunca rechazan hacia quien dio el alta. Salen por `dataerror` con un `code`: `network` (caída o HTTP no `ok`, con `status`), `cors`, `unsupported` (sin lector para ese contenido) o `format` (el lector rechazó los bytes, con la posición cuando la hay). Sin ningún oyente de `dataerror` el fallo se vuelca a `console.error`, una vez por capa; en el elemento, que sí registra un puente, `cristae:error` es cancelable y el elemento hace ese volcado salvo que alguien llame `preventDefault`. Tras un error la capa conserva los ítems que ya tenía.
+  - **`refresh`.** Es un `setTimeout` encadenado que arma el siguiente pedido al terminar el anterior: un servidor lento no acumula pedidos. El piso es **1000 ms** (`MIN_REFRESH_MS`) y el techo **2³¹−1 ms** (`MAX_REFRESH_MS`, el mayor retardo de `setTimeout`, que de otro modo lo trataría como 1 ms): un valor fuera de rango se acota y avisa. Con la página oculta no se relee; `visibilitychange` cobra al volver lo que quedó debido. Cada relectura es un `set` completo de la `Source` (O(n) con diff de id-set, §3): si los ids son estables y el set no cambia de miembros, la capa aplica sólo los cambios por slot; para un feed de alta frecuencia sigue siendo mejor un socket con `source.move`. **Un `refresh` reemplaza el ítem y no interpola la posición:** el punto salta a la nueva; suavizar el movimiento entre lecturas queda diferido.
+  - **`reload({ url, format, refresh })`** (handle de las tres capas) cambia lo que cambió y relee. Aborta la carga en vuelo y resuelve al aplicarse los datos o al fallar: nunca rechaza. En una capa que no nació con `url` con `url` lanza `TypeError`, porque sin los accessors por defecto sus features no se leerían; sin `url` ni `refresh` no hace nada.
+  - **`click-action`.** Se valida en el alta: otro valor lanza `TypeError`, y `follow` en una capa que no es de puntos también. Sin `interactive` avisa una vez y no se suscribe. Escucha el canal `click` global y actúa sólo si el primer hit es de la capa: `fit` centra el punto (`panTo`) o encuadra la caja de la línea o del polígono (`fitBounds`), y `follow` llama a `camera.followPoint` (§9). La baja va con `removeLayer`.
+  - **Señales.** `engine.on('dataload', fn)` recibe `{ layerId, url, count, skipped }`, y `engine.on('dataerror', fn)`, `{ layerId, url, code, message, status? }` (§10).
+  - **Rótulos y texto.** `addTextLayer` y `addLabels` aceptan `fields.text` si no hay `textOf`; con ambos gana la función y se avisa una vez. En las burbujas de un cluster `fields.text` se ignora con aviso: su texto es el conteo.
 - **Sin globals:** el motor no lee ni escribe `window.L`, y `<cristae-map>` no registra plugins: los puntos, las líneas y los polígonos se dibujan con la superficie WebGL de cada capa ([`docs/render.md`](./docs/render.md)), y el Leaflet que usa el mapa propio es el de Cristae.
 
 ---
@@ -343,7 +373,13 @@ Ejes **comunes a toda capa hoja** (viven en la base, ninguna subclase los declar
 |---|---|---|---|
 | `.data` (prop) | `Item[]` | sí | `set` → patch/rebuild (§5.3 MODELO) |
 | `.accessors` (prop) | objeto de accessors | sí | reemplazo → re-deriva + rebuild |
-| `.iconSet` (prop) / `icon-set` (attr nombre) | IconSet / string | sí | reseed + rebuild (§5) |
+| `.iconSet` (prop) / `icon-set` (attr nombre) | IconSet / string | sí | reseed + rebuild (§5). Sin él, `dot`; un nombre de fábrica (`dot`, `pin`, `circle`, `arrow`) o el de un `<cristae-icon-set>` o `registerIconSet` |
+| `url` / `format` (attrs) | string / `FormatName` | sí, por `reload` | carga de la capa desde un archivo (§6). Cambiarlos relee, sin remontar |
+| `refresh` (attr) | ms | sí, por `reload` | relectura periódica de `url`; piso 1000 ms (§6) |
+| `.fetch` (prop) | `(url, init?) → Promise<Response>` | no | descarga propia de `url`; se lee al montar |
+| `fields` (attr JSON o prop) | `Record<accessor, campo>` | no, al montar | el gemelo serializable de `accessors` (§3) |
+| `id-of` / `variant-of` / `heading-of` (attrs) | nombre de campo | `id-of` no; los otros sí (§11) | el accessor por nombre de campo, con `.` para anidar |
+| `click-action` (attr) | `fit` \| `follow` | no, al montar | acción del clic sobre un ítem (§6). Sin ella, nada |
 | `.filters` (prop) | `[{id, predicate, deps?, rebuild?}]` | sí | reconciliación **por `deps`** (mismo `id` + `deps` distinto = replace; `deps` igual = no-op; sin `deps` = identidad de `predicate`) + rebuild. Ver MODELO §5.3 |
 | `visible`/`interactive` | bool/bool (attrs) | sí | aplica en el próximo frame |
 | `focus-ids` (attr) | token-list \| array \| vacío | sí | eje de enfoque por ítem (§8 intro) |
@@ -351,6 +387,15 @@ Ejes **comunes a toda capa hoja** (viven en la base, ninguna subclase los declar
 | `pane` / `z` | string/number (attrs) | — | apilado |
 | **métodos** | `set/patch/move/remove`, `addFilter/removeFilter`, `preloadIcons(variants)`, `refresh()` | acción | §3, §5 |
 
+- **Los atributos `-of`.** `id-of`, `variant-of` y `heading-of` nombran el campo del que lee el accessor: son la forma en HTML de `accessors.idOf`, `variantOf` y `headingOf`. La lista es cerrada y no crece sin una decisión; `text-of` va en los rótulos (§19.3) y `height-of` y `color-of` quedan para tramos siguientes. Todo lo demás (`position`, `size`, `radius`, geometría) va por `fields` o por `accessors`. Precedencia, de mayor a menor: función en `accessors`, atributo `-of`, `fields`; cuando dos chocan gana la mayor y se avisa una vez por elemento. Cada lector es total (§3): `variant-of` da `'default'` para un valor vacío o ausente, `heading-of` da `0`.
+- **`url` y `fields` en la capa.** Con `url` la capa no necesita `data`, `source` ni `accessors`: lee la geometría del archivo y los campos de sus propiedades. Monta cuando tiene `url`, `fields`, `data`, `source` o `accessors`. Declarar `url` junto con `source` lanza `TypeError`, que lanza el motor (§6).
+- **Eventos de carga.** El elemento reenvía `dataload` y `dataerror` del motor, filtrados por su capa, como `cristae:load` y `cristae:error` con `bubbles` y `composed` (§10).
+- **`<cristae-icon-set>` y `<cristae-icon>`.** Un set de íconos por imagen sin script: `<cristae-icon-set name="flota" size="32" rotates>` hijo de `<cristae-map>`, con hijos `<cristae-icon name="camion" src="./iconos/camion.svg">`. No tienen `cristaeSignature`: no son capas ni modificadores y quedan fuera de la gramática (§8.10), como `<cristae-popup>` y `<cristae-scale>`; `<cristae-icon>` es un hijo de datos. El mapa registra sus sets hijos en el motor, con `registerIconSet`, **antes** de montar sus capas, así que el orden en el HTML no importa, y un set conectado después de montado el mapa se registra solo. La capa lo pide por `icon-set="flota"` y elige el ícono con `variant-of`. Reglas:
+  - `name` es obligatorio; uno de fábrica (`dot`, `pin`, `circle`, `arrow`) o ausente da `console.error` y no registra. `size` es el tamaño lógico (`sizes.default`, 32 por defecto) y `rotates` es el del `IconSet`.
+  - Sin ningún `<cristae-icon>` con `name` y `src`, el set espera con un aviso hasta que llegue el primero. Un `name` repetido: gana el último y avisa.
+  - **Reactivo:** agregar o quitar un `<cristae-icon>` o cambiar su `src`, o el `size` o `rotates` del set, actualiza el set vivo sin cambiar su identidad (§5), agrupado en una microtarea. Cambiar el `name` del set lo registra con el nombre nuevo; las capas ya montadas siguen con el set que tenían.
+  - **Eventos:** `cristae:load` y `cristae:error` con `set` (§10).
+  - `model`, `model-scale` y `tint` no existen en este tramo.
 - **`refresh()`** (acción): re-evalúa los **mismos** accessors cuando su salida varía en el tiempo (recolor por antigüedad/latencia). Distinto de reemplazar `.accessors` (eso es reactivo). **No** es el `invalidateSize` de Leaflet (ese es resize de contenedor, interno).
 - Complejidad: `refresh()` = O(n) re-evaluación de `variantOf`/`versionOf` + patch.
 
@@ -363,6 +408,7 @@ Ejes **comunes a toda capa hoja** (viven en la base, ninguna subclase los declar
 | `visible/interactive` | — | |
 | `color/weight/opacity/fill-color/fill-opacity` (attrs o props) | string/number | estilo de capa, el de `addPolygonLayer`; reactivo por `handle.style`, y `styleOf` lo pisa por polígono |
 | `stroke/fill` (attrs) | bool, default `true` | prenden o apagan el trazo y el relleno de la capa entera; se leen **al montar** |
+| `url` / `format` / `refresh` / `.fetch` / `fields` / `id-of` / `click-action` | como en §8.1 | `click-action` sólo admite `fit`: `follow` lanza `TypeError` (§6). `<cristae-line-layer>` lleva los mismos |
 
 ### 8.3 `<cristae-label-layer>` y `<cristae-cluster>`
 
@@ -420,7 +466,8 @@ root del mapa. Hijo de `<cristae-map>`.
 | Entrada | Tipo | Notas |
 |---|---|---|
 | `for` (attr) | string (token-list) | ids de las capas cuyos hits la abren — hermanas que presentan los MISMOS datos (idealmente la misma instancia de `Source`) |
-| `contentOf` (prop) | `(item) → string \| Node` | la lib resuelve el item por `source.itemById(hit.id)` del hit |
+| `contentOf` (prop) | `(item) → string \| Node` | la lib resuelve el item por `source.itemById(hit.id)` del hit. Si falta, el contenido sale del `<template>` hijo (abajo); si están los dos, gana `contentOf` |
+| `<template>` (hijo) | nodos con `data-field="ruta"` | contenido sin script: cada `data-field` recibe el valor del ítem por `textContent` |
 | `offset` (prop) | `[dx, dy]` px | default `[0, -12]` |
 | `follow` (attr) | boolean | default `true`; ancla VIVA (sigue la posición del item por flush del `Source`). `"false"` → congelada al punto de apertura |
 | `max-open` (attr) | number | default `1` (abrir reemplaza); N>1 → una tarjeta por item, la más antigua cae al exceder el cupo |
@@ -430,6 +477,7 @@ root del mapa. Hijo de `<cristae-map>`.
 | `auto-pan-padding` (attr) | `[x, y]` px | default `[20, 20]`; margen al borde visible |
 | **métodos** | `open(item, latlng?)` / `close(id?)` / `refresh()` | acción — sin `latlng` el ancla es viva; `close(id)` cierra por id de dato, `close()` todas; `refresh()` re-ejecuta `contentOf` de lo abierto sin panear |
 
+- **Plantilla (`<template>` hijo).** Sin `contentOf`, la tarjeta clona `template.content` del primer `<template>` hijo directo y, por cada nodo con `data-field`, escribe el valor del ítem en su `textContent`. **El dato nunca se interpreta como HTML** ni se vuelca a un atributo: no hay `innerHTML` ni `html-of`, y un valor con `<b>` se ve como texto. La ruta admite `.` para anidar y usa el mismo lector total de `fields` (§3): un ítem `null` o un campo ausente dan `''`, nunca una excepción. Los lectores se compilan una vez por nombre y se reusan en cada apertura. Sin `contentOf` ni plantilla la tarjeta no abre, como antes. Lo que la plantilla no cubre (formateo, condicionales, HTML del dato) va por `contentOf`, que en React es la única forma. Las tres rutas de apertura (`open`, `refresh` y la re-ejecución al reemplazarse el objeto del ítem) pasan por la misma resolución.
 - Se posiciona con `camera.latLngToContainerPoint` (§9) y se reubica en `viewportchange`/scroll/resize. Con el ancla tapada por la superficie, se oculta (`visibility: hidden`) y no panea.
 - **Vida por flush del `Source`** (una suscripción por tarjeta, ya coalescida a rAF — mismo patrón que
   `Camera.followPoint`): (1) el id salió del dataset (remove / `set` sin el item / filtro que lo
@@ -606,8 +654,11 @@ Hit = { layerId, kind: 'point'|'polygon'|'line'|'shape'|'html'|'circle', ref, id
 | `cristae:mapclick` | `{latlng: LatLng}` | O(1) — click en el vacío, sin ningún hit |
 | `cristae:viewportchange` | `{center: LatLng, zoom, bounds: Bounds}` | O(1) — moveend/zoomend, y al cambiar `viewport-insets` mientras el mapa tiene vista, hasta el teardown (sin vista y después, los insets sólo se guardan) |
 | `cristae:interactionstart` / `…end` | `{}` | O(1) — para que el consumidor frene su emitter |
+| `cristae:load` | de una capa: `{ layerId, url, count, skipped }`; de un `<cristae-icon-set>`: `{ set, count }` | O(1), una vez por carga o relectura de `url`, y una por catálogo de íconos decodificado. `count` son los ítems (o íconos) leídos y `skipped` los features sin geometría del tipo de la capa |
+| `cristae:error` | de una capa: `{ layerId, url, code, message, status? }`; de un set: `{ set, icon, url, code, message }` | O(1). `code` es `network`, `cors`, `unsupported` o `format` (en la capa) y `network`, `cors` o `format` (en el set). No es un fallo de la página: la capa o el ícono siguen con lo que tenían |
 | `cristae:surfacechange` | `SurfaceInfo = {layerId, kind, pane, z, cssZoom, state, hasContent, visible}` | O(layers) — rara: sólo cuando una superficie WebGL cambia de estado |
 
+- **`dataload` y `dataerror`, en el motor y en el elemento.** `engine.on('dataload', fn)` y `engine.on('dataerror', fn)` entregan los detalles de arriba, con `layerId`. El elemento los reenvía filtrados por su capa como `cristae:load` y `cristae:error`, con `bubbles` y `composed`, así que se oyen en `<cristae-map>`. `<cristae-icon-set>` los emite con `set` (el `name`) en lugar de `layerId`, porque un set no es una capa. Sin oyente de `dataerror` el motor vuelca el fallo a `console.error`, una vez por capa (§6). `onLoad` y `onError` de un `IconSet` suelto (§5) son la misma forma con `set: null`.
 - **`move`, sólo en el motor:** `engine.on('move', fn)` avisa cada paso del movimiento —arrastre, inercia, `panBy`, vuelo—, con `{}`; es para lo que sigue la vista en continuo, como la tarjeta de `<cristae-popup>` (§8.5) y el botón central de `<cristae-cluster>`. No tiene evento `cristae:`: la vista que viaja es la asentada, en `viewportchange`.
 - **`zoomlevelschange`, sólo en el motor:** `engine.on('zoomlevelschange', fn)` avisa con `{minZoom, maxZoom}` cada cambio de un tope de `getMinZoom()/getMaxZoom()` (§9) —un límite, o una capa que trae los suyos—. Abrir un tope no mueve la vista, así que no sale `viewportchange`; es para la UI que se deshabilita en los topes, como el zoom de `<cristae-map>`. No tiene evento `cristae:`.
 - **`drawingstart` / `drawingend`, sólo en el motor:** marcan la entrada y la salida del estado de dibujo, no de un trazo, con `{}`. El estado dura mientras algún editor toma la pulsación para dibujar —`draw` en cualquier kind, o `freehand` en `polygon` y `polyline`—, con el criterio de la puerta del puntero y sin mirar el dispositivo: con el mouse en `draw` el mapa sigue paneando, y el estado igual. `drawingstart` sale con el primero que entra, con su capa ya registrada, y `drawingend` con el último que sale, también por `removeLayer`, con la capa ya quitada; `destroy()` no avisa. No tienen evento `cristae:`: `<cristae-map>` las sigue con su indicador (§7.1).
@@ -647,6 +698,21 @@ La **ley** (MODELO §5.4) formalizada como contrato que un implementador debe cu
 4. **Resolución por nombre:** una referencia por nombre (`icon-set`, `bind-to`) resuelve cuando el referente existe (montado tarde o reemplazado); hasta entonces, comportamiento por defecto seguro (nunca error, nunca en blanco).
 5. **Estado vs acción:** si la entrada describe *cómo debe verse el mapa* → prop reactiva. Si describe *algo que ocurre una vez* → método. Un implementador decide con esta única pregunta; no hay terceros casos.
 
+**Reactividad por canal de los datos sin script.** Cada atributo del tramo tiene una sola respuesta al cambiar con la capa montada:
+
+| Canal | Cuándo se lee | Al cambiarlo en vivo |
+|---|---|---|
+| `id-of` | al montar | no se aplica y avisa una vez: la identidad de los ítems no cambia con la capa viva |
+| `fields` | al montar | no se aplica y avisa una vez |
+| `click-action` | al montar | no se aplica y avisa una vez |
+| `.fetch` | al montar | no se aplica |
+| `variant-of`, `heading-of` | al llamarse, por un cierre estable | el elemento recompila el lector, conserva el cierre y llama a `refresh()` **una vez** por ciclo: la capa se repinta |
+| `text-of` (`<cristae-labeled>`, `<cristae-text-layer>`) | por `update` | se aplica con `handle.update` y repinta sólo si algún texto cambió |
+| `url`, `format`, `refresh` | por `reload` | relee con los valores nuevos, aborta la carga en vuelo y reprograma el temporizador (§6) |
+
+- **El cierre estable.** `variant-of` y `heading-of` instalan en los accessors un cierre que no cambia de identidad mientras viva el elemento y que lee el nombre del campo cada vez que lo llaman. Así un cambio de atributo no es un reemplazo de `accessors` (que rearmaría la capa): se recompila el lector detrás del cierre y `refresh()` re-evalúa. Un canal que ya venía de una función en `accessors`, o de `fields` sin atributo, no tiene cierre: cambiar el atributo después no repinta.
+- **Estado inicial de un montaje diferido.** Lit entrega todos los atributos como `changed` en la primera actualización tras montar: sólo cuenta lo que difiere de lo declarado al montar, así que esa primera tanda no recarga ni avisa.
+
 - **Test del contrato:** en un tick, `layer.iconSet = A; layer.iconSet = B; layer.data = X; layer.filters = F` ⇒ exactamente **un** rebuild, con `iconSet==B`. Verificar contador de rebuild == 1.
 
 ---
@@ -665,6 +731,10 @@ La **ley** (MODELO §5.4) formalizada como contrato que un implementador debe cu
 | `safeDispatch` | O(L) **[0-alloc]** | — | — |
 | `followPoint` | O(1)/update | — | — |
 | render (draw) | O(n_visibles) | — | — |
+| carga por `url` (§6) | — | un pedido, la lectura del formato y O(n) de conversión a ítems y `set` | red: un pedido por carga y, con `refresh`, uno cada ≥ 1000 ms y con la página visible; sin cola, porque el siguiente se arma al terminar el anterior |
+| lector diferido (§6) | — | — | un `import()` por formato, una vez por página; el chunk del lector no está en el de entrada |
+| `fields` (§3) | O(1) **[0-alloc]** por lectura de un campo | — | el camino anidado se parte al compilar, no al leer; el par `[lat, lng]` se arma una vez por ítem y valores iguales reusan el objeto |
+| `<template>` del popup (§8.5) | — | O(nodos con `data-field`) por apertura | un clon del contenido por apertura; los lectores se compilan una vez por nombre |
 | `readGeoJson` (§17) | — | — | O(B) una pasada **[0-alloc]** en el bucle |
 | ascenso CSR del lector (§17) | O(log n) **[0-alloc]** | — | — |
 | `propertiesOf` (§17) | — | O(largo del rango) | — |
@@ -679,6 +749,8 @@ La **ley** (MODELO §5.4) formalizada como contrato que un implementador debe cu
 | `addGeodesic` (§6) | — | O(vértices + p) llamadas al modelo, con p los puntos insertados: rearma el host ([`docs/lines.md`](./docs/lines.md#curva-geodésica), [`docs/polygons.md`](./docs/polygons.md#curva-geodésica), [`docs/editing.md`](./docs/editing.md#curva-geodésica)), y la baja lo rearma recto sin llamar al modelo | — |
 | `distance` con un terreno (§18) | — | — | O(L) pasos de media celda por tramo, **[0-alloc]** en el bucle de pasos; la distancia del modelo base, una por tramo, asigna lo que asigne ese modelo (la esfera, nada). `area` y `perimeter` con un terreno, como `relief` y como `distance` por arista |
 | frame del arrastre de un editor con curva ([`docs/editing.md`](./docs/editing.md#curva-geodésica)) | — | O(puntos de los dos tramos del vértice): los reescribe la esfera por defecto con los segmentos congelados y sube sólo ese rango, **[0-alloc]**; el frame entero no, porque convertir el píxel en lugar asigna | O(puntos de la curva) llamadas al modelo al soltar y en cada edición discreta, y a la esfera en cada muestra de la mano alzada |
+
+**Costo de `url`.** Cada carga paga la descarga, la lectura del formato (la de §17 o la de §20, con su complejidad) y la conversión a ítems: un objeto por feature, con sus propiedades y su geometría materializada como pares `[lat, lng]`, que **es la razón por la que `url` no es el camino de un feed de alta frecuencia**. Una capa de polígonos con cientos de miles de vértices debe cargarse con `geometry` (`areasOf`, §17.6), que no materializa nada. Con `refresh`, el período mínimo (1000 ms) acota la tasa de descarga y no el costo de cada ciclo: un `set` de O(n) cada segundo con n grande se paga en CPU aunque nada cambie. Los lectores diferidos cambian el peso de lo que baja, no el de lo que corre: en ESM, quien nunca usa `url` no baja ninguno; el UMD no puede partirse y los trae todos.
 
 **Objetivo de estado estable** (miles de updates/seg): la ruta caliente —`move`/recolor → encode → `bufferSubData` → draw— es **O(1) por elemento y [0-alloc]**, *bajo precondición de set sin cambios* (id con slot vigente) — path incremental, MODELO §17.5. Es la única garantía de alloc incondicional. Si una implementación asigna por elemento en esta ruta, está mal. **El rebuild NO tiene esa garantía:** `set`/filtro/cluster reescribe y re-sube el buffer entero, O(n), y aloca cuando el set crece. El coalescing acota la *tasa* a ≤1 rebuild/flush de rAF, **no** el costo: si el set cambia cada frame se paga O(n)/frame. Mantener barato el rebuild es responsabilidad del *uso* (que el set cambie poco), no del scheduler (MODELO §17 intro).
 
@@ -755,6 +827,17 @@ La **ley** (MODELO §5.4) formalizada como contrato que un implementador debe cu
 | Leaflet de otra versión que la probada | sin guard en runtime: el rango `peerDependencies` y los tests de contrato de `test/host` —uno por cada privado de Leaflet que el anfitrión toca— dicen qué se probó; el mapa ajeno trae su `leaflet` (§6) |
 | filtro recompilado con el mismo `id` (cambio de modo) | reconciliar por `deps`: mismo `id` + `deps` distinto = replace + re-evalúa; `deps` igual = no-op (§8.1). Reconciliar solo por `id` dejaría el predicado viejo activo |
 | capa con 0 ítems | render vacío válido (no caso especial) |
+| `null` o campo ausente en un `fields` o un `-of` | el lector es total: da el neutro del canal (`''`, `'default'` para `variant-of`, `0` para `heading-of`) y el ítem se dibuja; nunca lanza |
+| `<template>` del popup con un campo ausente | el nodo queda vacío (`textContent = ''`) y la tarjeta abre |
+| burbuja de cluster con `text-of` o `fields.text` | no se aplica: una burbuja no tiene los campos del ítem y su texto es el conteo. Avisa una vez por capa, y `textOf` como función sigue recibiendo `{ count, leaves }` |
+| variante desconocida en un set por imagen | dibuja el primer ícono declarado y avisa una vez por variante; `null`, `undefined`, `''` y `'default'` no avisan |
+| imagen de un `<cristae-icon>` que aún no decodificó | tile transparente hasta que decodifica; no rompe ni espera la carga para pintar el resto |
+| `url` de otro origen que falla | el navegador rechaza el `fetch` igual para una caída que para CORS. Se infiere `cors` si el origen de la `url` (resuelta contra `document.baseURI`) difiere del de la página, y `network` si no. Es una inferencia: un servidor de otro origen caído también da `cors` |
+| `url` con un formato que ningún lector reconoce, o un zip sin `.shp` ni `.kml` | `dataerror` con `code: 'unsupported'`; la capa conserva lo que tenía |
+| carga reemplazada o capa dada de baja con la descarga en vuelo | la respuesta tardía se descarta sin tocar la capa |
+| `refresh` menor que 1000 ms | se acota a 1000 y avisa una vez por capa |
+| `click-action` en una capa sin `interactive` | avisa una vez y no se suscribe |
+| accessor y campo (o `-of` y campo) a la vez | gana el de mayor precedencia (§8.1) y avisa una vez |
 
 ---
 
@@ -1574,6 +1657,7 @@ predio. Equivale a `polyline.setText` de Leaflet.TextPath sobre líneas. Reempla
   host no es rotulable: un editor, el calor, la imagen o una burbuja de rótulo. No hay id, registro ni pane:
   los rótulos son estado del host y mueren con él. `update` mezcla como el elemento: `undefined` no cambia y
   `null` vuelve al valor por defecto. `remove` es idempotente y no hace nada tras la baja del host.
+- **`text-of` y `fields.text`.** En `<cristae-labeled>` y `<cristae-text-layer>`, `text-of="campo"` es el atributo de `textOf`: una cadena se vuelve un lector total del campo (`null` o ausente dan `''`) y una función en la prop pasa tal cual. Precedencia: función (en la prop o en `accessors`), luego `text-of`, luego `fields.text`; los choques avisan una vez. En JS, la misma entrada es `addLabels({ fields: { text } })`. Sobre las burbujas de un cluster no se aplica (§15.2): su texto es el conteo, y una función sigue recibiendo `{ count, leaves }`. Cambiar `text-of` en vivo se aplica con `update`.
 - **Props:** `textOf`, `htmlOf`, `renderer` (`canvas` | `html`), `placement` (`auto` | `along` | `center` |
   `above` | `below` | `right`), `repeat`, `offset`, `orientation` (`auto` | `path`), `font`, `color`, `halo`,
   `paint`, `interactive` y `visible`. Todas en vivo, sin remontar. Un `textOf` o un `paint` nuevos en cada
@@ -1831,6 +1915,8 @@ inversa se aplica al sellar, sobre `xy` en sitio y antes de `bounds`.
 `detectFormat(input)` mira los bytes mágicos y el primer token, y devuelve `'geojson'`, `'kml'`,
 `'kmz'`, `'gpx'`, `'wkt'`, `'wkb'`, `'topojson'`, `'esrijson'`, `'shapefile'`, `'shapefile-zip'`,
 `'flatgeobuf'`, `'zip'` o `null`. Nunca lanza, y ningún lector la llama: leer no adivina.
+
+**Detección en la carga por `url`.** Los lectores no adivinan, pero la carga de una capa (§6) sí elige uno, en este orden: el `format` explícito; la extensión de la ruta, sin query ni hash (`geojson` y `json`, `kml`, `kmz`, `gpx`, `wkt`, `wkb`, `topojson`, `shp`, `fgb`, y `zip` que se resuelve por bytes); el `Content-Type` (`application/geo+json`, `vnd.google-earth.kml+xml`, `vnd.google-earth.kmz`, `gpx+xml`); y, al final, `detectFormat` sobre los bytes, que se importa recién entonces. Un `shp` suelto se lee sin `.dbf`, porque una URL apunta a un archivo y no a un juego. Un formato que no está en esa tabla es `unsupported`.
 
 ### 20.8 XML seguro (interno)
 

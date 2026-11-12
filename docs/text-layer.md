@@ -27,8 +27,25 @@ pane HTML propio.
 | `data` | los ítems; la capa crea su Source |
 | `source` | una Source del consumidor, que gana sobre `data`. Cambiarla en vivo pasa los textos a la nueva |
 | `accessors` | `{ idOf, positionOf, hashOf? }`. Sin `positionOf`, el alta lanza `TypeError` |
+| `fields` | los accessors como nombres de campo, en JSON por atributo: `fields='{"id":"codigo","position":["lat","lng"],"text":"nombre"}'`. Se lee al montar |
 
 Sin `textOf` ni `htmlOf`, el texto es el id. Un `textOf` que devuelve `null` o `''` deja al ítem sin texto.
+
+Con `fields`, la capa se declara sin funciones: `idOf`, `positionOf` y el texto salen de nombres de campo, con `.`
+para anidar. `id-of` nombra el campo del id y `text-of` el del texto; ambos son totales (un campo ausente o `null`
+da `''`). La capa monta cuando tiene `source`, `accessors` o `fields`. Precedencia: función en `accessors` o en la
+prop `textOf`, luego el atributo, luego `fields`, con un aviso al chocar.
+
+```html
+<cristae-text-layer id="ciudades" fields='{"id":"codigo","position":["lat","lng"],"text":"nombre"}'
+                    placement="above"></cristae-text-layer>
+```
+
+```js
+document.getElementById('ciudades').data = ciudades     // los ítems siguen llegando por `data` o `source`
+```
+
+La capa de texto no tiene `url`: los ítems llegan por `data` o `source`.
 
 ## Props
 
@@ -37,7 +54,7 @@ prop quitada vuelve a su valor por defecto.
 
 | Prop | Atributo | Por defecto | Qué |
 | --- | --- | --- | --- |
-| `textOf` | — | el id | `(item) => string \| number \| null` |
+| `textOf` | `text-of` | el id | función `(item) => string \| number \| null` (prop) o, por atributo, el nombre de un campo |
 | `htmlOf` | — | — | `(item) => string \| Node \| null`; si está, el renderer por defecto es `html` |
 | `renderer` | `renderer` | `html` si hay `htmlOf`; si no, `canvas` | `canvas` o `html`; `gl` lanza `TypeError`, como en `labeled` |
 | `placement` | `placement` | `center` | `center`, `above`, `below` o `right` respecto del punto |

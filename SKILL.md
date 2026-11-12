@@ -68,11 +68,15 @@ import { createSource, defineIconSet } from 'cristae/map'
 
 | | Va en | Por qué |
 |---|---|---|
-| **Estructura + escalares** — el árbol de elementos, `initial-zoom`, `interactive`, `slot`, `radius`, `bind-to`, `icon-set="nombre"` | **HTML** | son strings/números/booleanos: el markup es su lugar |
-| **Objetos y funciones** — `tile`, `accessors`, `iconSet`, `source`/`data`, `items` del toolbar, `textOf` de labels | **JS** | no serializan a atributo; referencian datos/funciones del módulo |
+| **Estructura + escalares** — el árbol de elementos, `initial-zoom`, `interactive`, `slot`, `radius`, `bind-to`, `icon-set="nombre"`, `url`, `fields='{…}'`, `variant-of="campo"`, `click-action` | **HTML** | son strings/números/booleanos/JSON: el markup es su lugar |
+| **Objetos y funciones** — `tile`, `accessors`, `iconSet`, `source`/`data`, `items` del toolbar, `fetch`, un `textOf` o `contentOf` que formatea | **JS** | no serializan a atributo; referencian datos/funciones del módulo |
 
 Objetivo del reemplazo: **el HTML describe el mapa; el JS solo enchufa los datos**. Lo imperativo de
 glify (crear capas, callbacks, `setData` por frame) desaparece del flujo.
+
+Un accessor que sólo lee un campo no necesita función: va como atributo `-of` (lista cerrada: `id-of`, `variant-of`,
+`heading-of`, `text-of`) o dentro de `fields`. Precedencia: función en `accessors` > `-of` > `fields`
+([`docs/elements.md`](./docs/elements.md#los-atributos--of-y-fields)).
 
 ---
 
@@ -188,6 +192,47 @@ source.set(MOVILES)                                       // alta inicial (1 reb
 > icon-set="flota">`. La registración sigue siendo una línea JS (el iconSet es un objeto), pero la
 > *referencia* pasa al HTML. Mismo patrón para el toolbar: los `items` (con sus `onClick`) se asignan
 > en JS dentro de `cristae:ready` porque llevan funciones.
+
+### Sin script — datos, íconos y clic en el HTML
+
+Si los datos están en un archivo (GeoJSON, KML, GPX, Shapefile…), no hace falta ni el JS mínimo de arriba. Chuleta del
+árbol, de afuera hacia adentro:
+
+```html
+<cristae-map initial-center="-35.5,-71.5" initial-zoom="8">
+
+  <!-- íconos propios: hijo del mapa, fuera de las capas. Sin esto, `icon-set="dot|pin|circle|arrow"` ya existe -->
+  <cristae-icon-set name="flota" size="32" rotates>
+    <cristae-icon name="camion" src="./iconos/camion.svg"></cristae-icon>
+    <cristae-icon name="grua"   src="./iconos/grua.svg"></cristae-icon>
+  </cristae-icon-set>
+
+  <!-- polígonos de un archivo; el clic encuadra el predio -->
+  <cristae-polygon-layer id="predios" url="./datos/predios.geojson"
+                         fields='{"id":"codigo"}' click-action="fit" interactive></cristae-polygon-layer>
+
+  <!-- puntos de un archivo, releídos cada 15 s; variante = nombre del ícono; rumbo en grados -->
+  <cristae-labeled text-of="patente" placement="below">
+    <cristae-point-layer id="flota" url="./datos/flota.geojson" refresh="15000"
+                         icon-set="flota" variant-of="tipo" heading-of="rumbo"
+                         fields='{"id":"patente"}' click-action="follow" interactive></cristae-point-layer>
+  </cristae-labeled>
+
+  <!-- tarjeta al clic: el dato entra por textContent, nunca como HTML -->
+  <cristae-popup for="flota">
+    <template><b data-field="patente"></b> <span data-field="conductor.nombre"></span></template>
+  </cristae-popup>
+</cristae-map>
+```
+
+- **`url`** reemplaza `data`, `accessors` y `source`. `format` fuerza el lector, `refresh` va en **ms** (piso 1000) y
+  `fetch` (prop) lleva las credenciales. La carga sale por `cristae:load` y los errores por `cristae:error`, con
+  `code` `network`, `cors`, `unsupported` o `format`.
+- **`fields`** es JSON `{ accessor: campo }` (`.` anida; `position` admite `["lat","lng"]`), y un campo ausente da el neutro, nunca una excepción.
+- **`icon-set`**: `dot`, `pin`, `circle` y `arrow` son de fábrica (la variante es el color, y `arrow` rota); sin `icon-set`, `dot`.
+- **`click-action`**: `fit` (centra un punto, encuadra una línea o un polígono) o `follow` (sólo puntos).
+- **Es reactivo** `url`/`format`/`refresh` (relee), `variant-of`/`heading-of` (repinta) y `text-of`; **al montar** `id-of`, `fields`, `click-action`.
+- **Sigue siendo JS:** `contentOf` o un `textOf` que formatea, `fetch`, `filters`, un set dibujado en canvas.
 
 ### El update en vivo — one-liner
 
@@ -315,6 +360,10 @@ if (p.visible) place(p.x, p.y)                                            // en 
 | mostrar que el mapa está en modo de dibujo | el indicador de `<cristae-map>` sale solo: `drawingIndicator` lo altera y `::part(drawing-indicator)` lo tiñe o lo apaga ([`docs/elements.md`](./docs/elements.md#indicador-de-dibujo)) |
 | fijar la esfera o el elipsoide con que se colocan las formas | `model` en `<cristae-map>` (`<CristaeMap model={WGS84}>`), leído en el alta |
 | `click/hover` callbacks | eventos `cristae:click`/`cristae:hover` → `e.detail.hits[]` |
+| `L.geoJSON(await fetch(url))` + `fitBounds` al clic | `url="./x.geojson"` + `click-action="fit"` en la capa ([`docs/elements.md`](./docs/elements.md#datos-sin-script-url-fields-y-click-action)) |
+| `setInterval` + `layer.setData` para releer un archivo | `refresh="15000"` en la capa con `url` |
+| `L.icon({ iconUrl })` por tipo | `<cristae-icon-set>` con `<cristae-icon name src>` y `variant-of` ([`docs/icons.md`](./docs/icons.md#sets-por-imagen)) |
+| `bindPopup(feature => html)` con campos | `<cristae-popup>` con `<template>` y `data-field` (texto, no HTML) |
 | `map.setView/panTo/flyTo` · zoom `+/−` | `map.camera.setView/panTo/flyTo/zoomIn/zoomOut` (qué anima, `zoom-animation`: SPECS §9) |
 | seguir un punto con `panTo` por update | `map.camera.followPoint(layerId, id)` (una vez) |
 | `fitBounds` a mano tras cargar datos | `auto-fit="once"` en la capa (o `map.camera.fitToLayer('fleet')`) |

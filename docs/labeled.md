@@ -46,7 +46,7 @@ debajo y los predios en su centro.
 
 | Prop | Atributo | Por defecto | Qué |
 | --- | --- | --- | --- |
-| `textOf` | — | el id; en una burbuja, su `count` | `(item) => string \| number \| null` |
+| `textOf` | `text-of` | el id; en una burbuja, su `count` | una función `(item) => string \| number \| null` (prop), o por atributo el nombre de un campo |
 | `htmlOf` | — | — | `(item) => string \| Node \| null`, el contenido con `renderer="html"`. Si está, el renderer por defecto es `html` |
 | `renderer` | `renderer` | `html` si hay `htmlOf`; si no, `canvas` | cómo se dibuja (abajo) |
 | `placement` | `placement` | `auto` | `auto`, `along`, `center`, `above`, `below` o `right` |
@@ -62,6 +62,24 @@ debajo y los predios en su centro.
 
 Todas se aplican en vivo, sin remontar la capa. Una prop quitada vuelve a su valor por defecto. Un `textOf`
 nuevo en cada render no redibuja si los textos no cambiaron.
+
+### `text-of`: el texto de un campo, sin función
+
+```html
+<cristae-labeled text-of="patente" placement="below">
+  <cristae-point-layer id="flota" url="./datos/flota.geojson"></cristae-point-layer>
+</cristae-labeled>
+```
+
+- **Es un nombre de campo**, con `.` para anidar (`text-of="conductor.nombre"`). Un campo ausente o `null` da `''` y el
+  ítem queda sin texto: nunca lanza. Un número se escribe como texto y un objeto da `''`, no `[object Object]`.
+- **Precedencia.** Una función en la prop `textOf` (o en `accessors`) gana sobre el atributo `text-of`, y éste sobre
+  `fields.text` de la capa; un choque avisa una vez. Por JS, la misma entrada es `addLabels({ hostId, fields: { text: 'patente' } })`; en HTML, la propiedad `fields` de `<cristae-labeled>` (`fields='{"text":"patente"}'`), que con `text-of` pierde y avisa una vez.
+- **En vivo.** Cambiar `text-of` se aplica con `update` y redibuja sólo si algún texto cambió.
+- **Sin HTML por atributo.** El HTML de un campo no tiene atributo `-of`: va por `htmlOf` o, en un popup, por `<template>`.
+- **No aplica a las burbujas** de un cluster: una burbuja no tiene los campos de los ítems, y su texto es el conteo.
+  Se avisa una vez por capa y las burbujas conservan su `count`. Para otro texto en la burbuja va una función, que recibe
+  `{ count, leaves }`.
 
 ## Dónde va el texto
 
@@ -156,6 +174,9 @@ burbuja la expande. El hover del rótulo realza el ítem.
 ```js
 labeled.textOf = burbuja => `${burbuja.count} camiones`
 ```
+
+Aquí `text-of` no se aplica: `<cristae-labeled text-of="patente">` sobre un cluster deja a cada burbuja con su conteo,
+porque la burbuja no es un ítem con campos. Sólo una función (`textOf`) cambia el texto de una burbuja.
 
 Por cada burbuja, `textOf` y `htmlOf` reciben `{ count, leaves }`: cuántos ítems junta y los ítems mismos.
 `leaves` se resuelve al leerse, así que un `textOf` que sólo usa `count` no paga la búsqueda. Es un objeto

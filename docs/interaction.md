@@ -251,6 +251,38 @@ Ejemplo del patrón: un picker de selección múltiple pinta los hits una vez y,
 
 ---
 
+## `click-action` — la acción del clic, declarada
+
+Para lo más común tras un clic, encuadrar o seguir lo clicado, no hace falta un handler: la capa lo declara.
+
+```html
+<cristae-polygon-layer id="predios" url="./datos/predios.geojson" interactive click-action="fit"></cristae-polygon-layer>
+<cristae-point-layer   id="flota"   url="./datos/flota.geojson"   interactive click-action="follow"></cristae-point-layer>
+```
+
+```js
+engine.addPointLayer({ id: 'flota', url: './datos/flota.geojson', interactive: true, clickAction: 'follow' })
+```
+
+| Valor | Capa | Qué hace el clic sobre un ítem |
+|---|---|---|
+| `fit` | puntos | centra el ítem, al zoom que tiene el mapa: `camera.panTo` |
+| `fit` | líneas y polígonos | encuadra la caja del ítem: `camera.fitBounds` |
+| `follow` | sólo puntos | sigue el punto, con la vista actual: `camera.followPoint` |
+
+- **Sin el atributo, nada.** Es opt-in: una capa sin `click-action` se comporta como siempre.
+- **Sólo si el primer hit es de la capa.** La acción escucha el canal `click` del motor y actúa cuando el hit de más
+  arriba (el orden top-first de arriba) es de su capa. Un ítem de otra capa que lo tape se lleva el clic y no
+  dispara nada. Un click en el vacío tampoco.
+- **Necesita `interactive`.** Sin él la capa no recibe clics: avisa una vez y no se suscribe.
+- **Convive con `cristae:click`.** La acción no consume el evento: el handler del consumidor sigue recibiendo todos los hits.
+- **Se valida en el alta.** Un valor que no sea `fit` ni `follow` lanza `TypeError`, igual que `follow` en una capa
+  de líneas o de polígonos, y no se crea nada.
+- **Se lee al montar.** Cambiarlo con la capa montada avisa una vez y no se aplica. Se baja con la capa.
+- **Suma un handler de click**, como cualquier otro: el mapa paga el picking de click (el del cursor de puntero ya lo pagaba) y no más.
+
+---
+
 ## Invariantes
 
 1. **Top-first determinista:** `resolveHits` siempre ordena `zIndex` desc, `order` asc,

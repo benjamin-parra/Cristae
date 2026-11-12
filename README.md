@@ -20,6 +20,12 @@ npm install github:benjamin-parra/Cristae   # o: git+https://github.com/benjamin
 Cristae desde la fuente sin pre-empaquetarla (Vite con `optimizeDeps.exclude: ['cristae']`) la
 pre-empaqueta aparte, con `optimizeDeps.include: ['cristae > geographiclib-geodesic']`.
 
+## Datos y clic sin script
+
+Una capa lee su archivo y nombra sus campos desde el HTML: `url` (GeoJSON, KML, GPX, Shapefile y más, con los lectores
+cargados al usarse), `fields`, `variant-of`, `refresh` y `click-action`, un popup por `<template>` y íconos propios con
+`<cristae-icon-set>`, sin una línea de JS ([`docs/elements.md`](docs/elements.md#datos-sin-script-url-fields-y-click-action)).
+
 ## Leaflet
 
 Leaflet es el **anfitrión** del mapa —cámara, tiles y entrada del navegador— y un detalle interno: la API

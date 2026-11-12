@@ -219,7 +219,7 @@ Para **alta frecuencia** (mover móviles muchas veces/segundo sin rebuild) usar 
 
 | API | Propósito | Firma | Complejidad |
 |---|---|---|---|
-| `createSource` | Devuelve **un** objeto que ES el `Source` (lectura) y que además se muta (dueño). | `(accessors, variants?) → Source` | O(1) |
+| `createSource` | Devuelve **un** objeto que ES el `Source` (lectura) y que además se muta (dueño). | `(accessors \| { fields, ...accessors }, variants?) → Source` | O(1) |
 
 Un solo objeto: los miembros de **lectura** son el contrato `Source`
 (`getSnapshot`/`subscribe`/`version`/`itemById`/`dirtyIds`/`moveDirtyIds`/`appendedPoints`/`accessors`/`variants`) y
@@ -256,6 +256,32 @@ sensorsLayer.source = sensors               // declarativo; mismo objeto a N vis
 sensors.set([{ id: 1, pos: { lat: 0, lng: 0 } }])
 ws.onMsg(m => sensors.move(m.id, m.lat, m.lng))   // 0 rebuilds
 ```
+
+**`fields` — los accessors como nombres de campo.** Un accessor que sólo lee un campo se escribe como string, y
+`createSource` lo compila a función. Es el mismo `fields` que lleva una capa por atributo
+([`elements.md`](elements.md#los-atributos--of-y-fields)):
+
+```js
+const flota = createSource({
+  fields: { id: 'patente', position: ['lat', 'lng'], variant: 'estado', heading: 'rumbo' },
+})
+flota.set([{ patente: 'AB-123', lat: -35.4, lng: -71.6, estado: 'activo', rumbo: 90 }])
+```
+
+- **Cada clave es un accessor sin el `Of`.** `id`, `position`, `variant`, `heading`, `text`; el valor es el
+  nombre de un campo, con `.` para anidar (`'conductor.nombre'`). `position` admite el par `['lat', 'lng']`, o
+  un campo que ya es `{ lat, lng }` o `[lat, lng]`.
+- **Los ítems de una capa por `url`** toman por id el `id` del feature cuando el documento lo trae (el `id` de GeoJSON) y, sólo si falta, su índice en el archivo; `fields.id` manda sobre los dos.
+- **`fields.id` basta:** `createSource` compila `fields` antes de exigir `idOf`. Sin ningún id, el `TypeError` es el de siempre.
+- **Precedencia.** Una función en el mismo objeto gana sobre su campo, y avisa una vez por clave. Con una capa por
+  `url`, el orden completo es: el valor por defecto de la capa, luego `fields`, luego las funciones.
+- **Los lectores son totales.** Un ítem `null` o un campo ausente dan el neutro del canal: `id`, `variant` y `text` dan
+  `''` y `heading` da `0`. Los demás canales devuelven el valor crudo. `heading` acepta también una cadena numérica
+  (`"90"` da `90`) y `text` de un objeto da `''`. Un `id` ausente da `''` para todos los ítems que no lo traen: esos
+  ítems comparten identidad, así que el dato debe llevar el campo del id.
+- **Sin costo en estado estable.** El camino anidado se parte una vez, al compilar. El par `{ lat, lng }` armado de dos
+  campos se guarda por ítem y se reusa mientras los dos valores no cambien, así que `move` y `patch` no asignan de más.
+- **Lo que no hace.** No hay expresiones ni formateo: lo que se transforma va por una función en `accessors`.
 
 **Compartir entre vistas** — el filtro vive en la Source, no por componente:
 

@@ -25,8 +25,8 @@ import { MapEngine, defineIconSet, defineSource, createSource } from 'cristae/ma
 
 | | Va en | Por qué |
 |---|---|---|
-| **Atributos** — escalares serializables (`initial-zoom`, `orientation`, `interactive`) | el **HTML** | son strings/números/booleanos; el markup es el lugar natural |
-| **Props** — objetos y funciones (`accessors`, `iconSet`, `data`, `tile`, `items`) | el **JS** | no serializan a atributo; referencian constantes/funciones del módulo o el engine |
+| **Atributos** — escalares serializables (`initial-zoom`, `orientation`, `interactive`), los nombres de campo (`variant-of="tipo"`) y los JSON chicos (`fields`) | el **HTML** | son strings, números, booleanos o JSON: el markup es el lugar natural |
+| **Props** — funciones y objetos con identidad (`accessors`, `iconSet`, `data`, `tile`, `items`, `fetch`) | el **JS** | una función no serializa a atributo; referencia constantes o funciones del módulo o del motor |
 
 ```html
 <!-- estructura + atributos escalares -->
@@ -45,6 +45,23 @@ fleet.accessors = ACCESSORS
 fleet.iconSet   = iconSet
 fleet.data      = MOVILES
 ```
+
+### Los atributos `-of` y `fields`
+
+Un accessor que sólo lee un campo no necesita una función: se nombra el campo. Hay dos formas, y la segunda no es una lista abierta.
+
+| Atributo | Accessor | En qué elementos | Se lee |
+|---|---|---|---|
+| `id-of` | `idOf` | capas de puntos, líneas y polígonos, y la de texto | al montar |
+| `variant-of` | `variantOf` | capa de puntos | al llamarse, con `refresh()` |
+| `heading-of` | `headingOf` | capa de puntos | al llamarse, con `refresh()` |
+| `text-of` | `textOf` | `<cristae-labeled>` y `<cristae-text-layer>` | por `update` |
+
+- **La lista es cerrada.** Son estos cuatro. `height-of` llega con la altura en 3D y `color-of`, con los modelos: hoy no existen, y un atributo `height-of` se ignora. Todo lo demás (`position`, `size`, `radius`, `weight`, `sweep`, la geometría) va por `fields` o por `accessors`.
+- **`fields`** es el gemelo serializable de `accessors`, escrito como JSON: `fields='{"id":"patente","position":["lat","lng"],"variant":"tipo","heading":"rumbo"}'`. Cada clave es el accessor sin el `Of` y cada valor, el nombre de un campo, con `.` para anidar (`"conductor.nombre"`). `position` admite un par `["lat","lng"]`. No hay expresiones ni formateo. Por JS se asigna un objeto: `capa.fields = { id: 'patente' }`. Se lee al montar.
+- **Precedencia: función en `accessors` > atributo `-of` > `fields`.** Si dos entradas piden lo mismo gana la de mayor precedencia, y un `console.warn` lo avisa una vez por elemento. Una capa con `variant-of="tipo"` y `fields.variant` a la vez usa `tipo`.
+- **Todo lector es total.** Un campo ausente o `null` no lanza: `id-of` da `''`, `variant-of` da `'default'` (también con un valor vacío), `heading-of` da `0` y `text-of` da `''`. Un `variantOf` que no responde no deja un punto sin ícono.
+- **Qué es reactivo.** `id-of` no: la identidad de los ítems se fija al montar, y cambiarlo avisa una vez y no se aplica. `variant-of` y `heading-of` sí: el elemento instala un cierre estable en los accessors y, al cambiar el atributo, recompila el lector y llama a `refresh()` una sola vez, así que la capa se repinta sin remontar. El cierre sólo se instala si el atributo está declarado al montar: sin `variant-of` ni `heading-of` la capa no gana una llamada por ítem, y declararlos después, con un canal que ya venía de una función o de `fields` o que nunca tuvo atributo, avisa una vez que se leen al montar y no se aplica. Con `source` los `-of` y `fields` no se aplican (los accessors viajan con la Source) y se avisa una vez. Los rótulos aplican `text-of` por `update`. El detalle por canal está en [SPECS §11](../SPECS.md).
 
 **Timing:** las props objeto se pueden asignar síncronas justo después de tomar la referencia y
 llegan a tiempo. El `<cristae-map>` monta el motor en su primer render (`firstUpdated`), y las
@@ -418,7 +435,14 @@ kinds })` · `engine.unfocus(ids)` · `engine.unfocusAll()`.
 | `visible` | boolean (default `true`) | atributo — pintado puro: oculta los sprites sin sacar la capa de la composición (un cluster que la envuelva sigue contándola). Oculta no dibuja, ni siquiera al mover el mapa; mostrarla pinta en el acto si algo cambió mientras estaba oculta (la vista, un dato, el foco), y si no, la imagen que tenía sigue valiendo |
 | `enabled` | boolean (default `true`) | atributo — membresía de la **entidad** en la composición, ortogonal a `visible`: deshabilitada aporta ∅ a los modificadores que la consumen (un cluster re-indexa sin sus puntos y recomputa las burbujas), oculta pane + picking y deja de dibujar, arrastra a sus ligados (labels `bind-to`, overlays) y su pipeline deja de reaccionar a la Source (cero CPU/GPU por emit). Handle: `setEnabled` / `engine.setLayerEnabled` |
 | `auto-fit` | `"once"` | atributo — encuadra la capa al llegar los **primeros** puntos (una vez), vía `camera.fitToLayer` |
-| `icon-set` | string (nombre registrado) \| objeto IconSet | atributo (string) o prop `iconSet` (objeto) |
+| `icon-set` | string (de fábrica o nombre registrado) \| objeto IconSet | atributo (string) o prop `iconSet` (objeto). Sin él, `dot` ([`icons.md`](icons.md#sets-de-fábrica)) |
+| `url` | string | atributo — la capa lee sus ítems de un archivo ([Datos sin script](#datos-sin-script-url-fields-y-click-action)) |
+| `format` | `FormatName` | atributo — fuerza el lector; sin él, extensión, `Content-Type` y bytes |
+| `refresh` | ms | atributo — relee `url` cada tanto, con la página visible; piso 1000 |
+| `fetch` | `(url, init?) => Promise<Response>` | **prop** — descarga propia de `url`; se lee al montar |
+| `fields` | JSON `{ accessor: campo }` | atributo o prop — el gemelo serializable de `accessors`; se lee al montar |
+| `id-of` `variant-of` `heading-of` | nombre de campo | atributo — [los `-of`](#los-atributos--of-y-fields) |
+| `click-action` | `fit` \| `follow` | atributo — qué hace el clic sobre un ítem; se lee al montar |
 | `data` | `Item[]` (ruta A) | **prop** |
 | `source` | `Source` (ruta B/C) | **prop** |
 | `accessors` | `{ idOf, positionOf, variantOf?, headingOf?, sizeOf?, hashOf? }` | **prop** |
@@ -445,6 +469,8 @@ Dos entradas de dato **simétricas**:
 | `data` | `Item[]` (ruta A) | **prop** |
 | `source` | `Source` (ruta B/C) | **prop** |
 | `geometry` | tablas del lector (`areasOf`) | **prop** |
+| `url` `format` `refresh` `fetch` `fields` `id-of` | como en la capa de puntos | `url` lee los polígonos de un archivo. `<cristae-line-layer>` lleva los mismos |
+| `click-action` | `fit` | atributo — el clic encuadra la caja del polígono. `follow` lanza `TypeError`: sólo va en puntos |
 | `accessors` | `{ idOf, ringsOf, styleOf?, hashOf? }` | **prop** |
 
 Tres entradas de dato. Las dos primeras son las de la capa de puntos: `.data` (el elemento posee la
@@ -504,8 +530,42 @@ host, resuelto por nombre, orden-independiente).
 ### `<cristae-text-layer>` — texto suelto
 
 Capa base de texto con datos propios (`data`, `source`, `accessors`), con las opciones de
-[`<cristae-labeled>`](#cristae-labeled--rótulos) que valen sin trazo y sin contexto WebGL. Detalle en
-[`text-layer.md`](text-layer.md).
+[`<cristae-labeled>`](#cristae-labeled--rótulos) que valen sin trazo y sin contexto WebGL. Acepta `fields`,
+`id-of` y `text-of` para leer el texto de un campo sin funciones. Detalle en [`text-layer.md`](text-layer.md).
+
+### `<cristae-icon-set>` y `<cristae-icon>` — íconos propios sin JS
+
+Un set de íconos por imagen, declarado en el HTML. Es hijo de `<cristae-map>` y no es una capa: no entra en la
+gramática ([SPECS §8.1](../SPECS.md)), como `<cristae-popup>` y `<cristae-scale>`. La capa lo pide con
+`icon-set` y elige el ícono con `variant-of`.
+
+```html
+<cristae-map initial-center="-35.5,-71.5" initial-zoom="8">
+  <cristae-icon-set name="flota" size="32" rotates>
+    <cristae-icon name="camion" src="./iconos/camion.svg"></cristae-icon>
+    <cristae-icon name="grua"   src="./iconos/grua.svg"></cristae-icon>
+  </cristae-icon-set>
+  <cristae-point-layer id="flota" url="./datos/flota.geojson" icon-set="flota"
+                       variant-of="tipo" heading-of="rumbo" interactive></cristae-point-layer>
+</cristae-map>
+```
+
+| Miembro | Dónde | Qué | Por defecto |
+|---|---|---|---|
+| `name` | set | el nombre con que lo pide `icon-set`; no puede ser `dot`, `pin`, `circle` ni `arrow` | obligatorio |
+| `size` | set | tamaño lógico del ícono, px | `32` |
+| `rotates` | set | el ícono gira con `heading-of` | apagado |
+| `name` | ícono | la variante: el valor que devuelve `variant-of` | obligatorio |
+| `src` | ícono | la imagen: SVG, PNG o WebP. Un SVG se rasteriza al tamaño de la celda del atlas | obligatorio |
+
+- **El orden no importa.** El mapa registra sus sets hijos antes de montar las capas.
+- **La variante es el nombre del ícono.** Una variante que el set no tiene dibuja el primer ícono declarado y avisa una vez por variante; vacía, `null` o `'default'` no avisan.
+- **Reactivo.** Agregar o quitar un `<cristae-icon>`, o cambiar su `src`, el `size` o `rotates`, actualiza el set vivo sin cambiar su identidad. Cambiar el `name` del set lo registra con el nombre nuevo, y las capas montadas siguen con el anterior.
+- **Carga.** Cada `src` se pide una vez. Mientras la imagen no decodifica, el punto queda transparente. Una imagen de otro origen necesita CORS.
+- **Eventos.** `cristae:load` con `{ set, count }` cuando decodificó todo el catálogo, y `cristae:error` con `{ set, icon, url, code, message }`, con `code` `network`, `cors` o `format`. Se oyen en el mapa.
+- **Sin `model`, `model-scale` ni `tint`:** no existen todavía.
+
+En React son `<CristaeIconSet name="flota" rotates>` con hijos `<CristaeIcon name src />`; en JS, `defineIconSet({ icons })` ([`icons.md`](icons.md#sets-por-imagen)).
 
 ### `<cristae-image-layer>` — imagen georreferenciada
 
@@ -649,7 +709,8 @@ equivale a `polyline.setText` de Leaflet.TextPath.
 | `font` `color` `halo` | CSS | atributo |
 | `interactive` | boolean (default `false`, sólo `html`) | atributo |
 | `visible` | boolean (default `true`) | atributo — `"false"` o `"0"` oculta sin desmontar |
-| `textOf` / `htmlOf` | `(item) => …` | **prop** |
+| `text-of` | nombre de campo | atributo — el texto sale de ese campo; `null` o ausente dan `''`. No se aplica a las burbujas de un cluster |
+| `textOf` / `htmlOf` | `(item) => …` | **prop** — `textOf` gana sobre `text-of`, con aviso |
 | `paint` | `LabelPaint` | **prop** |
 
 ```html
@@ -707,7 +768,8 @@ click fuera, con `Escape`, o solo si el id sale del dataset.
 | Miembro | Tipo | Atributo / prop |
 |---|---|---|
 | `for` | string (ids de capa que lo abren, token-list) | atributo |
-| `contentOf` | `(item) => string \| Node` | **prop** |
+| `contentOf` | `(item) => string \| Node` | **prop** — gana sobre la plantilla |
+| `<template>` | hijo con nodos `data-field="ruta"` | contenido [sin script](#popup-con-template): el valor entra por `textContent` |
 | `offset` | `[dx, dy]` px (default `[0, -12]`) | **prop** |
 | `follow` | boolean (default `true`) | atributo — ancla VIVA: la tarjeta sigue la posición del item leída del `Source` en cada flush. `follow="false"` la congela al punto de apertura |
 | `max-open` | number (default `1`) | atributo — tarjetas simultáneas: con `1` abrir reemplaza a la anterior; con N>1 cada item abre la suya (re-click la renueva) y al exceder N cae la más antigua |
@@ -756,6 +818,32 @@ fitBounds`. Se apaga con `auto-pan="false"` si la página ya garantiza que la ta
 popup.contentOf = m => `<div class="card"><b>${m.patente}</b><br>${m.estado}</div>`
 ```
 
+#### Popup con `<template>`
+
+Sin `contentOf`, la tarjeta se arma de un `<template>` hijo directo. Cada nodo con `data-field="ruta"` recibe el
+valor del ítem como **texto** (`textContent`): el dato nunca se interpreta como HTML, así que un valor con
+`<b>` o un `<script>` se ve tal cual y no se ejecuta. La ruta admite `.` para anidar, y un campo ausente o
+`null` deja el nodo vacío.
+
+El popup abre sobre capas de puntos, líneas y polígonos con datos (`data` o `url`). Un punto ancla en su posición;
+una línea o un polígono, que no tienen una, anclan en el punto pulsado, congelado. Un polígono por `geometry`
+no tiene `Source`: el popup avisa una vez y no abre.
+
+```html
+<cristae-popup for="flota">
+  <template>
+    <b data-field="patente"></b>
+    <span data-field="conductor.nombre"></span>
+    <small data-field="estado"></small>
+  </template>
+</cristae-popup>
+```
+
+- **`contentOf` gana.** Si la prop está, la plantilla se ignora. Lo que la plantilla no hace (formatear, condicionar, mostrar HTML del dato) va por `contentOf`.
+- **Sin `html-of`.** No hay forma de escribir el dato como HTML por atributo: es una decisión, no un faltante.
+- **En React** se usa `contentOf`, que es la misma capacidad con la forma de ese entorno.
+- **El estilo** es el de siempre: la tarjeta está en light DOM, y el contenido del `<template>` hereda el CSS de la página.
+
 La librería resuelve el item desde la `Source` de la capa (`itemById` del hit), así que `contentOf`
 recibe el objeto de dominio. El contenedor se estiliza con `.cristae-popup`. **Cuándo:** click → tarjeta con
 HTML; para texto estático sobre cada punto se usa `<cristae-labeled>` (canvas, más liviano).
@@ -765,6 +853,88 @@ HTML; para texto estático sobre cada punto se usa `<cristae-labeled>` (canvas, 
 página. Para que el popup quede **por debajo de los widgets/paneles**, se le asigna un `z-index` explícito en
 `.cristae-popup` menor al de esos elementos; si no, lo normal es dejarlo por **orden** (sin z-index, gana
 el que viene después en el DOM / la regla de apilado por defecto).
+
+---
+
+## Datos sin script: `url`, `fields` y `click-action`
+
+Una pantalla de mapa puede escribirse entera en HTML: la capa lee su archivo, nombra sus campos, y el clic hace
+algo, sin una línea de JS. Lo comparten las capas de puntos, líneas y polígonos.
+
+```html
+<cristae-map initial-center="-35.5,-71.5" initial-zoom="8">
+  <cristae-icon-set name="flota" rotates>
+    <cristae-icon name="camion" src="./iconos/camion.svg"></cristae-icon>
+    <cristae-icon name="grua"   src="./iconos/grua.svg"></cristae-icon>
+  </cristae-icon-set>
+
+  <cristae-polygon-layer id="predios" url="./datos/predios.geojson"
+                         fields='{"id":"codigo"}' click-action="fit" interactive></cristae-polygon-layer>
+
+  <cristae-labeled placement="center">
+    <cristae-point-layer id="flota" url="./datos/flota.geojson" refresh="15000"
+                         icon-set="flota" variant-of="tipo" heading-of="rumbo"
+                         fields='{"id":"patente"}' click-action="follow" interactive></cristae-point-layer>
+  </cristae-labeled>
+
+  <cristae-popup for="flota">
+    <template><b data-field="patente"></b> <span data-field="estado"></span></template>
+  </cristae-popup>
+</cristae-map>
+```
+
+**`url`.** Con `url` la capa no necesita `data`, `source` ni `accessors`: la geometría sale del archivo y los
+campos de sus propiedades. GeoJSON es lo normal. El formato se elige, en este orden, por `format`, por la
+extensión de la ruta (sin query), por el `Content-Type` y, al final, por los bytes: KML, KMZ, GPX, WKT, WKB,
+TopoJSON, EsriJSON, Shapefile suelto o en zip y FlatGeobuf. Cada lector se descarga recién cuando una capa lo
+pide ([`formats.md`](formats.md#lectores-diferidos-por-url)). Cada feature es un ítem: sus propiedades más la
+geometría de la capa. En una capa de puntos, la posición es la del primer `Point` o `MultiPoint`; un feature
+sin geometría del tipo de la capa se omite. `url` junto con `source` o `geometry` lanza `TypeError`.
+
+**`refresh`.** Milisegundos entre relecturas, mientras la página está visible. El piso es `1000`: un valor menor
+se acota y avisa. Oculta la pestaña, no se relee, y al volver se cobra lo debido. Cada relectura reemplaza los
+ítems con un `set`: el punto salta a su posición nueva, sin interpolar. El techo es `2147483647` ms (el mayor
+retardo de `setTimeout`); un valor mayor se acota y avisa. Para un feed de alta frecuencia sirve más un socket con `source.move`
+([`data.md`](data.md)). `refresh` sin `url` avisa y se ignora.
+
+**Cambiar `url`, `format` o `refresh`** relee la capa sin remontarla y aborta la carga que estuviera en vuelo.
+
+**`fetch`** es una prop (una función no viaja por atributo): sirve para pasar credenciales o cabeceras.
+
+```js
+document.getElementById('flota').fetch = (url, init) => fetch(url, { ...init, headers: { authorization: token } })
+```
+
+**Eventos de carga.** La capa emite `cristae:load` con `{ layerId, url, count, skipped }` cuando aplica los datos
+(`skipped` son los features sin geometría del tipo de la capa), y `cristae:error` con
+`{ layerId, url, code, message, status? }`. `code` es `network` (caída o HTTP no `ok`, con `status`), `cors`,
+`unsupported` (ningún lector para ese contenido) o `format` (el lector rechazó los bytes). El navegador rechaza
+un `fetch` igual por una caída y por CORS: `cors` se **infiere** cuando la `url` es de otro origen que la página.
+Tras un error la capa conserva los ítems que tenía. `cristae:error` es cancelable: si nadie llama `preventDefault`,
+el elemento lo vuelca a `console.error`, una vez por capa, así que en un HTML sin script un fallo de carga no queda
+mudo. Con `preventDefault` (o un `try`/`catch` propio en el manejador) el aviso por consola se omite.
+
+```js
+mapa.addEventListener('cristae:error', e => aviso(`${e.detail.layerId}: ${e.detail.code}`))
+```
+
+**`click-action`.** Qué hace el clic sobre un ítem de una capa `interactive`:
+
+| Valor | Capa | Efecto |
+|---|---|---|
+| `fit` | puntos | centra el ítem, al zoom actual |
+| `fit` | líneas y polígonos | encuadra la caja del ítem |
+| `follow` | sólo puntos | sigue el punto con `camera.followPoint` |
+
+Sin el atributo, nada. Un valor distinto, o `follow` fuera de una capa de puntos, lanza `TypeError`; sin
+`interactive` avisa una vez y no hace nada. Se lee al montar.
+
+**Totalidad y precedencia.** Un campo ausente o `null` nunca lanza: da el neutro del canal. Las tres entradas
+(`accessors`, `-of`, `fields`) y su precedencia están en [Los atributos `-of` y `fields`](#los-atributos--of-y-fields).
+
+**Qué sigue necesitando JS:** una función (`contentOf`, un `textOf` que formatea, `fetch`, `filters`), un set
+dibujado a mano con `defineIconSet({ describe, renderers })` y los `items` del toolbar. Con `<template>` en el
+popup y `<cristae-icon-set>` los casos comunes ya no lo necesitan.
 
 ---
 

@@ -89,6 +89,47 @@ Si el archivo llega sin una extensión confiable, `detectFormat(bytes)` devuelve
 
 ---
 
+## Lectores diferidos por `url`
+
+Una capa puede leer cualquiera de estos formatos sin que el consumidor importe un lector: `url` en
+`<cristae-point-layer>`, `<cristae-line-layer>` y `<cristae-polygon-layer>` (o en sus altas) descarga el archivo y
+lo lee con el lector que corresponde ([`elements.md`](elements.md#datos-sin-script-url-fields-y-click-action)).
+
+```html
+<cristae-polygon-layer id="rodales" url="./datos/rodales.kmz" interactive></cristae-polygon-layer>
+```
+
+- **Cada lector se importa al usarse.** Es un `import()` aparte por formato. Una página que sólo lee GeoJSON no
+  baja el lector de KML, y una que no usa `url` no baja ninguno. En ESM, cada lector es su propio chunk.
+- **En el UMD pesan todos.** Un bundle UMD no puede partirse en chunks, así que trae los lectores de entrada aunque
+  la página no los use. Quien necesite el mapa liviano usa el ESM, o lee con `cristae/formats` y entrega `geometry`.
+- **Orden de detección.** Primero el `format` explícito, que admite cualquier `FormatName`. Si falta, la extensión de
+  la ruta sin query ni hash, después el `Content-Type` y al final `detectFormat` sobre los bytes, que también se
+  importa recién entonces.
+
+  | Extensión | Formato |
+  |---|---|
+  | `geojson`, `json` | GeoJSON |
+  | `kml`, `kmz` | KML, KMZ |
+  | `gpx`, `wkt`, `wkb`, `topojson` | el del mismo nombre |
+  | `shp` | Shapefile suelto, sin `.dbf` |
+  | `zip` | por bytes: un Shapefile en zip o un KMZ |
+  | `fgb` | FlatGeobuf |
+
+  `Content-Type` reconoce `application/geo+json`, `application/vnd.google-earth.kml+xml`, `application/vnd.google-earth.kmz` y
+  `application/gpx+xml`.
+- **Un `.shp` suelto no trae atributos.** Una URL apunta a un archivo, no a un juego: los campos de un Shapefile
+  vienen en un zip, que sí lleva su `.dbf`.
+- **Errores.** Sin lector para el contenido, o un zip sin `.shp` ni `.kml`, es `unsupported`. Si el lector rechaza los
+  bytes es `format`, con el código del lector y, cuando lo hay, el byte. Una caída o un HTTP que no es `ok` es
+  `network`, y `cors` se infiere cuando la `url` es de otro origen que la página. Salen por `cristae:error`, no
+  como excepción.
+- **Cada feature es un ítem** con sus propiedades y su geometría: un feature sin geometría del tipo de la capa se omite.
+  Con muchos polígonos, la conversión a ítems materializa cada anillo; para una capa muy grande conviene el lector de
+  este entry y `geometry: areasOf(read)`.
+
+---
+
 ## KML y KMZ
 
 `readKml` lee KML 2.2 (OGC 07-147r2). `readKmz` abre el zip, toma `doc.kml` de la raíz o la primera
