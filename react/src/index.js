@@ -129,6 +129,11 @@ export const CristaeOverlay = wrap('cristae-overlay')
 export const CristaeGeodesic = wrap('cristae-geodesic')
 export const CristaeLabeled = wrap('cristae-labeled')
 export const CristaePopup = wrap('cristae-popup')
+// Catálogo de íconos por imagen (`<cristae-icon-set>`) y su ícono (`<cristae-icon name src>`): el mapa
+// los registra antes de montar sus capas. Sin BUS: onLoad y onError llegan por cristaeEvent como
+// 'cristae:load' y 'cristae:error'.
+export const CristaeIconSet = wrap('cristae-icon-set')
+export const CristaeIcon = wrap('cristae-icon')
 export const CristaeToolbar = wrap('cristae-toolbar')
 export const CristaeScale = wrap('cristae-scale')
 // El otro entry de la lib: lo registra `import 'cristae/table'` (no lo arrastra `cristae/map`).
