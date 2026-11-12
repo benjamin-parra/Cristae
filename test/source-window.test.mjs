@@ -7,6 +7,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createSource, makeFilter } from '../src/data/index.js'
 
+// El override también lleva el rumbo (`heading`, `hasHeading`): estos asertos miran sólo la posición.
+const latlng = ({ lat, lng }) => ({ lat, lng })
 const idOf = it => it.id
 const positionOf = it => ({ lat: it.lat, lng: it.lng })
 const nuevo = (variants) => createSource({ idOf, positionOf }, variants)
@@ -56,7 +58,7 @@ test('todos los suscriptores reciben el mismo snapshot, una sola vez', async () 
   assert.equal(dataA, dataB, 'la MISMA referencia a los dos: el emit no copia por suscriptor')
   // Contenido literal (no derivado del módulo): el move NO toca el ítem, vive en el accessor.
   assert.deepEqual(dataA, [punto(1), punto(2)])
-  assert.deepEqual(src.accessors.positionOf(dataA[0]), { lat: 9, lng: 9 })
+  assert.deepEqual(latlng(src.accessors.positionOf(dataA[0])), { lat: 9, lng: 9 })
 })
 
 test('getSnapshot lee el estado VIVO del store, no el eco del último emit', async () => {
@@ -246,7 +248,7 @@ test('patch es autoritativo sobre un move previo del mismo id', async () => {
   await flush()
 
   src.move(1, 9, 9)
-  assert.deepEqual(src.accessors.positionOf(src.itemById(1)), { lat: 9, lng: 9 })
+  assert.deepEqual(latlng(src.accessors.positionOf(src.itemById(1))), { lat: 9, lng: 9 })
 
   src.patch([punto(1, 2, 2)], new Set([1]))
   assert.deepEqual(src.accessors.positionOf(src.itemById(1)), { lat: 2, lng: 2 }, 'el override murió')
@@ -386,7 +388,7 @@ test('move repetido sobre el mismo id muta el override in-place', async () => {
   const pos = src.accessors.positionOf(src.itemById(1))
   src.move(1, 6, 7)
   assert.equal(src.accessors.positionOf(src.itemById(1)), pos, 'misma referencia: cero alloc por update')
-  assert.deepEqual(pos, { lat: 6, lng: 7 })
+  assert.deepEqual(latlng(pos), { lat: 6, lng: 7 })
   assert.deepEqual(ids(src.moveDirtyIds()), [1])
 })
 
@@ -445,7 +447,7 @@ test('destroy vacía acumuladores y overrides: una Source muerta no retiene la f
   const movidos = src.moveDirtyIds()
   assert.equal(struct.size, 2)
   assert.equal(movidos.size, 1)
-  assert.deepEqual(src.accessors.positionOf(punto(1)), { lat: 5, lng: 5 }, 'override vivo')
+  assert.deepEqual(latlng(src.accessors.positionOf(punto(1))), { lat: 5, lng: 5 }, 'override vivo')
 
   src.destroy()
   assert.equal(struct.size, 0, 'structDirty vaciado')

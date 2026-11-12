@@ -41,7 +41,7 @@ test('createSource fija el typeof y la aridad de cada miembro', () => {
   const src = createSource({ idOf, positionOf }, [])
   const aridad = {
     addFilter: 1, append: 1, appendedPoints: 0, destroy: 0, dirtyIds: 0, getSnapshot: 0, itemById: 1,
-    move: 3, moveDirtyIds: 0, patch: 2, remove: 1, removeFilter: 1, set: 1,
+    move: 4, moveDirtyIds: 0, patch: 2, remove: 1, removeFilter: 1, set: 1,
     subscribe: 1, version: 0,
   }
   for (const [nombre, n] of Object.entries(aridad)) {

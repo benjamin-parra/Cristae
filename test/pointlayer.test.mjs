@@ -165,9 +165,9 @@ test('incremental — move y patch suben SU slot desde el mismo espejo, sin rese
 
   assert.equal(h.rebuilds(), before, 'sin cambio de membresía no se estrena el buffer')
   assert.deepEqual(h.spy.bufferSubDatas, [
-    { offset: FLOATS * 4, srcOffset: FLOATS, length: 2 },
+    { offset: FLOATS * 4, srcOffset: FLOATS, length: 4 },
     { offset: 0,          srcOffset: 0,      length: FLOATS },
-  ], 'el move sube los 2 floats de posición de su slot; el patch, los 7 del suyo')
+  ], 'el move sube los 4 floats contiguos (posición y ángulo) de su slot; el patch, los 7 del suyo')
   assert.ok(h.log.fuentes.slice(-2).every(src => src.buffer === espejo.buffer), 'y los dos parten del espejo del rebuild')
   assert.deepEqual(xyEn(h, 1), xyDe(h.host, 5, 6), 'con la posición nueva en el buffer')
   h.layer.destroy()
@@ -652,5 +652,30 @@ test('patch — `positionOf` que reusa el objeto no contamina el slot', () => {
   items[0].lng = 21
   h.source.emitDirty(1)
   assert.deepEqual(xyEn(h, 0), xyDe(h.host, 11, 21))
+  h.layer.destroy()
+})
+
+test('move con rumbo — escribe el ángulo en base+3 sin rebuild, con la misma fórmula del encode', () => {
+  const items = [{ id: 1, pos: { lat: 1, lng: 1 }, rumbo: 10 }, { id: 2, pos: { lat: 2, lng: 2 }, rumbo: 20 }]
+  const h = mount(items, { idOf, positionOf, headingOf: it => it.rumbo }, { iconSet: { ...makeIconSet(), rotates: true } })
+  const before = h.rebuilds()
+  assert.equal(h.verts()[FLOATS + 3], Math.fround(20 / 360), 'el rebuild escribe el ángulo del consumidor')
+
+  items[1].pos = { lat: 5, lng: 6 }
+  items[1].rumbo = 450   // 450° normaliza a 90°
+  h.source.emitMove(2)
+
+  assert.equal(h.rebuilds(), before, 'sin rebuild')
+  assert.equal(h.verts()[FLOATS + 3], Math.fround(90 / 360))
+  assert.deepEqual(h.spy.bufferSubDatas.at(-1), { offset: FLOATS * 4, srcOffset: FLOATS, length: 4 })
+  h.layer.destroy()
+})
+
+test('move — un set que no rota deja el ángulo en 0', () => {
+  const items = [{ id: 1, pos: { lat: 1, lng: 1 }, rumbo: 10 }]
+  const h = mount(items, { idOf, positionOf, headingOf: it => it.rumbo })
+  items[0].rumbo = 200
+  h.source.emitMove(1)
+  assert.equal(h.verts()[3], 0)
   h.layer.destroy()
 })

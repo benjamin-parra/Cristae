@@ -23,6 +23,7 @@ const DEFAULT_VARIANT = 'default'
 const NORM            = 1 / 360
 const angleNorm       = deg => (((deg % 360) + 360) % 360) * NORM
 const SIZE            = 6     // canal del tamaño en el layout
+const MOVE_FLOATS     = 4     // x, y, tile y ángulo: lo que un move reescribe, contiguo (el tile no cambia, pero está en medio)
 
 // El índice local del picking ocupa los canales b,a del atributo `color` con la convención `local + 1`:
 // el 0 significa «el objeto, pero no una entrada». Objeto y chunk son uniform del draw, y el `% LOCAL_CAP`
@@ -437,10 +438,11 @@ export class PointLayer {
     const a      = this.#accessors
     const v      = this.#verts
     const gl     = this.#gl
-    const atlas0 = this.#iconSet.atlas
+    const set    = this.#iconSet
+    const atlas0 = set.atlas
     gl?.bindBuffer(gl.ARRAY_BUFFER, this.#vbo)          // sin contexto, el espejo se escribe igual
 
-    const moves = this.#source.moveDirtyIds?.()        // solo posición → 2 floats
+    const moves = this.#source.moveDirtyIds?.()        // posición y ángulo → 4 floats contiguos (x, y, tile, ángulo)
     if (moves?.size) {
       for (const id of moves) {
         const s = this.#slot.get(id)
@@ -448,11 +450,13 @@ export class PointLayer {
           if (this.#absentByPolicy(id, byId(id))) continue   // no está en el buffer a propósito
           return this.#rebuild(snap)                         // desconocido → el buffer no está al día
         }
-        const pos  = a.positionOf(byId(id))
+        const item = byId(id)
+        const { lat, lng } = a.positionOf(item)   // copia inmediata: headingOf puede reusar el objeto
         const base = s * POINT_FLOATS
-        v[base]     = projX0(pos.lng) - this.#ax
-        v[base + 1] = projY0(pos.lat) - this.#ay
-        gl?.bufferSubData(gl.ARRAY_BUFFER, base * 4, v, base, 2)
+        v[base]     = projX0(lng) - this.#ax
+        v[base + 1] = projY0(lat) - this.#ay
+        v[base + 3] = set.rotates && a.headingOf ? angleNorm(a.headingOf(item)) : 0   // misma expresión que #encode
+        gl?.bufferSubData(gl.ARRAY_BUFFER, base * 4, v, base, MOVE_FLOATS)
       }
       // No se limpia acá: el Source acumula por ventana y limpia al abrir la siguiente
       // (así un 2º suscriptor —p.ej. una label-layer— ve el mismo set en este flush).

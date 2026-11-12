@@ -3,6 +3,7 @@ import { Emitter } from './Emitter.js'
 import { toUnsub } from './teardown.js'
 import { isNested, listOf } from './path.js'
 import { accessorsFromFields } from './fields.js'
+import { safe } from './safe.js'
 
 // Ruta B genérica: adapta CUALQUIER librería de reactividad a un Source, sin Store/Emitter
 // propios del motor. El emitter deja de ser house-first — `subscribe` ES el punto de
@@ -96,8 +97,9 @@ export const createSource = (input, variants) => {
 
   const idOf = accessors.idOf
   const basePositionOf = accessors.positionOf
+  const baseHeadingOf  = accessors.headingOf
 
-  const overrides = new Map()           // id → { lat, lng } (posición viva por move)
+  const overrides = new Map()           // id → { lat, lng, heading, hasHeading } (posición y rumbo vivos por move)
   let current = []                      // set completo actual → base correcta para remove
 
   const store = new Store([], {
@@ -119,6 +121,18 @@ export const createSource = (input, variants) => {
     ? item => overrides.get(idOf(item)) ?? basePositionOf(item)
     : undefined
 
+  // headingOf efectivo: el rumbo que dejó `move` si el id lo trae, si no el del consumidor, y sin ese 0.
+  // Existe en toda fuente con posición, aunque la capa no declare canal de rumbo: así `move` con rumbo gira
+  // un set que rota. Sólo lo llama la capa cuando el set rota, así que el 2D sin rotación no gana llamadas.
+  // Sin ningún move vivo no consulta `overrides`: el rebuild de un set que rota no paga un Map.get por ítem.
+  const headingOf = positionOf
+    ? item => {
+      if (!overrides.size) return baseHeadingOf ? baseHeadingOf(item) : 0
+      const pos = overrides.get(idOf(item))
+      return pos?.hasHeading ? pos.heading : baseHeadingOf ? baseHeadingOf(item) : 0
+    }
+    : undefined
+
   // pathOf efectivo: el del consumidor más los puntos que `append` sumó a ese id. Siguen al final del
   // path si es plano, y a su última parte no vacía si es anidado: las vacías del final no aportan
   // índice, así que el tramo abierto es el que termina donde termina el path. Un punto que no es punto
@@ -138,7 +152,9 @@ export const createSource = (input, variants) => {
       return parts
     }
     : undefined
-  const readAccessors = positionOf || pathOf ? { ...accessors, ...(positionOf && { positionOf }), ...(pathOf && { pathOf }) } : accessors
+  const readAccessors = positionOf || pathOf
+    ? { ...accessors, ...(positionOf && { positionOf, headingOf }), ...(pathOf && { pathOf }) }
+    : accessors
 
   // Un único objeto: lectura (contrato Source) + escritura (dueño). El motor solo lee.
   return {
@@ -193,12 +209,20 @@ export const createSource = (input, variants) => {
       ventana.commit()
     },
 
-    // O(1): registra el override y marca el id; la capa escribe el slot (sin rebuild).
-    move(id, lat, lng) {
+    // O(1): registra el override y marca el id; la capa escribe el slot (sin rebuild). Con `heading` finito
+    // (grados) el ítem también gira; sin él, o con uno que no es finito, se conserva el rumbo anterior del
+    // override. El objeto del override se reusa: no asigna tras el primer move del id.
+    move(id, lat, lng, heading) {
       ventana.abrir()
       const pos = overrides.get(id)
-      if (pos) { pos.lat = lat; pos.lng = lng }
-      else overrides.set(id, { lat, lng })
+      if (pos) {
+        pos.lat = lat
+        pos.lng = lng
+        if (Number.isFinite(heading)) { pos.heading = heading; pos.hasHeading = true }
+      } else {
+        const hasHeading = Number.isFinite(heading)
+        overrides.set(id, { lat, lng, heading: hasHeading ? heading : 0, hasHeading })
+      }
       ventana.marcarMove(id)
       ventana.commit()
     },
@@ -228,3 +252,104 @@ export const createSource = (input, variants) => {
     },
   }
 }
+
+// Símbolo con que una capa liga la Source pendiente a sus accessors. INTERNO: no sale por `src/data/index.js`.
+export const BIND = Symbol('cristae.source.bind')
+
+const SIN_ITEMS = Object.freeze([])   // el snapshot de toda Source pendiente: vacío y compartido
+
+// Una op encolada que lanza (un `append` a un id que aún no existe) no corta el resto de la cola.
+const ignorarOp = () => {}
+
+// La Source que existe antes de su capa (`el.source` disponible desde la construcción, antes de `ready`).
+// Hasta que una capa la liga no tiene accessors: encola en orden lo que se le escribe, responde lo neutro a
+// las lecturas y guarda los suscriptores. `source[BIND](accessors, variants, { hold })` crea la Source real
+// con `createSource` y copia sus miembros SOBRE ESTE MISMO objeto: son cierres sin `this`, así que la
+// identidad del objeto que ya circula no cambia, y tras ligarse no queda ninguna rama en sus métodos (el hot
+// path de `move` es el de siempre). Devuelve `release()`, que reproduce lo retenido por `hold` una sola vez.
+// Ya ligada, BIND no hace nada: los accessors quedan fijados en el primer montaje, como `id-of`.
+export const createPendingSource = () => {
+  let queue    = []              // { name, args } en orden de llegada
+  let moves    = new Map()       // id → op de move aún sin una op que no sea move después: se colapsan
+  let subs     = []              // { cb, off, vivo }
+  let ligada   = false
+  const dirty     = new Set()
+  const moveDirty = new Set()
+  const appended  = new Map()
+
+  const encolar = (name, args) => {
+    if (name === 'set') {
+      // Un `set` reemplaza todo y descarta moves, appends y overrides previos: sólo importan los filtros, que son
+      // de la Source y no de los ítems. Así un elemento que no monta nunca no retiene cada array que se le escribió.
+      queue = queue.filter(op => op.name === 'addFilter' || op.name === 'removeFilter')
+    }
+    if (name !== 'move') { moves.clear(); queue.push({ name, args }); return }
+    const previa = moves.get(args[0])
+    if (previa) {
+      // El último gana; un move sin rumbo conserva el del anterior, como lo haría ya ligado.
+      const [, lat, lng, heading] = args
+      previa.args[1] = lat
+      previa.args[2] = lng
+      if (Number.isFinite(heading)) previa.args[3] = heading
+      return
+    }
+    const op = { name, args }
+    moves.set(args[0], op)
+    queue.push(op)
+  }
+
+  const pendiente = {
+    getSnapshot:    () => SIN_ITEMS,
+    version:        () => 0,
+    itemById:       () => undefined,
+    dirtyIds:       () => dirty,
+    moveDirtyIds:   () => moveDirty,
+    appendedPoints: () => appended,
+    subscribe: cb => {
+      const sub = { cb, off: null, vivo: true }
+      subs.push(sub)
+      return () => {
+        if (!sub.vivo) return
+        sub.vivo = false
+        sub.off?.()
+        subs = subs.filter(s => s !== sub)
+      }
+    },
+    set:          (...args) => encolar('set', args),
+    patch:        (...args) => encolar('patch', args),
+    remove:       (...args) => encolar('remove', args),
+    move:         (...args) => encolar('move', args),
+    append:       (...args) => encolar('append', args),
+    addFilter:    (...args) => encolar('addFilter', args),
+    removeFilter: (...args) => encolar('removeFilter', args),
+    destroy() {
+      queue = []
+      moves.clear()
+      for (const sub of subs) { sub.vivo = false; sub.off?.() }
+      subs = []
+    },
+
+    [BIND](accessors, variants, { hold = false } = {}) {
+      if (ligada) return ignorarRelease
+      ligada = true
+      const real = createSource(accessors, variants)
+      Object.assign(pendiente, real)
+      for (const sub of subs) if (sub.vivo) sub.off = real.subscribe(sub.cb)
+      const cola = queue
+      queue = []
+      moves.clear()
+      const aplicar   = op => real[op.name](...op.args)   // una por ligadura, no por op
+      let reproducida = false
+      const release = () => {
+        if (reproducida) return
+        reproducida = true
+        for (const op of cola) safe(aplicar, op, ignorarOp)
+      }
+      if (!hold) release()
+      return release
+    },
+  }
+  return pendiente
+}
+
+const ignorarRelease = () => {}
