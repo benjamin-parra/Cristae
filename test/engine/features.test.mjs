@@ -96,3 +96,14 @@ test('un MultiGeometry de KML aporta cada kind a su capa', () => {
 test('un kind desconocido es un error de programación', () => {
   assert.throws(() => itemsOf(leer([]), 'cosa'), TypeError)
 })
+
+test('cada ítem lleva una revisión creciente, y es el hashOf de los accessors de url', async () => {
+  const { REVISION } = await import('../../src/engine/features.js')
+  const a = itemsOf(leer([feat({ type: 'Point', coordinates: [1, 2] }), feat({ type: 'Point', coordinates: [3, 4] })]), 'point').items
+  const b = itemsOf(leer([feat({ type: 'Point', coordinates: [1, 2] })]), 'point').items
+  assert.ok(a[0][REVISION] < a[1][REVISION])
+  assert.ok(a[1][REVISION] < b[0][REVISION], 'la lectura siguiente sella un número nuevo')
+  assert.equal(typeof a[0][REVISION], 'number')
+  assert.deepEqual(Object.keys(a[0]), [], 'la revisión no se ve al enumerar')
+  for (const k of ['point', 'line', 'polygon']) assert.equal(URL_ACCESSORS[k].hashOf(a[0]), a[0][REVISION])
+})

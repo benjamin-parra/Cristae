@@ -14,12 +14,20 @@ export const POSITION = Symbol('cristae.position')
 export const PATH     = Symbol('cristae.path')
 export const RINGS    = Symbol('cristae.rings')
 
-const idOf = item => item[FEATURE]
+// Revisión del ítem: un número de módulo que crece con cada ítem que `itemsOf` arma. Es el `hashOf` de los
+// accessors de `url`: un `set` con ids estables y un ítem NUEVO lo marca sucio y la capa lo reescribe; un
+// ítem que el refresco conserva (mismo objeto) mantiene su revisión y no se toca. Es numérico para que
+// `String()` en los rótulos sirva, a diferencia de un hash por identidad de objeto. Un `hashOf` propio gana.
+export const REVISION = Symbol('cristae.revision')
+let revision = 0
+
+const idOf   = item => item[FEATURE]
+const hashOf = item => item[REVISION]
 
 export const URL_ACCESSORS = {
-  point  : { idOf, positionOf: item => item[POSITION] },
-  line   : { idOf, pathOf: item => item[PATH] },
-  polygon: { idOf, ringsOf: item => item[RINGS] },
+  point  : { idOf, hashOf, positionOf: item => item[POSITION] },
+  line   : { idOf, hashOf, pathOf: item => item[PATH] },
+  polygon: { idOf, hashOf, ringsOf: item => item[RINGS] },
 }
 
 const isPoint = k => k === POINT || k === MULTI_POINT
@@ -63,6 +71,7 @@ export const itemsOf = (read, kind) => {
     if (kind === 'point' ? position === null : shapes === null) { skipped++; continue }
     const item = propertiesOf(read, f)
     item[FEATURE] = read.idOf?.(f) ?? f
+    item[REVISION] = ++revision
     if (kind === 'point') item[POSITION] = position
     else item[kind === 'line' ? PATH : RINGS] = shapes
     items.push(item)
