@@ -97,7 +97,9 @@ test('createSource con fields: set, patch y move', () => {
   src.patch([nuevo, { codigo: 'b', lat: 3, lng: 4 }], new Set(['a']))
   assert.deepEqual(positionOf(src.itemById('a')), { lat: 5, lng: 6 })
   src.move('b', 9, 9)
-  assert.deepEqual(positionOf(src.itemById('b')), { lat: 9, lng: 9 })
+  // el override de move se reusa y también lleva el rumbo (heading, hasHeading): se compara la posición
+  const { lat, lng } = positionOf(src.itemById('b'))
+  assert.deepEqual({ lat, lng }, { lat: 9, lng: 9 })
   src.destroy()
 })
 
