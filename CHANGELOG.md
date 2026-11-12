@@ -121,6 +121,18 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   *Migración*: ninguna.
 
 ### Cambiado
+- **El calor (`addHeatLayer`, `<cristae-heat-layer>`) se dibuja en GPU**, sin leer el framebuffer a CPU. En el prototipo
+  medido salió unas 90 a 140 veces más rápido que el canvas 2D, en una GPU de escritorio NVIDIA, a 1440×900 y con
+  10 000 a 1 M de puntos: es una cifra de prototipo, no una garantía. El color difiere unos niveles del canvas
+  anterior, que además variaba entre máquinas y no llegaba al rojo tope con pilas densas. Comparte el contexto de su
+  tramo, deja de partir tramos y aparece en `surfaces()` con `kind: 'heat'`. Desaparece el canvas
+  `.cristae-heat-canvas`. Durante el zoom animado el campo no se dibuja y vuelve al asentar la vista. Ver
+  [`docs/heat.md`](docs/heat.md) y [SPECS §19.4](SPECS.md).
+  *Migración*: la capa ahora **necesita WebGL2**. Sin él `addHeatLayer` lanza al construirse, como las demás capas GL,
+  donde antes el calor se pintaba en un canvas 2D sin contexto GL; quien corra en entornos sin WebGL2 captura el
+  alta y degrada. Quien estilaba `.cristae-heat-canvas` deja de tener esa clase. La API no cambia.
+- **Un mapa adoptado sin vista no lanza al anclar ni componer las capas GL.** `EditSurface` y `GlTramo` esperan al
+  `moveend` que trae la vista, en vez de leerla antes de tiempo. *Migración*: ninguna.
 - **`iconSet` es opcional en `addPointLayer`.** Sin él se usa `'dot'`, igual que antes para quien ya lo
   pasaba. Los tipos pasan de obligatorio a opcional. Ver [`docs/icons.md`](docs/icons.md).
   *Migración*: ninguna; quien pasaba `iconSet` sigue igual.

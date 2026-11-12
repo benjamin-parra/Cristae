@@ -441,8 +441,9 @@ export type SurfaceState = "live" | "lost" | "released" | "none";
 export interface SurfaceInfo {
   /** El id de la capa que la posee. Una capa interna del motor lleva el suyo, como `<host>:clusters`. */
   layerId    : string;
-  /** La clase de capa, como el `kind` de un hit; más `editable` (el editor) y `overlay` (la ligada a un host). */
-  kind       : "point" | "line" | "polygon" | "shape" | "circle" | "editable" | "overlay";
+  /** La clase de capa, como el `kind` de un hit; más `editable` (el editor), `overlay` (la ligada a un host) y
+   *  `heat` (el calor, miembro de tramo). */
+  kind       : "point" | "line" | "polygon" | "shape" | "circle" | "editable" | "overlay" | "heat";
   /** El pane donde cuelga su canvas. */
   pane       : string;
   /** El z-index vigente del pane, o `null` si no tiene uno. */
@@ -872,11 +873,11 @@ export interface CircleLayerConfig<T> {
 /** @deprecated Se retira en v0.47.0: la reemplaza `ShapeHandle`, que además tiene `style`. */
 export type CircleHandle<T = unknown> = Omit<ShapeHandle<T>, "style">;
 
-// ── Heatmap (addHeatLayer) — canvas 2D, densidad acumulada ───────────────────
+// ── Heatmap (addHeatLayer) — GPU, miembro de tramo, densidad acumulada ───────
 export interface HeatAccessors<T> extends Pick<SourceAccessors<T>, "hashOf"> {
   idOf       : (p: T) => string | number;
   positionOf : (p: T) => { lat: number; lng: number };
-  /** Peso por punto (default 1); la densidad acumula por composición. */
+  /** Peso por punto (default 1); la densidad acumula por la ley de composición. */
   weightOf?  : (p: T) => number;
 }
 export interface HeatLayerConfig<T> {
