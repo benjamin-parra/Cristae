@@ -234,8 +234,78 @@ const opacidadCss = c => {
 
 const FONDO = [221, 221, 221]          // el de .leaflet-container: lo que se ve donde no hay nada
 
+// ───────────────────────── terreno ─────────────────────────
+// Lo que el escenario `t` necesita de la página: la tesela de referencia servida desde la propia página (sin red), la capa de
+// terreno en planta, el recorte por un polígono vecino y la clase que da relief() en cada celda de una ventana, con la posición
+// de pantalla de su centro. Lo que pinta la GPU lo lee el orquestador en la captura.
+const TERRENO = {
+  estado: null,
+
+  // Mueve la vista a la ventana, da de alta la capa y espera su `dataload`. Devuelve los contextos propios de antes del alta.
+  async montar(b64, cfg) {
+    const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0))
+    // la tesela de referencia responde 200 y cualquier otra 404, que la capa lee como «sin dato»
+    const fetch = async (url, { signal } = {}) => { signal?.throwIfAborted(); return url === cfg.tesela ? new Response(bytes) : new Response(null, { status: 404 }) }
+    const { x0, y0, lado } = cfg.ventana, c = inv(x0 + lado / 2, y0 + lado / 2, cfg.dem.zoom)
+    const E = this.estado = { cfg, fetch, cargas: [], errores: [], handle: null }
+    N.eng.on('dataload', d => d.layerId === cfg.id && E.cargas.push(d))
+    N.eng.on('dataerror', d => d.layerId === cfg.id && E.errores.push(d))
+    N.eng.camera.setView([c.lat, c.lng], cfg.dem.zoom + cfg.zoomExtra)
+    await quieto(300, 5000)
+    const antes = contar().propios
+    E.handle = N.eng.addTerrainLayer({ id: cfg.id, dem: cfg.dem, colorBy: 'slope', slopeBreaks: cfg.cortes, slopeColors: cfg.colores, hillshade: false, fetch })
+    const t0 = ahora()
+    while (ahora() - t0 < 15_000 && !E.cargas.length && !E.errores.length) await dormir(50)
+    return { antes, cargas: E.cargas, errores: E.errores }
+  },
+
+  // El polígono vecino (dado de alta después de la capa, para ejercer el orden cualquiera) con un hueco; no pinta nada por sí
+  // mismo. La capa lo toma por su id.
+  recortar() {
+    const { cfg, handle } = this.estado, { x0, y0, lado } = cfg.ventana, { columnas, hueco } = cfg.recorte, z = cfg.dem.zoom
+    const anillo = (i0, i1, j0, j1) => [[x0 + i0, y0 + j1], [x0 + i1, y0 + j1], [x0 + i1, y0 + j0], [x0 + i0, y0 + j0]].map(([x, y]) => { const l = inv(x, y, z); return [l.lat, l.lng] })
+    N.eng.addPolygonLayer({
+      id: cfg.recorte.id,
+      accessors: { idOf: g => g.id, ringsOf: g => g.coords, styleOf: () => ({ color: '#000000', fillColor: '#000000', fillOpacity: 0, weight: 0 }) },
+      data: [{ id: 1, coords: [anillo(0, columnas, 0, lado), anillo(hueco.i0, hueco.i1, hueco.j0, hueco.j1)] }],
+    })
+    handle.update({ clipTo: cfg.recorte.id })
+    return true
+  },
+
+  // Enciende el sombreado con el color y el recorte puestos: el sombreado oscurece por encima, sin tapar.
+  sombrear() {
+    this.estado.handle.update({ hillshade: true })
+    return true
+  },
+
+  // Quita el polígono vecino y la capa.
+  quitar() {
+    const { cfg } = this.estado
+    return [N.eng.removeLayer(cfg.recorte.id), N.eng.removeLayer(cfg.id)]
+  },
+
+  // La clase de pendiente de relief() sobre el polígono de cada celda de la ventana (-1 sin dato) y dónde cae su centro en pantalla.
+  async celdas() {
+    const { cfg, fetch } = this.estado, { x0, y0, lado } = cfg.ventana, z = cfg.dem.zoom, v = vista()
+    const { terrain, relief } = await import(`${DIST}esm/geometry.js`)
+    const margen = 2, ll = (x, y) => inv(x, y, z)
+    const t = await terrain(cfg.dem, { south: ll(0, y0 + lado + margen).lat, west: ll(x0 - margen, 0).lng, north: ll(0, y0 - margen).lat, east: ll(x0 + lado + margen, 0).lng }, { fetch })
+    const filas = []
+    for (let j = 0; j < lado; j++)
+      for (let i = 0; i < lado; i++) {
+        const x = x0 + i, y = y0 + j, s = ll(x, y + 1), n = ll(x, y), e = ll(x + 1, y)
+        const r = relief(t, [[s.lat, s.lng], [s.lat, e.lng], [n.lat, e.lng], [n.lat, n.lng]], cfg.cortes)
+        const c = ll(x + 0.5, y + 0.5), p = aPunto(c.lat, c.lng, v)
+        filas.push({ i, j, x: Math.round(p.x), y: Math.round(p.y), clase: r.cells ? r.slope.areas.findIndex(a => a > 0) : -1 })
+      }
+    return filas
+  },
+}
+
 window.__nav = {
   config: { ESC, VISTA, COLOR },
+  terreno: TERRENO,
 
   async montar({ animacion = 'none' } = {}) {
     const t0 = ahora()

@@ -4,6 +4,12 @@
 //   c.comprobar(nombre, ok, evidencia)   anota un resultado; nunca lanza
 // El criterio de cada uno es el de DISENO.md §3 (criterios 1 a 6 y 9) y el enunciado de la etapa 5; los umbrales salen de ahí y no de lo medido.
 
+import { readFileSync } from 'node:fs'
+import { terrain } from '../../src/geometry/terrain.js'
+import { GRID } from '../../src/geometry/geodesic.js'
+import { claseGemela } from '../../test-helpers/clase-gemela.mjs'
+import { latDe, lngDe, mundo } from '../../test-helpers/terreno.mjs'
+
 const SATURACION = /el techo de contextos WebGL está lleno/
 
 const necesaria = f => f.visible && f.hasContent
@@ -161,6 +167,116 @@ const MEDICIONES = [
     },
   },
 ]
+
+// ───────────────────────── terreno ─────────────────────────
+// La tesela real de AWS z12 1217/2501 (Terrarium, 256 × 256) que ya usan las pruebas de relief(), servida desde la página.
+const TESELA = { z: 12, x: 1217, y: 2501, lado: 256, url: 'https://t.test/12/1217/2501.png', archivo: new URL('../fixtures/terrarium-12-1217-2501.png', import.meta.url) }
+// Una ventana de 20 × 20 celdas del dem a 60 y 120 celdas del borde de la tesela. Salió de barrer la tesela con ventanas de ese
+// tamaño y cortes [0.15, 0.3]: ésta reparte las 400 celdas en las tres clases (122, 150 y 128), así que la comparación no es vacua.
+const VENTANA = { x0: TESELA.x * TESELA.lado + 60, y0: TESELA.y * TESELA.lado + 120, lado: 20 }
+const CONFIG_TERRENO = {
+  id: 'terreno',
+  tesela: TESELA.url,
+  dem: { url: 'https://t.test/{z}/{x}/{y}.png', encoding: 'terrarium', zoom: TESELA.z, tileSize: TESELA.lado },
+  zoomExtra: 2,                                 // el mapa al zoom del dem + 2: cada celda ocupa 4 × 4 píxeles
+  cortes: [0.15, 0.3],
+  colores: ['#ff0000', '#00ff00', '#0000ff'],   // puros y alejados del fondo: una clase equivocada no se confunde con otra
+  ventana: VENTANA,
+  // el recorte: las diez primeras columnas, con un hueco que la máscara par-impar tiene que dejar sin pintar
+  recorte: { id: 'recorte', columnas: 10, hueco: { i0: 2, i1: 6, j0: 8, j1: 12 } },
+}
+const CLASES_RGB = CONFIG_TERRENO.colores.map(h => [1, 3, 5].map(k => parseInt(h.slice(k, k + 2), 16)))
+const TOL_COLOR = 40                            // por canal, como en ejecutar.mjs
+const FONDO_MAPA = [221, 221, 221]
+
+// La clase que pinta el píxel: la de su color, -1 si es el fondo (transparente) y -2 si no es ninguno.
+const claseDelPixel = px => {
+  const cerca = rgb => rgb.every((v, i) => Math.abs(v - px[i]) <= TOL_COLOR)
+  const k = CLASES_RGB.findIndex(cerca)
+  return k >= 0 ? k : cerca(FONDO_MAPA) ? -1 : -2
+}
+
+// La clase del gemelo float32 en cada celda de la ventana, sobre una grilla que decodifica el mismo PNG.
+const clasesDelGemelo = async bytes => {
+  const { x0, y0, lado } = VENTANA, N = TESELA.lado * 2 ** TESELA.z, margen = 2
+  const lat = y => latDe(y, N), lng = x => lngDe(x, N)
+  const t = await terrain(CONFIG_TERRENO.dem, { south: lat(y0 + lado + margen), west: lng(x0 - margen), north: lat(y0 - margen), east: lng(x0 + lado + margen) },
+    { fetch: mundo({ bytes: { [TESELA.url]: bytes } }).fetch })
+  const grid = t[GRID], clases = []
+  for (let j = 0; j < lado; j++)
+    for (let i = 0; i < lado; i++) clases.push(claseGemela(grid, x0 + i - grid.px0, y0 + j - grid.py0, CONFIG_TERRENO.cortes).clase)
+  return clases
+}
+
+const distintas = (celdas, a, b) => celdas.map((c, k) => ({ i: c.i, j: c.j, a: a[k], b: b[k] })).filter(d => d.a !== d.b)
+
+const ESCENARIO_TERRENO = {
+  id: 't', titulo: 'terreno en planta: la clase de pendiente que pinta la GPU es la de relief() y la del gemelo float32, celda a celda; el recorte y los contextos', motores: ['chromium', 'shell', 'firefox'],
+  async correr(c) {
+    await c.ev('__nav.montar()')
+    const bytes = new Uint8Array(readFileSync(TESELA.archivo))
+    const m = await c.ev(`__nav.terreno.montar(${JSON.stringify(Buffer.from(bytes).toString('base64'))}, ${JSON.stringify(CONFIG_TERRENO)})`)
+    await c.ev('__nav.quieto(400, 8000)')
+    await c.dormir(500)
+    c.nota('carga', { cargas: m.cargas, errores: m.errores })
+    c.comprobar('la capa cargó la tesela de referencia sin error', m.cargas.length > 0 && m.errores.length === 0, m.cargas.length ? m.cargas : m.errores)
+
+    const est = await c.ev('__nav.estado()')
+    const fila = est.filas.find(f => f.layerId === CONFIG_TERRENO.id)
+    c.comprobar('la capa tiene superficie viva y contenido', fila?.state === 'live' && fila.hasContent, fila)
+    c.comprobar('ningún contexto nuevo: la capa comparte el tramo de los polígonos vecinos', est.propios.creados === m.antes.creados && est.propios.vivos === m.antes.vivos, { antes: m.antes, ahora: est.propios })
+
+    const celdas = await c.ev('__nav.terreno.celdas()')
+    const relief = celdas.map(k => k.clase), gemelo = await clasesDelGemelo(bytes)
+    c.comprobar('la ventana trae las 400 celdas y las tres clases', celdas.length === 400 && [0, 1, 2].every(k => relief.includes(k)), [0, 1, 2].map(k => relief.filter(v => v === k).length))
+    const img = await c.captura('clases')
+    const gpu = celdas.map(k => claseDelPixel(img.px(k.x, k.y)))
+    const frente = (a, b, nombre, nota) => {
+      const d = distintas(celdas, a, b)
+      c.comprobar(`${nombre}: 0 celdas distintas de 400`, d.length === 0, d.length ? { distintas: d.length, primeras: d.slice(0, 5), nota } : img.archivo)
+    }
+    const respaldo = 'si hay diferencias se activa el respaldo de la clase en CPU subida como R8UI (terrain-shaders.js)'
+    frente(gpu, relief, 'la clase que pinta la GPU es la de relief()', respaldo)
+    frente(gpu, gemelo, 'la clase que pinta la GPU es la del gemelo float32', respaldo)
+    frente(gemelo, relief, 'el gemelo float32 es la clase de relief()')
+
+    // el recorte: lo de afuera del polígono vecino y su hueco queda transparente, lo de adentro conserva su clase
+    await c.ev('__nav.terreno.recortar()')
+    await c.ev('__nav.quieto(400, 8000)')
+    await c.dormir(500)
+    const { columnas, hueco } = CONFIG_TERRENO.recorte
+    const dentro = k => k.i < columnas && !(k.i >= hueco.i0 && k.i < hueco.i1 && k.j >= hueco.j0 && k.j < hueco.j1)
+    const recorte = await c.captura('recorte')
+    const conRecorte = celdas.map(k => claseDelPixel(recorte.px(k.x, k.y)))
+    const esperadas = celdas.map(k => dentro(k) ? k.clase : -1)
+    const malas = distintas(celdas, conRecorte, esperadas)
+    c.comprobar('con clip-to hay celdas de adentro y de afuera', celdas.some(dentro) && celdas.some(k => !dentro(k)), { dentro: celdas.filter(dentro).length })
+    c.comprobar('con clip-to: lo de afuera y el hueco quedan transparentes y lo de adentro conserva su clase', malas.length === 0, malas.length ? { distintas: malas.length, primeras: malas.slice(0, 5) } : recorte.archivo)
+
+    // el sombreado junto al color: oscurece lo de abajo (nunca aclara ni tapa), en el color y también en el mapa base
+    await c.ev('__nav.terreno.sombrear()')
+    await c.ev('__nav.quieto(400, 8000)')
+    await c.dormir(500)
+    const sombra = await c.captura('sombreado')
+    const brillo = px => px[0] + px[1] + px[2]
+    const mas = (k, base) => brillo(sombra.px(k.x, k.y)) > brillo(base) + 3 * 2
+    const adentro = celdas.filter(dentro), afuera = celdas.filter(k => !dentro(k))
+    const claseRgb = k => CLASES_RGB[k.clase]
+    c.comprobar('con sombreado y color: ninguna celda de adentro se aclara', adentro.every(k => !mas(k, claseRgb(k))), sombra.archivo)
+    c.comprobar('con sombreado y color: el sombreado se ve sobre el color de al menos una celda de adentro', adentro.some(k => brillo(sombra.px(k.x, k.y)) < brillo(claseRgb(k)) - 3 * 2), sombra.archivo)
+    c.comprobar('con sombreado: lo de afuera oscurece el mapa base sin aclararlo ni taparlo', afuera.every(k => !mas(k, FONDO_MAPA)) && afuera.some(k => brillo(sombra.px(k.x, k.y)) < brillo(FONDO_MAPA) - 3 * 2), sombra.archivo)
+
+    // se quita todo: vuelve la línea base de contextos y no queda nada pintado
+    await c.ev('__nav.terreno.quitar()')
+    await c.ev('__nav.quieto(800, 10000)')
+    const fin = await c.ev('__nav.estado()')
+    const vacio = await c.captura('quitada')
+    const pintadas = celdas.filter(k => claseDelPixel(vacio.px(k.x, k.y)) !== -1)
+    c.comprobar('tras quitar la capa el contexto vuelve a la línea base', fin.propios.vivos === m.antes.vivos && fin.propios.perdidos === 0, { antes: m.antes, ahora: fin.propios })
+    c.comprobar('tras quitar la capa no queda nada pintado en la ventana', pintadas.length === 0, pintadas.length)
+    c.comprobar('sin errores de la página', fin.errores.length === 0, fin.errores)
+  },
+}
 
 export const ESCENARIOS = [
   {
@@ -361,5 +477,6 @@ export const ESCENARIOS = [
     },
   },
   MOSTRAR,
+  ESCENARIO_TERRENO,
   ...MEDICIONES,
 ]
