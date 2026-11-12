@@ -663,7 +663,7 @@ export class MapEngine {
     }
   }
 
-  /* ── Heatmap (canvas 2D, densidad acumulada; NO GL — se auto-reproyecta por eventos del mapa) ── */
+  /* ── Heatmap (GL: acumula la densidad en su framebuffer y la colorea en la ranura de su tramo; se reproyecta solo) ── */
 
   addHeatLayer(cfg) {
     const { id, data, accessors, pane, visible = true, radius, blur, intensity, colorRamp } = cfg
@@ -672,7 +672,7 @@ export class MapEngine {
     const controls          = cfg.source ? null : createSource(accessors)
     const source            = cfg.source ?? controls
     const { layer, ...seat } = this.#build(id, cfg, BASE_Z, paneName, () =>
-      new HeatLayer({ host: this.#host, pane: paneName, source, radius, blur, intensity, colorRamp, visible }), true)
+      new HeatLayer({ host: this.#host, pane: paneName, source, radius, blur, intensity, colorRamp, visible, surface: this.#tramos.surface }))
 
     const record = { kind: 'heat', source, layer, controls, paneName, ...seat, interactive: false, visible, enabled: true }
     this.#layers.set(id, record)
@@ -964,7 +964,7 @@ export class MapEngine {
   // que la capa de puntos durante pan/zoom → los retículos no se desfasan de los sprites. Un canvas fijo
   // al contenedor tenía que reproyectar por frame, y su redibujo (rAF) quedaba 1 frame detrás del
   // compositor que ya movió los puntos → esa era la "vibración". Ahora se reposiciona por `translate3d`
-  // al origen del viewport (igual patrón que HeatLayer/LabelLayer) y sólo reasienta en moveend/zoomend/
+  // al origen del viewport (igual patrón que LabelLayer) y sólo reasienta en moveend/zoomend/
   // resize; entre redibujos el pane lo lleva. pointer-events:none (el picking es del host GPU). El dato
   // entra por la Source del host (misma fuente → sin desincronía ni "fantasma").
   addHighlightOverlay({ id, layerId, drawHighlight, z } = {}) {

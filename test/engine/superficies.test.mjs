@@ -42,7 +42,7 @@ const zonas     = { idOf: g => g.id, ringsOf: () => [[[0, 0], [0, 1], [1, 1]]] }
 const recorrido = { id: 'r', path: [[0, 0], [0, 1]] }
 
 // Un motor con tres capas de clases distintas: puntos con datos, líneas vacías y polígonos con datos
-// ocultos. Cada una trae su `z`. El calor dibuja en 2D: no tiene superficie y no sale.
+// ocultos. Cada una trae su `z`. El calor, GL como las demás, también sale: es miembro de tramo.
 const montar = async () => {
   const map    = makeMap()
   const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeLeaflet() }) })
@@ -68,6 +68,7 @@ test('una fila por superficie WebGL, en el orden de alta, con su clase, su pane,
     { layerId: 'flota', kind: 'point',   pane: 'cristae-point-flota',   z: 378, cssZoom: false, state: 'live', hasContent: true,  visible: true },
     { layerId: 'rutas', kind: 'line',    pane: 'cristae-line-rutas',    z: 380, cssZoom: true,  state: 'none', hasContent: false, visible: true },
     { layerId: 'zonas', kind: 'polygon', pane: 'cristae-polygon-zonas', z: 382, cssZoom: true,  state: 'live', hasContent: true,  visible: false },
+    { layerId: 'calor', kind: 'heat',    pane: 'cristae-heat-calor',    z: 430, cssZoom: true,  state: 'live', hasContent: true,  visible: true },
   ])
   engine.destroy()
 })
@@ -125,6 +126,20 @@ test('las formas y los círculos, que dibujan con un polígono por dentro, tiene
   engine.destroy()
 })
 
+test('un calor que nace vacío no se arma: queda en none, sin contexto propio, hasta el primer dato', async () => {
+  const { engine } = await montar()
+  const calor = engine.addHeatLayer({ id: 'fria', accessors: puntos })
+  await flush()
+  await asentar(engine)
+  const resumen = () => [fila(engine, 'fria').kind, fila(engine, 'fria').state, fila(engine, 'fria').hasContent]
+  assert.deepEqual(resumen(), ['heat', 'none', false], 'vacío: su tramo vive, él no se arma')
+
+  calor.set(flota)
+  await flush()
+  assert.deepEqual(resumen(), ['heat', 'live', true], 'con el primer dato se arma')
+  engine.destroy()
+})
+
 test('el editor también tiene fila: con contenido si hay geometría o un trazado en curso', async () => {
   const { engine } = await montar()
   const editor = engine.addEditableLayer({ id: 'geo', kind: 'polygon', mode: 'edit' })
@@ -144,7 +159,7 @@ test('el editor también tiene fila: con contenido si hay geometría o un trazad
 test('quitar una capa saca su fila, y destruir el motor las saca todas', async () => {
   const { engine } = await montar()
   engine.removeLayer('rutas')
-  assert.deepEqual(engine.surfaces().map(s => s.layerId), ['flota', 'zonas'])
+  assert.deepEqual(engine.surfaces().map(s => s.layerId), ['flota', 'zonas', 'calor'])
   engine.destroy()
   assert.deepEqual(engine.surfaces(), [])
 })

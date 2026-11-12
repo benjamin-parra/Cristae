@@ -67,7 +67,7 @@ test('un pane que el mapa ya tenía no se va con la capa', () => {
   assert.equal(propio.connected, true)
 })
 
-test('las capas que cuelgan su propio nodo también sueltan su pane al quitarse', () => {
+test('las capas que cuelgan su propio nodo y el calor, miembro de tramo, sueltan su pane al quitarse', async () => {
   const map    = makeMap()
   const engine = new MapEngine({ host: adoptLeafletHost(map, { leaflet: makeLeaflet() }) })
   engine.addLabelLayer({ id: 'rotulos' })
@@ -77,6 +77,7 @@ test('las capas que cuelgan su propio nodo también sueltan su pane al quitarse'
 
   engine.removeLayer('rotulos')
   engine.removeLayer('calor')
+  await microtarea()                                  // el pane de un miembro de tramo se va con el tramo, al final de la microtarea
   panes.forEach(pane => assert.equal(map.getPane(pane), null, `${pane} fuera del registro`))
 })
 
