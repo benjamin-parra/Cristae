@@ -136,19 +136,20 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   *Migración*: la capa ahora **necesita WebGL2**. Sin él `addHeatLayer` lanza al construirse, como las demás capas GL,
   donde antes el calor se pintaba en un canvas 2D sin contexto GL; quien corra en entornos sin WebGL2 captura el
   alta y degrada. Quien estilaba `.cristae-heat-canvas` deja de tener esa clase. La API no cambia.
-- **El calor con muchos puntos dibuja una muestra por celda de pantalla.** Desde 20.000 puntos,
-  `addHeatLayer` y `<cristae-heat-layer>` juntan los puntos de cada celda de R/20 px (R = `radius` + `blur`;
-  2 px con los valores por defecto, 8 px como tope) por nivel de zoom entero, y la GPU dibuja una muestra
-  por celda con la suma de sus aportes, su centroide y la covarianza de sus puntos, en vez de una por punto.
-  Medido en una Intel Arc B580 a 1920×1080 con el calor redibujado en cada cuadro: 500.000 puntos agrupados
-  pasan de 28 a 60 FPS y la espera de la GPU de 34 a 11 ms; 100.000 puntos con `radius` 50 y `blur` 30, de
-  39 a 60 FPS. La imagen difiere de la suma exacta en más de 8/255 en menos del 0,1 % de los px con calor,
-  salvo en el borde de regiones con varios puntos por px². Las celdas se rehacen al cambiar los datos, el
-  nivel entero, `radius`, `blur` o `intensity`, y con `refresh()`, nunca en un paneo; rehacerlas cuesta
-  hasta 8 ms con 100.000 puntos y de 12 a 50 ms con 500.000. Por debajo de 20.000 puntos el dibujo es el de
-  antes, llamada por llamada. Con `intensity` mayor que 4, una celda no junta puntos cuyo aporte se aleja
-  (los calientes y los fríos son dos muestras). En el respaldo RGBA8, las zonas densas quedan más cerca del R16F. Ver
-  [`docs/heat.md`](docs/heat.md#agregación).
+- **El calor con muchos puntos dibuja una muestra por celda de pantalla.** Cuando n·R² llega a 20.000·40²
+  (R = `radius` + `blur`: 20.000 puntos con los valores por defecto, 5.000 con `radius` 50 y `blur` 30),
+  `addHeatLayer` y `<cristae-heat-layer>` juntan los puntos de cada celda de R/20 px (8 px como tope), con la grilla
+  un nivel más fina cada cuarto de zoom, y la GPU dibuja una muestra por celda con la suma de sus aportes, su
+  centroide y la covarianza de sus puntos, en vez de una por punto. Una celda que junta mucho aporte se parte en 16, y
+  un punto con aporte de 0,5 o más (peso pleno con `intensity` desde 4,2) va solo. Medido en una Intel Arc B580 a
+  1920×1080 con el calor redibujado en cada cuadro: 500.000 puntos agrupados pasan de 28 a 60 FPS y la espera de la GPU
+  de 34 a 11 ms; con `radius` 50 y `blur` 30, a 960×640, 20.000 puntos pasan de 11 a 5 ms. Con `intensity` 1 la imagen difiere de la
+  suma exacta en más de 8/255 en menos del 0,1 % de los px con calor en 115 de 117 escenas de prueba, también en el borde
+  de regiones de varios puntos por px². Las celdas se rehacen al cambiar los datos, el nivel, `radius`, `blur` o
+  `intensity`, y con `refresh()`, nunca en un paneo; un zoom animado las arma para su destino mientras el campo está
+  oculto. Rehacerlas cuesta hasta 9 ms con 100.000 puntos y de 21 a 80 ms con 500.000; un nivel donde no agregaron no
+  se reintenta. Por debajo del umbral el dibujo es el de antes, llamada por llamada. En el respaldo RGBA8, las zonas
+  densas quedan más cerca del R16F. Ver [`docs/heat.md`](docs/heat.md#agregación).
   *Migración*: ninguna.
 - **Un mapa adoptado sin vista no lanza al anclar ni componer las capas GL.** `EditSurface` y `GlTramo` esperan al
   `moveend` que trae la vista, en vez de leerla antes de tiempo. *Migración*: ninguna.

@@ -86,9 +86,9 @@ oculta (`visible: false` en el alta).
   contenedor. No hay `getImageData` ni recorrido de píxeles en JS.
 - Un cambio de la Source sube los puntos una vez, O(n), y redibuja en el mismo frame en que llega, ya
   coalescido por la Source. La cámara sola (paneo, zoom asentado) no sube nada: sólo redibuja.
-- Desde 20.000 puntos, la capa los junta por nivel de zoom entero en celdas de pantalla de R/20 px, con
-  R = `radius` + `blur` (2 px con los valores por defecto, 8 px como mucho), y dibuja una muestra por celda
-  en lugar de una por punto. Ver [Agregación](#agregación).
+- Con muchos puntos (20.000 con el radio por defecto; el umbral sigue a n·R²), la capa los junta en celdas de
+  pantalla de R/20 px, con R = `radius` + `blur` (2 px con los valores por defecto, 8 px como mucho), y dibuja
+  una muestra por celda en lugar de una por punto. Ver [Agregación](#agregación).
 - La acumulación va en px CSS, sin escalar por DPR: un campo difuso no lo necesita.
 - `colorRamp` se muestrea a 256 texeles al cambiar. En React se compara por referencia, así que una función
   escrita en línea en el render rehace la paleta en cada render: conviene declararla fuera del componente
@@ -96,36 +96,45 @@ oculta (`visible: false` en el alta).
 
 ## Agregación
 
-Con muchos puntos, lo que cuesta es el relleno de la GPU: cada punto pinta un cuadrado de 2R de lado. Desde
-20.000 puntos válidos la capa junta los de cada celda de R/20 px en una muestra que lleva la suma de sus
-aportes, su centroide ponderado y la covarianza de sus posiciones, y la GPU dibuja una muestra por celda:
+Con muchos puntos, lo que cuesta es el relleno de la GPU: cada punto pinta un cuadrado de 2R de lado. Por eso el
+umbral sigue a n·R² y se cruza en 20.000·40²: 20.000 puntos con el radio por defecto, 5.000 con `radius` 50 y `blur` 30,
+189.350 con 8 y 5.
+
+Pasado el umbral, la capa junta los puntos de cada celda de R/20 px en una muestra que lleva la suma de sus aportes, su
+centroide ponderado y la covarianza de sus posiciones, y la GPU dibuja una muestra por celda:
 
 - La muestra suma lo mismo que sus puntos: con aportes iguales, exactamente; con pesos distintos, salvo un
-  término de segundo orden que crece cuando el aporte de un punto se acerca a 1. Por eso una celda no junta
-  aportes de clases distintas (cada clase deja 1 − c a la mitad): con `intensity` hasta 4 todos los puntos
-  son de la clase 0 y nada se separa; con más, y pesos muy dispares, los puntos calientes y los fríos de una
-  celda se dibujan como dos muestras, y si eso lleva las celdas a más de la mitad de los puntos, la capa no
-  agrega.
+  término de segundo orden que crece cuando el aporte de un punto se acerca a 1. Por eso un punto con aporte de
+  0,5 o más (peso pleno con `intensity` desde 4,2) no entra en ninguna celda: se dibuja solo, como sin agregar.
 - La covarianza ensancha la brocha de la celda en la dirección en que se reparten sus puntos, así que el borde
   de una región densa queda donde lo dejan sus puntos más externos.
-- Las celdas se rehacen cuando cambian los datos (un flush, un `move`), el nivel entero de zoom, el tamaño de
-  celda (`radius`, `blur`) o el valor de `intensity` (asignar el mismo no las toca), y con `refresh()`. Un paneo, un zoom dentro del mismo nivel y la
-  cámara sola no las tocan.
-- Rehacerlas es O(n) en el hilo principal, dentro del dibujo que las necesita: hasta 8 ms con 100.000 puntos,
-  de 12 a 50 ms con 500.000 y de 25 a 152 ms con 1 M, medido en un CPU de escritorio.
-- Si las celdas no bajan los puntos a la mitad, la capa dibuja un splat por punto. Por debajo de 20.000
-  puntos dibuja exactamente como sin agregación.
-- La celda mide en pantalla entre la mitad y el total de su tamaño: justo por encima de un zoom entero, la
-  mitad. Con el zoom entero que fija Leaflet por defecto no importa; con `zoomSnap` fraccionario o en pleno
-  gesto, la agregación paga menos. Con 100.000 puntos agrupados hay 29.433 celdas a zoom 10 y, a 10,01, ya
-  no bajan a la mitad y la capa dibuja un splat por punto.
+- Una celda que junta mucho aporte (más de 32 puntos de peso pleno con `intensity` 1) se parte en 16 de un cuarto
+  de lado: en el borde de una región de varios puntos por px², la cola de los puntos de una celda pesada ya se ve.
+- La celda mide en pantalla entre 0,84 y 1 vez su tamaño: la grilla sube de nivel cada cuarto de zoom. Con
+  `zoomSnap` fraccionario o en pleno gesto la agregación paga casi lo mismo que en un zoom entero (con 100.000
+  puntos agrupados, 29.433 celdas a zoom 10 y 35.833 a 10,01).
+- Las celdas se rehacen cuando cambian los datos (un flush, un `move`), el nivel, el tamaño de celda (`radius`,
+  `blur`) o el valor de `intensity` (asignar el mismo no las toca), y con `refresh()`. Un paneo, un zoom dentro del
+  mismo nivel y la cámara sola no las tocan.
+- Un zoom animado las arma para su destino mientras el campo está oculto, y el cuadro que lo vuelve a mostrar no las
+  espera.
+- Rehacerlas es O(n) en el hilo principal: hasta 9 ms con 100.000 puntos, de 21 a 80 ms con 500.000 y de 62 a
+  165 ms con 1 M, medido en un CPU de escritorio. Las celdas pesadas piden una pasada más, que a zoom bajo duplica
+  ese costo.
+- Si las muestras no bajan los puntos a la mitad, la capa dibuja un splat por punto, y no vuelve a intentarlo en
+  ese nivel ni en uno más fino hasta que cambien los datos, la celda o `intensity`.
+- Desde 200.000 puntos, una muestra de 1 de cada 16 corta antes una pasada que no va a pagar.
+- Por debajo del umbral dibuja exactamente como sin agregación.
+- Memoria: 4 bytes por punto y hasta 76 bytes por celda en CPU, y 28 bytes por muestra en la GPU, con la mitad de
+  los puntos como tope de muestras.
 
-Lo que cambia la imagen, medido:
+Lo que cambia la imagen, medido contra la suma exacta (acumulada en float32) en 4 tipos de datos, 3 radios y
+zooms de 8 a 13:
 
-- Contra la suma exacta (acumulada en float32), menos del 0,1 % de los px con calor difiere en más de 8/255
-  por canal, y ninguno en más de 2 niveles de la rampa si se admite un borde corrido 1 px.
-- La excepción es el borde de las regiones con varios puntos por px², donde el campo pasa del vacío al tope
-  en pocos px.
+- Con `intensity` 1, menos del 0,1 % de los px con calor difiere en más de 8/255 por canal, y ninguno en más de 2
+  niveles de la rampa si se admite un borde corrido 1 px, en 115 de 117 escenas. Las otras dos son regiones de
+  varios puntos por px² con radio grande (0,106 % de px; 21/255), donde un splat por punto se aparta más.
+- Con `intensity` 4 y pesos distintos, en 2 de 23 escenas a zoom 10 hasta el 0,24 % de los px pasa de 8/255.
 - Contra la imagen sin agregar la diferencia es algo mayor donde se apilan miles de splats por px. Esa imagen
   redondea a media precisión en cada suma del R16F, y la agregada queda más cerca de la suma exacta.
 
