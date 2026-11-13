@@ -33,10 +33,6 @@ const HOVER = 1                            // bandera: el ítem bajo el puntero,
 // (x, y) y medio ancho y medio alto. La caja es la de `labelLayout`, así los dos renderers pican lo mismo.
 const PICK = 6
 
-// Los sistemas que se leen de derecha a izquierda, para ordenar las partes de una corrida partida por un emoji.
-const RTL = /[\p{Script=Arabic}\p{Script=Hebrew}\p{Script=Syriac}\p{Script=Thaana}\p{Script=Nko}]/u
-const LETRA = /\p{L}/u
-
 // Una vista en world0 con escala 1: la que coloca polígonos y líneas fuera de la vista.
 const WORLD0 = Object.freeze({ cx: 0, cy: 0, scale: 1, hw: 0, hh: 0 })
 
@@ -365,11 +361,11 @@ export const createLabelGl = ({ host, pane, zIndex, surface = opts => new EditSu
   }
 
   // Una corrida que mezcla un sistema complejo con emoji: las partes sin emoji van enteras, cada emoji suelto y en color,
-  // en el orden de lectura del primer sistema fuerte. Cada parte se mide con el modelado del navegador.
+  // en orden lógico de izquierda a derecha, que es como las ordena el canvas con su dirección `ltr`. Cada parte se mide
+  // con el modelado del navegador.
   const placeMixed = (st, key, font, text, wx, wy, cx, gy, alpha, flags) => {
     const units = text.units
     raster.font = font
-    const rtl = RTL.test(LETRA.exec(text.text)?.[0] ?? '')
     let total = 0, from = 0
     const parts = []
     for (let i = 0; i <= units.length; i++) {
@@ -388,9 +384,8 @@ export const createLabelGl = ({ host, pane, zIndex, surface = opts => new EditSu
     }
     let pen = cx - total / 2
     for (let k = 0; k < parts.length; k += 2) {
-      const j = rtl ? parts.length - 2 - k : k
-      put(st, wx, wy, pen + parts[j + 1] / 2, gy, parts[j], alpha, flags)
-      pen += parts[j + 1]
+      put(st, wx, wy, pen + parts[k + 1] / 2, gy, parts[k], alpha, flags)
+      pen += parts[k + 1]
     }
   }
 

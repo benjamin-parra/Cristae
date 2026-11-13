@@ -171,7 +171,7 @@ test('color y halo son uniformes: el tema no recoloca; halo none no tiene pase',
   r.destroy()
 })
 
-test('un emoji dentro de una corrida compleja sale como glifo propio, en el orden de lectura', () => {
+test('un emoji dentro de una corrida compleja sale como glifo propio, en orden lógico como el canvas ltr', () => {
   const { r, s, atlas } = montar()
   r.attach(miembro({ items: [{ id: 'x', lat: -33.4, lng: -70.6, text: 'مرحبا 🚚' }, { id: 'y', lat: -33.41, lng: -70.6, text: 'مرحبا' }] }))
   r.resetCanvasReference()
@@ -179,8 +179,8 @@ test('un emoji dentro de una corrida compleja sale como glifo propio, en el orde
   assert.equal(inst.length, 3, 'la corrida con emoji en dos partes; la otra entera')
   while (atlas.flush(1e9));
   const pagina = id => atlas.meta.pixels[8 * id + 7]
-  assert.equal(pagina(inst[0].glifo), 1, 'en árabe el emoji queda a la izquierda, y en la página de color')
-  assert.equal(pagina(inst[1].glifo), 0, 'la corrida árabe, en la de campos')
+  assert.equal(pagina(inst[0].glifo), 0, 'la corrida árabe, en la de campos, a la izquierda')
+  assert.equal(pagina(inst[1].glifo), 1, 'el emoji después, en la página de color')
   assert.ok(inst[0].ox < inst[1].ox)
   r.destroy()
 })
