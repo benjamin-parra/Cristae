@@ -774,6 +774,7 @@ La **ley** (MODELO §5.4) formalizada como contrato que un implementador debe cu
 | `terrain` (§18) | — | — | O(tiles) pedidos de red, a lo sumo 6 en vuelo, + O(píxeles) de decodificación + O(filas) llamadas al modelo base |
 | `relief` (§18) | — | — | O(vértices + celdas de la caja de la zona); asigna 8 B por celda de esa caja |
 | `elevation` (§18) | — | — | O(1) **[0-alloc]** |
+| atlas de glifos de los rótulos `gl` (§19.3) | O(1) **[0-alloc]** por grafema ya pedido (id, ajuste del par, referencias), por fuente ya vista y por `flush` sin cola | O(1) por grafema nuevo, que espera su rasterizado; `flush` rasteriza hasta `RASTER_BUDGET_MS` por cuadro | O(glifos + área de la página) al compactar, sólo si suelta algo |
 | redibujo del calor (§19.4) | O(n) splats instanciados, o uno por celda desde n·R² = 20.000·40², + O(px) de la rampa, **[0-alloc]** con la cámara sola | subida O(n) y celdas O(n) al cambiar la Source | subida O(n) al reasentar el ancla; celdas O(n) al cambiar de nivel (cada 1/4 de zoom), o en el `zoomanim` del destino |
 | `ring` · `arc` (§18) | — | — | O(vértices) llamadas al destino del modelo; no es [0-alloc]: devuelve pares. El escritor que comparte con la capa de formas y los editores no crea arrays ni clausuras, salvo lo que asigne el destino del modelo (la esfera, nada): con él, el anillo que reescribe cada frame del gesto de un editor de forma es **[0-alloc]**; el frame entero no, porque convertir el píxel en lugar asigna |
 | `geodesic` (§18) | — | — | O(vértices) con una cota por tramo que no llama al modelo; O(puntos insertados) llamadas al modelo, y con el elipsoide, el rumbo y la distancia por tramo y el destino de la geographiclib por punto; no es [0-alloc]: devuelve pares |
@@ -1700,15 +1701,16 @@ predio. Equivale a `polyline.setText` de Leaflet.TextPath sobre líneas. Reempla
   los rótulos son estado del host y mueren con él. `update` mezcla como el elemento: `undefined` no cambia y
   `null` vuelve al valor por defecto. `remove` es idempotente y no hace nada tras la baja del host.
 - **`text-of` y `fields.text`.** En `<cristae-labeled>` y `<cristae-text-layer>`, `text-of="campo"` es el atributo de `textOf`: una cadena se vuelve un lector total del campo (`null` o ausente dan `''`) y una función en la prop pasa tal cual. Precedencia: función (en la prop o en `accessors`), luego `text-of`, luego `fields.text`; los choques avisan una vez. En JS, la misma entrada es `addLabels({ fields: { text } })`. Sobre las burbujas de un cluster no se aplica (§15.2): su texto es el conteo, y una función sigue recibiendo `{ count, leaves }`. Cambiar `text-of` en vivo se aplica con `update`.
-- **Props:** `textOf`, `htmlOf`, `renderer` (`canvas` | `html`), `placement` (`auto` | `along` | `center` |
+- **Props:** `textOf`, `htmlOf`, `renderer` (`canvas` | `html` | `gl`), `placement` (`auto` | `along` | `center` |
   `above` | `below` | `right`), `repeat`, `offset`, `orientation` (`auto` | `path`), `font`, `color`, `halo`,
   `paint`, `interactive` y `visible`. Todas en vivo, sin remontar. Un `textOf` o un `paint` nuevos en cada
   render recalculan los textos y repintan sólo si cambió alguno (se compara la salida, sin `deps`).
 - **Validación en dos momentos.** Lo que depende sólo de las props lanza `TypeError` en `cristaeConfig()`,
   antes de tocar el motor: `htmlOf` o `interactive` sin `html`, `paint` sin `canvas`, `paint` con un
   `placement` que no es `auto` ni `center`, `repeat` u `orientation` con un `placement` explícito que no es
-  `along`, `repeat ≤ 0`, `offset` no finito o un valor desconocido. `renderer="gl"` lanza con un mensaje que
-  dice que está pendiente. Lo que depende del hijo —un `placement` que la capa alcanzada no admite— lanza en
+  `along`, `repeat ≤ 0`, `offset` no finito o un valor desconocido; con `renderer="gl"`, `along`, `repeat` u
+  `orientation` lanzan con un mensaje que dice que está pendiente, también el `auto` que resuelve a `along` en el
+  montaje. Lo que depende del hijo —un `placement` que la capa alcanzada no admite— lanza en
   el montaje antes de reducir, con lo que alcanza el decorador. En caliente se valida todo antes de tocar un host.
 - **Colocación natural (`auto`)**: `below` sobre puntos, HTML y burbujas; `along` sobre líneas; `center`
   sobre polígonos y formas. Admiten: puntos, HTML y burbujas `center`, `above`, `below`, `right`; líneas
@@ -1725,6 +1727,13 @@ predio. Equivale a `polyline.setText` de Leaflet.TextPath sobre líneas. Reempla
   contexto fijado por miembro y cada `paint` entre `save` y `restore`; la medida se cachea por fuente y se
   rehace cuando resuelve `document.fonts.load(font)`. `html`: un nodo por rótulo, estable por id; `htmlOf` se
   llama otra vez sólo si cambia el hash del ítem; con `along` va en el punto medio, girado según la tangente.
+  `gl`: glifos instanciados que leen un atlas por realm (`src/render/labelGlyphs.js`), con los grafemas como campos
+  de distancia en una página R8 de 1024 × 256 que se duplica hasta 4096, el emoji en color en una página RGBA y la
+  meta de cada glifo en una tercera, RGBA32F. Lo nuevo se rasteriza con el canvas 2D en una cola de a
+  `RASTER_BUDGET_MS` (4 ms) por cuadro; cada glifo cuenta sus referencias, una página llena se compacta sólo si eso
+  suelta algo, y lo que aun así no cabe no se dibuja y avisa una vez. Sin WebGL2 el miembro pinta con `canvas` y
+  avisa una vez por página. El canvas avisa una vez cuando pinta más de `AVISO_GL_ROTULOS` (1.300) rótulos sin
+  `paint` en un cuadro.
 - **Z: cuatro planos** de un millón cada uno, sin `z` explícito:
 
   | Plano | z | Qué |
@@ -1816,6 +1825,7 @@ por referencia. No se pica.
 | `test/element/labeled.test.mjs`, `test/grammar-reach.test.mjs` | qué rotula cada árbol (cluster por dentro y por fuera, geodésica, overlay y `labeled` anidados), R2 con el calor solo, los `TypeError` en sus dos momentos sin tocar el motor, `textOf` nuevo sin remontar, `visible="false"`, `renderer` sin tapar `render()`, los avisos de retiro; cluster, geodésica y el overlay decorador reducen como antes |
 | `test/grammar-roles.test.mjs`, `test/element/overlay.test.mjs` | la firma de cada rol y el texto de cada error; el overlay decorador monta los mismos badges que antes, también por fuera de un cluster |
 | `test/render/label-*.test.mjs`, `test/engine/labels*.test.mjs` | colocación, medida por grafema, canvas compartido, `html`, picking por glifo y `[0-alloc]` (piezas A, B y C del diseño) |
+| `test/render/label-glyphs.test.mjs`, `test/render/sdf.test.mjs` | el campo de un disco a menos de medio px; el atlas `gl` determinista, la cola con su tope por cuadro, las referencias, la compactación que sólo corre si suelta, el tope que no lanza, el emoji en la página de color, el ajuste por par sólo en latino, griego y cirílico, y `[0-alloc]` al recolocar |
 | `test/render/heat-math.test.mjs`, `test/render/heat-ideal.test.mjs` | la matemática pura del calor (brocha, aporte, rampa, paleta) y los gemelos de GPU contra la referencia float64, con las tolerancias medidas |
 | `test/render/heat-shaders.test.mjs` | los shaders de las dos rutas, el formato por extensión una vez por contexto y el respaldo RGBA8 |
 | `test/render/heat-layer.test.mjs` | la capa GPU: subida y re-anclaje, tramo y ocultado en el zoom animado, estado neutro, `destroy`, 0 bytes con la cámara sola |
