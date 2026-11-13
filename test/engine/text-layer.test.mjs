@@ -66,7 +66,7 @@ test('el texto va sobre su punto por defecto y admite above, below y right; sin 
 test('lo inválido lanza TypeError sin registrar nada; un update inválido no cambia nada', () => {
   const { engine, map } = motor()
   assert.throws(() => engine.addTextLayer({ id: 't', accessors: puntos, placement: 'along' }), TypeError)
-  assert.throws(() => engine.addTextLayer({ id: 't', accessors: puntos, renderer: 'gl' }), /pendiente/)
+  assert.throws(() => engine.addTextLayer({ id: 't', accessors: puntos, renderer: 'gl', paint: () => null }), /paint pide renderer 'canvas', no 'gl'/)
   assert.throws(() => engine.addTextLayer({ id: 't', accessors: puntos, placement: 'center', repeat: 240 }), TypeError)
   assert.throws(() => engine.addTextLayer({ id: 't', accessors: { idOf: c => c.id } }), TypeError)
   assert.equal(engine.getLayer('t'), null)
