@@ -72,6 +72,7 @@ const comparar = (r, m, host, n = 2000) => {
     const muestra = { x: azar() * 800, y: azar() * 600 }
     const a = layout.hitsAt(muestra, { x: 0, y: 0 }, []).map(p => p.id).sort()
     const b = r.hitsAt(m, muestra, []).map(p => p.id).sort()
+    assert.equal(new Set(b).size, b.length, 'un ítem no se pica dos veces')
     ;(a.length || b.length) && conHit++
     a.join() === b.join() || distintos++
   }
@@ -83,7 +84,11 @@ test('el picking del gemelo de CPU es el de labelLayout: puntos, polígonos y l�
   const denso = Array.from({ length: 600 }, (_, i) => ({ id: i, lat: -33.4 + ((i * 37) % 97 - 48) * 4e-4, lng: -70.6 + ((i * 53) % 89 - 44) * 6e-4, text: `P-${i}`, size: 4 + (i % 9) }))
   const caja = (lat, lng, d) => [[lat - d, lng - d], [lat - d, lng + d], [lat + d, lng + d], [lat + d, lng - d]]
   const zonas = Array.from({ length: 40 }, (_, i) => ({ id: `z${i}`, rings: caja(-33.4 + (i % 8) * 0.004 - 0.016, -70.6 + Math.floor(i / 8) * 0.006 - 0.012, 0.0015), text: `Zona ${i}` }))
-  const rutas = Array.from({ length: 30 }, (_, i) => ({ id: `r${i}`, path: [[-33.42 + i * 0.0013, -70.64], [-33.4 + i * 0.0011, -70.6], [-33.41 + i * 0.001, -70.55]], text: `R ${i}` }))
+  // Una de cada tres rutas en dos partes: dos colocaciones seguidas del mismo ítem, que se pican una vez.
+  const rutas = Array.from({ length: 30 }, (_, i) => {
+    const a = [[-33.42 + i * 0.0013, -70.64], [-33.4 + i * 0.0011, -70.6], [-33.41 + i * 0.001, -70.55]]
+    return { id: `r${i}`, path: i % 3 ? a : [a, a.map(([la, ln]) => [la + 2e-4, ln + 1e-3])], text: `R ${i}` }
+  })
   const casos = [
     miembro({ id: 'p', items: denso, placement: 'right', opts: { offset: 2 } }),
     miembro({ id: 'q', items: denso, placement: 'above' }),
@@ -181,7 +186,9 @@ test('un emoji dentro de una corrida compleja sale como glifo propio, en orden l
   const pagina = id => atlas.meta.pixels[8 * id + 7]
   assert.equal(pagina(inst[0].glifo), 0, 'la corrida árabe, en la de campos, a la izquierda')
   assert.equal(pagina(inst[1].glifo), 1, 'el emoji después, en la página de color')
-  assert.ok(inst[0].ox < inst[1].ox)
+  // «مرحبا » mide 6 grafemas y el emoji 1: cada parte va centrada en su ancho.
+  assert.ok(Math.abs(inst[0].ox - (-7 * ANCHO / 2 + 3 * ANCHO)) < 1e-4, 'la corrida termina antes del emoji')
+  assert.ok(Math.abs(inst[1].ox - (7 * ANCHO / 2 - ANCHO / 2)) < 1e-4)
   r.destroy()
 })
 
@@ -195,14 +202,20 @@ test('el atlas sube entero al crecer y por filas después; sin escrituras no sub
   r.resetCanvasReference()
   assert.equal(s.log.tex.length, 3)
   assert.ok(s.log.texSub.length >= 2, 'las filas nuevas de la página de campos y de la meta')
-  const subidas = s.log.texSub.length
+  const subidas = s.log.texSub.length, alineaciones = s.log.alineaciones
   r.resetCanvasReference()
   assert.equal(s.log.texSub.length, subidas, 'sin escrituras no sube nada')
+  assert.equal(s.log.alineaciones, alineaciones, 'ni recorre las filas: el sello del atlas no cambió')
+  atlas.sdf.gen++
+  atlas.stamp++
+  r.resetCanvasReference()
+  assert.equal(s.log.tex.length, 4, 'una generación nueva (crecer o compactar) sube la página entera')
 
   r.dropGl()
   const otro = glFalso()
   r.buildGl(otro.gl)
   assert.equal(otro.log.tex.length, 3, 'un contexto nuevo sube las tres páginas')
+  assert.equal(otro.log.vaos, 1, 'y arma el VAO del miembro')
   assert.equal(otro.log.datas.length, 1, 'y las instancias')
   assert.equal(instancias(otro.log, r.stats().glifos).length, 15)
   r.destroy()
@@ -214,7 +227,7 @@ test('los glifos que esperan su rasterizado aparecen solos: el realm pinta en el
   r.resetCanvasReference()
   assert.ok(atlas.pending > 0)
   const ends = s.ends
-  await new Promise(res => setTimeout(res, 20))
+  for (let i = 0; i < 200 && atlas.pending; i++) await new Promise(res => setTimeout(res, 5))
   assert.equal(atlas.pending, 0)
   assert.ok(s.ends > ends, 'repintó sin que nadie lo pidiera')
   r.destroy()

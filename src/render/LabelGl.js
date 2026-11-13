@@ -631,11 +631,7 @@ export const createLabelGl = ({ host, pane, zIndex, surface = opts => new EditSu
       frame    = 0
       injected = false
       gl = u = textures = null
-      states.forEach(st => {
-        st.vbo = st.vao = null
-        st.uploaded = false
-        st.gpuCap   = 0
-      })
+      states.forEach(st => (st.vbo = st.vao = null))
     },
 
     // Repinta en el próximo cuadro; los pedidos de un cuadro son un solo dibujo.

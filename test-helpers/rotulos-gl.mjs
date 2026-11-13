@@ -69,7 +69,7 @@ const callado = base => {
   return gl
 }
 export const glFalso = ({ mudo = false } = {}) => {
-  const log = { draws: [], datas: [], subs: [], tex: [], texSub: [], matrices: [], uniforms: [], blend: [] }
+  const log = { draws: [], datas: [], subs: [], tex: [], texSub: [], matrices: [], uniforms: [], blend: [], alineaciones: 0, vaos: 0 }
   const base = {
     canvas: { width: 800, height: 600 }, drawingBufferWidth: 800, drawingBufferHeight: 600,
     TEXTURE0: 100, ONE: 1, ONE_MINUS_SRC_ALPHA: 771, ARRAY_BUFFER: 1, TEXTURE_2D: 2, R8: 3, RGBA8: 4, RGBA32F: 5, RED: 6, RGBA: 7, FLOAT: 8, UNSIGNED_BYTE: 9,
@@ -83,6 +83,8 @@ export const glFalso = ({ mudo = false } = {}) => {
     uniformMatrix4fv: (_l, _t, m) => log.matrices.push(Float64Array.from(m)),
     uniform4fv: (_l, v) => log.uniforms.push(Array.from(v)),
     blendFunc: (a, b) => log.blend.push([a, b]),
+    pixelStorei: () => log.alineaciones++,
+    createVertexArray: () => (log.vaos++, {}),
   }
   if (mudo) return { log, gl: callado(base) }
   return { log, gl: new Proxy(base, { get: (t, p) => (p in t ? t[p] : () => ({})) }) }
