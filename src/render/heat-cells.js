@@ -1,4 +1,4 @@
-import { contribution } from './heat-math.js'
+import { contribution, TERM_CAP } from './heat-math.js'
 
 // Agregación del calor en celdas de pantalla, sin GL ni DOM. Con muchos puntos el costo del calor es el relleno de la GPU:
 // cada splat pinta (2R)² px. Juntar los puntos de una celda de N px en UNA muestra baja las instancias sin cambiar la
@@ -6,9 +6,11 @@ import { contribution } from './heat-math.js'
 //
 // LA LEY SE CONSERVA. Cada punto suma −ln(1 − c·g) al acumulador. Una celda dibuja una muestra con el aporte medio c̄ = Σc/n
 // y la multiplicidad n, que suma n·(−ln(1 − c̄·g)): con aportes iguales es exactamente la suma de sus n puntos en el mismo
-// sitio, y con aportes distintos difiere sólo en el término de segundo orden (Σc² frente a (Σc)²/n). El peso que se suma
-// es el aporte c de cada punto (su peso normalizado por `intensity`, acotado como en el shader), no el peso crudo: dos
-// puntos de peso 0 y 1 aportan 0,05 y 0,12, no 0 y 1.
+// sitio, y con aportes distintos difiere en el término de segundo orden (Σc² frente a (Σc)²/n), que crece con lo empinado
+// del término cerca de c·g = 1. Por eso una celda sólo junta puntos de la misma CLASE de aporte (CLASS_STEP): con `intensity`
+// ≤ 4 todos caen en una sola y la celda es la de siempre. El peso que se suma es el aporte c de cada punto (su peso
+// normalizado por `intensity`, acotado como en el shader), no el peso crudo: dos puntos de peso 0 y 1 aportan 0,05 y 0,12,
+// no 0 y 1.
 //
 // EL CENTROIDE Y LA DISPERSIÓN. La muestra va al centroide de los puntos ponderado por su aporte, no al centro de la celda:
 // así el término de primer orden del desplazamiento se anula (Σc·(p − centroide) = 0). Lo que queda es de segundo orden y
@@ -32,6 +34,16 @@ export const CELL_PX = 8
 // R/5 el borde de las regiones densas se ve corrido ya a densidades corrientes. Con un radio chico la celda se achica y la
 // agregación deja de pagar por sí sola (MAX_CELL_RATIO).
 export const CELL_PER_RADIUS = 1 / 20
+
+// Ancho de una clase de aporte, en el valor del término a g = 1: u = −ln(1 − c), que es cuánto suma el punto en el centro de
+// su brocha. Con ln 2 cada clase deja 1 − c a la mitad (c < 0,5; hasta 0,75; hasta 0,875...). El término es convexo en c y la
+// muestra de la celda usa el aporte medio, así que subestima a una celda de aportes distintos tanto más cuanto más cerca de 1
+// llegan. Medido en una suma en CPU de la ley (escena agrupada de 100.000 puntos, radio por defecto, celda de 2 px, el 3 % de
+// los puntos con peso pleno y el resto casi sin peso): sin clases el peor error pasa el criterio (≤ 12/255 y ≤ 0,1 % de los px
+// de calor con más de 8/255) hasta `intensity` 4 (9/255, 0,06 %) y no desde 5 (9/255, 0,21 %; con 8: 51/255 y 0,62 %); con
+// clases, 6/255 y ningún px desde 5 hasta 8. Razonado: el aporte máximo es POINT_ALPHA·intensity, así que con `intensity` ≤ 4
+// (c ≤ 0,48) todo cae en la clase 0 y nada cambia. Si con las clases las celdas pasan de MAX_CELL_RATIO, no agrega.
+export const CLASS_STEP = Math.LN2
 
 // Desde cuántos puntos válidos la capa agrega. Por debajo dibuja un splat por punto, como siempre.
 export const AGGREGATE_MIN_POINTS = 20_000
@@ -63,10 +75,14 @@ const MIN_CELLS = 1024
 // Constantes del hash multiplicativo (de Fibonacci y de MurmurHash3): reparten índices vecinos por toda la tabla.
 const HASH_X = 0x9E3779B1
 const HASH_Y = 0x85EBCA77
+const HASH_CLASS = 0x27D4EB2F      // de xxHash32: reparte las clases de una misma celda
 
 export const aggregationLevel = zoom => Math.ceil(zoom - LEVEL_EPS)
 
 export const cellSize = R => Math.min(CELL_PX, R * CELL_PER_RADIUS)
+
+// La clase de un aporte: el escalón de u = −ln(1 − c), con u acotado a TERM_CAP (c = 1 daría ∞).
+export const contributionClass = c => Math.floor(Math.min(-Math.log1p(-c), TERM_CAP) / CLASS_STEP)
 
 const pow2AtLeast = n => 2 ** Math.ceil(Math.log2(Math.max(n, 2)))
 
@@ -85,6 +101,7 @@ export class HeatCells {
   #table = new Int32Array(0)          // hash (ix, iy) → celda, con sondeo lineal; −1 = libre
   #ix    = new Int32Array(0)
   #iy    = new Int32Array(0)
+  #cls   = new Int32Array(0)          // clase de aporte de la celda
   #n     = new Int32Array(0)          // puntos por celda
   #sumC  = new Float64Array(0)        // Σ aporte
   #sumX  = new Float64Array(0)        // Σ aporte · (x de celda − ix), en unidades de celda
@@ -93,8 +110,8 @@ export class HeatCells {
   #sumYY = new Float64Array(0)
   #sumXY = new Float64Array(0)
 
-  // Agrega los `n` primeros puntos de `mirror` (relativos al ancla) en celdas de `cellPx` px al nivel `level`. Devuelve las
-  // celdas, o 0 si no paga (más de n·MAX_CELL_RATIO celdas, o un nivel cuyo índice no cabe), y deja la muestra de cada una en
+  // Agrega los `n` primeros puntos de `mirror` (relativos al ancla) en celdas de `cellPx` px al nivel `level`, una por cada
+  // clase de aporte que haya en la celda. Devuelve las celdas, o 0 si no paga (más de n·MAX_CELL_RATIO celdas, o un nivel cuyo índice no cabe), y deja la muestra de cada una en
   // `out`, relativa a la misma ancla.
   build(mirror, n, anchorX, anchorY, level, cellPx, intensity) {
     this.count = 0
@@ -116,9 +133,11 @@ export class HeatCells {
 
       const ix = Math.floor(fx)
       const iy = Math.floor(fy)
-      let h = Math.imul(ix ^ Math.imul(iy, HASH_Y), HASH_X) & mask
+      const c   = contribution(mirror[o + 2], intensity)
+      const cls = contributionClass(c)
+      let h = Math.imul(ix ^ Math.imul(iy, HASH_Y) ^ Math.imul(cls, HASH_CLASS), HASH_X) & mask
       let k = table[h]
-      while (k >= 0 && (this.#ix[k] !== ix || this.#iy[k] !== iy)) {
+      while (k >= 0 && (this.#ix[k] !== ix || this.#iy[k] !== iy || this.#cls[k] !== cls)) {
         h = (h + 1) & mask
         k = table[h]
       }
@@ -130,6 +149,7 @@ export class HeatCells {
         table[h] = k
         this.#ix[k]   = ix
         this.#iy[k]   = iy
+        this.#cls[k]  = cls
         this.#n[k]    = 0
         this.#sumC[k] = 0
         this.#sumX[k] = 0
@@ -138,7 +158,6 @@ export class HeatCells {
         this.#sumYY[k] = 0
         this.#sumXY[k] = 0
       }
-      const c  = contribution(mirror[o + 2], intensity)
       const dx = fx - ix
       const dy = fy - iy
       this.#n[k]++
@@ -172,6 +191,7 @@ export class HeatCells {
   #grow(cells) {
     this.#ix   = grown(this.#ix, cells)
     this.#iy   = grown(this.#iy, cells)
+    this.#cls  = grown(this.#cls, cells)
     this.#n    = grown(this.#n, cells)
     this.#sumC = grown(this.#sumC, cells)
     this.#sumX = grown(this.#sumX, cells)

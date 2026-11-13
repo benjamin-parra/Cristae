@@ -146,7 +146,8 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   salvo en el borde de regiones con varios puntos por px². Las celdas se rehacen al cambiar los datos, el
   nivel entero, `radius`, `blur` o `intensity`, y con `refresh()`, nunca en un paneo; rehacerlas cuesta
   hasta 8 ms con 100.000 puntos y de 12 a 50 ms con 500.000. Por debajo de 20.000 puntos el dibujo es el de
-  antes, llamada por llamada. En el respaldo RGBA8, las zonas densas quedan más cerca del R16F. Ver
+  antes, llamada por llamada. Con `intensity` mayor que 4, una celda no junta puntos cuyo aporte se aleja
+  (los calientes y los fríos son dos muestras). En el respaldo RGBA8, las zonas densas quedan más cerca del R16F. Ver
   [`docs/heat.md`](docs/heat.md#agregación).
   *Migración*: ninguna.
 - **Un mapa adoptado sin vista no lanza al anclar ni componer las capas GL.** `EditSurface` y `GlTramo` esperan al

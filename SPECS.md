@@ -1794,6 +1794,8 @@ por referencia. No se pica.
   (⌈zoom⌉) en celdas de R/20 px de pantalla, con R = `radius` + `blur` y 8 px como tope, y se dibuja una
   muestra por celda: el aporte medio y la multiplicidad (la ley suma n veces el término), el centroide
   ponderado por el aporte y la covarianza de los puntos, que ensancha la brocha en cada dirección en ±√3·σ.
+  Una celda sólo junta puntos de la misma clase de aporte (cada clase deja 1 − c a la mitad): con `intensity`
+  hasta 4, una sola.
   Las celdas se rehacen al cambiar la Source, el nivel entero, el tamaño de celda o `intensity`, y con
   `refresh()`; nunca por cuadro ni en un paneo. Si las celdas no bajan los puntos a la mitad, o por debajo
   del umbral, el dibujo es el de un splat por punto, idéntico llamada por llamada. Ver

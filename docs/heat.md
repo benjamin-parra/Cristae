@@ -101,16 +101,24 @@ Con muchos puntos, lo que cuesta es el relleno de la GPU: cada punto pinta un cu
 aportes, su centroide ponderado y la covarianza de sus posiciones, y la GPU dibuja una muestra por celda:
 
 - La muestra suma lo mismo que sus puntos: con aportes iguales, exactamente; con pesos distintos, salvo un
-  término de segundo orden.
+  término de segundo orden que crece cuando el aporte de un punto se acerca a 1. Por eso una celda no junta
+  aportes de clases distintas (cada clase deja 1 − c a la mitad): con `intensity` hasta 4 todos los puntos
+  son de la clase 0 y nada se separa; con más, y pesos muy dispares, los puntos calientes y los fríos de una
+  celda se dibujan como dos muestras, y si eso lleva las celdas a más de la mitad de los puntos, la capa no
+  agrega.
 - La covarianza ensancha la brocha de la celda en la dirección en que se reparten sus puntos, así que el borde
   de una región densa queda donde lo dejan sus puntos más externos.
 - Las celdas se rehacen cuando cambian los datos (un flush, un `move`), el nivel entero de zoom, el tamaño de
-  celda (`radius`, `blur`) o `intensity`, y con `refresh()`. Un paneo, un zoom dentro del mismo nivel y la
+  celda (`radius`, `blur`) o el valor de `intensity` (asignar el mismo no las toca), y con `refresh()`. Un paneo, un zoom dentro del mismo nivel y la
   cámara sola no las tocan.
 - Rehacerlas es O(n) en el hilo principal, dentro del dibujo que las necesita: hasta 8 ms con 100.000 puntos,
   de 12 a 50 ms con 500.000 y de 25 a 152 ms con 1 M, medido en un CPU de escritorio.
 - Si las celdas no bajan los puntos a la mitad, la capa dibuja un splat por punto. Por debajo de 20.000
   puntos dibuja exactamente como sin agregación.
+- La celda mide en pantalla entre la mitad y el total de su tamaño: justo por encima de un zoom entero, la
+  mitad. Con el zoom entero que fija Leaflet por defecto no importa; con `zoomSnap` fraccionario o en pleno
+  gesto, la agregación paga menos. Con 100.000 puntos agrupados hay 29.433 celdas a zoom 10 y, a 10,01, ya
+  no bajan a la mitad y la capa dibuja un splat por punto.
 
 Lo que cambia la imagen, medido:
 
