@@ -109,14 +109,16 @@ nuevo en cada render no redibuja si los textos no cambiaron.
 
 ## Cómo se dibuja
 
-| | `canvas` | `html` |
-| --- | --- | --- |
-| Cantidad | miles con `center`; del orden de mil trazos con `along` | cientos |
-| Curvado | sí, letra a letra | no: con `along` va en el punto medio, girado según el trazo |
-| Fuentes | cualquier fuente CSS; se remide cuando carga | cualquier CSS que llegue al shadow root del mapa |
-| Ligaduras, RTL y kerning | bien con `center`; se pierden con `along` | bien siempre |
+| | `canvas` | `html` | `gl` |
+| --- | --- | --- | --- |
+| Cantidad | miles con `center`; del orden de mil trazos con `along` | cientos | miles, sin costo de CPU al mover el mapa |
+| Curvado | sí, letra a letra | no: con `along` va en el punto medio, girado según el trazo | pendiente |
+| Fuentes | cualquier fuente CSS; se remide cuando carga | cualquier CSS que llegue al shadow root del mapa | cualquier fuente CSS; se rasteriza de nuevo cuando carga |
+| Ligaduras, RTL y kerning | bien con `center`; se pierden con `along` | bien siempre | ajuste por par en latino, griego y cirílico; árabe, hebreo e índicas como corrida entera; sin ligaduras entre grafemas |
+| Zoom animado | se oculta y vuelve al asentar | sigue al mapa | sigue a su ícono en cada cuadro |
 
-`renderer="gl"` pinta los rótulos en la GPU, en el contexto WebGL de las capas de abajo:
+`renderer="gl"` pinta los rótulos en la GPU, en el contexto WebGL de las capas de abajo; sin capa GL debajo abre
+uno:
 
 - `paint`, `htmlOf` e `interactive` lanzan `TypeError`, como con `canvas`.
 - Sobre el trazo está pendiente: `along`, también el de `auto` en una línea, lanza un `TypeError` que lo dice.
@@ -226,6 +228,9 @@ Un valor inválido lanza `TypeError` antes de tocar el motor, y en caliente no c
 - **Sin colisión.** Los rótulos no se esquivan entre sí: dos `labeled` con el mismo `offset` se pisan.
 - **`along` en `canvas`** coloca grafema a grafema: pierde las ligaduras, el kerning entre grafemas y el
   orden RTL.
+- **`gl` frente a `canvas`:** algún glifo puede quedar hasta medio px corrido, el texto de 9 a 10,5 px con DPR 1
+  sale algo más suave y no hay ligaduras. Los glifos que todavía no están en el atlas aparecen unos cuadros
+  después; con miles de ideogramas distintos, lo que no cabe en el atlas no se dibuja y avisa una vez.
 - **Editores:** no se rotulan en esta versión.
 - **Formas con `along`:** no se admiten todavía.
 
