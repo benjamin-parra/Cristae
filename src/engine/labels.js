@@ -220,7 +220,7 @@ export const createLabels = bridge => {
       // en ella (su `anchorOf`). Una forma se rotula en su centro.
       anchorOf(item, out) {
         const p = a.positionOf(item)
-        if (!(Number.isFinite(p?.lat) && Number.isFinite(p?.lng))) return null
+        if (!p || !Number.isFinite(p.lat) || !Number.isFinite(p.lng)) return null
         const size = kind === 'shape' ? 0 : kind === 'html' ? a.sizeOf?.(item) : sized(item)
         out.lat = p.lat
         out.lng = p.lng

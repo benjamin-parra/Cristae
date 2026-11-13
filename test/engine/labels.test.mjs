@@ -11,6 +11,7 @@ import { adoptLeafletHost } from '../../src/host/LeafletHost.js'
 import { LABEL_RENDERERS } from '../../src/engine/labels.js'
 import { tablesFromRings } from '../../src/render/PolygonGpuLayer.js'
 import { createSource } from '../../src/data/index.js'
+import { bytesPorLlamada } from '../../test-helpers/asignaciones.mjs'
 
 const frame = () => new Promise(resolve => setTimeout(resolve, 5))
 
@@ -429,5 +430,25 @@ test('htmlOf monta el renderer html en un pane propio del host, sobre el canvas 
   engine.addPointLayer({ id: 'p', accessors: puntos, iconSet: makeIconSet(), data: [{ id: 'a', lat: 0, lng: 0 }] })
   assert.ok(engine.addLabels({ hostId: 'p', htmlOf: v => `<b>${v.id}</b>` }))
   assert.ok(Number(map.getPane('cristae-labels-html-p').style.zIndex) > LABEL_PLANE)
+  engine.destroy()
+})
+
+// SPECS §14: `anchorOf` corre por rótulo y por cuadro. Un `p?.lat` que se vuelve `undefined` o número obliga a
+// guardar el número en el heap, y con lat/lng decimales eso son unos 32 bytes por rótulo.
+test('[0-alloc] anchorOf del miembro de puntos no asigna por rótulo', () => {
+  const { engine } = motor()
+  const datos = Array.from({ length: 500 }, (_, i) => ({ id: i, lat: -37.6 + i * 1e-4, lng: -72.6 + i * 1.3e-4 }))
+  engine.addPointLayer({ id: 'p', accessors: { idOf: v => v.id, positionOf: v => v }, iconSet: makeIconSet(), data: datos })
+  engine.addLabels({ hostId: 'p' })
+  const m   = miembro(engine, 'p')
+  const out = { lat: 0, lng: 0, w: 0, h: 0, ax: NaN, ay: NaN }
+  const leer = () => {
+    for (let i = 0; i < datos.length; i++) m.anchorOf(datos[i], out)
+  }
+  leer()
+  assert.equal(out.lat, datos[499].lat)
+  const bytes = bytesPorLlamada(leer, 20, { calentar: 3_000 })
+  assert.ok(bytes / datos.length < 1, `${bytes / datos.length} bytes por ítem`)
+  assert.equal(m.anchorOf({ id: 'x', lat: NaN, lng: 0 }, out), null, 'sin posición finita no hay ancla')
   engine.destroy()
 })
