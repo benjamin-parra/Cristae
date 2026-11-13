@@ -1833,7 +1833,8 @@ por referencia. No se pica.
 | rótulos superpuestos | sin colisión entre rótulos, ni entre dos `labeled` con el mismo `offset` |
 | fuente web tardía | se remide cuando resuelve `document.fonts.load` de esa `font` |
 | rótulo sobre un editor | no en esta versión: `addLabels` devuelve `null` y el elemento avisa una vez por editor |
-| `renderer="gl"` | pendiente: lanza `TypeError` |
+| `renderer="gl"` sobre el trazo | pendiente: `along` (también el de `auto` en una línea), `repeat` y `orientation` lanzan `TypeError` |
+| `renderer="gl"` sin WebGL2 | pinta con `canvas` y avisa una vez por página |
 | escala bajo 1 m | sigue en decimales |
 
 ## 20. Lectores por especificación — `cristae/formats`

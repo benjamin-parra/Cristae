@@ -9,8 +9,8 @@ import { STACK } from '../engine/stack.js'
 const KEYS = ['textOf', 'htmlOf', 'renderer', 'placement', 'offset', 'font', 'color', 'halo', 'paint']
 
 // <cristae-text-layer> — capa base de texto suelto con datos propios (docs/text-layer.md). Pinta con los
-// renderers de <cristae-labeled>, `canvas` o `html`, sin contexto WebGL. accessors = { idOf, positionOf,
-// hashOf? }; el texto lo da `textOf` o `htmlOf`, y sin ellos es el id.
+// renderers de <cristae-labeled>: `canvas` o `html`, sin contexto WebGL, o `gl`. accessors = { idOf,
+// positionOf, hashOf? }; el texto lo da `textOf` o `htmlOf`, y sin ellos es el id.
 //
 //   <cristae-text-layer id="ciudades" placement="above" interactive></cristae-text-layer>
 //

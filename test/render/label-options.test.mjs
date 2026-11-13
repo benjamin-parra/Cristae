@@ -1,5 +1,5 @@
 // Las opciones de los rótulos: la mezcla (`undefined` no cambia, `null` vuelve al defecto), cada
-// `TypeError` que depende sólo de las props, `gl` pendiente y la colocación por tipo de capa.
+// `TypeError` que depende sólo de las props, lo que `gl` admite y la colocación por tipo de capa.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { LABEL_DEFAULTS, mergeLabelOptions, resolvePlacement } from '../../src/render/labelOptions.js'
@@ -45,8 +45,36 @@ test('renderer sale de htmlOf si no se declaró, y lo declarado gana', () => {
   assert.equal(mergeLabelOptions(b, { renderer: null }).renderer, 'canvas')
 })
 
-test('gl lanza diciendo que está pendiente', () => {
-  assert.throws(() => mergeLabelOptions(null, { renderer: 'gl' }), { name: 'TypeError', message: /pendiente/ })
+test('gl vale con lo que no pide trazo ni canvas ni html, y el defecto sigue en canvas', () => {
+  const o = mergeLabelOptions(null, { renderer: 'gl', placement: 'below', offset: 4, font: '12px serif', color: 'red', halo: 'none' })
+  assert.equal(o.renderer, 'gl')
+  ;['center', 'above', 'below', 'right', 'auto'].forEach(placement => assert.equal(mergeLabelOptions(o, { placement }).renderer, 'gl'))
+  assert.equal(mergeLabelOptions(o, { renderer: null }).renderer, 'canvas')
+  assert.equal(mergeLabelOptions(null, {}).renderer, 'canvas')
+})
+
+test('gl con paint, htmlOf o interactive lanza el TypeError de siempre, y along dice que está pendiente; nada cambia', () => {
+  const prev = mergeLabelOptions(null, { renderer: 'gl' })
+  const copy = { ...prev }
+  const cases = [
+    [{ paint }, /paint pide renderer 'canvas', no 'gl'/],
+    [{ htmlOf: () => 'x' }, /htmlOf pide renderer 'html', no 'gl'/],
+    [{ interactive: true }, /interactive pide renderer 'html', no 'gl'/],
+    [{ placement: 'along' }, /'along' con renderer 'gl' está pendiente/],
+    [{ repeat: 240 }, /'along' con renderer 'gl' está pendiente/],
+    [{ orientation: 'path' }, /'along' con renderer 'gl' está pendiente/],
+  ]
+  cases.forEach(([patch, message]) => assert.throws(() => mergeLabelOptions(prev, patch), { name: 'TypeError', message }, JSON.stringify(patch)))
+  assert.throws(() => mergeLabelOptions(null, { placement: 'along', renderer: 'gl' }), /pendiente/, 'también al declararlos juntos')
+  assert.deepEqual({ ...prev }, copy)
+})
+
+test('resolvePlacement: auto que resuelve a along con gl lanza pendiente; center sobre la línea vale', () => {
+  const gl = mergeLabelOptions(null, { renderer: 'gl' })
+  ;['line', 'polygon'].forEach(kind => assert.equal(resolvePlacement(kind, mergeLabelOptions(gl, { placement: 'center' })), 'center'))
+  assert.throws(() => resolvePlacement('line', gl), { name: 'TypeError', message: /pendiente/ })
+  assert.equal(resolvePlacement('polygon', gl), 'center')
+  assert.equal(resolvePlacement('text', gl), 'center')
 })
 
 test('cada TypeError de las props, y el estado previo no cambia', () => {

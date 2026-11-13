@@ -13,6 +13,11 @@ import { safe } from '../data/safe.js'
 const HALO = 3                            // ancho del halo en px, fijo (§1.2)
 const RAD  = 180 / Math.PI
 
+// Desde cuántos rótulos pintados en un cuadro se sugiere `gl`: medio cuadro de 60 Hz (8,35 ms) sobre el peor costo
+// medido del canvas por rótulo, 6,2 µs (39,8 ms con 6.400 en una Arc B580). Un aviso por página.
+export const AVISO_GL_ROTULOS = 1300
+let manyWarned = false
+
 const onPaintError = e => console.error('[cristae] paint de <cristae-labeled>', e)
 
 // El pintor del consumidor con la firma de `LabelPaint`. Recibe un portador, así la llamada aislada con
@@ -49,6 +54,7 @@ export const createLabelCanvas = ({ host, pane, zIndex }) => {
   const shift   = { x: 0, y: 0 }          // lo que vuelve la caja de un `paint` al marco de su colocación
   const origin  = { x: NaN, y: NaN }      // el del marco en el último pintado
   let frame     = 0
+  let painted   = 0                       // los del pintado en curso que `gl` podría pintar: sin `paint` y sin un `gl` caído
   let zooming   = false
   let moved     = false                   // el marco se corrió desde que asentó la vista
   let alive     = true
@@ -148,6 +154,7 @@ export const createLabelCanvas = ({ host, pane, zIndex }) => {
     if (!st.layout.placementCount) return
 
     const opts = member.opts
+    hovered || opts.paint || opts.renderer !== 'canvas' || (painted += st.layout.placementCount)
     const dx   = st.ox - view.ox
     const dy   = st.oy - view.oy
     ctx.font         = opts.font
@@ -187,10 +194,14 @@ export const createLabelCanvas = ({ host, pane, zIndex }) => {
     ctx.setTransform(ratio, 0, 0, ratio, 0, 0)
     ctx.globalAlpha = 1
     ctx.clearRect(0, 0, width, height)
+    painted = 0
     for (let m = 0; m < members.length; m++) drawMember(members[m], false)
     for (let m = 0; m < members.length; m++) drawMember(members[m], true)
     ctx.setTransform(ratio, 0, 0, ratio, 0, 0)
     ctx.globalAlpha = 1
+    if (manyWarned || painted <= AVISO_GL_ROTULOS) return
+    manyWarned = true
+    console.warn(`[cristae] el canvas pinta ${painted} rótulos por cuadro: con más de ${AVISO_GL_ROTULOS}, renderer="gl" los pinta en la GPU`)
   }
 
   const schedule = () => alive && !frame && (frame = requestAnimationFrame(paint))

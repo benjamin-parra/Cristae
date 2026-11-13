@@ -116,7 +116,13 @@ nuevo en cada render no redibuja si los textos no cambiaron.
 | Fuentes | cualquier fuente CSS; se remide cuando carga | cualquier CSS que llegue al shadow root del mapa |
 | Ligaduras, RTL y kerning | bien con `center`; se pierden con `along` | bien siempre |
 
-`renderer="gl"` está pendiente y hoy lanza un `TypeError` que lo dice.
+`renderer="gl"` pinta los rótulos en la GPU, en el contexto WebGL de las capas de abajo:
+
+- `paint`, `htmlOf` e `interactive` lanzan `TypeError`, como con `canvas`.
+- Sobre el trazo está pendiente: `along`, también el de `auto` en una línea, lanza un `TypeError` que lo dice.
+- Sin WebGL2 pinta con `canvas` y avisa una vez.
+- El defecto sigue siendo `canvas` y pasará a `gl` con el anfitrión GL: para conservarlo, `renderer="canvas"`.
+- Un canvas que pinta más de 1.300 rótulos en un cuadro avisa una vez que `gl` existe.
 
 - **`canvas`** usa un solo canvas por mapa para todos los rótulos, en un plano propio: sobre todas las capas
   base y las burbujas de los clusters, y bajo las capas HTML, los editores y la espiral. Los rótulos de
@@ -209,6 +215,7 @@ labels.remove()                // idempotente
 Un valor inválido lanza `TypeError` antes de tocar el motor, y en caliente no cambia nada:
 
 - `htmlOf` o `interactive` sin `renderer="html"`, o `paint` sin `canvas`;
+- `along`, `repeat` u `orientation` con `renderer="gl"`, mientras esté pendiente;
 - `paint` con un `placement` que no es `auto` ni `center`;
 - `repeat` u `orientation` con un `placement` explícito que no es `along`;
 - `repeat ≤ 0`, un `offset` no finito, o un `renderer`, `placement` u `orientation` desconocido;

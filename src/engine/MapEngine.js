@@ -269,6 +269,7 @@ export class MapEngine {
       slotOf  : (record, hostId, renderer) => this.#labelSlot(record, hostId, renderer),
       busOn   : (type, layerId, handler) => this.#bus.on(type, layerId, handler),
       separate: pane => this.#separatePane(pane),
+      surface : this.#tramos.surface,
     })
 
     this.#host.camera.on('moveend zoomend', emitViewport)

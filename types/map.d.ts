@@ -580,8 +580,9 @@ export function drawLabel(
 // ── Rótulos (addLabels / <cristae-labeled>). Ver docs/labeled.md ─────────────
 /** Dónde va el rótulo. `auto` toma la colocación natural de cada capa (docs/labeled.md). */
 export type LabelPlacement   = "auto" | "along" | "center" | "above" | "below" | "right";
-/** Cómo se dibuja: `canvas` acepta cualquier fuente y se curva; `html` acepta cualquier CSS y no se curva. */
-export type LabelRenderer    = "canvas" | "html";
+/** Cómo se dibuja: `canvas` acepta cualquier fuente y se curva; `html` acepta cualquier CSS y no se curva; `gl`
+ *  pinta miles en la GPU, sin `paint`, `htmlOf` ni `interactive`, y sin WebGL2 cae a `canvas` con un aviso. */
+export type LabelRenderer    = "canvas" | "html" | "gl";
 /** `path` deja el texto siempre del mismo lado del trazo; `auto` lo da vuelta para que se lea derecho. */
 export type LabelOrientation = "auto" | "path";
 
@@ -604,6 +605,7 @@ export interface LabelProps<T = unknown> {
   htmlOf?      : (item: T) => string | Node | null | undefined;
   /** Default: `html` si hay `htmlOf`; si no, `canvas`. */
   renderer?    : LabelRenderer;
+  /** `along` con `gl` lanza `TypeError`: está pendiente. */
   placement?   : LabelPlacement;
   /** Px entre centros sobre el trazo, > 0. Sólo donde la colocación resuelve a `along`. */
   repeat?      : number;
@@ -1257,8 +1259,8 @@ export class MapEngine {
   /** Rótulos sobre los ítems del host. `null` si el host no es rotulable: un editor, el calor, la imagen o
    *  una burbuja de rótulo. Las opciones se validan antes del alta (TypeError). */
   addLabels<T = unknown>(config: LabelProps<T> & { hostId: string }): LabelsHandle<T> | null;
-  /** Texto suelto con Source propia, pintado por los renderers de los rótulos, sin contexto WebGL.
-   *  Las opciones se validan antes del alta (TypeError). */
+  /** Texto suelto con Source propia, pintado por los renderers de los rótulos; con `canvas` o `html`, sin
+   *  contexto WebGL. Las opciones se validan antes del alta (TypeError). */
   addTextLayer<T>(config: TextLayerConfig<T>): TextHandle<T>;
   addImageLayer(config: ImageLayerConfig): ImageLayerHandle;
   addOverlay<T>(config: OverlayConfig<T>): OverlayHandle<T> | null;

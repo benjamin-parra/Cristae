@@ -116,7 +116,8 @@ test('la config llega entera a cada alta, con `visible` normalizado', () => {
 
 test('TypeError de las props: sale de cristaeConfig y del montaje, sin tocar el motor ni montar al hijo', () => {
   const casos = [
-    { renderer: 'gl' },
+    { renderer: 'gl', paint: () => {} },
+    { renderer: 'gl', placement: 'along' },
     { renderer: 'webgpu' },
     { htmlOf: () => 'x', renderer: 'canvas' },
     { interactive: true },
@@ -137,8 +138,12 @@ test('TypeError de las props: sale de cristaeConfig y del montaje, sin tocar el 
   })
 })
 
-test('`renderer="gl"` dice que está pendiente', () => {
-  assert.throws(() => Object.assign(rotulo(hoja('cristae-line-layer')), { renderer: 'gl' }).cristaeConfig(), /pendiente/)
+test('`renderer="gl"` vale sobre puntos; sobre una línea su `auto` es `along`, que dice que está pendiente', () => {
+  const engine = motor()
+  const raiz   = Object.assign(rotulo(hoja('cristae-point-layer', 'flota')), { renderer: 'gl' })
+  raiz.cristaeMount(engine)
+  assert.equal(engine.altas[0].renderer, 'gl')
+  assert.throws(() => Object.assign(rotulo(hoja('cristae-line-layer')), { renderer: 'gl' }).mountLayer(motor()), /pendiente/)
 })
 
 test('TypeError del hijo: un placement que la capa alcanzada no admite lanza antes de montar', () => {

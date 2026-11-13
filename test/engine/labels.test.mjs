@@ -9,6 +9,7 @@ import assert from 'node:assert/strict'
 import { MapEngine } from '../../src/engine/MapEngine.js'
 import { adoptLeafletHost } from '../../src/host/LeafletHost.js'
 import { LABEL_RENDERERS } from '../../src/engine/labels.js'
+import { AVISO_GL_ROTULOS } from '../../src/render/LabelCanvas.js'
 import { tablesFromRings } from '../../src/render/PolygonGpuLayer.js'
 import { createSource } from '../../src/data/index.js'
 import { bytesPorLlamada } from '../../test-helpers/asignaciones.mjs'
@@ -80,7 +81,7 @@ test('las opciones inválidas lanzan TypeError sin dejar nada; un update inváli
   const { engine, map } = motor()
   engine.addPointLayer({ id: 'p', accessors: puntos, iconSet: makeIconSet(), data: [{ id: 'a', lat: 0, lng: 0 }] })
   assert.throws(() => engine.addLabels({ hostId: 'p', placement: 'along' }), TypeError)
-  assert.throws(() => engine.addLabels({ hostId: 'p', renderer: 'gl' }), TypeError)
+  assert.throws(() => engine.addLabels({ hostId: 'p', renderer: 'gl', paint: () => {} }), TypeError)
   assert.equal(engine.getLayer('p').labels, undefined, 'sin grupo')
   assert.equal(map.getPane('cristae-labels'), null, 'ni canvas')
 
@@ -474,4 +475,82 @@ test('los datos nuevos con el mismo id cambian lo pintado: set con otro texto y 
   assert.ok(m.anchorOf(source.getSnapshot().find(i => i.id === 'a'), out))
   assert.deepEqual([out.lat, out.lng], [5, 6], 'el ancla sigue al movimiento')
   engine.destroy()
+})
+
+// Un `gl` declarado que no puede montarse pinta con el canvas compartido y avisa una vez por página, con la causa.
+// El miembro conserva lo declarado: un `update` sin `renderer` no lo cambia.
+test('gl que no se monta cae a canvas con un aviso por página: sin WebGL2 y sin fábrica', t => {
+  const warn = t.mock.method(console, 'warn', () => {})
+  const real = LABEL_RENDERERS.gl
+  LABEL_RENDERERS.gl = () => { throw new Error('[cristae] sin WebGL2: las capas en GPU necesitan gl_VertexID y texelFetch') }
+  try {
+    const { engine, map } = motor()
+    engine.addPointLayer({ id: 'p', accessors: puntos, iconSet: makeIconSet(), data: [{ id: 'a', lat: 0, lng: 0 }] })
+    engine.addPointLayer({ id: 'q', accessors: puntos, iconSet: makeIconSet(), data: [{ id: 'b', lat: 1, lng: 1 }] })
+    const labels = engine.addLabels({ hostId: 'p', renderer: 'gl' })
+    assert.ok(map.getPane('cristae-labels'), 'pinta en el canvas compartido')
+    assert.equal(miembro(engine, 'p').opts.renderer, 'gl')
+    assert.equal(engine.getLayer('p').labels.links[0].slot.name, 'canvas')
+    labels.update({ offset: 3 })
+    assert.equal(engine.getLayer('p').labels.links[0].slot.name, 'canvas', 'un update no lo vuelve a intentar')
+
+    delete LABEL_RENDERERS.gl
+    engine.addLabels({ hostId: 'q', renderer: 'gl' })
+    assert.equal(engine.getLayer('q').labels.links[0].slot.name, 'canvas', 'sin fábrica, también')
+    const avisos = warn.mock.calls.map(c => c.arguments[0]).filter(m => /'gl'/.test(m))
+    assert.equal(avisos.length, 1, 'un aviso por página')
+    assert.match(avisos[0], /sin WebGL2.*se pintan con 'canvas'/)
+    engine.destroy()
+  } finally {
+    real ? (LABEL_RENDERERS.gl = real) : delete LABEL_RENDERERS.gl
+  }
+})
+
+// La fábrica de `gl` recibe la superficie de los miembros de tramo y el motor no declara su pane como separador:
+// los rótulos `gl` entran al tramo de las capas GL de abajo.
+test('la fábrica de gl recibe la superficie de tramo y su pane no separa tramos', () => {
+  const real   = LABEL_RENDERERS.gl
+  const altas  = []
+  const attach = []
+  LABEL_RENDERERS.gl = args => {
+    altas.push(args)
+    return { zIndex: args.zIndex, attach: m => attach.push(m.id), invalidate() {}, detach() {}, setZ: () => false, hitsAt: (m, s, out) => out, destroy() {} }
+  }
+  try {
+    const { engine, map } = motor()
+    engine.addPointLayer({ id: 'p', accessors: puntos, iconSet: makeIconSet(), data: [{ id: 'a', lat: 0, lng: 0 }] })
+    engine.addLabels({ hostId: 'p', renderer: 'gl', textOf: v => v.id })
+    assert.equal(altas.length, 1)
+    assert.equal(typeof altas[0].surface, 'function', 'la fábrica de superficies de tramo')
+    assert.ok(altas[0].host && altas[0].pane, 'y lo de los demás renderers')
+    assert.deepEqual(attach, ['p'])
+    assert.equal(map.getPane(altas[0].pane), null, 'el motor no monta su pane como separador')
+    assert.equal(map.getPane('cristae-labels'), null, 'ni el canvas')
+    engine.destroy()
+  } finally {
+    real ? (LABEL_RENDERERS.gl = real) : delete LABEL_RENDERERS.gl
+  }
+})
+
+// El canvas avisa una vez por página cuando pinta más de AVISO_GL_ROTULOS rótulos que `gl` podría pintar: no
+// cuenta las píldoras de `paint` ni un `gl` que cayó a canvas.
+test(`el canvas que pinta más de ${AVISO_GL_ROTULOS} rótulos sugiere gl una vez por página`, async t => {
+  const warn   = t.mock.method(console, 'warn', () => {})
+  const muchos = n => Array.from({ length: n }, (_, i) => ({ id: i, lat: (i % 40) * 1e-3, lng: Math.floor(i / 40) * 1e-3 }))
+  const avisos = () => warn.mock.calls.map(c => c.arguments[0]).filter(m => /renderer="gl"/.test(m))
+  const pintar = async (labels, n) => {
+    const { engine } = motor()
+    engine.addPointLayer({ id: 'p', accessors: puntos, iconSet: makeIconSet(), data: muchos(n) })
+    engine.addLabels({ hostId: 'p', ...labels })
+    await frame(); await frame()
+    engine.destroy()
+  }
+  await pintar({ paint: () => ({ x: 0, y: 0, w: 1, h: 1 }) }, AVISO_GL_ROTULOS + 100)
+  await pintar({ renderer: 'gl' }, AVISO_GL_ROTULOS + 100)
+  await pintar({}, AVISO_GL_ROTULOS)
+  assert.deepEqual(avisos(), [], 'ni las píldoras, ni un gl caído, ni el tope justo')
+  await pintar({}, AVISO_GL_ROTULOS + 1)
+  await pintar({}, AVISO_GL_ROTULOS + 500)
+  assert.equal(avisos().length, 1, 'una vez por página')
+  assert.match(avisos()[0], new RegExp(`pinta ${AVISO_GL_ROTULOS + 1} rótulos`))
 })

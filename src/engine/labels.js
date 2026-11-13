@@ -8,8 +8,18 @@ import { safe } from '../data/safe.js'
 // curva, la visibilidad y el foco del registro de la capa, y que pinta un renderer compartido. Los
 // miembros de un host forman su grupo, `record.labels`, por donde el motor avisa y pica.
 
-/** Un renderer por nombre. `gl` se suma cuando exista, con la misma interfaz. */
+/** Un renderer por nombre, con la misma interfaz. La fábrica de `gl` recibe además `surface`, la de los
+ *  miembros de tramo, y se registra aparte. */
 export const LABEL_RENDERERS = { canvas: createLabelCanvas, html: createLabelHtml }
+
+// Un `gl` declarado que no puede montarse (sin WebGL2) pinta con `canvas` y avisa una vez por página: en HTML
+// sin código nadie atrapa un error, y la imagen es equivalente.
+let glWarned = false
+const fellBack = cause => {
+  glWarned || console.warn(`[cristae] los rótulos 'gl' no pudieron montarse (${cause}): se pintan con 'canvas'`)
+  glWarned = true
+  return null
+}
 
 // Lo que cambia la colocación. `color`, `halo` y `paint` sólo repintan, y `visible` sólo muestra u oculta.
 const LAYOUT_KEYS = ['placement', 'repeat', 'offset', 'orientation', 'font', 'htmlOf', 'renderer', 'interactive']
@@ -34,7 +44,8 @@ const bubbleOf = (control, b) => {
  *    también cuando el host cambia de rango (`reseat`);
  *  - `busOn(type, layerId, handler)`: suscripción al bus, que devuelve su baja;
  *  - `separate(pane)`: declara el pane de un renderer como separador de tramos GL (no es GL, y separa aunque
- *    siga vacío) y devuelve su baja. Opcional. */
+ *    siga vacío) y devuelve su baja. Opcional. `gl` no separa: dibuja dentro del tramo;
+ *  - `surface`: la fábrica de superficies de tramo, para `gl`. */
 export const createLabels = bridge => {
   const slots = new Map()            // key → { renderer, count, key }
 
@@ -55,13 +66,27 @@ export const createLabels = bridge => {
     }
   }
 
+  const openGl = (pane, zIndex) => {
+    const create = LABEL_RENDERERS.gl
+    if (!create) return fellBack('no está disponible')
+    try {
+      return create({ host: bridge.host, pane, zIndex, surface: bridge.surface })
+    } catch (e) {
+      return fellBack(e?.message ?? e)
+    }
+  }
+
   // El renderer donde van los rótulos de un host: uno por `key`, que se suelta con el último miembro.
   const acquire = (record, hostId, name) => {
     const create = LABEL_RENDERERS[name]
-    if (!create) throw new TypeError(`[cristae] renderer '${name}': no está disponible`)
+    if (!create && name !== 'gl') throw new TypeError(`[cristae] renderer '${name}': no está disponible`)
     const { key, pane, zIndex } = bridge.slotOf(record, hostId, name)
-    const slot = slots.get(key)
-      ?? { renderer: create({ host: bridge.host, pane, zIndex }), unseparate: bridge.separate?.(pane), count: 0, key, name }
+    let slot = slots.get(key)
+    if (!slot) {
+      const renderer = name === 'gl' ? openGl(pane, zIndex) : create({ host: bridge.host, pane, zIndex })
+      if (!renderer) return acquire(record, hostId, 'canvas')
+      slot = { renderer, unseparate: name === 'gl' ? null : bridge.separate?.(pane), count: 0, key, name }
+    }
     slot.count++
     slots.set(key, slot)
     return slot

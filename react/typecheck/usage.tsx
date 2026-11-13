@@ -192,6 +192,9 @@ export const Rotulos = ({ visibles }: { visibles: boolean }) => (
     <CristaeLabeled<Movil> renderer="html" interactive htmlOf={(m) => `<button>${m.patente}</button>`} placement="right">
       <CristaePointLayer<Movil> id="otros" data={moviles} accessors={acc} iconSet={iconSet} />
     </CristaeLabeled>
+    <CristaeLabeled<Movil> renderer="gl" textOf={(m) => m.patente} placement="below" visible={visibles}>
+      <CristaePointLayer<Movil> id="miles" data={moviles} accessors={acc} iconSet={iconSet} />
+    </CristaeLabeled>
   </CristaeMap>
 )
 
@@ -433,8 +436,8 @@ export const BadScaleWidth = () => <CristaeScale maxWidth="100" />
 // @ts-expect-error orientation es 'auto' o 'path'
 export const BadLabeled = () => <CristaeLabeled orientation="left"><CristaeLineLayer id="rutas" /></CristaeLabeled>
 
-// @ts-expect-error `gl` no está entre los renderers
-export const BadRenderer = () => <CristaeLabeled renderer="gl"><CristaeLineLayer id="rutas" /></CristaeLabeled>
+// @ts-expect-error `webgl` no está entre los renderers: son `canvas`, `html` y `gl`
+export const BadRenderer = () => <CristaeLabeled renderer="webgl"><CristaeLineLayer id="rutas" /></CristaeLabeled>
 
 // Texto suelto con datos propios: el genérico sale de los accessors y el handle es el de la capa de texto.
 interface Ciudad { id: string; nombre: string; lat: number; lng: number }
@@ -444,7 +447,7 @@ export const TextoSuelto = () => {
   return (
     <CristaeMap>
       <CristaeTextLayer<Ciudad> ref={capa} id="ciudades" data={[]} accessors={{ idOf: (c) => c.id, positionOf: (c) => c }}
-        textOf={(c) => c.nombre} placement="center" interactive
+        textOf={(c) => c.nombre} placement="center" renderer="gl" interactive
         onClick={(hits) => hits[0]?.kind === 'text' && void hits[0].id} />
       <button onClick={sube} />
     </CristaeMap>

@@ -18,7 +18,7 @@ capa.data      = ciudades
 ```
 
 Con `canvas` o `html` no gasta contexto WebGL: el texto va al canvas de rótulos que comparte el mapa, o a un
-pane HTML propio.
+pane HTML propio. Con `gl` va al contexto de las capas GL de abajo.
 
 ## Datos
 
@@ -56,7 +56,7 @@ prop quitada vuelve a su valor por defecto.
 | --- | --- | --- | --- |
 | `textOf` | `text-of` | el id | función `(item) => string \| number \| null` (prop) o, por atributo, el nombre de un campo |
 | `htmlOf` | — | — | `(item) => string \| Node \| null`; si está, el renderer por defecto es `html` |
-| `renderer` | `renderer` | `html` si hay `htmlOf`; si no, `canvas` | `canvas` o `html`; `gl` lanza `TypeError`, como en `labeled` |
+| `renderer` | `renderer` | `html` si hay `htmlOf`; si no, `canvas` | `canvas`, `html` o `gl`, como en `labeled` |
 | `placement` | `placement` | `center` | `center`, `above`, `below` o `right` respecto del punto |
 | `offset` | `offset` | `0` | px desde el ancla; positivo hacia arriba |
 | `font` | `font` | la de los rótulos | fuente CSS |
