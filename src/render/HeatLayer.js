@@ -214,10 +214,13 @@ export class HeatLayer {
   set intensity(v) { this.#setIntensity(v); this.#invalidate() }
   set colorRamp(fn) { this.#colorRamp = fn ?? defaultRamp; this.#buildPalette(); this.#invalidate() }
 
+  // El aporte va horneado en las celdas: sólo rehacerlas si la intensidad cambia (el handle, el elemento y React la asignan
+  // también con el mismo valor).
   #setIntensity(v) {
-    this.#intensity = v ?? DEFAULT_INTENSITY
-    this.#uIntensity[0] = this.#intensity
-    this.#cellsStale = true
+    const next = v ?? DEFAULT_INTENSITY
+    if (next !== this.#intensity) this.#cellsStale = true
+    this.#intensity = next
+    this.#uIntensity[0] = next
   }
 
   // R = alcance de un punto en px y core·R = hasta dónde la brocha es opaca; son uniformes, así que cambiarlos no

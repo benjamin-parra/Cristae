@@ -26,6 +26,7 @@ import { createSource } from '../../src/data/Source.js'
 import { bytesPorLlamada } from '../../test-helpers/asignaciones.mjs'
 import { HeatCells, AGGREGATE_MIN_POINTS, CELL_FLOATS, CELL_PX, CELL_PER_RADIUS } from '../../src/render/heat-cells.js'
 import { readFileSync, writeFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 
 /* ── Dobles: un contexto que anota, una cámara con eventos y una superficie que toma contextos ── */
 
@@ -535,6 +536,13 @@ test('redraw() con la cámara sola asigna 0 bytes', () => {
 /* ── La agregación ── */
 
 const FIXTURE = new URL('../fixtures/calor-llamadas-ef39ddd.json', import.meta.url)
+const HUELLAS = new URL('../fixtures/calor-huellas-ef39ddd.json', import.meta.url)
+
+// Con un punto menos que el umbral (el valor, no la constante: mover AGGREGATE_MIN_POINTS no lo cambia) el recorrido es el de
+// ef39ddd con una nube de verdad, de las que las celdas partirían en miles. Se guarda la huella de cada llamada, no las
+// llamadas: sólo los búferes pesan megas.
+const JUSTO_DEBAJO = 19_999
+const huellas = calls => calls.map(c => createHash('sha256').update(JSON.stringify(c)).digest('hex').slice(0, 12))
 
 // Veinte puntos con pesos distintos, y otros tantos para un flush.
 const veinte = Array.from({ length: 20 }, (_, i) => ({ id: i, pos: { lat: -33 + (i % 5) * 0.01, lng: -70 + Math.floor(i / 5) * 0.013 }, w: 1 + (i % 4) }))
@@ -542,10 +550,10 @@ const otros  = veinte.map(p => ({ ...p, pos: { lat: p.pos.lat + 0.002, lng: p.po
 
 // Las llamadas GL de un recorrido completo: alta, paneo, zoom animado que cambia de nivel, flush, intensity, radius, refresh,
 // pérdida y vuelta del contexto, y destroy. Los arreglos tipados se guardan como listas.
-const recorrido = Clase => conRaf(async ({ correr }) => {
+const recorrido = (Clase, inicial = veinte, nuevos = otros) => conRaf(async ({ correr }) => {
   const calls = []
   const gls   = [glDoble({ calls }), glDoble({ calls })]
-  const { layer, cam, source, surf } = montar(veinte, { Clase, gls, vista: { zoom: 10.4, lat: -33, lng: -70 } })
+  const { layer, cam, source, surf } = montar(inicial, { Clase, gls, vista: { zoom: 10.4, lat: -33, lng: -70 } })
   layer.redraw()
   cam.estado.lng = -69.99
   layer.redraw()
@@ -553,7 +561,7 @@ const recorrido = Clase => conRaf(async ({ correr }) => {
   cam.estado.zoom = 11.6
   cam.fire('zoomend')
   correr()
-  source.set(otros)
+  source.set(nuevos)
   await new Promise(r => setTimeout(r, 5))
   layer.intensity = 2
   correr()
@@ -570,6 +578,7 @@ test('por debajo del umbral la capa hace las mismas llamadas GL que en ef39ddd',
   if (process.env.CALOR_GRABAR) {
     const { HeatLayer: Vieja } = await import(process.env.CALOR_GRABAR)
     writeFileSync(FIXTURE, JSON.stringify(await recorrido(Vieja)) + '\n')
+    writeFileSync(HUELLAS, JSON.stringify(huellas(await recorrido(Vieja, nube(JUSTO_DEBAJO), nube(JUSTO_DEBAJO, { lat: -32.95 })))) + '\n')
   }
   assert.ok(veinte.length < AGGREGATE_MIN_POINTS)
   const esperado = JSON.parse(readFileSync(FIXTURE, 'utf8'))
@@ -592,6 +601,14 @@ const contandoPasadas = async fn => {
   return pasadas
 }
 
+test(`con ${JUSTO_DEBAJO} puntos, una nube que las celdas partirían en miles, el recorrido hace las mismas llamadas GL que en ef39ddd`, async () => {
+  assert.ok(JUSTO_DEBAJO < AGGREGATE_MIN_POINTS, 'el umbral no bajó de 19.999')
+  const esperado = JSON.parse(readFileSync(HUELLAS, 'utf8'))
+  const actual   = huellas(await recorrido(HeatLayer, nube(JUSTO_DEBAJO), nube(JUSTO_DEBAJO, { lat: -32.95 })))
+  const i = actual.findIndex((h, k) => h !== esperado[k])
+  assert.equal(i === -1 && actual.length === esperado.length, true, `primera llamada distinta en ${i} de ${actual.length} (esperadas ${esperado.length})`)
+})
+
 test('con un punto menos que el umbral dibuja un splat por punto; con el umbral, celdas con su programa', () => {
   const debajo = montar(nube(AGGREGATE_MIN_POINTS - 1), { vista: { zoom: 10, lat: -32.9, lng: -69.9 } })
   const [splat] = llamadas(debajo.calls, 'drawArraysInstanced')
@@ -605,12 +622,20 @@ test('con un punto menos que el umbral dibuja un splat por punto; con el umbral,
   assert.ok(celdas[4] > 0 && celdas[4] < AGGREGATE_MIN_POINTS / 2, `${celdas[4]} celdas`)
   assert.equal(llamadas(encima.calls, 'linkProgram').length, 3, 'el programa de celdas se enlaza al agregar')
   const subida = llamadas(encima.calls, 'bufferData').at(-1)[2]
-  assert.equal(subida.length, celdas[4] * CELL_FLOATS, 'el búfer de celdas: cuatro floats por celda')
+  assert.equal(subida.length, celdas[4] * CELL_FLOATS, 'el búfer de celdas: CELL_FLOATS floats por celda')
   let suma = 0
   for (let k = 0; k < celdas[4]; k++) suma += subida[k * CELL_FLOATS + 3]
   assert.equal(suma, AGGREGATE_MIN_POINTS, 'las multiplicidades suman los puntos')
   const usados = llamadas(encima.calls, 'uniform1fv').map(c => c[1].name)
   assert.equal(usados.includes('uIntensity'), false, 'en las celdas el aporte ya lleva la intensidad')
+  // El VAO de celdas, cuatro atributos de una celda de 7 floats (28 bytes), todos por instancia: centroide, aporte, multiplicidad
+  // y covarianza (xx, yy, xy).
+  const celda = llamadas(encima.calls, 'vertexAttribPointer').slice(-4).map(c => [c[1], c[2], c[5], c[6]])
+  assert.deepEqual(celda, [[0, 2, 28, 0], [1, 1, 28, 8], [2, 1, 28, 12], [3, 3, 28, 16]])
+  assert.equal(CELL_FLOATS * 4, 28)
+  assert.deepEqual(llamadas(encima.calls, 'vertexAttribDivisor').slice(-4).map(c => [c[1], c[2]]), [[0, 1], [1, 1], [2, 1], [3, 1]])
+  const pxPorWorld0 = llamadas(encima.calls, 'uniform1fv').find(c => c[1].name === 'uPxPorWorld0')
+  assert.equal(pxPorWorld0?.[2][0], 2 ** 10, 'uPxPorWorld0: px de pantalla por px de world0 a zoom 10')
   encima.layer.destroy()
   assert.equal(llamadas(encima.calls, 'deleteBuffer').length, 2, 'destroy borra también el búfer de celdas')
 })
@@ -643,6 +668,9 @@ test('las celdas se rehacen con un flush, un move, el nivel, la celda, intensity
     layer.intensity = 2
     correr()
     assert.equal(pasadas.length, 5, 'intensity')
+    layer.intensity = 2
+    correr()
+    assert.equal(pasadas.length, 5, 'asignar la misma intensity no rehace')
     layer.refresh()
     assert.equal(pasadas.length, 6, 'refresh')
     source.set(nube(AGGREGATE_MIN_POINTS, { lat: -32.95 }))
