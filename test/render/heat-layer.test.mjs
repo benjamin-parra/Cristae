@@ -20,7 +20,7 @@ import { makeMap } from '../../test-helpers/engine-stub.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { HeatLayer } from '../../src/render/HeatLayer.js'
-import { GRAD_STEPS } from '../../src/render/heat-math.js'
+import { GRAD_STEPS, contribution } from '../../src/render/heat-math.js'
 import { adoptLeafletHost } from '../../src/host/LeafletHost.js'
 import { createSource } from '../../src/data/Source.js'
 import { bytesPorLlamada } from '../../test-helpers/asignaciones.mjs'
@@ -634,10 +634,29 @@ test('con un punto menos que el umbral dibuja un splat por punto; con el umbral,
   assert.deepEqual(celda, [[0, 2, 28, 0], [1, 1, 28, 8], [2, 1, 28, 12], [3, 3, 28, 16]])
   assert.equal(CELL_FLOATS * 4, 28)
   assert.deepEqual(llamadas(encima.calls, 'vertexAttribDivisor').slice(-4).map(c => [c[1], c[2]]), [[0, 1], [1, 1], [2, 1], [3, 1]])
+  // Y es ése el VAO con que dibuja, no el de los puntos.
+  const vaoAntes = nombre => {
+    const i = encima.calls.findLastIndex(c => c[0] === nombre)
+    return encima.calls.slice(0, i).findLast(c => c[0] === 'bindVertexArray')[1]
+  }
+  assert.equal(vaoAntes('drawArraysInstanced'), vaoAntes('vertexAttribPointer'), 'el dibujo usa el VAO de celdas')
   const pxPorWorld0 = llamadas(encima.calls, 'uniform1fv').find(c => c[1].name === 'uPxPorWorld0')
   assert.equal(pxPorWorld0?.[2][0], 2 ** 10, 'uPxPorWorld0: px de pantalla por px de world0 a zoom 10')
   encima.layer.destroy()
   assert.equal(llamadas(encima.calls, 'deleteBuffer').length, 2, 'destroy borra también el búfer de celdas')
+})
+
+test('el aporte de cada celda lleva la intensity, de la construcción y de una asignación', () => {
+  const { layer, calls } = montar(nube(AGGREGATE_MIN_POINTS), { opts: { intensity: 2 }, vista: { zoom: 10, lat: -32.9, lng: -69.9 } })
+  const aportes = () => {
+    const subida = llamadas(calls, 'bufferData').at(-1)[2]
+    return new Set(Array.from({ length: subida.length / CELL_FLOATS }, (_, k) => subida[k * CELL_FLOATS + 2]))
+  }
+  assert.deepEqual([...aportes()], [Math.fround(contribution(1, 2))], 'con intensity 2 en el alta')
+  layer.intensity = 3
+  layer.redraw()
+  assert.deepEqual([...aportes()], [Math.fround(contribution(1, 3))], 'y con la asignada después')
+  layer.destroy()
 })
 
 test('las celdas se rehacen con un flush, un move, el nivel, la celda, intensity y refresh; no en un paneo', async () => conRaf(async ({ correr }) => {
