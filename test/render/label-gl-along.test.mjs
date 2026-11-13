@@ -13,6 +13,7 @@ import assert from 'node:assert/strict'
 import { createGlyphAtlas } from '../../src/render/labelGlyphs.js'
 import { createLayout, readLabelView } from '../../src/render/labelLayout.js'
 import { createMeasure } from '../../src/render/labelText.js'
+import { projX0, projY0 } from '../../src/render/project.js'
 
 after(instalarMedida())
 
@@ -216,5 +217,60 @@ test('lo que estuvo oculto recoloca al volver a verse, y las referencias se suel
   assert.equal(vivas(), r.stats().glifos, 'la colocación vieja se soltó')
   r.detach(m)
   assert.equal(vivas(), 0)
+  r.destroy()
+})
+
+test('entre asientos el picking escala con el mapa, como el glifo', () => {
+  const { host, r } = montar()
+  const m = linea({ repeat: 40 })
+  r.attach(m)
+  r.resetCanvasReference()
+  const canvas = colocar(m, readLabelView(host.camera, {}))
+  // Un glifo y un punto a 1,5 medios altos de su centro, sobre la normal: fuera en el asiento y sin otro rótulo debajo,
+  // y dentro con el doble de escala.
+  let g = -1, nx = 0, ny = 0, hh = 0
+  for (let k = 0; k < canvas.glyphCount && g < 0; k++) {
+    const text = canvas.texts[canvas.spans[3 * canvas.placementCount - 1]]
+    const a = canvas.glyphs[4 * k + 2]
+    hh = (text.ascent + text.descent) / 2
+    nx = -Math.sin(a) * 1.5 * hh
+    ny = Math.cos(a) * 1.5 * hh
+    const x = canvas.glyphs[4 * k] + nx, y = canvas.glyphs[4 * k + 1] + ny
+    x > 0 && y > 0 && x < 800 && y < 600 && !canvas.hitsAt({ x, y }, { x: 0, y: 0 }, []).length && (g = k)
+  }
+  assert.ok(g >= 0)
+  const lejos = { x: canvas.glyphs[4 * g] + nx, y: canvas.glyphs[4 * g + 1] + ny }
+  assert.equal(r.hitsAt(m, lejos, []).length, 0, 'en el asiento cae fuera')
+  // El zoom animado al doble alrededor del centro del glifo: el glifo y su caja miden el doble.
+  const c = host.camera.center()
+  const x0 = projX0(c.lng) + (canvas.glyphs[4 * g] - 400) / 2 ** 12
+  const y0 = projY0(c.lat) + (canvas.glyphs[4 * g + 1] - 300) / 2 ** 12
+  r.renderAtView(13, { lat: Math.atan(Math.sinh(Math.PI * (1 - y0 / 128))) * 180 / Math.PI, lng: x0 / 256 * 360 - 180 })
+  assert.ok(r.hitsAt(m, { x: 400 + nx, y: 300 + ny }, []).length > 0, 'con el doble de escala cae dentro')
+  r.destroy()
+})
+
+test('el ítem bajo el puntero sobre el trazo va en el pase propio, y lo oculto no se recoloca en el asiento', () => {
+  const atlas = createGlyphAtlas(trabajo())
+  let refs = 0
+  const { ref } = atlas
+  atlas.ref = id => (refs++, ref(id))
+  // Con `track`, como en el motor: el asiento es lo único que escucha `zoomend`.
+  const { host, r, s } = montar({ atlas, track: () => {} })
+  const m = linea()
+  m.hovered.add('r1')
+  r.attach(m)
+  r.resetCanvasReference()
+  const draws = s.log.draws.length
+  r.repaint()
+  assert.equal(s.log.draws.length - draws, 4, 'halo y relleno, y otra vez para el ítem bajo el puntero')
+  m.visible = false
+  r.invalidate(m, 'visibility')
+  r.resetCanvasReference()
+  const antes = refs, dibujos = s.ends
+  host.state.zoom = 13
+  host.camera.emit('zoomend')
+  assert.equal(refs, antes, 'oculto: el asiento no lo coloca')
+  assert.equal(s.ends, dibujos, 'ni vuelve a dibujar')
   r.destroy()
 })
