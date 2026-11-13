@@ -5,7 +5,7 @@ import assert from 'node:assert/strict'
 import { anchorAt, midAlong, poleOf } from '../../src/render/labelAnchor.js'
 import { createRun, projectRings } from '../../src/render/labelPath.js'
 
-const at   = (placement, icon, offset = 0) => ({ ...anchorAt(placement, 100, 200, icon, offset, {}) })
+const at   = (placement, icon, offset = 0) => ({ ...anchorAt(placement, { ...icon, x: 100, y: 200, offset }, {}) })
 const ICON = { w: 20, h: 30 }
 
 test('above, below y right quedan al borde del ícono más 4 px, alineados hacia afuera', () => {

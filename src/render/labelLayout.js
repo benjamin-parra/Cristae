@@ -53,7 +53,7 @@ export const createLayout = () => {
   const world  = createRun()
   const placed = { buf: new Float64Array(192) }
   const opts   = { repeat: null, offset: 0, orientation: 'auto', maxAngle: MAX_ANGLE, viewW: 0, viewH: 0 }
-  const icon   = { lat: 0, lng: 0, w: 0, h: 0, ax: NaN, ay: NaN }
+  const icon   = { lat: 0, lng: 0, w: 0, h: 0, ax: NaN, ay: NaN, x: 0, y: 0, offset: 0 }
   const anchor = { x: 0, y: 0, sx: 0, sy: 0 }
   const mid    = { x: 0, y: 0, ux: 1, uy: 0 }
   const poles  = new Map()                // id → polo en world0, o null; vale para una versión del miembro
@@ -82,23 +82,27 @@ export const createLayout = () => {
     texts          : [],
   }
 
-  // Abre la colocación siguiente del ítem `k`, con su ancla y hacia dónde crece su caja.
-  const open = (k, x, y, sx, sy) => {
+  // Abre la colocación siguiente del ítem `k`, en el ancla y con la alineación que dejó `anchor`, y deja
+  // sitio para `count` glifos. Lo que es real viaja en `anchor` y en los arreglos, no en argumentos: un
+  // `double` que cruza una llamada que V8 no integra queda en el heap, y esto corre por rótulo y por cuadro.
+  const open = (k, count) => {
     const i = layout.placementCount++
     layout.spans   = grow(layout.spans, (i + 1) * 3)
     layout.boxes   = grow(layout.boxes, (i + 1) * 5)
     layout.anchors = grow(layout.anchors, (i + 1) * 2)
+    layout.glyphs  = grow(layout.glyphs, (layout.glyphCount + count) * 4)
     aligns         = grow(aligns, (i + 1) * 2)
     layout.spans[3 * i]     = layout.glyphCount
     layout.spans[3 * i + 1] = 0
     layout.spans[3 * i + 2] = k
-    layout.anchors[2 * i]     = x
-    layout.anchors[2 * i + 1] = y
-    aligns[2 * i]     = sx
-    aligns[2 * i + 1] = sy
+    layout.anchors[2 * i]     = anchor.x
+    layout.anchors[2 * i + 1] = anchor.y
+    aligns[2 * i]     = anchor.sx
+    aligns[2 * i + 1] = anchor.sy
     return i
   }
 
+  // La caja de la colocación `i`: centro, ángulo y medios lados.
   const box = (i, cx, cy, angle, hw, hh) => {
     const b = 5 * i
     layout.boxes[b]     = cx
@@ -108,31 +112,41 @@ export const createLayout = () => {
     layout.boxes[b + 4] = hh
   }
 
-  const glyph = (x, y, angle, unit) => {
-    const g = layout.glyphCount++
-    layout.glyphs = grow(layout.glyphs, (g + 1) * 4)
-    layout.glyphs[4 * g]     = x
-    layout.glyphs[4 * g + 1] = y
-    layout.glyphs[4 * g + 2] = angle
-    layout.glyphs[4 * g + 3] = unit
-  }
-
-  // Un rótulo derecho apoyado en (x, y): la caja crece hacia (sx, sy) y los grafemas van en fila.
-  const around = (k, text, x, y, sx, sy) => {
+  // Un rótulo derecho apoyado en `anchor` (x, y), con la caja creciendo hacia (sx, sy) y los grafemas en
+  // fila. Sin medida (html) deja la caja vacía en el ancla. Escribe en los arreglos sin llamar a `box`. [0-alloc]
+  const around = (k, text) => {
+    const { x, y, sx, sy } = anchor
     if (measure && (x < -CULL || y < -CULL || x > view.w + CULL || y > view.h + CULL)) return
-    const i = open(k, x, y, sx, sy)
-    if (!measure) return box(i, x, y, 0, 0, 0)
+    const count = measure ? text.widths.length : 0
+    const i     = open(k, count)
+    const boxes = layout.boxes
+    const b     = 5 * i
+    if (!measure) {
+      boxes[b]     = x
+      boxes[b + 1] = y
+      boxes[b + 2] = boxes[b + 3] = boxes[b + 4] = 0
+      return
+    }
     const hw = text.total / 2
     const hh = (text.ascent + text.descent) / 2
     const cx = x + sx * hw
     const cy = y + sy * hh
-    box(i, cx, cy, 0, hw, hh)
+    boxes[b]     = cx
+    boxes[b + 1] = cy
+    boxes[b + 2] = 0
+    boxes[b + 3] = hw
+    boxes[b + 4] = hh
+    const glyphs = layout.glyphs
     let acc = cx - hw
-    for (let u = 0; u < text.widths.length; u++) {
-      glyph(acc + text.widths[u] / 2, cy, 0, u)
+    for (let u = 0; u < count; u++) {
+      const g = 4 * layout.glyphCount++
+      glyphs[g]     = acc + text.widths[u] / 2
+      glyphs[g + 1] = cy
+      glyphs[g + 2] = 0
+      glyphs[g + 3] = u
       acc += text.widths[u]
     }
-    layout.spans[3 * i + 1] = text.widths.length
+    layout.spans[3 * i + 1] = count
   }
 
   // Los grafemas sobre la parte de `run` en `p`: una colocación por cada una que da `placeGlyphs`, con
@@ -145,9 +159,11 @@ export const createLayout = () => {
     const count = placeGlyphs(run.xy, run.cum, parts[p], parts[p + 1], text.widths, opts, placed)
     const hh    = (text.ascent + text.descent) / 2
     const buf   = placed.buf
+    anchor.x    = anchor.y = anchor.sx = anchor.sy = 0
     for (let first = 0; first < count; first += g) {
       let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
-      const i = open(k, 0, 0, 0, 0)
+      const i      = open(k, g)
+      const glyphs = layout.glyphs
       for (let u = 0; u < g; u++) {
         const o  = 3 * (first + u)
         const x  = buf[o], y = buf[o + 1], a = buf[o + 2]
@@ -157,12 +173,20 @@ export const createLayout = () => {
         minY = Math.min(minY, y - ey)
         maxX = Math.max(maxX, x + ex)
         maxY = Math.max(maxY, y + ey)
-        glyph(x, y, a, u)
+        const at = 4 * layout.glyphCount++
+        glyphs[at]     = x
+        glyphs[at + 1] = y
+        glyphs[at + 2] = a
+        glyphs[at + 3] = u
       }
+      const boxes = layout.boxes
+      const b     = 5 * i
       layout.spans[3 * i + 1] = g
-      layout.anchors[2 * i]     = (minX + maxX) / 2
-      layout.anchors[2 * i + 1] = (minY + maxY) / 2
-      box(i, (minX + maxX) / 2, (minY + maxY) / 2, 0, (maxX - minX) / 2, (maxY - minY) / 2)
+      layout.anchors[2 * i]     = boxes[b] = (minX + maxX) / 2
+      layout.anchors[2 * i + 1] = boxes[b + 1] = (minY + maxY) / 2
+      boxes[b + 2] = 0
+      boxes[b + 3] = (maxX - minX) / 2
+      boxes[b + 4] = (maxY - minY) / 2
     }
   }
 
@@ -175,7 +199,10 @@ export const createLayout = () => {
     const uy   = back ? -mid.uy : mid.uy
     const ax   = x + opts.offset * uy
     const ay   = y - opts.offset * ux
-    box(open(k, ax, ay, 0, 0), ax, ay, Math.atan2(uy, ux) + 0, 0, 0)
+    anchor.x  = ax
+    anchor.y  = ay
+    anchor.sx = anchor.sy = 0
+    box(open(k, 0), ax, ay, Math.atan2(uy, ux) + 0, 0, 0)
   }
 
   // El polo del ítem en world0, calculado una vez por versión del miembro.
@@ -203,23 +230,31 @@ export const createLayout = () => {
       for (let p = 0; p < run.count * PART; p += PART) {
         if (where === 'center') {
           midAlong(run.xy, run.cum, run.parts[p], run.parts[p + 1], mid)
-          around(k, shown, mid.x, mid.y - opts.offset, 0, 0)
+          anchor.x  = mid.x
+          anchor.y  = mid.y - opts.offset
+          anchor.sx = anchor.sy = 0
+          around(k, shown)
         } else measure ? along(k, shown, p) : middle(k, p)
       }
       return
     }
     if (kind === 'polygon') {
       const at = poleFor(item, id)
-      at && around(k, shown, (at.x - view.cx) * view.scale + view.hw, (at.y - view.cy) * view.scale + view.hh - opts.offset, 0, 0)
+      if (!at) return
+      anchor.x  = (at.x - view.cx) * view.scale + view.hw
+      anchor.y  = (at.y - view.cy) * view.scale + view.hh - opts.offset
+      anchor.sx = anchor.sy = 0
+      around(k, shown)
       return
     }
     icon.w = icon.h = 0
     icon.ax = icon.ay = NaN
     if (!member.anchorOf(item, icon)) return
-    const x = (projX0(icon.lng) - view.cx) * view.scale + view.hw
-    const y = (projY0(icon.lat) - view.cy) * view.scale + view.hh
-    anchorAt(where, x, y, icon, opts.offset, anchor)
-    around(k, shown, anchor.x, anchor.y, anchor.sx, anchor.sy)
+    icon.x      = (projX0(icon.lng) - view.cx) * view.scale + view.hw
+    icon.y      = (projY0(icon.lat) - view.cy) * view.scale + view.hh
+    icon.offset = opts.offset
+    anchorAt(where, icon, anchor)
+    around(k, shown)
   }
 
   /** Rehace la colocación de `member` con la vista `view` (readLabelView) y la medida `measure`, o null. */
@@ -251,6 +286,21 @@ export const createLayout = () => {
     const hh = h / 2
     if (x !== undefined) return box(i, x + hw, y + hh, 0, hw, hh)
     box(i, layout.anchors[2 * i] + aligns[2 * i] * hw, layout.anchors[2 * i + 1] + aligns[2 * i + 1] * hh, layout.boxes[5 * i + 2], hw, hh)
+  }
+
+  /** Como `size` con la caja que devuelve un `paint` (`{ x, y, w, h }`, en px del contenedor del pintado)
+   *  corrida `shift` (`{ x, y }`) para volver al marco de la colocación; sin caja, la deja vacía. Lleva
+   *  los números en objetos y no en argumentos, así que no asigna por rótulo. [0-alloc] */
+  layout.fit = (i, painted, shift) => {
+    const boxes = layout.boxes
+    const b     = 5 * i
+    const hw    = painted ? painted.w / 2 : 0
+    const hh    = painted ? painted.h / 2 : 0
+    boxes[b]     = painted ? painted.x - shift.x + hw : 0
+    boxes[b + 1] = painted ? painted.y - shift.y + hh : 0
+    boxes[b + 2] = 0
+    boxes[b + 3] = hw
+    boxes[b + 4] = hh
   }
 
   // Si (x, y) cae en algún glifo de la colocación `i`: la caja de cada uno, girada con él.

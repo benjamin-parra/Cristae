@@ -51,13 +51,13 @@ const fakeHost = () => {
       for (let i = 0; i < list.length; i++) list[i]()
     },
   }
-  return { camera, surface: { mount: () => ({ appendChild: noop }), unmount: noop } }
+  return { camera, center, surface: { mount: () => ({ appendChild: noop }), unmount: noop } }
 }
 
-const member = ({ id, kind = 'point', placement = 'center', items }) => {
+const member = ({ id, kind = 'point', placement = 'center', items, paint = null }) => {
   const m = {
     id, kind, placement, version: 0, visible: true, curve: null, reads: 0,
-    opts      : { ...LABEL_DEFAULTS },
+    opts      : { ...LABEL_DEFAULTS, paint },
     forEach(fn, arg) {
       for (let i = 0; i < items.length; i++) {
         m.reads++
@@ -65,7 +65,13 @@ const member = ({ id, kind = 'point', placement = 'center', items }) => {
       }
     },
     pathOf    : it => it.path,
-    anchorOf  : (it, out) => Object.assign(out, { lat: it.lat, lng: it.lng, w: 0, h: 0 }),
+    anchorOf  : (it, out) => {
+      out.lat = it.lat
+      out.lng = it.lng
+      out.w   = 0
+      out.h   = 0
+      return out
+    },
     alphaOf   : () => 1,
     isHovered : () => false,
   }
@@ -105,4 +111,42 @@ test('cero asignaciones por rótulo en el repintado de lo colocado, y en hitsAt'
   assert.ok(porRotulo < 1, `repintado: ${porRotulo} bytes por rótulo (${pocos.bytes} y ${hartos.bytes} por repintado)`)
   // Una asignación por llamada son al menos 16 bytes; lo de menos es el ruido del contador.
   assert.ok(hartos.pica < 16, `hitsAt: ${hartos.pica} bytes por llamada`)
+})
+
+// El cuadro de un mapa que se mueve en cada cuadro (el de un anfitrión que anima por cuadro): la vista cambia,
+// así que cada miembro se recoloca y se pinta entero. Lo que cuenta es lo que crece con los rótulos: la
+// medida y la colocación (`labelText`, `labelLayout`), el `anchorOf` del miembro y los dos pintados, el de
+// texto y el de un `paint` del consumidor que devuelve la caja que ya tiene.
+const BOX = { x: 0, y: 0, w: 20, h: 10 }
+const paint = () => BOX
+
+const cuadros = async n => {
+  ctx        = mudo()
+  const host = fakeHost()
+  const r    = createLabelCanvas({ host, pane: 'rotulos', zIndex: 1 })
+  const items = k => Array.from({ length: n }, (_, i) => ({ id: i, text: `${k}${i}`, lat: i % 40, lng: i % 60 }))
+  const a = member({ id: 'a', items: items('a') })
+  const b = member({ id: 'b', placement: 'above', items: items('b') })
+  const c = member({ id: 'c', items: items('c'), paint })
+  const l = member({ id: 'l', kind: 'line', placement: 'along', items: [{ id: 'R', text: 'Ruta', path: [[0, -20], [0, 20]] }] })
+  ;[a, b, c, l].forEach(m => r.attach(m))
+  await frame()
+  let k = 0
+  const cuadro = () => {
+    host.center.lng = (++k % 9) * 1e-3
+    host.camera.fire('moveend')
+  }
+  a.reads = 0
+  cuadro()
+  assert.ok(a.reads >= n, 'el cuadro recoloca los rótulos')
+  const bytes = bytesPorLlamada(cuadro, 20, { calentar: 3_000 })
+  r.destroy()
+  return bytes
+}
+
+test('[0-alloc] el cuadro del renderer canvas con la vista en movimiento no asigna por rótulo', async () => {
+  const pocos  = await cuadros(10)
+  const hartos = await cuadros(210)
+  const porRotulo = (hartos - pocos) / 600
+  assert.ok(porRotulo < 1, `cuadro: ${porRotulo} bytes por rótulo (${pocos} y ${hartos} por cuadro)`)
 })

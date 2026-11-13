@@ -20,9 +20,14 @@ const onPaintError = e => console.error('[cristae] paint de <cristae-labeled>', 
 const runPaint = call => call.paint(call.ctx, call.point, call.label, call.hovered, PILL_STYLE)
 
 // De px de marco a lat/lng con la vista con que se colocó: Mercator inversa, sin pedirle a la cámara un
-// objeto por rótulo.
-const lngAt = (st, x) => ((x - st.hw) / st.scale + st.cx) / 256 * 360 - 180
-const latAt = (st, y) => Math.atan(Math.sinh((0.5 - ((y - st.hh) / st.scale + st.cy) / 256) * 2 * Math.PI)) * RAD
+// objeto por rótulo. Recibe el índice de la colocación y escribe en `label`: los números no cruzan la
+// llamada ni vuelven de ella, que es donde V8 los deja en el heap si no la integra. [0-alloc]
+const locate = (st, anchors, i, label) => {
+  const x = anchors[2 * i]
+  const y = anchors[2 * i + 1]
+  label.lng = ((x - st.hw) / st.scale + st.cx) / 256 * 360 - 180
+  label.lat = Math.atan(Math.sinh((0.5 - ((y - st.hh) / st.scale + st.cy) / 256) * 2 * Math.PI)) * RAD
+}
 
 /** Un renderer `canvas` en el pane `pane`, a `zIndex`. `host` es el del motor: su cámara y su superficie. */
 export const createLabelCanvas = ({ host, pane, zIndex }) => {
@@ -41,6 +46,7 @@ export const createLabelCanvas = ({ host, pane, zIndex }) => {
   const point   = { x: 0, y: 0 }
   const label   = { id: null, lat: 0, lng: 0, text: '' }
   const call    = { paint: null, ctx, point, label, hovered: false }
+  const shift   = { x: 0, y: 0 }          // lo que vuelve la caja de un `paint` al marco de su colocación
   const origin  = { x: NaN, y: NaN }      // el del marco en el último pintado
   let frame     = 0
   let zooming   = false
@@ -112,6 +118,8 @@ export const createLabelCanvas = ({ host, pane, zIndex }) => {
     const { spans, anchors, ids, texts, placementCount } = layout
     call.paint   = member.opts.paint
     call.hovered = hovered
+    shift.x      = dx
+    shift.y      = dy
     for (let i = 0; i < placementCount; i++) {
       const item = spans[3 * i + 2]
       const id   = ids[item]
@@ -120,14 +128,13 @@ export const createLabelCanvas = ({ host, pane, zIndex }) => {
       point.y    = anchors[2 * i + 1] + dy
       label.id   = id
       label.text = texts[item].text
-      label.lat  = latAt(st, anchors[2 * i + 1])
-      label.lng  = lngAt(st, anchors[2 * i])
+      locate(st, anchors, i, label)
       ctx.save()
       ctx.setTransform(ratio, 0, 0, ratio, 0, 0)
       ctx.globalAlpha = member.alphaOf(id)
       const box = safe(runPaint, call, onPaintError)
       ctx.restore()
-      box ? layout.size(i, box.w, box.h, box.x - dx, box.y - dy) : layout.size(i, 0, 0, 0, 0)
+      layout.fit(i, box, shift)
     }
   }
 

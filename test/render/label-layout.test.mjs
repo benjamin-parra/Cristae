@@ -253,3 +253,51 @@ test('cero asignaciones en hitsAt y en la lectura', () => {
   assert.ok(bytesPorLlamada(read, 20_000, { calentar: 300_000 }) < 2, 'lectura')
   assert.ok(acc.sum > 0)
 })
+
+// SPECS §14: recolocar (la vista cambió) tampoco asigna por rótulo. El miembro lleva lat/lng ya calculados:
+// el de arriba arma un arreglo por ítem en `anchorOf`, y eso mediría al miembro y no a la colocación. Se mide
+// la diferencia entre 10 y 410 ítems, así lo que no crece con ellos (el ruido del contador) no cuenta.
+const sinAsignar = (n, placement) => {
+  const items = Array.from({ length: n }, (_, i) => ({ id: i, text: `p${i % 40}`, lat: (i % 30) - 15, lng: (i % 50) - 25 }))
+  const m = {
+    ...member({ kind: 'point', opts: { placement }, items: [] }),
+    forEach  : (fn, arg) => { for (let i = 0; i < items.length; i++) fn(arg, items[i], items[i].id, items[i].text) },
+    anchorOf : (it, out) => {
+      out.lat = it.lat
+      out.lng = it.lng
+      out.w   = 12
+      out.h   = 12
+      return out
+    },
+  }
+  const l  = createLayout()
+  const me = measure()
+  let k    = 0
+  const view = { ...VIEW }
+  const place = () => {
+    view.cx = VIEW.cx + (k++ % 9) * 1e-4
+    l.place(m, view, me)
+  }
+  const bytes = bytesPorLlamada(place, 20, { calentar: 3_000 })
+  assert.ok(l.placementCount > n / 2, 'los rótulos se colocan')
+  return bytes
+}
+
+for (const placement of ['center', 'above', 'right']) {
+  test(`[0-alloc] recolocar rótulos de punto (${placement}) no asigna por rótulo`, () => {
+    const porRotulo = (sinAsignar(410, placement) - sinAsignar(10, placement)) / 400
+    assert.ok(porRotulo < 1, `${porRotulo} bytes por rótulo`)
+  })
+}
+
+test('fit: la caja de un pintor corrida por `shift`, igual que size con esquina; sin caja, vacía', () => {
+  const build = () => createLayout().place(member({ kind: 'point', items: [{ id: 'P', text: 'ab', x: 200, y: 200 }], opts: { paint: () => {} } }), VIEW, measure())
+  const a = build()
+  const b = build()
+  a.size(0, 60, 22, 170 - 5, 222 + 3)
+  b.fit(0, { x: 170, y: 222, w: 60, h: 22 }, { x: 5, y: -3 })
+  assert.deepEqual(a.boxes.slice(0, 5), b.boxes.slice(0, 5))
+  b.fit(0, undefined, { x: 5, y: -3 })
+  assert.deepEqual([...b.boxes.slice(0, 5)], [0, 0, 0, 0, 0])
+  assert.deepEqual(hits(b, 225, 240), [])
+})

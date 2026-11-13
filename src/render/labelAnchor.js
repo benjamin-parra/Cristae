@@ -8,20 +8,23 @@ const GAP = 4                             // px entre el borde del ícono y el t
 // Hacia dónde sale el texto desde el ícono: es también hacia dónde se alinea su caja.
 const SIDES = { center: [0, 0], above: [0, -1], below: [0, 1], right: [1, 0] }
 
-/** El ancla de `placement` para un ítem en (x, y) px con su ícono `icon` ({ w, h } y, si el punto no
- *  es el centro del ícono, { ax, ay }: dónde cae el punto dentro de la caja). Escribe en `out` el ancla
- *  ya corrida por `offset` (positivo hacia arriba) y en `sx`, `sy` hacia dónde crece la caja del texto
- *  desde ella: `above` la apoya por abajo, `below` por arriba, `right` por la izquierda y `center` la
- *  centra. Devuelve `out`. */
-export const anchorAt = (placement, x, y, icon, offset, out) => {
+/** El ancla de `placement` para el ícono `icon` ya situado: el punto del ítem en px (`x`, `y`), su caja
+ *  (`w`, `h`), `offset` (positivo hacia arriba) y, si el punto no es el centro de la caja, `ax`, `ay`: dónde
+ *  cae el punto dentro de ella. Escribe en `out` el ancla ya corrida por `offset` y en `sx`, `sy` hacia
+ *  dónde crece la caja del texto desde ella: `above` la apoya por abajo, `below` por arriba, `right` por la
+ *  izquierda y `center` la centra. Devuelve `out`.
+ *
+ *  Todo viaja en objetos y no en argumentos: un `double` que cruza una llamada que V8 no integra se mide
+ *  como un número en el heap, y esta corre una vez por rótulo y por cuadro. [0-alloc] */
+export const anchorAt = (placement, icon, out) => {
   const side = SIDES[placement]
   const w    = icon.w > 0 ? icon.w : 0
   const h    = icon.h > 0 ? icon.h : 0
-  const cx   = x - (Number.isFinite(icon.ax) ? icon.ax : w / 2) + w / 2
-  const cy   = y - (Number.isFinite(icon.ay) ? icon.ay : h / 2) + h / 2
+  const cx   = icon.x - (Number.isFinite(icon.ax) ? icon.ax : w / 2) + w / 2
+  const cy   = icon.y - (Number.isFinite(icon.ay) ? icon.ay : h / 2) + h / 2
   const away = side[0] || side[1]
-  out.x  = away ? cx + side[0] * (w / 2 + GAP) : x
-  out.y  = (away ? cy + side[1] * (h / 2 + GAP) : y) - offset
+  out.x  = away ? cx + side[0] * (w / 2 + GAP) : icon.x
+  out.y  = (away ? cy + side[1] * (h / 2 + GAP) : icon.y) - icon.offset
   out.sx = side[0]
   out.sy = side[1]
   return out
