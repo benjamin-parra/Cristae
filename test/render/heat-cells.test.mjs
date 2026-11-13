@@ -4,13 +4,19 @@
 //   · la grilla es del mundo: no depende del ancla, y en el nivel L una celda mide N/2^L de world0;
 //   · el aporte de cada punto es el del shader, acotado por punto antes de sumar;
 //   · si las celdas pasan de MAX_CELL_RATIO de los puntos no agrega, y los puntos fuera del mundo no entran;
-//   · el nivel es ⌈zoom⌉ y la celda no pasa de CELL_PX ni de R·CELL_PER_RADIUS;
-//   · una celda sólo junta puntos de la misma clase de aporte: con `intensity` alta, los calientes y los fríos no se promedian.
+//   · el nivel es ⌈zoom·LEVEL_STEPS⌉/LEVEL_STEPS y la celda no pasa de CELL_PX ni de R·CELL_PER_RADIUS;
+//   · un punto caliente (aporte ≥ HOT_CONTRIBUTION) no entra en una celda: va solo, en su sitio y con su aporte;
+//   · el umbral sigue a n·R²;
+//   · una celda pesada (aportes que suman más de HEAVY_CONTRIBUTION) se parte en celdas de 1/2^SPLIT_LEVELS de lado;
+//   · desde SAMPLE_MIN_POINTS una muestra corta la pasada que no va a pagar, con la estimación exacta para celdas de 1 y 2 puntos.
 // Corre con: node --test test/render/heat-cells.test.mjs
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { HeatCells, CELL_FLOATS, CELL_PX, CELL_PER_RADIUS, MAX_CELL_RATIO, CLASS_STEP, AGGREGATE_MIN_POINTS, aggregationLevel, cellSize, contributionClass } from '../../src/render/heat-cells.js'
-import { contribution, MIN_OPACITY, POINT_ALPHA, TERM_CAP } from '../../src/render/heat-math.js'
+import {
+  HeatCells, CELL_FLOATS, CELL_PX, CELL_PER_RADIUS, MAX_CELL_RATIO, HOT_CONTRIBUTION, AGGREGATE_MIN_POINTS, AGGREGATE_REF_RADIUS,
+  LEVEL_STEPS, HEAVY_CONTRIBUTION, SPLIT_LEVELS, SAMPLE_MIN_POINTS, SAMPLE_STRIDE, SAMPLE_MARGIN, aggregates, aggregationLevel, cellSize, estimatedCells,
+} from '../../src/render/heat-cells.js'
+import { contribution, MIN_OPACITY, POINT_ALPHA } from '../../src/render/heat-math.js'
 
 // Un espejo como el de HeatLayer: [x, y, peso normalizado] por punto, relativo al ancla.
 const espejo = (puntos, ax, ay) => {
@@ -140,11 +146,29 @@ test('los arreglos se reusan: una segunda pasada igual no asigna', () => {
   assert.equal(hc.out, out)
 })
 
-test('el nivel es ⌈zoom⌉, y un entero con ruido de coma flotante no salta', () => {
+test('el nivel es ⌈zoom⌉ de a cuarto, un entero cae en su nivel de siempre y uno con ruido de coma flotante no salta', () => {
+  assert.equal(LEVEL_STEPS, 4)
   assert.equal(aggregationLevel(10), 10)
   assert.equal(aggregationLevel(10 + 1e-12), 10)
-  assert.equal(aggregationLevel(10.001), 11)
+  assert.equal(aggregationLevel(10.001), 10.25)
+  assert.equal(aggregationLevel(10.25), 10.25)
+  assert.equal(aggregationLevel(10.26), 10.5)
   assert.equal(aggregationLevel(10.999), 11)
+  // La celda en pantalla mide N·2^(zoom − L): entre 2^(−1/4)·N y N, nunca más.
+  for (let z = 9; z < 12; z += 0.013) {
+    const lado = 2 ** (z - aggregationLevel(z))
+    assert.ok(lado <= 1 && lado > 2 ** (-1 / LEVEL_STEPS), `zoom ${z}: ${lado}`)
+  }
+})
+
+test('el umbral sigue a n·R²: AGGREGATE_MIN_POINTS con el radio de referencia, menos con uno grande y más con uno chico', () => {
+  assert.equal(aggregates(AGGREGATE_MIN_POINTS - 1, AGGREGATE_REF_RADIUS), false)
+  assert.equal(aggregates(AGGREGATE_MIN_POINTS, AGGREGATE_REF_RADIUS), true)
+  assert.equal(aggregates(4_999, 80), false)
+  assert.equal(aggregates(5_000, 80), true, 'R = 80: un cuarto')
+  assert.equal(aggregates(189_349, 13), false)
+  assert.equal(aggregates(189_350, 13), true, 'R = 13: (40/13)² veces')
+  assert.equal(aggregates(1e9, 0), false, 'sin radio no hay relleno que ahorrar')
 })
 
 test('la celda no pasa de CELL_PX ni de R·CELL_PER_RADIUS', () => {
@@ -195,51 +219,131 @@ test('la varianza de puntos coincidentes nunca sale negativa por redondeo', () =
   assert.ok(peor >= 0, `varianza ${peor}`)
 })
 
-test('la clase de un aporte: una sola hasta intensity 4 y más allá de ella los calientes se separan', () => {
-  assert.equal(CLASS_STEP, Math.LN2)
-  assert.equal(contributionClass(MIN_OPACITY), 0)
-  assert.equal(contributionClass(POINT_ALPHA * 4), 0, 'intensity 4 con peso pleno')
-  assert.equal(contributionClass(0.49), 0)
-  assert.equal(contributionClass(0.51), 1, 'c > 0,5: 1 − c baja de la mitad')
-  assert.equal(contributionClass(0.76), 2)
-  assert.equal(contributionClass(1), Math.floor(TERM_CAP / CLASS_STEP), 'c = 1 no da infinito: queda en el tope del término')
+test('un punto caliente va solo, en su sitio y con su aporte; los fríos de su celda forman la celda', () => {
+  const ix = 3000, iy = 1500
+  const en = (fx, fy, w) => [(ix + fx) * LADO, (iy + fy) * LADO, w]
+  const frios  = [[0.8, 0.8], [0.3, 0.7], [0.6, 0.4], [0.1, 0.9], [0.5, 0.5], [0.7, 0.2], [0.4, 0.6]].map(([fx, fy]) => en(fx, fy, 0.02))
+  const puntos = [en(0.2, 0.2, 1), ...frios, en(40.5, 0.5, 1), en(40.5, 0.5, 1)]
+  const ax = 93.7, ay = 46.8
+  const hc = new HeatCells()
+  // Con intensity 8 los de peso pleno aportan 0,96: tres calientes y una celda de siete fríos.
+  assert.ok(contribution(1, 8) >= HOT_CONTRIBUTION && contribution(0.02, 8) < HOT_CONTRIBUTION)
+  const m = espejo(puntos, ax, ay)
+  assert.equal(hc.build(m, puntos.length, ax, ay, NIVEL, CELL_PX, 8), 4)
+  assert.equal(hc.cells, 1, 'una celda')
+  const cs = celdas(hc)
+  assert.deepEqual(cs.map(c => c.n), [7, 1, 1, 1])
+  assert.ok(Math.abs(cs[0].c - MIN_OPACITY) < 1e-7, 'la celda fría conserva su aporte')
+  ;[0, 8, 9].forEach((i, k) => {
+    const o = (k + 1) * CELL_FLOATS
+    assert.deepEqual([hc.out[o], hc.out[o + 1]], [m[i * 3], m[i * 3 + 1]], `el caliente ${i} en su sitio exacto del espejo`)
+    assert.equal(hc.out[o + 2], Math.fround(contribution(1, 8)))
+    assert.deepEqual([...hc.out.subarray(o + 4, o + 7)], [0, 0, 0], 'sin dispersión')
+  })
+  // Con intensity 4 (aporte 0,48) nada es caliente: dos celdas, como siempre.
+  assert.equal(hc.build(m, puntos.length, ax, ay, NIVEL, CELL_PX, 4), 2)
+  assert.deepEqual(celdas(hc).map(c => c.n).sort(), [2, 8])
 })
 
-test('una celda no junta aportes de clases distintas: con intensity 8 un punto pleno y uno casi sin peso son dos muestras', () => {
+test('los calientes cuentan en la proporción: 51 calientes de 100 puntos no agregan, 50 sí', () => {
   const ix = 3000, iy = 1500
-  const dentro = [[0.2, 0.2, 1], [0.8, 0.8, 0.02], [0.3, 0.7, 0.02], [0.6, 0.4, 0.02]].map(([fx, fy, w]) => [(ix + fx) * LADO, (iy + fy) * LADO, w])
-  const lejos = [[40.5, 0.5, 1], [40.5, 0.5, 1]].map(([fx, fy, w]) => [(ix + fx) * LADO, (iy + fy) * LADO, w])
-  const puntos = [...dentro, ...lejos]
+  const con = calientes => Array.from({ length: 100 }, (_, i) => [(ix + (i < calientes ? 3 * i : 0.5)) * LADO, (iy + 0.5) * LADO, i < calientes ? 1 : 0])
   const hc = new HeatCells()
-  const n = hc.build(espejo(puntos, 93.7, 46.8), puntos.length, 93.7, 46.8, NIVEL, CELL_PX, 8)
-  assert.equal(n, 3, 'la caliente, las tres frías y las dos de lejos')
-  const cs = celdas(hc).sort((p, q) => p.n - q.n)
-  assert.deepEqual(cs.map(c => c.n), [1, 2, 3])
-  assert.ok(Math.abs(cs[0].c - contribution(1, 8)) < 1e-7, 'la caliente conserva su aporte, no el promedio')
-  assert.ok(Math.abs(cs[2].c - MIN_OPACITY) < 1e-7, 'las frías, el suyo')
-  // Con intensity 4 los mismos puntos caben en una sola celda (los fríos ni siquiera llegan a la clase 1).
-  const m = new HeatCells()
-  m.build(espejo(puntos, 93.7, 46.8), puntos.length, 93.7, 46.8, NIVEL, CELL_PX, 4)
-  assert.deepEqual(celdas(m).map(c => c.n).sort(), [2, 4])
+  assert.equal(hc.build(espejo(con(51), 0, 0), 100, 0, 0, NIVEL, CELL_PX, 8), 0)
+  assert.equal(hc.build(espejo(con(49), 0, 0), 100, 0, 0, NIVEL, CELL_PX, 8), 50, '49 calientes y una celda fría')
+})
+
+test('estimatedCells: exacta en esperanza con celdas de un punto o de dos', () => {
+  const S = SAMPLE_STRIDE, p = 1 / S
+  for (const [N1, N2] of [[10_000, 0], [0, 10_000]]) {
+    const vistas = N1 * p + N2 * (1 - (1 - p) ** 2)
+    const f1 = N1 * p + N2 * 2 * p * (1 - p)
+    const f2 = N2 * p * p
+    assert.ok(Math.abs(estimatedCells(vistas, f1, f2, S) - (N1 + N2)) < 1e-6, `${N1} de uno y ${N2} de dos: ${estimatedCells(vistas, f1, f2, S)}`)
+  }
+  assert.equal(estimatedCells(500, 0, 0, S), 500, 'sin celdas vistas una vez, las vistas')
+})
+
+// Una nube de `n` puntos donde los de índice múltiplo de SAMPLE_STRIDE (los que toma la muestra) caen cada uno en su celda y el
+// resto en una sola: la pasada entera agregaría en n/SAMPLE_STRIDE + 1 celdas, pero la muestra sólo ve celdas sueltas.
+const trampa = n => Array.from({ length: n }, (_, i) => [(3000 + (i % SAMPLE_STRIDE ? 0.5 : 3 * i + 7)) * LADO, 1500.5 * LADO, 1])
+
+test('desde SAMPLE_MIN_POINTS la muestra corta antes la pasada que estima por encima del tope', () => {
+  const n = SAMPLE_MIN_POINTS
+  const hc = new HeatCells()
+  assert.equal(hc.build(espejo(trampa(n), 0, 0), n, 0, 0, NIVEL, CELL_PX, 1), 0, 'la muestra la corta')
+  assert.deepEqual(hc.sample, { seen: n / SAMPLE_STRIDE, f1: n / SAMPLE_STRIDE, f2: 0, hot: 0 })
+  assert.ok(estimatedCells(n / SAMPLE_STRIDE, n / SAMPLE_STRIDE, 0, SAMPLE_STRIDE) > n * MAX_CELL_RATIO * SAMPLE_MARGIN)
+  // Un punto menos y no hay muestra: la pasada entera agrega.
+  const m = n - SAMPLE_STRIDE
+  assert.equal(hc.build(espejo(trampa(m), 0, 0), m, 0, 0, NIVEL, CELL_PX, 1), m / SAMPLE_STRIDE + 1)
+  assert.equal(hc.sample.seen, 0)
+})
+
+test('una muestra que estima dentro del margen deja correr la pasada', () => {
+  const n = SAMPLE_MIN_POINTS
+  const puntos = Array.from({ length: n }, (_, i) => [(3000 + (i % 1000) * 3 + 0.5) * LADO, 1500.5 * LADO, 1])
+  const hc = new HeatCells()
+  assert.equal(hc.build(espejo(puntos, 0, 0), n, 0, 0, NIVEL, CELL_PX, 1), 1000)
+  assert.ok(hc.sample.seen > 0 && hc.sample.seen <= 1000)
 })
 
 // Constantes que salen de una medición, no de una cuenta: el error de la imagen y el costo de la GPU se midieron con estos valores
 // (las cifras de docs/heat.md#agregación). Cambiar una pide volver a medir; esta prueba hace que no se cambien sin verlo.
 test('las constantes medidas de la agregación', () => {
   assert.equal(AGGREGATE_MIN_POINTS, 20_000)
+  assert.equal(AGGREGATE_REF_RADIUS, 40)
   assert.equal(CELL_PER_RADIUS, 1 / 20)
   assert.equal(CELL_PX, 8)
   assert.equal(MAX_CELL_RATIO, 0.5)
-  assert.equal(CLASS_STEP, Math.LN2)
+  assert.equal(HOT_CONTRIBUTION, 0.5)
+  assert.equal(HEAVY_CONTRIBUTION, 32 * POINT_ALPHA)
+  assert.equal(SPLIT_LEVELS, 2)
+  assert.equal(LEVEL_STEPS, 4)
+  assert.equal(SAMPLE_MIN_POINTS, 200_000)
+  assert.equal(SAMPLE_STRIDE, 16)
+  assert.equal(SAMPLE_MARGIN, 1.5)
 })
 
-test('con la tabla llena a medias, las dos clases de cada celda siguen siendo dos celdas aunque el sondeo las desplace', () => {
-  // 250 celdas con un punto caliente y uno frío cada una, y 600 puntos juntos en otra: 501 celdas en una tabla de 2.048 casillas,
-  // donde el sondeo lineal pone a algunas en la casilla que le tocaba a la otra clase de su celda.
+// Puntos de aporte POINT_ALPHA (peso 1, intensity 1) en la celda (3000, 1500) del nivel NIVEL, `k` en cada una de las 16
+// subceldas de 1/4 de lado, y uno suelto lejos.
+const pesada = k => {
   const puntos = []
-  for (let k = 0; k < 250; k++)
-    for (const [fx, fy, w] of [[0.2, 0.2, 1], [0.7, 0.6, 0.02]]) puntos.push([(3000 + 3 * k + fx) * LADO, (1500 + fy) * LADO, w])
-  for (let i = 0; i < 600; i++) puntos.push([(3000 + 900.5) * LADO, (1500 + 0.5) * LADO, 1])
+  for (let sy = 0; sy < 4; sy++) for (let sx = 0; sx < 4; sx++) for (let j = 0; j < k; j++)
+    puntos.push([(3000 + (sx + 0.3 + 0.4 * j / k) / 4) * LADO, (1500 + (sy + 0.5) / 4) * LADO, 1])
+  puntos.push([(3040.5) * LADO, 1500.5 * LADO, 1])
+  return puntos
+}
+
+test('una celda cuyos aportes suman más de HEAVY_CONTRIBUTION se parte en celdas de 1/2^SPLIT_LEVELS de lado', () => {
   const hc = new HeatCells()
-  assert.equal(hc.build(espejo(puntos, 93.7, 46.8), puntos.length, 93.7, 46.8, NIVEL, CELL_PX, 8), 501)
+  const justo = Math.floor(HEAVY_CONTRIBUTION / POINT_ALPHA / 16)    // 2 por subcelda: 32 puntos, Σc = HEAVY_CONTRIBUTION
+  assert.equal(hc.build(espejo(pesada(justo), 0, 0), 16 * justo + 1, 0, 0, NIVEL, CELL_PX, 1), 2, 'en el umbral, entera')
+  const p = pesada(justo + 1)
+  const n = hc.build(espejo(p, 0, 0), p.length, 0, 0, NIVEL, CELL_PX, 1)
+  assert.equal(n, 17, 'pasado el umbral, sus 16 subceldas y la suelta')
+  const cs = celdas(hc)
+  assert.deepEqual(cs.map(c => c.n).sort((a, b) => a - b), [1, ...Array(16).fill(justo + 1)])
+  assert.ok(Math.abs(cs.reduce((t, c) => t + c.c * c.n, 0) - p.length * POINT_ALPHA) < 1e-5, 'la suma de aportes se conserva')
+  // Cada subcelda lleva su covarianza en px² de world0 de la subcelda: a lo largo de x, la de sus puntos.
+  const sub = LADO / 2 ** SPLIT_LEVELS
+  for (let k = 0; k < hc.count; k++) {
+    const o = k * CELL_FLOATS
+    if (hc.out[o + 3] === 1) continue
+    assert.ok(hc.out[o + 4] > 0 && hc.out[o + 4] < sub * sub, `xx ${hc.out[o + 4]}`)
+    assert.ok(Math.abs(hc.out[o + 5]) < 1e-12 * sub * sub, `yy ${hc.out[o + 5]}`)
+  }
+})
+
+test('si las subceldas pasan del tope, la celda pesada queda entera', () => {
+  // 40 puntos de la pesada en 16 subceldas y uno suelto: 17 muestras para 41 puntos caben en el tope de 20.
+  const hc = new HeatCells()
+  const p = pesada(2).concat(pesada(1).slice(0, 8))
+  assert.equal(hc.build(espejo(p, 0, 0), p.length, 0, 0, NIVEL, CELL_PX, 1), 17)
+  // 33 en la pesada y dos sueltas: tope de 17, con las dos sueltas quedan 15 para las 16 subceldas. Entera.
+  const pocas = Array.from({ length: 33 }, (_, i) => [(3000 + ((i % 16) % 4 + 0.5) / 4) * LADO, (1500 + (Math.floor((i % 16) / 4) + 0.5) / 4) * LADO, 1])
+  pocas.push([3040.5 * LADO, 1500.5 * LADO, 1], [3080.5 * LADO, 1500.5 * LADO, 1])
+  assert.ok(33 * POINT_ALPHA > HEAVY_CONTRIBUTION)
+  assert.equal(hc.build(espejo(pocas, 0, 0), pocas.length, 0, 0, NIVEL, CELL_PX, 1), 3, 'la pesada entera y las dos sueltas')
+  assert.equal(celdas(hc).find(c => c.n === 33)?.n, 33)
 })

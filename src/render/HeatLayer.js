@@ -2,7 +2,7 @@ import { EditSurface, blendOver } from './EditSurface.js'
 import { createFrameView } from './frame-view.js'
 import { projX0, projY0, readView } from './project.js'
 import { heatFormat, heatPrograms, heatCellProgram } from './heat-shaders.js'
-import { HeatCells, AGGREGATE_MIN_POINTS, CELL_FLOATS, aggregationLevel, cellSize } from './heat-cells.js'
+import { HeatCells, CELL_FLOATS, aggregates, aggregationLevel, cellSize } from './heat-cells.js'
 import {
   DEFAULT_RADIUS, DEFAULT_BLUR, DEFAULT_INTENSITY, GRAD_STEPS,
   nonNeg, brushCore, defaultRamp, samplePalette,
@@ -28,12 +28,15 @@ import {
 // sola —un paneo, un zoom— el dibujo no relee los accessors ni sube nada: sólo cambian la matriz y los uniformes.
 // `dropGl` conserva el espejo, así que un contexto nuevo resube sin volver a los datos.
 //
-// LA AGREGACIÓN. Desde AGGREGATE_MIN_POINTS puntos, el splat no es por punto sino por celda de pantalla (heat-cells.js):
-// cada celda junta sus puntos en una muestra con su multiplicidad, y el campo a la vista es el mismo con muchas menos
-// instancias. Las celdas salen del espejo, nunca de los accessors, y se rehacen sólo cuando cambia algo de lo que dependen:
-// el espejo (un flush, un reasiento del ancla), el nivel entero de zoom, el tamaño de celda (que sigue al radio),
-// `intensity` (el aporte va horneado en la celda) y `refresh`. Un paneo no las toca. Por debajo del umbral, o donde
-// agregar no paga, la capa dibuja exactamente como sin agregación.
+// LA AGREGACIÓN. Cuando el relleno de un splat por punto pasa el umbral (`aggregates`, que sigue a n·R²), el splat no es por
+// punto sino por celda de pantalla (heat-cells.js): cada celda junta sus puntos en una muestra con su multiplicidad, y el campo
+// a la vista es el mismo con muchas menos instancias. Las celdas salen del espejo, nunca de los accessors, y se rehacen sólo
+// cuando cambia algo de lo que dependen: el espejo (un flush, un reasiento del ancla), el nivel de la grilla, el tamaño de celda
+// (que sigue al radio), `intensity` (el aporte va horneado en la celda) y `refresh`. Un paneo no las toca. Un zoom animado
+// avisa su destino con `zoomanim`, y las celdas de ese nivel se arman mientras el campo está oculto, dos cuadros después,
+// cuando la transición ya corre. Una pasada que no agregó deja anotado su nivel: uno igual o más fino no la repite hasta que
+// cambien los datos, la celda o `intensity`. Por debajo del umbral, o donde agregar no paga, la capa dibuja exactamente como
+// sin agregación.
 //
 // EL ZOOM ANIMADO. El campo no se escala con la transición CSS del canvas (se vería desfasado): al empezar el zoom se
 // pinta vacío, y el calor reaparece, ya reproyectado, al asentar la vista. Mientras dura, ni un flush de la Source ni un
@@ -108,7 +111,7 @@ export class HeatLayer {
   #accW       = 0
   #accH       = 0
   #palTex     = null
-  #cells      = null                // HeatCells, desde el primer dibujo con AGGREGATE_MIN_POINTS puntos
+  #cells      = null                // HeatCells, desde el primer dibujo que agrega
   #cellsStale = true                // las celdas no siguen al espejo, la intensidad o un refresh
   #cellLevel  = NaN                 // el nivel y el tamaño de celda con que se armaron
   #cellPx     = NaN
@@ -117,6 +120,10 @@ export class HeatLayer {
   #cellVao    = null
   #cellVbo    = null
   #cellProgram = null
+  #failLevel  = Infinity            // el nivel más grueso donde una pasada no agregó, con los datos y la celda de ahora
+  #toward     = null                // el destino del zoom animado en curso, de `zoomanim`
+  #towardView = { center: { x: 0, y: 0 } }   // su centro en world0, con la forma que lee `#rebuild`
+  #prepRaf    = 0                   // rAF que arma las celdas del destino; 0 = ninguno
   #raf        = 0                   // rAF del redibujo coalescido a un frame; 0 = ninguno
   #visible    = true                // oculta no dibuja: el pane oculto no detiene el trabajo por flush
   #stale      = true                // algo pidió un dibujo mientras estaba oculta o sin contexto
@@ -154,6 +161,7 @@ export class HeatLayer {
       this.#unsub = source.subscribe(this.#onSource)
       this.#offView = [
         this.#camera.on('zoomstart', this.#onZoomStart),
+        this.#camera.on('zoomanim', this.#onZoomAnim),
         this.#camera.on('zoomend', this.#onZoomEnd),
         this.#camera.on('moveend resize', () => this.#invalidate()),
       ]
@@ -191,8 +199,9 @@ export class HeatLayer {
     this.#destroyed = true
     this.#unsub?.()
     this.#offView.forEach(off => off())
+    this.#prepRaf && cancelAnimationFrame(this.#prepRaf)
     cancelAnimationFrame(this.#raf)
-    this.#raf = 0
+    this.#raf = this.#prepRaf = 0
     const gl = this.#gl
     if (gl && !gl.isContextLost()) {
       gl.deleteTexture(this.#accTex)
@@ -243,9 +252,40 @@ export class HeatLayer {
   // El zoom animado va con la transición CSS del canvas, que escalaría un campo difuso desfasado: se pinta vacío.
   #onZoomStart = () => this.#blank || (this.#blank = this.#drawEmpty())
 
+  // El destino del zoom animado: sus celdas se arman con el campo oculto. No en el acto, que demoraría el arranque de la
+  // transición, sino dos cuadros después, cuando el compositor ya la anima.
+  #onZoomAnim = toward => {
+    this.#toward = toward
+    this.#prepRaf ||= requestAnimationFrame(this.#onPrepFrame)
+  }
+
+  #onPrepFrame = () => (this.#prepRaf = requestAnimationFrame(this.#prepare))
+
+  // Lo que hará el dibujo del `zoomend` con la vista destino: reasentar el ancla si hace falta y armar las celdas de su nivel.
+  // Oculta, sin contexto o sin agregar no hace nada; si el `zoomend` llegó antes, ya no hay destino.
+  #prepare = () => {
+    this.#prepRaf = 0
+    const toward = this.#toward
+    if (!toward || !this.#gl || !this.#visible || this.#destroyed) return
+
+    const placed = this.#placed
+    const x = projX0(toward.center.lng)
+    const y = projY0(toward.center.lat)
+    const drift = Math.max(Math.abs(x - placed.anchorX), Math.abs(y - placed.anchorY))
+    if (this.#dirty || drift * 2 ** (toward.zoom - FLOAT32_BITS) > ANCHOR_TOL_PX) {
+      this.#towardView.center.x = x
+      this.#towardView.center.y = y
+      this.#rebuild(this.#towardView)
+    }
+    this.#aggregate(toward.zoom)
+  }
+
   // La vista asentó: el campo vuelve, reproyectado, en el próximo frame.
   #onZoomEnd = () => {
-    this.#blank = false
+    this.#blank  = false
+    this.#toward = null
+    this.#prepRaf && cancelAnimationFrame(this.#prepRaf)
+    this.#prepRaf = 0
     this.#invalidate()
   }
 
@@ -311,16 +351,21 @@ export class HeatLayer {
 
   /* ── Celdas ── */
 
-  // Las celdas que se dibujan con esta vista, rehechas sólo si cambió algo de lo que dependen. 0 = un splat por punto.
-  #aggregate(view) {
-    if (this.#count < AGGREGATE_MIN_POINTS) return (this.#cellCount = 0)
+  // Las celdas que se dibujan a este zoom, rehechas sólo si cambió algo de lo que dependen. 0 = un splat por punto. Un nivel
+  // igual o más fino que uno donde la pasada no agregó tampoco agrega: con un nivel entero de diferencia cada celda se parte en
+  // cuatro, y las celdas sólo pueden crecer; dentro del primer entero la grilla no se anida y es una aproximación.
+  #aggregate(zoom) {
+    if (!aggregates(this.#count, this.#uRadius[0])) return (this.#cellCount = 0)
 
-    const level = aggregationLevel(view.zoom)
+    const level = aggregationLevel(zoom)
     const px    = cellSize(this.#uRadius[0])
+    if (this.#cellsStale || px !== this.#cellPx) this.#failLevel = Infinity
     if (this.#cellsStale || level !== this.#cellLevel || px !== this.#cellPx) {
       const placed = this.#placed
       this.#cells ??= new HeatCells()
-      this.#cellCount   = this.#cells.build(this.#mirror, this.#count, placed.anchorX, placed.anchorY, level, px, this.#intensity)
+      this.#cellCount   = level >= this.#failLevel ? 0
+        : this.#cells.build(this.#mirror, this.#count, placed.anchorX, placed.anchorY, level, px, this.#intensity)
+      if (!this.#cellCount) this.#failLevel = Math.min(this.#failLevel, level)
       this.#cellLevel   = level
       this.#cellPx      = px
       this.#cellsStale  = false
@@ -404,7 +449,7 @@ export class HeatLayer {
     const drift  = Math.max(Math.abs(view.center.x - placed.anchorX), Math.abs(view.center.y - placed.anchorY))
     if (this.#dirty || drift * 2 ** (view.zoom - FLOAT32_BITS) > ANCHOR_TOL_PX) this.#rebuild(view)
     this.#pending && this.#upload(gl)
-    this.#aggregate(view) && this.#cellPending && this.#uploadCells(gl)
+    this.#aggregate(view.zoom) && this.#cellPending && this.#uploadCells(gl)
 
     this.#accumulate(gl, w, h, view.zoom)
     this.#colorize(gl, w)
