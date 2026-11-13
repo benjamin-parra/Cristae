@@ -61,7 +61,8 @@ const SDF_MAX_ALTO  = 4096
 const PAD           = Math.ceil(RADIO * (1 - CORTE))   // el campo de afuera entero alrededor de la tinta
 
 // La página de color: un emoji de 24 px ocupa unos 30 × 30, con 1 px de margen para el filtrado lineal. 512 × 1024
-// RGBA son 2 MiB y caben unos 450 emoji distintos.
+// RGBA son 2 MiB y caben unos 450 emoji distintos. Guarda el alfa premultiplicado: con el color sin premultiplicar, el
+// filtrado lineal mezcla el borde con el negro transparente de al lado y lo oscurece dos veces.
 const COLOR_ANCHO    = 512
 const COLOR_ALTO     = 64
 const COLOR_MAX_ALTO = 1024
@@ -95,6 +96,9 @@ const EMOJI = /\p{Emoji_Presentation}|\p{Extended_Pictographic}\uFE0F|\p{Regiona
 const KERN_SCRIPTS = /^[\p{Script=Latin}\p{Script=Greek}\p{Script=Cyrillic}\p{Script=Common}\p{Script=Inherited}]+$/u
 
 const PX = /(\d+(?:\.\d+)?)px/
+
+// Con la que queda el canvas si rechaza una fuente: la de un contexto nuevo.
+const FUENTE_RESPALDO = '10px sans-serif'
 
 // La mayúscula sin descendente con que se compara la línea media con la alfabética.
 const REFERENCIA = 'H'
@@ -142,9 +146,11 @@ const growPage = page => {
   page.gen++
 }
 
+const classOf = h => Math.ceil(h / HOLGURA) * HOLGURA
+
 // El estante de la clase de `h` donde cabe `w`, o uno nuevo al fondo; -1 sin alto.
 const shelfFor = (page, w, h) => {
-  const cls = Math.ceil(h / HOLGURA) * HOLGURA
+  const cls = classOf(h)
   for (let i = 0; i < page.shelves.length; i++) {
     const s = page.shelves[i]
     if (s.h === cls && s.x + w <= page.width) return i
@@ -188,6 +194,7 @@ export const createGlyphAtlas = ctx => {
   let current   = VACIO                 // el que se rasteriza: compactar no lo suelta
   let scratch   = createScratch(64)
   let full      = false
+  let wide      = false
 
   const sdf   = newPage(SDF_ANCHO, SDF_ALTO, SDF_MAX_ALTO, 1, PAD)
   const color = newPage(COLOR_ANCHO, COLOR_ALTO, COLOR_MAX_ALTO, 4, COLOR_PAD)
@@ -221,6 +228,13 @@ export const createGlyphAtlas = ctx => {
     full = true
   }
 
+  // Un texto entero más ancho que la página no cabrá nunca, ni vaciando el atlas: queda sin celda, sin reintentos.
+  const warnWide = () => {
+    atlas.stats.overflow++
+    wide || console.warn('[cristae] un texto de los rótulos es más ancho que el atlas de glifos: no se dibuja')
+    wide = true
+  }
+
   // Suelta un glifo sin referencias: su nombre, su id y su celda, que el reempaque no copia.
   const release = id => {
     owners[id].get(texts[id]) === id && owners[id].delete(texts[id])
@@ -233,12 +247,13 @@ export const createGlyphAtlas = ctx => {
     free.push(id)
   }
 
-  // Reempaca en una página nueva del mismo alto lo que quedó vivo, de más alto a más bajo, sin rasterizar.
+  // Reempaca en una página nueva del mismo alto lo que quedó vivo, de más alto a más ancho, sin rasterizar. Un estante
+  // de primer ajuste no siempre acomoda lo mismo en otro orden: lo que ya no cabe vuelve a la cola sin celda.
   const repack = page => {
     const live = []
     for (let id = 1; id < count; id++) hasCell(id) && pageOf(id) === page && live.push(id)
     const m = meta.pixels
-    live.sort((a, b) => m[META * b + 3] - m[META * a + 3] || a - b)
+    live.sort((a, b) => classOf(m[META * b + 3]) - classOf(m[META * a + 3]) || m[META * b + 2] - m[META * a + 2] || a - b)
     const old = page.pixels, ch = page.channels
     page.pixels         = new old.constructor(old.length)
     page.shelves.length = 0
@@ -247,6 +262,12 @@ export const createGlyphAtlas = ctx => {
     live.forEach(id => {
       const o = META * id, w = m[o + 2], h = m[o + 3]
       const s = shelfFor(page, w, h)
+      if (s < 0) {
+        refs[id] === 0 && page.idle--
+        state[id] = PENDING
+        clearCell(id)
+        return queue.push(id)
+      }
       const shelf = page.shelves[s]
       for (let r = 0; r < h; r++) {
         const from = ((m[o + 1] + r) * page.width + m[o]) * ch
@@ -370,6 +391,11 @@ export const createGlyphAtlas = ctx => {
     }
     const shift = PAD - page.pad
     const w = fw - 2 * shift, h = fh - 2 * shift
+    if (w > page.width || h > page.max) {
+      state[id] = READY
+      clearCell(id)
+      return warnWide()
+    }
     if (!reserve(page, w, h)) {
       state[id] = OVERFLOW
       overflown++
@@ -382,8 +408,15 @@ export const createGlyphAtlas = ctx => {
       distanceField(rgba, fw, fh, RADIO, CORTE, scratch, sdf.pixels, at.y * sdf.width + at.x, sdf.width)
     } else {
       for (let r = 0; r < h; r++) {
-        const from = ((r + shift) * fw + shift) * 4
-        color.pixels.set(rgba.subarray(from, from + w * 4), ((at.y + r) * color.width + at.x) * 4)
+        let from = ((r + shift) * fw + shift) * 4
+        let to   = ((at.y + r) * color.width + at.x) * 4
+        for (let c = 0; c < w; c++, from += 4, to += 4) {
+          const a = rgba[from + 3]
+          color.pixels[to]     = (rgba[from] * a + 127) / 255
+          color.pixels[to + 1] = (rgba[from + 1] * a + 127) / 255
+          color.pixels[to + 2] = (rgba[from + 2] * a + 127) / 255
+          color.pixels[to + 3] = a
+        }
       }
     }
     m[o]     = at.x
@@ -415,11 +448,22 @@ export const createGlyphAtlas = ctx => {
     return a - c.measureText(REFERENCIA).actualBoundingBoxAscent
   }
 
+  // La fuente con su tamaño en px, como la normaliza el canvas (`12pt Arial` es `16px Arial`, `bold Arial` es `bold 10px
+  // Arial`): una sin px no admite el tamaño de la base pegado al final, que daría una fuente inválida que el canvas
+  // ignora. Una que el canvas rechaza deja la de respaldo.
+  const sizedFont = font => {
+    const c = work()
+    c.font = FUENTE_RESPALDO
+    c.font = font
+    return c.font
+  }
+
   // El camino de una fuente que no se conocía. Va aparte de `fontOf`: una clausura en su cuerpo haría que V8 abriera
   // un contexto en cada entrada, aun con la fuente ya vista.
   const measuredFont = font => {
-    const m   = PX.exec(font)
-    const key = m ? font.replace(PX, `${BASE_PX}px`) : `${font} ${BASE_PX}px`
+    const css = PX.test(font) ? font : sizedFont(font)
+    const m   = PX.exec(css)
+    const key = m ? css.replace(PX, `${BASE_PX}px`) : `${css} ${BASE_PX}px`
     const px  = m ? +m[1] : 10
     const f   = { key, px, scale: px / BASE_PX, alfaPedido: drop(work(), font), alfaBase: drop(work(), key) }
     fonts.set(font, f)

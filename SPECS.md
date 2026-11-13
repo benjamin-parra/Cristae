@@ -1728,8 +1728,8 @@ predio. Equivale a `polyline.setText` de Leaflet.TextPath sobre líneas. Reempla
   rehace cuando resuelve `document.fonts.load(font)`. `html`: un nodo por rótulo, estable por id; `htmlOf` se
   llama otra vez sólo si cambia el hash del ítem; con `along` va en el punto medio, girado según la tangente.
   `gl`: glifos instanciados que leen un atlas por realm (`src/render/labelGlyphs.js`), con los grafemas como campos
-  de distancia en una página R8 de 1024 × 256 que se duplica hasta 4096, el emoji en color en una página RGBA y la
-  meta de cada glifo en una tercera, RGBA32F. Lo nuevo se rasteriza con el canvas 2D en una cola de a
+  de distancia en una página R8 de 1024 × 256 que se duplica hasta 4096, el emoji en color en una página RGBA con el
+  alfa premultiplicado y la meta de cada glifo en una tercera, RGBA32F. Lo nuevo se rasteriza con el canvas 2D en una cola de a
   `RASTER_BUDGET_MS` (4 ms) por cuadro; cada glifo cuenta sus referencias, una página llena se compacta sólo si eso
   suelta algo, y lo que aun así no cabe no se dibuja y avisa una vez. Sin WebGL2 el miembro pinta con `canvas` y
   avisa una vez por página. El canvas avisa una vez cuando pinta más de `AVISO_GL_ROTULOS` (1.300) rótulos sin

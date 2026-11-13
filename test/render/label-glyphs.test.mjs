@@ -19,18 +19,25 @@ const EMOJI  = /\p{Extended_Pictographic}|\p{Regional_Indicator}/u
 
 // La caja de tinta de cada grafema a `px`: los ideogramas son un cuadrado, el emoji uno más ancho y el latino varía con
 // el código, para que haya estantes de varios altos.
-const caja = (text, px) => {
+const caja = (text, px, variada = false) => {
   if (text === ' ') return { width: px * 0.3, l: 0, r: 0, a: 0, d: 0 }
   if (EMOJI.test(text)) return { width: px * 1.2, l: px * 0.55, r: px * 0.55, a: px * 0.5, d: px * 0.5 }
+  if (HAN.test(text) && variada) {
+    const k = text.codePointAt(0), ancho = 0.5 + (k % 7) * 0.08, alto = 0.3 + (k % 5) * 0.07
+    return { width: px, l: px * ancho / 2, r: px * ancho / 2, a: px * alto, d: px * alto * 0.8 }
+  }
   if (HAN.test(text)) return { width: px, l: px * 0.45, r: px * 0.45, a: px * 0.45, d: px * 0.5 }
   const k = text.codePointAt(0)
   const w = px * (0.4 + (k % 5) * 0.05)
   return { width: w * [...text].length, l: w * 0.45, r: w * 0.45, a: px * (k % 2 ? 0.7 : 0.5), d: k % 3 ? 0 : px * 0.2 }
 }
 
+// Los pares que la fuente falsa ajusta: el ajuste es la resta del ancho del par y el de cada grafema.
+const CORRECCION = { AV: 2, 'T.': 1, '😀a': 3 }
+
 /** Un contexto 2D falso. `mono`: el emoji sale del `fillStyle`, como sin fuente de color. `reloj`: cada lectura de
  *  píxeles avanza `costo` ms del reloj falso. Cuenta las medidas en `medidas`. */
-const contexto = ({ mono = false, reloj = null, costo = 0 } = {}) => {
+const contexto = ({ mono = false, reloj = null, costo = 0, variada = false, largo = 0 } = {}) => {
   const canvas = { width: 64, height: 64 }
   let buf = new Uint8ClampedArray(64 * 64 * 4), bw = 64
   const ajustar = () => {
@@ -49,8 +56,8 @@ const contexto = ({ mono = false, reloj = null, costo = 0 } = {}) => {
         return { width: p * 0.7, actualBoundingBoxAscent: a, actualBoundingBoxDescent: 0, actualBoundingBoxLeft: 0, actualBoundingBoxRight: p * 0.7 }
       }
       const units = [...new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(text)].map(s => s.segment)
-      const b     = caja(units[0], p)
-      const width = units.reduce((sum, u) => sum + caja(u, p).width, 0) - (text === 'AV' ? 2 : 0)
+      const b     = text.length > 8 && largo ? { l: largo / 2, r: largo / 2, a: p / 2, d: p / 2 } : caja(units[0], p, variada)
+      const width = units.reduce((sum, u) => sum + caja(u, p).width, 0) - (CORRECCION[text] ?? 0)
       return { width, actualBoundingBoxLeft: b.l, actualBoundingBoxRight: b.r, actualBoundingBoxAscent: b.a, actualBoundingBoxDescent: b.d }
     },
     clearRect(x, y, w, h) {
@@ -60,7 +67,7 @@ const contexto = ({ mono = false, reloj = null, costo = 0 } = {}) => {
     // La caja de tinta con cobertura exacta en los bordes.
     fillText(text, x, y) {
       ajustar()
-      const b = caja(text, px())
+      const b = text.length > 8 && largo ? { l: largo / 2, r: largo / 2, a: px() / 2, d: px() / 2 } : caja(text, px(), variada)
       const x0 = x - b.l, x1 = x + b.r, y0 = y - b.a, y1 = y + b.d
       const cp = text.codePointAt(0)
       const [cr, cg, cb] = EMOJI.test(text) && !mono ? [cp & 255, (cp >> 8) & 255, 90] : [255, 0, 255]
@@ -89,7 +96,8 @@ const conReloj = t => {
 }
 
 const ideogramas = n => Array.from({ length: n }, (_, i) => String.fromCodePoint(0x4E00 + i))
-const vaciar     = atlas => { while (atlas.flush(Infinity)); }
+// Con tope de vueltas: un atlas que nunca termina de vaciar la cola falla por aserción, no por tiempo.
+const vaciar     = atlas => { for (let i = 0; atlas.flush(Infinity); i++) assert.ok(i < 50, 'la cola no se vacía') }
 const celda      = (atlas, id) => Array.from(atlas.meta.pixels.subarray(META * id, META * id + META))
 const huella     = atlas => createHash('sha256').update(atlas.sdf.pixels).update(atlas.color.pixels)
   .update(new Uint8Array(atlas.meta.pixels.buffer)).digest('hex')
@@ -130,6 +138,7 @@ test('un glifo nuevo no se dibuja hasta que flush lo rasteriza, y queda en su ce
   const filas = dirtyRows(atlas.sdf, marca, {})
   assert.deepEqual([filas.y0, filas.y1], [0, h], 'sube sólo las filas de la celda')
   assert.equal(dirtyRows(atlas.sdf, atlas.stamp, {}).y1, 0, 'y nada después de la última marca')
+  assert.equal(dirtyRows(atlas.sdf, atlas.sdf.rows[0], {}).y1, 0, 'la marca ya subida no es nueva')
   assert.ok(atlas.meta.rows[0] > marca, 'la fila de meta también')
 })
 
@@ -192,6 +201,7 @@ test('el tope del atlas no lanza: 10.000 ideogramas llenan la página, avisan un
   assert.doesNotThrow(() => vaciar(atlas))
   const dibujados = ids.filter(id => celda(atlas, id)[2] > 0).length
   assert.equal(atlas.sdf.height, 4096, 'creció hasta el tope')
+  assert.ok(atlas.sdf.rows[0] > 0, 'y conservó la marca de lo escrito')
   assert.ok(dibujados > 2500 && dibujados < 3200, `${dibujados} caben (unos 2.800)`)
   assert.equal(atlas.stats.overflow, 10_000 - dibujados)
   assert.equal(atlas.stats.compactions, 0, 'todos con referencias: compactar no soltaría nada')
@@ -219,11 +229,15 @@ test('compacta sólo si suelta algo: suelta lo sin referencias, conserva los viv
   const vivo   = ids[ids.length - fuera.length - 1]    // el último que entró, que el reempaque mueve
   const antes  = bytesDe(atlas, vivo)
   const sueltos = ids.slice(0, 400)
+  const marcaAntes = atlas.stamp
   sueltos.forEach(atlas.unref)
   assert.equal(atlas.glyph(key, ideogramas(1)[0]), ids[0], 'sin referencias sigue de caché')
   vaciar(atlas)
   assert.equal(atlas.stats.compactions, 1)
   assert.ok(atlas.sdf.gen > gen, 'la página se sube entera')
+  const sucias = dirtyRows(atlas.sdf, marcaAntes, {})
+  assert.deepEqual([sucias.y0, sucias.y1], [0, atlas.sdf.height], 'y con todas las filas marcadas')
+  assert.equal(atlas.color.gen, 0, 'la página de color no se reempaca si no perdió nada')
   assert.deepEqual(bytesDe(atlas, vivo), antes, 'el vivo conserva su campo, aunque cambie de lugar')
   assert.ok(fuera.every(id => celda(atlas, id)[2] > 0), 'lo que esperaba lugar ya se dibuja')
   assert.ok(sueltos.every(id => celda(atlas, id)[2] === 0), 'lo suelto no')
@@ -271,7 +285,7 @@ test('el emoji va a la página de color con sus colores; sin fuente de color, al
     assert.ok(w < celda(atlas, letra)[2] + 30, 'con 1 px de margen, no los 7 del campo')
   })
   assert.equal(celda(atlas, letra)[7], SDF)
-  assert.equal(atlas.kern(cara, letra), 0, 'sin ajuste con el emoji')
+  assert.equal(atlas.kern(cara, letra), 0, 'sin ajuste con el emoji, aunque la fuente ajuste el par')
 
   const mono = createGlyphAtlas(contexto({ mono: true }))
   const id = mono.glyph(mono.fontOf(FUENTE).key, '😀')
@@ -308,6 +322,8 @@ test('el ajuste por par: medido una vez en latino, griego y cirílico; nunca en 
   const [g, c] = ['λ', 'Ж'].map(u => atlas.glyph(key, u))
   atlas.kern(g, c)
   assert.equal(ctx.medidas, n + 9, 'griego con cirílico se mide')
+  const [t, punto] = ['T', '.'].map(u => atlas.glyph(key, u))
+  assert.equal(atlas.kern(t, punto), -1, 'lo común (el punto, el espacio, los dígitos) se ajusta con el latino')
   const [x, y] = ['東', '京'].map(u => atlas.glyph(key, u))
   const m = ctx.medidas
   assert.equal(atlas.kern(x, y), 0)
@@ -337,7 +353,9 @@ test('forget: la fuente cargada rasteriza de nuevo con los mismos ids, y la celd
   atlas.ref(id)
   vaciar(atlas)
   const primera = celda(atlas, id)
+  const marca = atlas.stamp
   atlas.forget(FUENTE)
+  assert.ok(atlas.meta.rows[0] > marca, 'la meta vaciada se marca para subirla')
   assert.equal(celda(atlas, id)[2], 0)
   assert.equal(atlas.pending, 1)
   assert.equal(atlas.glyph(key, 'Q'), id, 'el mismo id')
@@ -364,6 +382,22 @@ test('sin ids no lanza: da el glifo vacío, y compactar suelta los que no tienen
   atlas.ref(0)
   atlas.unref(0)
   assert.equal(atlas.glyph(key, 'y'), 0, 'el vacío no cuenta referencias ni se suelta')
+  assert.equal(atlas.stats.compactions, 1, 'sin nada que soltar no vuelve a compactar')
+})
+
+test('compactar olvida los ajustes por par: el id que se reusa no hereda el ajuste del grafema que lo tuvo', t => {
+  t.mock.method(console, 'warn', () => {})
+  const atlas = createGlyphAtlas(contexto())
+  const { key } = atlas.fontOf(FUENTE)
+  const [a, v] = ['A', 'V'].map(u => atlas.glyph(key, u))
+  ;[a, v].forEach(atlas.ref)
+  assert.equal(atlas.kern(a, v), -2)
+  for (let i = 0; atlas.glyph(key, String.fromCodePoint(0x10000 + i)) !== 0 && i < (1 << 15); i++) atlas.ref(atlas.glyph(key, String.fromCodePoint(0x10000 + i)))
+  ;[a, v].forEach(atlas.unref)
+  const y = atlas.glyph(key, 'y')
+  const x = atlas.glyph(key, 'x')
+  assert.deepEqual([x, y], [a, v], 'reusan los ids de A y V')
+  assert.equal(atlas.kern(x, y), 0, 'xy no se ajusta, aunque el par de ids sí se ajustaba')
 })
 
 // SPECS §14: recolocar un rótulo con sus glifos ya en el atlas —el id de cada grafema, el ajuste del par, las
@@ -392,4 +426,120 @@ test('[0-alloc] recolocar con los glifos conocidos, la fuente ya vista y flush s
   const sinCola = bytesPorLlamada(() => atlas.flush(), 2_000, { calentar: 20_000 })
   assert.ok(sinCola < 1, `${sinCola} B por flush`)
   assert.ok(Number.isFinite(pen))
+})
+
+// Las celdas vivas dentro de su página, sin solaparse, y con los bytes de rasterizar cada glifo solo.
+const celdasSanas = (atlas, vivos, key, muestra = 1) => {
+  const cajas = []
+  vivos.forEach(({ id, texto }, i) => {
+    const [x, y, w, h, , , , pagina] = celda(atlas, id)
+    if (!w) return
+    const page = pagina === SDF ? atlas.sdf : atlas.color
+    assert.ok(x >= 0 && y >= 0 && x + w <= page.width && y + h <= page.height, `${texto} dentro de su página`)
+    cajas.push({ pagina, x, y, w, h, texto })
+    if (pagina !== SDF || i % muestra) return
+    const solo = createGlyphAtlas(contexto({ variada: true }))
+    const sid  = solo.glyph(solo.fontOf(key).key, texto)
+    vaciar(solo)
+    assert.deepEqual(bytesDe(atlas, id), bytesDe(solo, sid), `${texto} conserva su campo`)
+  })
+  cajas.sort((a, b) => a.pagina - b.pagina || a.y - b.y)
+  for (let i = 0; i < cajas.length; i++) for (let j = i + 1; j < cajas.length && cajas[j].y < cajas[i].y + cajas[i].h; j++) {
+    const a = cajas[i], b = cajas[j]
+    assert.ok(a.pagina !== b.pagina || a.x + a.w <= b.x || b.x + b.w <= a.x, `${a.texto} y ${b.texto} no se solapan`)
+  }
+}
+
+// Una secuencia de pedidos, bajas, rasterizados y cambios de fuente con semilla fija, con muchos más glifos vivos que lo
+// que cabe y ideogramas de cajas distintas. La semilla 12 hacía lanzar al reempaque (un estante de primer ajuste no
+// acomoda lo mismo en otro orden) a los 12.738 pasos.
+test('una secuencia larga de pedidos, bajas, rasterizados y cambios de fuente no lanza y deja las celdas sanas', t => {
+  t.mock.method(console, 'warn', () => {})
+  let semilla = 12
+  const azar = () => (semilla = (semilla * 1664525 + 1013904223) >>> 0) / 2 ** 32
+  const alfabeto = [...ideogramas(7000), ...'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 .-', '😀', '🇨🇱', '👍🏽']
+  const atlas = createGlyphAtlas(contexto({ variada: true }))
+  const { key } = atlas.fontOf(FUENTE)
+  const vivos = new Map()                                 // id → { id, texto, n }
+  for (let paso = 0; paso < 14_000; paso++) {
+    const r = azar()
+    if (r < 0.6) {
+      const texto = alfabeto[(azar() * alfabeto.length) | 0]
+      const id    = atlas.glyph(key, texto)
+      if (!id) continue
+      atlas.ref(id)
+      const v = vivos.get(id) ?? { id, texto, n: 0 }
+      v.n++
+      vivos.set(id, v)
+    } else if (r < 0.78 && vivos.size) {
+      const v = [...vivos.values()][(azar() * vivos.size) | 0]
+      atlas.unref(v.id)
+      --v.n || vivos.delete(v.id)
+    } else if (r < 0.97) atlas.flush(azar() < 0.5 ? 0 : Infinity)
+    else if (r < 0.98) atlas.forget(FUENTE)
+  }
+  vaciar(atlas)
+  assert.ok(atlas.stats.compactions > 100, `${atlas.stats.compactions} compactaciones`)
+  celdasSanas(atlas, [...vivos.values()], key, 50)
+})
+
+test('un texto entero más ancho que la página no se dibuja, avisa una vez, no se reintenta y no pisa a los vecinos', t => {
+  const warn  = t.mock.method(console, 'warn', () => {})
+  const atlas = createGlyphAtlas(contexto({ largo: 1500 }))
+  const { key } = atlas.fontOf(FUENTE)
+  const antes = atlas.glyph(key, 'A')
+  const ancho = atlas.run(key, 'x'.repeat(20))
+  const otro  = atlas.run(key, 'y'.repeat(20))
+  const luego = atlas.glyph(key, 'B')
+  ;[antes, ancho, otro, luego].forEach(atlas.ref)
+  assert.doesNotThrow(() => vaciar(atlas))
+  assert.equal(celda(atlas, ancho)[2], 0, 'sin celda: el shader no lo dibuja')
+  assert.equal(celda(atlas, otro)[2], 0)
+  assert.ok(celda(atlas, antes)[2] > 0 && celda(atlas, luego)[2] > 0, 'los demás sí')
+  assert.equal(warn.mock.callCount(), 1)
+  assert.match(warn.mock.calls[0].arguments[0], /más ancho que el atlas/)
+  assert.equal(atlas.stats.overflow, 2)
+  assert.equal(atlas.pending, 0, 'no vuelve a la cola')
+  atlas.unref(antes)
+  atlas.flush()
+  assert.equal(atlas.stats.compactions, 0, 'ni compacta por él')
+  const solo = createGlyphAtlas(contexto({ largo: 1500 }))
+  const sid  = solo.glyph(solo.fontOf(FUENTE).key, 'B')
+  vaciar(solo)
+  assert.deepEqual(bytesDe(atlas, luego), bytesDe(solo, sid), 'el vecino conserva su campo')
+})
+
+test('la página de color guarda el alfa premultiplicado, para que el filtrado lineal no oscurezca el borde', () => {
+  const atlas = createGlyphAtlas(contexto())
+  for (const emoji of ['😀', '👍']) {                   // sus colores falsos salen del código: ninguno es cero en los tres canales
+    const id = atlas.glyph(atlas.fontOf(FUENTE).key, emoji)
+    vaciar(atlas)
+    const [x, y, w, h, , , , pagina] = celda(atlas, id)
+    assert.equal(pagina, COLOR)
+    const cp = emoji.codePointAt(0)
+    let parciales = 0
+    for (let r = 0; r < h; r++) for (let c = 0; c < w; c++) {
+      const i = ((y + r) * atlas.color.width + x + c) * 4
+      const p = atlas.color.pixels, a = p[i + 3]
+      ;[cp & 255, (cp >> 8) & 255, 90].forEach((canal, k) => assert.equal(p[i + k], Math.round(canal * a / 255), `${emoji} premultiplicado`))
+      a > 0 && a < 255 && parciales++
+    }
+    assert.ok(parciales > 20, `${parciales} px de borde con alfa parcial`)
+  }
+})
+
+test('una fuente sin px se normaliza con el canvas antes de ponerle el tamaño de la base', () => {
+  const ctx = contexto()
+  let css = ''
+  const normas = { '12pt Arial': '16px Arial', 'bold Arial': 'bold 10px Arial' }
+  Object.defineProperty(ctx, 'font', { get: () => css, set: v => { css = normas[v] ?? (/\d+px/.test(v) ? v : css) } })
+  const atlas = createGlyphAtlas(ctx)
+  const pt   = atlas.fontOf('12pt Arial')
+  assert.equal(pt.key, `${BASE_PX}px Arial`)
+  assert.equal(pt.px, 16)
+  const sin  = atlas.fontOf('bold Arial')
+  assert.equal(sin.key, `bold ${BASE_PX}px Arial`)
+  assert.equal(sin.px, 10)
+  const mala = atlas.fontOf('esto no es una fuente')
+  assert.equal(mala.key, `${BASE_PX}px sans-serif`, 'la que el canvas deja si rechaza la pedida')
 })
