@@ -774,7 +774,7 @@ La **ley** (MODELO §5.4) formalizada como contrato que un implementador debe cu
 | `terrain` (§18) | — | — | O(tiles) pedidos de red, a lo sumo 6 en vuelo, + O(píxeles) de decodificación + O(filas) llamadas al modelo base |
 | `relief` (§18) | — | — | O(vértices + celdas de la caja de la zona); asigna 8 B por celda de esa caja |
 | `elevation` (§18) | — | — | O(1) **[0-alloc]** |
-| redibujo del calor (§19.4) | O(n) splats instanciados + O(px) de la rampa, **[0-alloc]** con la cámara sola | subida O(n) al cambiar la Source | subida O(n) al reasentar el ancla |
+| redibujo del calor (§19.4) | O(n) splats instanciados, o uno por celda desde 20.000 puntos, + O(px) de la rampa, **[0-alloc]** con la cámara sola | subida O(n) y celdas O(n) al cambiar la Source | subida O(n) al reasentar el ancla; celdas O(n) al cambiar de nivel entero |
 | `ring` · `arc` (§18) | — | — | O(vértices) llamadas al destino del modelo; no es [0-alloc]: devuelve pares. El escritor que comparte con la capa de formas y los editores no crea arrays ni clausuras, salvo lo que asigne el destino del modelo (la esfera, nada): con él, el anillo que reescribe cada frame del gesto de un editor de forma es **[0-alloc]**; el frame entero no, porque convertir el píxel en lugar asigna |
 | `geodesic` (§18) | — | — | O(vértices) con una cota por tramo que no llama al modelo; O(puntos insertados) llamadas al modelo, y con el elipsoide, el rumbo y la distancia por tramo y el destino de la geographiclib por punto; no es [0-alloc]: devuelve pares |
 | `addGeodesic` (§6) | — | O(vértices + p) llamadas al modelo, con p los puntos insertados: rearma el host ([`docs/lines.md`](./docs/lines.md#curva-geodésica), [`docs/polygons.md`](./docs/polygons.md#curva-geodésica), [`docs/editing.md`](./docs/editing.md#curva-geodésica)), y la baja lo rearma recto sin llamar al modelo | — |
@@ -1790,6 +1790,14 @@ por referencia. No se pica.
   instancias no corre.
 - **Subida.** O(n) al cambiar la Source o al reasentar el ancla (paneo de millones de px); el redibujo es
   O(n) splats instanciados más una pasada de pantalla.
+- **Agregación por celdas.** Desde 20.000 puntos válidos, los puntos se juntan por nivel de zoom entero
+  (⌈zoom⌉) en celdas de R/20 px de pantalla, con R = `radius` + `blur` y 8 px como tope, y se dibuja una
+  muestra por celda: el aporte medio y la multiplicidad (la ley suma n veces el término), el centroide
+  ponderado por el aporte y la covarianza de los puntos, que ensancha la brocha en cada dirección en ±√3·σ.
+  Las celdas se rehacen al cambiar la Source, el nivel entero, el tamaño de celda o `intensity`, y con
+  `refresh()`; nunca por cuadro ni en un paneo. Si las celdas no bajan los puntos a la mitad, o por debajo
+  del umbral, el dibujo es el de un splat por punto, idéntico llamada por llamada. Ver
+  [`docs/heat.md`](./docs/heat.md#agregación).
 
 ### 19.5 Test
 

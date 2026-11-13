@@ -86,10 +86,40 @@ oculta (`visible: false` en el alta).
   contenedor. No hay `getImageData` ni recorrido de píxeles en JS.
 - Un cambio de la Source sube los puntos una vez, O(n), y redibuja en el mismo frame en que llega, ya
   coalescido por la Source. La cámara sola (paneo, zoom asentado) no sube nada: sólo redibuja.
+- Desde 20.000 puntos, la capa los junta por nivel de zoom entero en celdas de pantalla de R/20 px, con
+  R = `radius` + `blur` (2 px con los valores por defecto, 8 px como mucho), y dibuja una muestra por celda
+  en lugar de una por punto. Ver [Agregación](#agregación).
 - La acumulación va en px CSS, sin escalar por DPR: un campo difuso no lo necesita.
 - `colorRamp` se muestrea a 256 texeles al cambiar. En React se compara por referencia, así que una función
   escrita en línea en el render rehace la paleta en cada render: conviene declararla fuera del componente
   o con `useCallback`.
+
+## Agregación
+
+Con muchos puntos, lo que cuesta es el relleno de la GPU: cada punto pinta un cuadrado de 2R de lado. Desde
+20.000 puntos válidos la capa junta los de cada celda de R/20 px en una muestra que lleva la suma de sus
+aportes, su centroide ponderado y la covarianza de sus posiciones, y la GPU dibuja una muestra por celda:
+
+- La muestra suma lo mismo que sus puntos: con aportes iguales, exactamente; con pesos distintos, salvo un
+  término de segundo orden.
+- La covarianza ensancha la brocha de la celda en la dirección en que se reparten sus puntos, así que el borde
+  de una región densa queda donde lo dejan sus puntos más externos.
+- Las celdas se rehacen cuando cambian los datos (un flush, un `move`), el nivel entero de zoom, el tamaño de
+  celda (`radius`, `blur`) o `intensity`, y con `refresh()`. Un paneo, un zoom dentro del mismo nivel y la
+  cámara sola no las tocan.
+- Rehacerlas es O(n) en el hilo principal, dentro del dibujo que las necesita: hasta 8 ms con 100.000 puntos,
+  de 12 a 50 ms con 500.000 y de 25 a 152 ms con 1 M, medido en un CPU de escritorio.
+- Si las celdas no bajan los puntos a la mitad, la capa dibuja un splat por punto. Por debajo de 20.000
+  puntos dibuja exactamente como sin agregación.
+
+Lo que cambia la imagen, medido:
+
+- Contra la suma exacta (acumulada en float32), menos del 0,1 % de los px con calor difiere en más de 8/255
+  por canal, y ninguno en más de 2 niveles de la rampa si se admite un borde corrido 1 px.
+- La excepción es el borde de las regiones con varios puntos por px², donde el campo pasa del vacío al tope
+  en pocos px.
+- Contra la imagen sin agregar la diferencia es algo mayor donde se apilan miles de splats por px. Esa imagen
+  redondea a media precisión en cada suma del R16F, y la agregada queda más cerca de la suma exacta.
 
 ## Formato y respaldo
 
@@ -102,6 +132,10 @@ navegador:
 | RGBA8 | sin ninguna de las dos | `over` sobre el alfa de 8 bits |
 
 El respaldo RGBA8 cuantiza cada aporte a 8 bits y el error crece con el solape: llega a 8 niveles de los 255.
+
+Con la agregación, una celda junta sus n mezclas en una sola y cuantiza una vez, así que en las zonas densas
+el respaldo queda más cerca del R16F que punto por punto.
+
 Sin WebGL2 `addHeatLayer` lanza, como las demás capas GL, y el consumidor puede degradar a otra cosa. El calor en canvas 2D no
 lo necesitaba: es un cambio de contrato (ver el CHANGELOG).
 
