@@ -164,9 +164,8 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   *Migración*: ninguna en el navegador. En Node 20 o 22, `npm install` avisa por `engines`; el código puede andar,
   pero no se prueba.
 - **Los rótulos `canvas` ya no asignan por cuadro.** Con la vista cambiando en cada cuadro y 6.400 rótulos, el renderer
-  asignaba unos 473 KB por cuadro (155 KB de ellos en `labelText`); ahora quedan 6,3 KB, que son el objeto que devuelve
-  el `paint` del consumidor en cada una de sus 400 píldoras, y 0,2 KB sin `paint`, la lectura de la cámara del
-  anfitrión. Con 1.200 rótulos pasa de 90 KB a 0,7 KB. Tres causas, ninguna una caché que fallara: la medida abría un
+  asignaba unos 473 KB por cuadro (155 KB de ellos en `labelText`); ahora quedan 6,3 KB con 400 píldoras de `paint` (cada
+  una mide, pinta y devuelve su caja en cada cuadro) y 0,2 KB sin `paint`, la lectura de la cámara del anfitrión. Con 1.200 rótulos pasa de 90 KB a 0,7 KB. Tres causas, ninguna una caché que fallara: la medida abría un
   contexto en cada acierto por una clausura de su camino de fallo, `anchorOf` leía `p?.lat` y la colocación pasaba
   `x` e `y` como argumentos de llamadas que V8 no integra. El JS por cuadro baja poco (de 6,0 a 5,7 ms en la escena
   pesada, en una Arc B580 por GL): el tiempo es del pintado. La imagen es idéntica byte a byte.
