@@ -270,6 +270,7 @@ export class MapEngine {
       busOn   : (type, layerId, handler) => this.#bus.on(type, layerId, handler),
       separate: pane => this.#separatePane(pane),
       surface : this.#tramos.surface,
+      track   : renderer => this.#trackGl(renderer),
     })
 
     this.#host.camera.on('moveend zoomend', emitViewport)
@@ -1669,16 +1670,19 @@ export class MapEngine {
     }
   }
 
-  // Dónde van los rótulos de un host. `canvas`: el canvas del plano de rótulos, compartido por todo el mapa;
-  // `html`, un pane por host encima de él, en el rango del host. Los de las burbujas de un cluster, sobre sus
-  // burbujas y bajo los demás rótulos (§2.7), en un pane por fold y renderer: en el plano del cluster, en el rango
-  // del host base del pliegue, +6. Los dos siguen el rango cuando cambia (#seat → `labels.reseat`).
+  // Dónde van los rótulos de un host. `canvas`: el canvas del plano de rótulos, compartido por todo el mapa; `gl`,
+  // uno por mapa justo debajo de él, en el tramo de las capas GL de abajo (D7: la píldora de `canvas` queda sobre los
+  // nombres de `gl`); `html`, un pane por host encima de los dos, en el rango del host. Los de las burbujas de un
+  // cluster, sobre sus burbujas y bajo los demás rótulos (§2.7), en un pane por fold y renderer: en el plano del
+  // cluster, en el rango del host base del pliegue, +6. Siguen el rango cuando cambia (#seat → `labels.reseat`).
   #labelSlot(record, hostId, renderer) {
     return record.fold
       ? { key: `${renderer}:${hostId}`, pane: `${hostId}-labels-${renderer}`, zIndex: this.#zOf(CLUSTER_PLANE, this.#orderOf(record)) + 6 }
       : renderer === 'canvas'
         ? { key: 'canvas', pane: 'cristae-labels', zIndex: LABEL_PLANE }
-        : { key: `${renderer}:${hostId}`, pane: `cristae-labels-${renderer}-${hostId}`, zIndex: this.#zOf(LABEL_PLANE, this.#orderOf(record) + 1) }
+        : renderer === 'gl'
+          ? { key: 'gl', pane: 'cristae-labels-gl', zIndex: LABEL_PLANE - 1 }
+          : { key: `${renderer}:${hostId}`, pane: `cristae-labels-${renderer}-${hostId}`, zIndex: this.#zOf(LABEL_PLANE, this.#orderOf(record) + 1) }
   }
 
   /* ── Apilado: el z por defecto sale del orden de declaración, no de la historia de altas ── */

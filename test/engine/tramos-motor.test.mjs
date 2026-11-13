@@ -297,3 +297,29 @@ test('D10 modelo de 13 con rótulos: las burbujas comparten el tramo de las capa
   assert.notEqual(tramoDe(engine, capa(':spider')), tramoDe(engine, 'geo'), 'la espiral, sobre él')
   assert.equal(navegador.vivos, 1, `en reposo, la espiral cerrada no toma contexto: ${navegador.resumen()}`)
 })
+
+// Los rótulos `gl` son un miembro más del tramo de las capas GL de abajo: no abren contexto propio, y su pane va justo
+// debajo del canvas compartido de rótulos (D7), que no parte el tramo porque queda encima.
+test('los rótulos gl entran al tramo de los puntos: un contexto, con el pane bajo el canvas de rótulos', async t => {
+  const { map, navegador } = await armarVacio()
+  t.after(() => map.remove())
+  const engine = map.engine
+  engine.addPointLayer({ id: 'a', accessors: ACC, iconSet, data: items(3) })
+  engine.addLabels({ hostId: 'a', renderer: 'gl', textOf: v => `P${v.id}` })
+  await asentar(engine)
+  await quieto()
+  const renderer = engine.getLayer('a').labels.links[0].slot.renderer
+  assert.equal(renderer.surface.tramo, tramoDe(engine, 'a'), 'el renderer gl es miembro del tramo de los puntos')
+  assert.equal(navegador.vivos, 1, 'un solo contexto')
+
+  engine.addPointLayer({ id: 'b', accessors: ACC, iconSet, data: items(2) })
+  engine.addLabels({ hostId: 'b', textOf: v => `Q${v.id}` })
+  await asentar(engine)
+  await quieto()
+  const canvas = engine.getLayer('b').labels.links[0].slot
+  assert.equal(canvas.name, 'canvas')
+  assert.ok(renderer.zIndex < canvas.renderer.zIndex, 'gl debajo de canvas')
+  assert.equal(renderer.surface.tramo, tramoDe(engine, 'b'), 'el canvas de encima no parte el tramo')
+  assert.equal(navegador.vivos, 1)
+  assert.deepEqual(navegador.violaciones, [])
+})

@@ -16,8 +16,16 @@ const byContext = new WeakMap()
 // `build` corre UNA vez por (contexto, clave). La clave la compone el llamador con lo único que vuelve
 // distinto al fuente, y devuelve junto al programa lo que también es suyo: las ubicaciones de uniforme
 // y los uniformes que se fijan con el enlace.
+//
+// Un contexto perdido que se restaurara sobre el mismo canvas (`restoreContext`) sería el MISMO objeto, y la caché le
+// entregaría los programas del perdido: su entrada se olvida con `webglcontextlost`. Cristae no restaura (A2), pero la
+// caché no depende de eso.
 export const sharedProgram = (gl, key, build) => {
-  const programs = byContext.get(gl) ?? byContext.set(gl, new Map()).get(gl)
+  let programs = byContext.get(gl)
+  if (!programs) {
+    byContext.set(gl, programs = new Map())
+    gl.canvas?.addEventListener?.('webglcontextlost', () => byContext.delete(gl), { once: true })
+  }
   programs.has(key) || programs.set(key, build())
   return programs.get(key)
 }

@@ -1,5 +1,6 @@
 import { mergeLabelOptions, resolvePlacement } from '../render/labelOptions.js'
 import { createLabelCanvas } from '../render/LabelCanvas.js'
+import { createLabelGl } from '../render/LabelGl.js'
 import { createLabelHtml } from '../render/LabelHtml.js'
 import { safe } from '../data/safe.js'
 
@@ -9,8 +10,8 @@ import { safe } from '../data/safe.js'
 // miembros de un host forman su grupo, `record.labels`, por donde el motor avisa y pica.
 
 /** Un renderer por nombre, con la misma interfaz. La fábrica de `gl` recibe además `surface`, la de los
- *  miembros de tramo, y se registra aparte. */
-export const LABEL_RENDERERS = { canvas: createLabelCanvas, html: createLabelHtml }
+ *  miembros de tramo, y `track`, que la inscribe en el ciclo de render del motor. */
+export const LABEL_RENDERERS = { canvas: createLabelCanvas, html: createLabelHtml, gl: createLabelGl }
 
 // Un `gl` declarado que no puede montarse (sin WebGL2) pinta con `canvas` y avisa una vez por página: en HTML
 // sin código nadie atrapa un error, y la imagen es equivalente.
@@ -45,7 +46,9 @@ const bubbleOf = (control, b) => {
  *  - `busOn(type, layerId, handler)`: suscripción al bus, que devuelve su baja;
  *  - `separate(pane)`: declara el pane de un renderer como separador de tramos GL (no es GL, y separa aunque
  *    siga vacío) y devuelve su baja. Opcional. `gl` no separa: dibuja dentro del tramo;
- *  - `surface`: la fábrica de superficies de tramo, para `gl`. */
+ *  - `surface`: la fábrica de superficies de tramo, para `gl`;
+ *  - `track(renderer)`: inscribe el renderer `gl` en el ciclo de render, que lo reasienta en cada movimiento y lo
+ *    dibuja en cada cuadro del zoom animado. Opcional: sin él, el renderer oye la cámara. */
 export const createLabels = bridge => {
   const slots = new Map()            // key → { renderer, count, key }
 
@@ -70,7 +73,7 @@ export const createLabels = bridge => {
     const create = LABEL_RENDERERS.gl
     if (!create) return fellBack('no está disponible')
     try {
-      return create({ host: bridge.host, pane, zIndex, surface: bridge.surface })
+      return create({ host: bridge.host, pane, zIndex, surface: bridge.surface, track: bridge.track })
     } catch (e) {
       return fellBack(e?.message ?? e)
     }

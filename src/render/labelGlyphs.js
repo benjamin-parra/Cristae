@@ -106,6 +106,9 @@ const REFERENCIA = 'H'
 /** Si `text` va entero como un solo glifo (`run`): árabe, hebreo, índicas, tailandés, controles bidi… */
 export const needsRun = text => COMPLEX.test(text)
 
+/** Si el grafema `unit` es un emoji, que va a la página de color si la fuente lo trae en color. */
+export const isEmoji = unit => EMOJI.test(unit)
+
 /** La y de la línea alfabética en px CSS, puesta en px enteros de dispositivo como la pone Skia en el texto
  *  horizontal: el gemelo de CPU del shader. */
 export const snapBaseline = (y, dpr) => Math.floor(y * dpr + 0.5) / dpr
