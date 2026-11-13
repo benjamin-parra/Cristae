@@ -3,6 +3,7 @@ import { EditSurface } from './EditSurface.js'
 import { sharedProgram } from './gl-programs.js'
 import { anchorAt, midAlong, poleOf } from './labelAnchor.js'
 import { CORTE, GROSOR, HALO_PX, META_ANCHO, RADIO, STRIDE, createGlyphAtlas, dirtyRows, isEmoji, needsRun } from './labelGlyphs.js'
+import { createLayout } from './labelLayout.js'
 import { PART, createRun, projectPath, projectRings } from './labelPath.js'
 import { createMeasure } from './labelText.js'
 import { projX0, projY0, readView } from './project.js'
@@ -16,18 +17,35 @@ import { projX0, projY0, readView } from './project.js'
 // así que paneo, zoom y el zoom animado sólo cambian uniformes: el cuadro no recoloca ni sube nada. Se recoloca un
 // miembro cuando cambian sus datos, su fuente o su colocación; el foco y el hover reescriben alfa y banderas.
 //
+// Sobre el trazo (`along`) la colocación sí depende de la escala: dónde cae cada grafema y si una colocación gira de más.
+// Se coloca en el asiento (`moveend`, `zoomend`) con el `labelLayout` de `canvas`, recortada a la vista más MARGEN
+// pantallas por lado, y cada glifo guarda su centro en world0 y su giro. Entre asientos el glifo escala con el mapa, y
+// el asiento recoloca si cambió el zoom o la vista salió de lo colocado.
+//
 // Cada miembro va en dos pases, primero los halos de todos sus rótulos y después los rellenos, y los del ítem bajo el
 // puntero al final, encima de todos: el orden de `LabelCanvas`. El emoji en color sale de la página de color del atlas,
 // en el pase de relleno.
 
 // Bytes de cada campo de la instancia de STRIDE bytes: posición world0 relativa al ancla (2 × f32), corrimiento en px
-// (2 × f32), id del glifo (u16), un u16 reservado para el ángulo sobre el trazo, alfa (u8) y banderas (u8).
-const F32   = STRIDE / 4
-const U16   = STRIDE / 2
-const GLIFO = 8                            // en u16
-const ALFA  = 20                           // en u8
-const FLAGS = 21
-const HOVER = 1                            // bandera: el ítem bajo el puntero, que se pinta al final
+// (2 × f32), id del glifo (u16), ángulo sobre el trazo en fracción de vuelta (u16), alfa (u8) y banderas (u8).
+const F32    = STRIDE / 4
+const U16    = STRIDE / 2
+const GLIFO  = 8                           // en u16
+const ANGULO = 9                           // en u16
+const ALFA   = 20                          // en u8
+const FLAGS  = 21
+const HOVER  = 1                           // bandera: el ítem bajo el puntero, que se pinta al final
+const TAU    = 2 * Math.PI
+const VUELTA = 65535                       // el u16 del ángulo: 9,6e-5 rad, 0,001 px en la punta de un glifo de 10 px
+
+// Cuántas pantallas por lado se colocan sobre el trazo además de la vista: un paneo de hasta una pantalla no recoloca, y
+// colocar cuesta lo que se ve más el margen, no todos los datos (sdf-glifos §3.5: 29 ms sin recorte y 18 a 24 recortada,
+// 50 rutas de 2.880 puntos en una Arc B580).
+const MARGEN = 1
+
+// Lo que guarda el picking sobre el trazo por glifo: centro world0 relativo (x, y), giro, y medio ancho y medio alto en
+// px del asiento. Es la prueba de `labelLayout`, que pica cada glifo con su caja girada.
+const GPICK = 5
 
 // Lo que guarda el picking por colocación: ancla world0 relativa (x, y), centro de la caja en px respecto del ancla
 // (x, y) y medio ancho y medio alto. La caja es la de `labelLayout`, así los dos renderers pican lo mismo.
@@ -44,6 +62,7 @@ layout(location = 1) in vec2 a_off;
 layout(location = 2) in uint a_glyph;
 layout(location = 3) in float a_alpha;
 layout(location = 4) in uint a_flags;
+layout(location = 5) in float a_angle;
 uniform mat4 u_matrix;
 uniform vec2 u_size;
 uniform float u_dpr;
@@ -51,6 +70,8 @@ uniform float u_scale;
 uniform float u_alfa;
 uniform int u_hover;
 uniform int u_pass;
+uniform bool u_along;
+uniform float u_zs;
 uniform highp sampler2D u_meta;
 uniform vec2 u_sdfInv;
 uniform vec2 u_colorInv;
@@ -68,16 +89,26 @@ void main() {
   bool color = org.w > 0.5;
   if (cell.z <= 0.0 || color && u_pass == 0) { gl_Position = HIDDEN; return; }
   vec4 c = u_matrix * vec4(a_pos, 0.0, 1.0);
-  vec2 base = (c.xy / c.w * vec2(0.5, -0.5) + 0.5) * u_size + a_off;
-  base.y = floor(base.y * u_dpr + 0.5) / u_dpr;
+  vec2 base = (c.xy / c.w * vec2(0.5, -0.5) + 0.5) * u_size;
   vec2 corner = vec2(float(gl_VertexID & 1), float((gl_VertexID >> 1) & 1));
-  vec2 local  = (org.xy + corner * cell.zw) * u_scale;
-  local.y -= u_alfa * u_scale;
-  vec2 px = base + local;
+  float s = u_along ? u_scale * u_zs : u_scale;
+  vec2 local = (org.xy + corner * cell.zw) * s;
+  vec2 px;
+  if (u_along) {
+    // Girado, como el canvas con su transformación: el centro del avance en la línea media, sin redondear.
+    float a = a_angle * ${TAU.toFixed(15)};
+    float cs = cos(a), sn = sin(a);
+    px = base + vec2(cs * local.x - sn * local.y, sn * local.x + cs * local.y);
+  } else {
+    base += a_off;
+    base.y = floor(base.y * u_dpr + 0.5) / u_dpr;
+    local.y -= u_alfa * u_scale;
+    px = base + local;
+  }
   gl_Position = vec4(px / u_size * vec2(2.0, -2.0) + vec2(-1.0, 1.0), 0.0, 1.0);
   v_uv    = (cell.xy + corner * cell.zw) * (color ? u_colorInv : u_sdfInv);
   v_alpha = a_alpha;
-  v_px    = u_scale * u_dpr;
+  v_px    = s * u_dpr;
   v_color = color ? 1 : 0;
 }`
 
@@ -107,9 +138,9 @@ void main() {
   frag = vec4(u_color.rgb * a, a);
 }`
 
-const ATTRIBS  = ['a_pos', 'a_off', 'a_glyph', 'a_alpha', 'a_flags']
-const UNIFORMS = ['u_matrix', 'u_size', 'u_dpr', 'u_scale', 'u_alfa', 'u_hover', 'u_pass', 'u_meta', 'u_sdfInv', 'u_colorInv',
-  'u_sdf', 'u_colorPage', 'u_color', 'u_edge', 'u_grosor']
+const ATTRIBS  = ['a_pos', 'a_off', 'a_glyph', 'a_alpha', 'a_flags', 'a_angle']
+const UNIFORMS = ['u_matrix', 'u_size', 'u_dpr', 'u_scale', 'u_alfa', 'u_hover', 'u_pass', 'u_along', 'u_zs', 'u_meta', 'u_sdfInv',
+  'u_colorInv', 'u_sdf', 'u_colorPage', 'u_color', 'u_edge', 'u_grosor']
 
 const programOf = gl => sharedProgram(gl, 'cristae:labels-sdf', () => {
   const program = gl.createProgram()
@@ -252,6 +283,10 @@ const parseColor = (ctx, css) => {
 const newState = () => ({
   version : -1,
   ax      : 0, ay: 0,                     // ancla del miembro en world0: el centro de la vista al colocar
+  along   : false,                        // colocado sobre el trazo, con la vista del asiento
+  z0      : 0,                            // el zoom y el tamaño de la vista con que se colocó sobre el trazo
+  w0      : 0, h0: 0,
+  gpick   : new Float64Array(64 * GPICK), // por glifo, sobre el trazo
   count   : 0,                            // glifos
   cap     : 0,
   buf     : null, f32: null, u16: null, u8: null,
@@ -287,10 +322,13 @@ export const createLabelGl = ({ host, pane, zIndex, surface = opts => new EditSu
   const m32     = new Float32Array(16)
   const view    = { zoom: 0, center: { x: 0, y: 0 }, size: { x: 0, y: 0 } }
   const last    = { zoom: 0, center: { x: 0, y: 0 }, size: { x: 0, y: 0 }, valid: false }
+  const probe   = { zoom: 0, center: { x: 0, y: 0 }, size: { x: 0, y: 0 } }   // la vista de la cámara, sin tocar `view`
   const icon    = { lat: 0, lng: 0, w: 0, h: 0, ax: NaN, ay: NaN, x: 0, y: 0, offset: 0 }
   const anchor  = { x: 0, y: 0, sx: 0, sy: 0 }
   const mid     = { x: 0, y: 0, ux: 1, uy: 0 }
   const run     = createRun()
+  const layout  = createLayout()          // la colocación sobre el trazo, la de `canvas`
+  const big     = { cx: 0, cy: 0, scale: 1, w: 0, h: 0, hw: 0, hh: 0, ox: 0, oy: 0 }
   const pool    = []                      // partes de hit reusadas
   let ids       = new Uint16Array(64)     // los glifos de un texto, de trabajo
   let gl        = null
@@ -338,7 +376,8 @@ export const createLabelGl = ({ host, pane, zIndex, surface = opts => new EditSu
     st.f32[f + 1] = wy
     st.f32[f + 2] = ox
     st.f32[f + 3] = oy
-    st.u16[i * U16 + GLIFO] = glyph
+    st.u16[i * U16 + GLIFO]  = glyph
+    st.u16[i * U16 + ANGULO] = 0
     st.u8[b + ALFA]  = Math.round(alpha * 255)
     st.u8[b + FLAGS] = flags
     glyphs.ref(glyph)
@@ -457,6 +496,51 @@ export const createLabelGl = ({ host, pane, zIndex, surface = opts => new EditSu
     placeText(st, member, id, raw, projX0(icon.lng) - st.ax, projY0(icon.lat) - st.ay, font.key, font.scale, font.alfaPedido)
   }
 
+  // Sobre el trazo: la colocación de `labelLayout` con la vista `at` agrandada MARGEN pantallas por lado, pasada a world0
+  // relativo al ancla, que es el centro de `at`. Grafema a grafema y sin ajuste por par, como la pinta `canvas`.
+  const placeAlong = (member, st, at) => {
+    big.cx    = at.center.x
+    big.cy    = at.center.y
+    big.scale = 2 ** at.zoom
+    big.w     = at.size.x * (1 + 2 * MARGEN)
+    big.h     = at.size.y * (1 + 2 * MARGEN)
+    big.hw    = big.w / 2
+    big.hh    = big.h / 2
+    st.z0     = at.zoom
+    st.w0     = at.size.x
+    st.h0     = at.size.y
+    const { glyphs: placed, spans, boxes, ids: itemIds, texts, placementCount } = layout.place(member, big, measure)
+    st.gpick = grow(st.gpick, layout.glyphCount * GPICK)
+    const key = font.key
+    for (let i = 0; i < placementCount; i++) {
+      const k     = spans[3 * i + 2]
+      const id    = itemIds[k]
+      const text  = texts[k]
+      const alpha = member.alphaOf(id)
+      const flags = member.isHovered(id) ? HOVER : 0
+      const b     = 5 * i
+      const n     = open(st, id, (boxes[b] - big.hw) / big.scale, (boxes[b + 1] - big.hh) / big.scale, 0, 0, boxes[b + 3], boxes[b + 4])
+      flags && st.hovered++
+      const end = spans[3 * i] + spans[3 * i + 1]
+      for (let g = spans[3 * i]; g < end; g++) {
+        const wx = (placed[4 * g] - big.hw) / big.scale
+        const wy = (placed[4 * g + 1] - big.hh) / big.scale
+        const a  = placed[4 * g + 2]
+        const u  = placed[4 * g + 3]
+        const q  = GPICK * st.count
+        st.gpick[q]     = wx
+        st.gpick[q + 1] = wy
+        st.gpick[q + 2] = a
+        st.gpick[q + 3] = text.widths[u] / 2
+        st.gpick[q + 4] = (text.ascent + text.descent) / 2
+        put(st, wx, wy, 0, 0, glyphs.glyph(key, text.units[u]), alpha, flags)
+        st.u16[(st.count - 1) * U16 + ANGULO] = Math.round(((a / TAU) % 1 + 1) % 1 * VUELTA)
+      }
+      st.spans[2 * n + 1] = st.count - st.spans[2 * n]
+    }
+    layout.ids.length = layout.items.length = layout.texts.length = 0
+  }
+
   // Coloca de nuevo `member`: la colocación nueva toma sus referencias antes de soltar las de la anterior, así un glifo
   // que sigue no queda un instante sin dueño.
   const place = (member, st, at) => {
@@ -474,8 +558,9 @@ export const createLabelGl = ({ host, pane, zIndex, surface = opts => new EditSu
     st.alfa    = font.alfaBase
     st.color   = colorOf(member.opts.color)
     st.halo    = member.opts.halo === 'none' ? null : colorOf(member.opts.halo)
+    st.along   = member.placement === 'along'
     visiting   = member
-    member.forEach(visit, st)
+    st.along ? placeAlong(member, st, at) : member.forEach(visit, st)
     visiting   = null
     for (let i = 0; i < old; i++) glyphs.unref(st.prev[i])
     st.pickIds.length = st.pickN
@@ -524,6 +609,7 @@ export const createLabelGl = ({ host, pane, zIndex, surface = opts => new EditSu
     gl.enableVertexAttribArray(2); gl.vertexAttribIPointer(2, 1, gl.UNSIGNED_SHORT, STRIDE, 2 * GLIFO); gl.vertexAttribDivisor(2, 1)
     gl.enableVertexAttribArray(3); gl.vertexAttribPointer(3, 1, gl.UNSIGNED_BYTE, true, STRIDE, ALFA); gl.vertexAttribDivisor(3, 1)
     gl.enableVertexAttribArray(4); gl.vertexAttribIPointer(4, 1, gl.UNSIGNED_BYTE, STRIDE, FLAGS); gl.vertexAttribDivisor(4, 1)
+    gl.enableVertexAttribArray(5); gl.vertexAttribPointer(5, 1, gl.UNSIGNED_SHORT, true, STRIDE, 2 * ANGULO); gl.vertexAttribDivisor(5, 1)
     gl.bindVertexArray(null)
   }
 
@@ -583,6 +669,8 @@ export const createLabelGl = ({ host, pane, zIndex, surface = opts => new EditSu
         gl.uniformMatrix4fv(u.u_matrix, false, m32)
         gl.uniform1f(u.u_scale, st.scale)
         gl.uniform1f(u.u_alfa, st.alfa)
+        gl.uniform1i(u.u_along, st.along ? 1 : 0)
+        gl.uniform1f(u.u_zs, st.along ? 2 ** (at.zoom - st.z0) : 1)
         gl.bindVertexArray(st.vao)
         st.halo && pass(st, st.halo, HALO_PX * dpr, 0)
         pass(st, st.color, 0, 1)
@@ -594,6 +682,28 @@ export const createLabelGl = ({ host, pane, zIndex, surface = opts => new EditSu
   }
 
   const live = () => (injected ? view : readView(camera, view))
+
+  // Si lo colocado sobre el trazo ya no sirve con la vista `at`: otro zoom, otro tamaño, o el centro corrido más allá del
+  // margen, que deja ver lo que no se colocó.
+  const outdated = (st, at) => st.z0 !== at.zoom || st.w0 !== at.size.x || st.h0 !== at.size.y
+    || Math.abs(at.center.x - st.ax) * 2 ** at.zoom > st.w0 * MARGEN || Math.abs(at.center.y - st.ay) * 2 ** at.zoom > st.h0 * MARGEN
+
+  // Al asentar, lo que está sobre el trazo con otra vista se recoloca y se dibuja en el acto.
+  const seat = () => {
+    if (!gl || !alive || !camera.hasView()) return
+    readView(camera, view)
+    let moved = false
+    for (let i = 0; i < members.length; i++) {
+      const member = members[i], st = states.get(member)
+      if (!st.along || !member.visible || st.version !== member.version || !outdated(st, view)) continue
+      st.version = -1
+      moved = true
+    }
+    if (!moved) return
+    injected = false
+    stale    = true
+    draw(view)
+  }
 
   const paint = () => {
     frame = 0
@@ -711,6 +821,8 @@ export const createLabelGl = ({ host, pane, zIndex, surface = opts => new EditSu
         st.halo  = member.opts.halo === 'none' ? null : colorOf(member.opts.halo)
       }
       ;(reason === 'focus' || reason === 'hover') && st.version === member.version && restyle(member, st)
+      // Lo que estuvo oculto sobre el trazo no se recolocó en los asientos.
+      reason === 'visibility' && member.visible && st.along && camera.hasView() && outdated(st, readView(camera, probe)) && (st.version = -1)
       reason === 'visibility' && member.visible && renderer.surface.need()
       ;(reason === 'visibility' || member.visible) && renderer.redraw()
     },
@@ -729,21 +841,35 @@ export const createLabelGl = ({ host, pane, zIndex, surface = opts => new EditSu
     },
 
     // Suma a `out` una parte `{ ref, id, distancePx: 0, zIndex }` por cada ítem con un rótulo bajo `sample` (px CSS del
-    // contenedor), con la vista del último dibujo. La caja es la de `labelLayout`. [0-alloc]
+    // contenedor), con la vista del último dibujo. La caja es la de `labelLayout`; sobre el trazo, como ella, la caja
+    // alineada filtra y después se pica cada glifo con su caja girada, escaladas con el mapa desde el asiento. [0-alloc]
     hitsAt(member, sample, out) {
       const st = alive && last.valid && member.visible ? states.get(member) : null
       if (!st || !st.pickN) return out
-      const m = anchorMatrix(m64, st.ax, st.ay, last.zoom, last.center, last.size)
-      const W = last.size.x, H = last.size.y
-      const pick = st.pick
+      const m  = anchorMatrix(m64, st.ax, st.ay, last.zoom, last.center, last.size)
+      const W  = last.size.x, H = last.size.y
+      const zs = st.along ? 2 ** (last.zoom - st.z0) : 1
+      const pick = st.pick, gpick = st.gpick
       let used = 0, prev = null
       for (let n = 0; n < st.pickN; n++) {
         const p = n * PICK
-        const hw = pick[p + 4], hh = pick[p + 5]
+        const hw = pick[p + 4] * zs, hh = pick[p + 5] * zs
         const id = st.pickIds[n]
         if (!(hw > 0 && hh > 0) || id === prev) continue
         project(m, W, H, pick[p], pick[p + 1])
         if (Math.abs(sample.x - hit.x - pick[p + 2]) > hw || Math.abs(sample.y - hit.y - pick[p + 3]) > hh) continue
+        if (st.along) {
+          let on = false
+          const end = st.spans[2 * n] + st.spans[2 * n + 1]
+          for (let g = st.spans[2 * n]; g < end && !on; g++) {
+            const q = g * GPICK
+            project(m, W, H, gpick[q], gpick[q + 1])
+            const dx = sample.x - hit.x, dy = sample.y - hit.y
+            const c  = Math.cos(gpick[q + 2]), s = Math.sin(gpick[q + 2])
+            on = Math.abs(dx * c + dy * s) <= gpick[q + 3] * zs && Math.abs(dy * c - dx * s) <= gpick[q + 4] * zs
+          }
+          if (!on) continue
+        }
         const part = pool[used] ?? (pool[used] = { ref: null, id: null, distancePx: 0, zIndex: 0 })
         used++
         part.ref = part.id = id
@@ -790,7 +916,10 @@ export const createLabelGl = ({ host, pane, zIndex, surface = opts => new EditSu
   }
   realm.renderers.add(renderer)
   // Con un motor que lo reasienta, sólo falta el cambio de tamaño; sin él, cada movimiento.
-  offView = [camera.on(track ? 'resize' : 'move moveend zoomend resize', () => renderer.resetCanvasReference())]
+  offView = [
+    camera.on(track ? 'resize' : 'move moveend zoomend resize', () => renderer.resetCanvasReference()),
+    camera.on('moveend zoomend', seat),
+  ]
   track?.(renderer)
   return renderer
 }

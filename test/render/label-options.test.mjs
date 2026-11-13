@@ -53,26 +53,30 @@ test('gl vale con lo que no pide trazo ni canvas ni html, y el defecto sigue en 
   assert.equal(mergeLabelOptions(null, {}).renderer, 'canvas')
 })
 
-test('gl con paint, htmlOf o interactive lanza el TypeError de siempre, y along dice que está pendiente; nada cambia', () => {
+test('gl con paint, htmlOf o interactive lanza el TypeError de siempre; nada cambia', () => {
   const prev = mergeLabelOptions(null, { renderer: 'gl' })
   const copy = { ...prev }
   const cases = [
     [{ paint }, /paint pide renderer 'canvas', no 'gl'/],
     [{ htmlOf: () => 'x' }, /htmlOf pide renderer 'html', no 'gl'/],
     [{ interactive: true }, /interactive pide renderer 'html', no 'gl'/],
-    [{ placement: 'along' }, /'along' con renderer 'gl' está pendiente/],
-    [{ repeat: 240 }, /'along' con renderer 'gl' está pendiente/],
-    [{ orientation: 'path' }, /'along' con renderer 'gl' está pendiente/],
   ]
   cases.forEach(([patch, message]) => assert.throws(() => mergeLabelOptions(prev, patch), { name: 'TypeError', message }, JSON.stringify(patch)))
-  assert.throws(() => mergeLabelOptions(null, { placement: 'along', renderer: 'gl' }), /pendiente/, 'también al declararlos juntos')
   assert.deepEqual({ ...prev }, copy)
 })
 
-test('resolvePlacement: auto que resuelve a along con gl lanza pendiente; center sobre la línea vale', () => {
+test('gl coloca sobre el trazo: along, repeat y orientation valen como con canvas', () => {
+  const gl = mergeLabelOptions(null, { renderer: 'gl', placement: 'along', repeat: 240, orientation: 'path', offset: 2 })
+  assert.deepEqual([gl.renderer, gl.placement, gl.repeat, gl.orientation], ['gl', 'along', 240, 'path'])
+  assert.equal(mergeLabelOptions(null, { renderer: 'gl', repeat: 240 }).repeat, 240, 'con auto, que resuelve según la capa')
+  assert.throws(() => mergeLabelOptions(null, { renderer: 'gl', placement: 'below', repeat: 240 }), /sólo valen sobre el trazo/)
+})
+
+test('resolvePlacement: con gl, auto sobre una línea es along, como con canvas; center sobre la línea vale', () => {
   const gl = mergeLabelOptions(null, { renderer: 'gl' })
   ;['line', 'polygon'].forEach(kind => assert.equal(resolvePlacement(kind, mergeLabelOptions(gl, { placement: 'center' })), 'center'))
-  assert.throws(() => resolvePlacement('line', gl), { name: 'TypeError', message: /pendiente/ })
+  assert.equal(resolvePlacement('line', gl), 'along')
+  assert.equal(resolvePlacement('polygon', mergeLabelOptions(gl, { placement: 'along' })), 'along')
   assert.equal(resolvePlacement('polygon', gl), 'center')
   assert.equal(resolvePlacement('text', gl), 'center')
 })

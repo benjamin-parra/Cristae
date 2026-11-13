@@ -306,8 +306,8 @@ test('el orden del cuadro: halo y relleno por miembro; el ítem bajo el puntero,
   r.attach(m)
   const ev = traza(s)
   r.repaint()
-  // unidades 0 1 2, hover 0 con halo (pase 0) y relleno (pase 1), después hover 1 con lo mismo
-  assert.equal(ev.join(' '), 'i0 i1 i2 i0 c0 i0 D c1 i1 D i1 c0 i0 D c1 i1 D')
+  // unidades 0 1 2, hover 0, el miembro de punto (u_along 0) con halo (pase 0) y relleno (pase 1), después hover 1 con lo mismo
+  assert.equal(ev.join(' '), 'i0 i1 i2 i0 i0 c0 i0 D c1 i1 D i1 i0 c0 i0 D c1 i1 D')
   r.destroy()
 })
 

@@ -69,7 +69,7 @@ const callado = base => {
   return gl
 }
 export const glFalso = ({ mudo = false } = {}) => {
-  const log = { draws: [], datas: [], subs: [], tex: [], texSub: [], matrices: [], uniforms: [], blend: [], alineaciones: 0, vaos: 0 }
+  const log = { draws: [], datas: [], subs: [], tex: [], texSub: [], matrices: [], uniforms: [], escalares: [], blend: [], alineaciones: 0, vaos: 0 }
   const base = {
     canvas: { width: 800, height: 600 }, drawingBufferWidth: 800, drawingBufferHeight: 600,
     TEXTURE0: 100, ONE: 1, ONE_MINUS_SRC_ALPHA: 771, ARRAY_BUFFER: 1, TEXTURE_2D: 2, R8: 3, RGBA8: 4, RGBA32F: 5, RED: 6, RGBA: 7, FLOAT: 8, UNSIGNED_BYTE: 9,
@@ -82,6 +82,9 @@ export const glFalso = ({ mudo = false } = {}) => {
     drawArraysInstanced: (_m, _f, _n, count) => log.draws.push(count),
     uniformMatrix4fv: (_l, _t, m) => log.matrices.push(Float64Array.from(m)),
     uniform4fv: (_l, v) => log.uniforms.push(Array.from(v)),
+    getUniformLocation: (_p, name) => name,
+    uniform1f: (name, v) => log.escalares.push([name, v]),
+    uniform1i: (name, v) => log.escalares.push([name, v]),
     blendFunc: (a, b) => log.blend.push([a, b]),
     pixelStorei: () => log.alineaciones++,
     createVertexArray: () => (log.vaos++, {}),
@@ -113,16 +116,24 @@ export const superficie = ({ sinGl = false, mudo = false } = {}) => {
   return { fabrica, hechas }
 }
 
-// La cámara de un mapa de 800 × 600 que el test mueve.
+const llamar = fn => fn()                 // fijo: el `emit` de las pruebas de asignaciones no arma una clausura
+
+// La cámara de un mapa de 800 × 600 que el test mueve, y que avisa sus eventos con `emit`.
 export const anfitrion = () => {
   const center = { lat: -33.4, lng: -70.6 }
   const size   = { x: 800, y: 600 }
   const origin = { x: 0, y: 0 }
   const panes  = new Map()
   const state  = { zoom: 12 }
+  const oyentes = new Map()
   const camera = {
     hasView: () => true, center: () => center, size: () => size, zoom: () => state.zoom, frameOrigin: () => origin,
-    on: () => () => {},
+    on(names, fn) {
+      const lista = names.split(' ')
+      lista.forEach(n => oyentes.set(n, [...(oyentes.get(n) ?? []), fn]))
+      return () => lista.forEach(n => oyentes.set(n, oyentes.get(n).filter(f => f !== fn)))
+    },
+    emit: name => oyentes.get(name)?.forEach(llamar),
   }
   const surface = {
     mount: (name, z) => (panes.set(name, (panes.get(name) ?? 0) + 1), { z }),
@@ -167,7 +178,7 @@ export const instancias = (log, n) => {
   const u16 = new Uint16Array(ultimo.buffer, ultimo.byteOffset, ultimo.byteLength / 2)
   const out = []
   for (let i = 0; i < ultimo.byteLength / STRIDE; i++) out.push({
-    wx: f32[i * 6], wy: f32[i * 6 + 1], ox: f32[i * 6 + 2], oy: f32[i * 6 + 3], glifo: u16[i * 12 + 8],
+    wx: f32[i * 6], wy: f32[i * 6 + 1], ox: f32[i * 6 + 2], oy: f32[i * 6 + 3], glifo: u16[i * 12 + 8], angulo: u16[i * 12 + 9] / 65535 * 2 * Math.PI,
     alfa: ultimo[i * STRIDE + 20], flags: ultimo[i * STRIDE + 21],
   })
   return out

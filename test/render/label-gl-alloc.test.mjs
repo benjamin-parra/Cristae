@@ -26,3 +26,38 @@ test('[0-alloc] el cuadro con la vista en movimiento no asigna', () => {
   r.destroy()
 })
 
+
+// Sobre el trazo, entre asientos: el cuadro sólo cambia la escala del glifo, y el asiento sin nada que recolocar (un
+// paneo dentro del margen) tampoco asigna. El picking glifo a glifo, tampoco.
+test('[0-alloc] sobre el trazo, el cuadro, el asiento sin recolocar y el picking no asignan', () => {
+  const { host, r } = montar({ mudo: true })
+  const rutas = Array.from({ length: 30 }, (_, i) => ({
+    id: `r${i}`, text: `Ruta ${i}`,
+    path: Array.from({ length: 40 }, (_, k) => [-33.42 + i * 0.0013 + Math.sin(k / 5) * 1e-3, -70.66 + k * 0.003]),
+  }))
+  const m = miembro({ id: 'l', kind: 'line', placement: 'along', items: rutas, pathOf: x => x.path, opts: { repeat: 80 } })
+  r.attach(m)
+  r.resetCanvasReference()
+  const zoom = bytesPorLlamada(i => r.renderAtView(12 + (i % 10) * 0.1, host.center), 20_000, { calentar: 100_000 })
+  assert.ok(zoom < 1, `${zoom} B por cuadro del zoom animado`)
+  const asiento = bytesPorLlamada(i => {
+    host.center.lng = -70.6 + (i % 50) * 1e-5
+    r.resetCanvasReference()
+    host.camera.emit('moveend')
+  }, 20_000, { calentar: 100_000 })
+  assert.ok(asiento < 1, `${asiento} B por asiento sin recolocar`)
+  // `length = 0` le hace soltar a V8 el almacenamiento del arreglo: un centinela en la casilla 0 deja medir sólo lo que
+  // asigna `hitsAt`, como en label-layout.test.mjs.
+  const out = [null]
+  const muestra = { x: 400, y: 300 }
+  let picados = 0
+  const pica = bytesPorLlamada(i => {
+    out.length = 1
+    muestra.x = 200 + (i % 400)
+    r.hitsAt(m, muestra, out)
+    picados += out.length - 1
+  }, 20_000, { calentar: 100_000 })
+  assert.ok(picados > 0, 'hay glifos bajo las muestras')
+  assert.ok(pica < 2, `${pica} B por picking`)
+  r.destroy()
+})
