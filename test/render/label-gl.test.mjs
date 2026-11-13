@@ -15,7 +15,7 @@ import { ANCHO, PUNTOS, anfitrion, glFalso, instalarMedida, instancias, medida, 
 import test, { after } from 'node:test'
 import assert from 'node:assert/strict'
 import { createLabelGl } from '../../src/render/LabelGl.js'
-import { createGlyphAtlas } from '../../src/render/labelGlyphs.js'
+import { GROSOR, HALO_PX, createGlyphAtlas } from '../../src/render/labelGlyphs.js'
 import { createLayout, readLabelView } from '../../src/render/labelLayout.js'
 import { createMeasure } from '../../src/render/labelText.js'
 import { projX0, projY0 } from '../../src/render/project.js'
@@ -287,4 +287,47 @@ test('el ancla relativa al centro de la colocación conserva la precisión a z18
   const ex = projX0(p.lng) - projX0(host.center.lng), ey = projY0(p.lat) - projY0(host.center.lat)
   assert.ok(Math.abs(g.wx - ex) * 2 ** 18 < 1 / 16 && Math.abs(g.wy - ey) * 2 ** 18 < 1 / 16)
   r.destroy()
+})
+
+// El orden de las llamadas de un cuadro: los halos de un miembro antes de sus rellenos, y el ítem bajo el puntero en un pase
+// propio al final, encima de todos. La traza lleva los `uniform1i` (unidades, hover y pase), los colores y cada dibujo.
+const traza = s => {
+  const ev = []
+  s.gl.uniform1i = (_l, v) => ev.push(`i${v}`)
+  s.gl.uniform4fv = (_l, v) => ev.push(`c${v[0]}`)
+  s.gl.drawArraysInstanced = () => ev.push('D')
+  return ev
+}
+
+test('el orden del cuadro: halo y relleno por miembro; el ítem bajo el puntero, en un pase propio al final', () => {
+  const { r, s } = montar()
+  const m = miembro({ items: PUNTOS, opts: { color: '#ff0000', halo: '#00ff00' } })
+  m.hovered.add('c')
+  r.attach(m)
+  const ev = traza(s)
+  r.repaint()
+  // unidades 0 1 2, hover 0 con halo (pase 0) y relleno (pase 1), después hover 1 con lo mismo
+  assert.equal(ev.join(' '), 'i0 i1 i2 i0 c0 i0 D c1 i1 D i1 c0 i0 D c1 i1 D')
+  r.destroy()
+})
+
+test('el grosor y el halo van en px de dispositivo: el DPR los divide y los multiplica', () => {
+  const dpr = Object.getOwnPropertyDescriptor(globalThis, 'devicePixelRatio')
+  Object.defineProperty(globalThis, 'devicePixelRatio', { value: 2, configurable: true })
+  try {
+    const { r, s } = montar()
+    const m = miembro({ items: PUNTOS, opts: { halo: '#00ff00' } })
+    r.attach(m)
+    const f = []
+    s.gl.uniform1f = (_l, v) => f.push(v)
+    s.gl.drawArraysInstanced = () => f.push('D')
+    r.repaint()
+    assert.ok(f.includes(GROSOR / 2), 'GROSOR / dpr')
+    const antes = f.slice(0, f.indexOf('D'))
+    assert.equal(antes.at(-1), HALO_PX * 2, 'el halo en px de dispositivo')
+    assert.equal(f.slice(f.indexOf('D') + 1, f.lastIndexOf('D')).at(-1), 0, 'el relleno sin borde extra')
+    r.destroy()
+  } finally {
+    dpr ? Object.defineProperty(globalThis, 'devicePixelRatio', dpr) : delete globalThis.devicePixelRatio
+  }
 })
