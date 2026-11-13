@@ -2,6 +2,7 @@
 // las mediciones. Fija la unidad (el grafema), la caché por fuente y `forget`.
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { bytesPorLlamada } from '../../test-helpers/asignaciones.mjs'
 import { createMeasure } from '../../src/render/labelText.js'
 
 // Cada punto de código mide el tamaño en px de la fuente vigente: un grafema de dos mide el doble.
@@ -89,4 +90,32 @@ test('sin caja de fuente en el contexto, el alto sale del tamaño de la fuente',
   const ctx = { font: '', measureText: s => ({ width: s.length }) }
   const g   = createMeasure(ctx).glyphs('12px sans-serif', 'a')
   assert.ok(Math.abs(g.ascent + g.descent - 12) < 1e-9)
+})
+
+test('[0-alloc] un texto ya medido no asigna: el acierto de la caché no abre contexto ni arma nada', () => {
+  const ctx    = fakeCtx()
+  const m      = createMeasure(ctx)
+  const textos = Array.from({ length: 1_000 }, (_, i) => `Predio ${i}`)
+  let sink
+  const leer = () => {
+    for (let i = 0; i < textos.length; i++) sink = m.glyphs(A, textos[i])
+  }
+  leer()
+  const medidas = ctx.calls
+  const bytes   = bytesPorLlamada(leer, 20, { calentar: 3_000 })
+  assert.equal(ctx.calls, medidas, 'todo fue acierto')
+  assert.ok(sink)
+  assert.ok(bytes / textos.length < 1, `${bytes / textos.length} bytes por texto`)
+})
+
+test('un texto que cambia se vuelve a medir, y el que no cambia sigue siendo el mismo objeto', () => {
+  const ctx = fakeCtx()
+  const m   = createMeasure(ctx)
+  const uno = m.glyphs(A, 'uno')
+  assert.equal(m.glyphs(A, 'uno'), uno)
+  const otro = m.glyphs(A, 'otro')
+  assert.equal(otro.text, 'otro')
+  assert.equal(otro.total, 40)
+  assert.notEqual(otro, uno)
+  assert.equal(m.glyphs(A, 'uno'), uno)
 })

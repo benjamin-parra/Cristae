@@ -16,12 +16,11 @@ const sizeOf = font => Number(/(\d+(?:\.\d+)?)px/.exec(font)?.[1] ?? 10)
 export const createMeasure = ctx => {
   const fonts = new Map()                 // font → { widths: grafema → ancho, layouts: texto → Glyphs }
 
-  const glyphs = (font, text) => {
+  // El camino de un texto que no se conocía. Va aparte de `glyphs` porque su clausura de `forEach` obliga a
+  // V8 a abrir un contexto en cada entrada de la función que la declara, aun cuando el texto es un acierto.
+  const measured = (font, text) => {
     let known = fonts.get(font)
     known || fonts.set(font, known = { widths: new Map(), layouts: new Map() })
-    const hit = known.layouts.get(text)
-    if (hit) return hit
-
     known.layouts.size >= MAX_LAYOUTS && known.layouts.clear()
     ctx.font = font
     const units  = Array.from(SEGMENTER.segment(text), s => s.segment)
@@ -44,6 +43,9 @@ export const createMeasure = ctx => {
     known.layouts.set(text, layout)
     return layout
   }
+
+  // [0-alloc] con el texto ya medido.
+  const glyphs = (font, text) => fonts.get(font)?.layouts.get(text) ?? measured(font, text)
 
   return { glyphs, forget: font => fonts.delete(font) }
 }
