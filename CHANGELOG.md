@@ -8,6 +8,17 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
 ## [Sin publicar]
 
 ### Agregado
+- **`renderer="gl"` en los rótulos.** `<cristae-labeled>`, `<cristae-text-layer>`, `addLabels` y `addTextLayer`
+  aceptan `gl`, que pinta los rótulos en la GPU, glifo a glifo desde un atlas de campos de distancia, en el contexto
+  de las capas GL de abajo. Es el mismo valor en HTML, React y JS, sin opciones nuevas, y el defecto sigue siendo
+  `canvas`. No admite `paint`, `htmlOf` ni `interactive` (lanzan el `TypeError` de siempre), y `along`, también el
+  de `auto` sobre una línea, lanza un `TypeError` que dice que está pendiente. Sin WebGL2 pinta con `canvas` y avisa
+  una vez. El emoji sale en color. Un canvas que pinta más de 1.300 rótulos en un cuadro avisa una vez que `gl`
+  existe. Ver [`docs/labeled.md`](docs/labeled.md#cómo-se-dibuja).
+  **El defecto pasará a `gl`** con el anfitrión GL, sin `renderer` declarado; `paint` seguirá en `canvas` y
+  `htmlOf` en `html`.
+  *Migración*: ninguna en esta versión. Para conservar el canvas cuando cambie el defecto, declarar
+  `renderer="canvas"`.
 - **`PagedTable.setBinder(binder)`** cambia cómo se pinta la fila sin reconstruir el motor: repuebla
   en el acto la ventana visible y conserva pool, molde, página, scroll, búsqueda y `where`. Una tabla
   cuyas celdas leen estado de la pantalla (un idioma, un conjunto que cambia) ya no tiene que
