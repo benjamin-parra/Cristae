@@ -17,6 +17,20 @@ capa.textOf    = c => c.nombre
 capa.data      = ciudades
 ```
 
+Para miles de textos va `renderer="gl"`, que es el mismo valor en HTML, React e imperativo:
+
+```html
+<cristae-text-layer id="comunas" renderer="gl" placement="above"></cristae-text-layer>
+```
+
+```tsx
+<CristaeTextLayer id="comunas" data={comunas} accessors={comunaAccessors} textOf={c => c.nombre} renderer="gl" />
+```
+
+```js
+engine.addTextLayer({ id: 'comunas', accessors, data: comunas, textOf: c => c.nombre, renderer: 'gl' })
+```
+
 Con `canvas` o `html` no gasta contexto WebGL: el texto va al canvas de rótulos que comparte el mapa, o a un
 pane HTML propio. Con `gl` va al contexto de las capas GL de abajo.
 
@@ -113,5 +127,8 @@ Una `<cristae-label-layer>` con `source` propio pasa a `<cristae-text-layer>` co
 ## Límites
 
 - **Sin colisión.** Los textos no se esquivan entre sí.
+- **`gl` no admite `paint`, `htmlOf` ni `interactive` de `<cristae-labeled>`:** lanzan `TypeError`. Sin WebGL2 pinta
+  con `canvas` y avisa una vez. Los límites del atlas (escrituras complejas, emoji) están en
+  [`labeled.md`](labeled.md#límites).
 - **`html`** rinde cientos de textos; `canvas`, miles. Sus nodos viven en el shadow root del mapa: el CSS del
   documento no les llega, y el estilo va en línea ([`labeled.md`](labeled.md#cómo-se-dibuja)).

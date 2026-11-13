@@ -8,6 +8,7 @@
 > [`<cristae-text-layer>`](text-layer.md). Hasta entonces funcionan, y avisan una vez por página en consola.
 > El elemento ya no tiene implementación propia: se traduce a su reemplazo. La equivalencia está en
 > [Retiro en v0.47.0](#retiro-en-v0470). `LabelLayer` y `drawLabel` se quedan.
+> Para miles de rótulos, el reemplazo admite `renderer="gl"` ([`labeled.md`](labeled.md#cómo-se-dibuja)).
 
 `LabelLayer` dibuja etiquetas de texto (píldoras) sobre un canvas montado en la superficie del mapa,
 ancladas a coordenadas geográficas. Una sola capa genérica: el **glifo** lo pinta una función

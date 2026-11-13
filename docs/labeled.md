@@ -48,7 +48,7 @@ debajo y los predios en su centro.
 | --- | --- | --- | --- |
 | `textOf` | `text-of` | el id; en una burbuja, su `count` | una función `(item) => string \| number \| null` (prop), o por atributo el nombre de un campo |
 | `htmlOf` | — | — | `(item) => string \| Node \| null`, el contenido con `renderer="html"`. Si está, el renderer por defecto es `html` |
-| `renderer` | `renderer` | `html` si hay `htmlOf`; si no, `canvas` | cómo se dibuja (abajo) |
+| `renderer` | `renderer` | `html` si hay `htmlOf`; si no, `canvas` | `canvas`, `html` o `gl`: cómo se dibuja (abajo) |
 | `placement` | `placement` | `auto` | `auto`, `along`, `center`, `above`, `below` o `right` |
 | `repeat` | `repeat` | sin repetir | px entre centros sobre el trazo, > 0 |
 | `offset` | `offset` | `0` | px desde el ancla; positivo hacia arriba para quien lee |
@@ -125,8 +125,42 @@ uno:
   zoom el texto crece o se achica con el mapa, y al asentar se recoloca; lo que estaba a más de una pantalla
   aparece al asentar.
 - Sin WebGL2 pinta con `canvas` y avisa una vez.
+- Con 6.400 rótulos a 1920×1080 en una GPU integrada (Intel UHD 730), el zoom da de 55 a 60 cuadros por segundo con
+  `gl` y de 25 a 42 con `canvas`; la escala típica da 60 con los dos.
 - El defecto sigue siendo `canvas` y pasará a `gl` con el anfitrión GL: para conservarlo, `renderer="canvas"`.
 - Un canvas que pinta más de 1.300 rótulos en un cuadro avisa una vez que `gl` existe.
+
+### Pedir `gl`
+
+Es el mismo valor en las tres maneras, sin opciones nuevas:
+
+```html
+<cristae-labeled renderer="gl" placement="below">
+  <cristae-point-layer id="flota"></cristae-point-layer>
+</cristae-labeled>
+```
+
+```tsx
+<CristaeLabeled renderer="gl" textOf={(c: Camion) => c.patente}>
+  <CristaePointLayer id="flota" data={camiones} accessors={camionAccessors} />
+</CristaeLabeled>
+```
+
+```js
+engine.addLabels({ hostId: 'flota', textOf: c => c.patente, renderer: 'gl' })
+engine.addTextLayer({ id: 'comunas', accessors, data: comunas, textOf: c => c.nombre, renderer: 'gl' })
+```
+
+Avisos, una vez por página y en consola:
+
+| Cuándo | Qué dice |
+| --- | --- |
+| `renderer="canvas"` (o el defecto) pinta más de 1.300 rótulos en un cuadro | que `renderer="gl"` los pinta en la GPU |
+| `gl` sin WebGL2, o sin poder abrir el contexto | que los rótulos `gl` no pudieron montarse, con la causa, y que se pintan con `canvas` |
+| los glifos distintos no caben en el atlas | que los que no caben no se dibujan |
+
+Con `gl`, el orden entre plano de rótulos es: `gl` debajo de `canvas`. Una píldora de `paint` queda sobre el
+texto de otro `labeled` que use `gl`.
 
 - **`canvas`** usa un solo canvas por mapa para todos los rótulos, en un plano propio: sobre todas las capas
   base y las burbujas de los clusters, y bajo las capas HTML, los editores y la espiral. Los rótulos de
@@ -218,7 +252,7 @@ labels.remove()                // idempotente
 
 Un valor inválido lanza `TypeError` antes de tocar el motor, y en caliente no cambia nada:
 
-- `htmlOf` o `interactive` sin `renderer="html"`, o `paint` sin `canvas`;
+- `htmlOf` o `interactive` sin `renderer="html"`, o `paint` sin `canvas` (con `gl` lanzan igual);
 - `paint` con un `placement` que no es `auto` ni `center`;
 - `repeat` u `orientation` con un `placement` explícito que no es `along`;
 - `repeat ≤ 0`, un `offset` no finito, o un `renderer`, `placement` u `orientation` desconocido;
@@ -232,6 +266,13 @@ Un valor inválido lanza `TypeError` antes de tocar el motor, y en caliente no c
 - **`gl` frente a `canvas`:** algún glifo puede quedar hasta medio px corrido, el texto de 9 a 10,5 px con DPR 1
   sale algo más suave y no hay ligaduras. Los glifos que todavía no están en el atlas aparecen unos cuadros
   después; con miles de ideogramas distintos, lo que no cabe en el atlas no se dibuja y avisa una vez.
+- **Escrituras complejas con `gl`:** el atlas guarda unos 2.800 glifos distintos de ideogramas; con más, lo que
+  no cabe no se dibuja y se avisa una vez. Árabe, hebreo e índicas van como una corrida entera por texto, y
+  ocupan más. Una segunda página del atlas no está en esta versión.
+- **Emoji con `gl`:** sale en color, como lo rasteriza el navegador; dentro de un texto con árabe o tailandés
+  también, porque la corrida se parte en el emoji. Un símbolo que la fuente no trae en color (`❤` sin selector
+  de variación) sale como silueta, del color del texto.
+- **Vista inclinada y globo:** `gl` es del anfitrión plano; no hay rótulos `gl` inclinados ni sobre el globo.
 - **Editores:** no se rotulan en esta versión.
 - **Formas con `along`:** no se admiten todavía.
 
