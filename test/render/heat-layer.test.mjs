@@ -837,6 +837,75 @@ test('el zoomanim reasienta el ancla para el destino si el dibujo lo haría, sin
   assert.equal(lecturas - antes, AGGREGATE_MIN_POINTS, 'y el dibujo ya no')
 }))
 
+test('por debajo del umbral el zoomanim no relee ni reasienta nada: lo hace el dibujo del zoomend, como en ef39ddd', async () => conRaf(async ({ correr }) => {
+  let lecturas = 0
+  const accessors = { idOf, positionOf: it => (lecturas++, it.pos), weightOf }
+  const { cam } = montar(nube(AGGREGATE_MIN_POINTS - 1), { accessors, vista: { zoom: 16, lat: -32.9, lng: -69.9 } })
+  const antes = lecturas
+  cam.fire('zoomstart')
+  cam.fire('zoomanim', { center: { lat: -32.9, lng: -49.9 }, zoom: 17 })
+  correr()
+  correr()
+  assert.equal(lecturas - antes, 0, 'sin celdas que armar, el zoomanim no toca los accessors')
+  Object.assign(cam.estado, { zoom: 17, lat: -32.9, lng: -49.9 })
+  cam.fire('zoomend')
+  correr()
+  assert.equal(lecturas - antes, AGGREGATE_MIN_POINTS - 1, 'el dibujo del zoomend relee una vez')
+}))
+
+test('un zoomanim cuyo armado ya estaba pedido no arma nada si la capa se destruye antes', async () => conRaf(async ({ correr }) => {
+  await contandoPasadas(async pasadas => {
+    const { layer, cam } = montar(nube(AGGREGATE_MIN_POINTS), { vista: { zoom: 10, lat: -32.9, lng: -69.9 } })
+    cam.fire('zoomstart')
+    cam.fire('zoomanim', { center: { lat: -32.9, lng: -69.9 }, zoom: 10.2 })
+    correr()
+    layer.destroy()
+    correr()
+    assert.equal(pasadas.length, 1, 'el segundo cuadro llega con la capa destruida: no hay pasada')
+  })
+}))
+
+test('un nivel donde no agregó sigue anotado aunque se pase por uno más grueso; otra celda lo olvida', async () => conRaf(async ({ correr }) => {
+  await contandoPasadas(async pasadas => {
+    const { layer, cam } = montar(nube(AGGREGATE_MIN_POINTS), { vista: { zoom: 11, lat: -32.9, lng: -69.9 } })
+    assert.deepEqual(pasadas.map(p => p.celdas), [0], 'con la celda de R = 40, el nivel 11 no agrega')
+    cam.estado.zoom = 10
+    layer.redraw()
+    assert.equal(pasadas.length, 2)
+    assert.ok(pasadas[1].celdas > 0, 'el 10 sí')
+    cam.estado.zoom = 11
+    layer.redraw()
+    assert.equal(pasadas.length, 2, 'al volver al 11 no repite la pasada que ya falló')
+    layer.radius = 65                          // R = 80: la celda pasa de 2 a 4 px, y con ella el 11 sí agrega
+    correr()
+    assert.equal(pasadas.length, 3, 'con otra celda se reintenta en el mismo nivel')
+    assert.ok(pasadas[2].celdas > 0 && pasadas[2].px === 4, `${pasadas[2].celdas} celdas de ${pasadas[2].px} px`)
+    layer.destroy()
+  })
+}))
+
+test('un radio que apaga la agregación y vuelve al mismo tamaño de celda no deja la capa en un splat por punto', async () => conRaf(async ({ correr }) => {
+  const n = 1_200                              // con R = 160 no llegan al umbral (n·R²), con R = 200 sí; la celda es de 8 px en ambos
+  const apiñados = nube(n, { lado: 0.02 })
+  const { layer, calls } = montar(apiñados, { opts: { radius: 185, blur: 15 }, vista: { zoom: 10, lat: -32.9, lng: -69.9 } })
+  const dibujados = () => llamadas(calls, 'drawArraysInstanced').at(-1)[4]
+  assert.ok(dibujados() < n, 'con R = 200 agrega')
+  layer.radius = 145
+  correr()
+  assert.equal(dibujados(), n, 'con R = 160 un splat por punto')
+  layer.radius = 185
+  correr()
+  assert.ok(dibujados() < n, `al volver a R = 200 agrega otra vez (${dibujados()} instancias)`)
+  layer.destroy()
+}))
+
+test('a zoom fraccionario las celdas reciben los px por world0 de ese zoom, no del nivel ni de un entero', () => {
+  const { layer, calls } = montar(nube(AGGREGATE_MIN_POINTS), { vista: { zoom: 10.3, lat: -32.9, lng: -69.9 } })
+  const uniforme = llamadas(calls, 'uniform1fv').find(c => c[1].name === 'uPxPorWorld0')
+  assert.equal(uniforme?.[2][0], Math.fround(2 ** 10.3))
+  layer.destroy()
+})
+
 test('redraw() con celdas y la cámara sola asigna 0 bytes', () => {
   const quieto = glDoble({ grabar: false })
   const cam    = camara({ zoom: 10, lat: -32.9, lng: -69.9 })

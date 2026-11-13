@@ -267,6 +267,7 @@ export class HeatLayer {
     this.#prepRaf = 0
     const toward = this.#toward
     if (!toward || !this.#gl || !this.#visible || this.#destroyed) return
+    if (!aggregates(this.#source.getSnapshot().length, this.#uRadius[0])) return   // sin celdas, el dibujo del zoomend lo hace todo
 
     const placed = this.#placed
     const x = projX0(toward.center.lng)
@@ -355,7 +356,10 @@ export class HeatLayer {
   // igual o más fino que uno donde la pasada no agregó tampoco agrega: con un nivel entero de diferencia cada celda se parte en
   // cuatro, y las celdas sólo pueden crecer; dentro del primer entero la grilla no se anida y es una aproximación.
   #aggregate(zoom) {
-    if (!aggregates(this.#count, this.#uRadius[0])) return (this.#cellCount = 0)
+    if (!aggregates(this.#count, this.#uRadius[0])) {
+      this.#cellLevel = NaN                // las celdas guardadas no se dibujaron: al volver a agregar no valen por su nivel
+      return (this.#cellCount = 0)
+    }
 
     const level = aggregationLevel(zoom)
     const px    = cellSize(this.#uRadius[0])

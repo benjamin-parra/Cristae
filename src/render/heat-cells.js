@@ -104,6 +104,12 @@ export const cellSize = R => Math.min(CELL_PX, R * CELL_PER_RADIUS)
 export const HEAVY_CONTRIBUTION = 32 * POINT_ALPHA
 export const SPLIT_LEVELS = 2
 
+// Un solo criterio para los dos lados de cada reparto: lo que la pasada de las celdas deja fuera y lo que la de salida o la de
+// partir recoge. Con la comparación escrita dos veces, un punto justo en el borde (o una celda justo en HEAVY_CONTRIBUTION) se
+// contaría en las dos partes o en ninguna.
+const isHot   = c => c >= HOT_CONTRIBUTION
+const isHeavy = sumC => sumC > HEAVY_CONTRIBUTION
+
 // Desde cuántos puntos una pasada que no va a agregar se corta con una muestra. Medido en un CPU de escritorio: rehacer las celdas
 // cuesta hasta 8 ms con 100.000 puntos y de 12 a 50 ms con 500.000, así que desde unos 200.000 una pasada de balde ya no cabe en
 // un cuadro.
@@ -192,19 +198,18 @@ export class HeatCells {
     const cells = this.#accumulate(mirror, n, anchorX, anchorY, scale, intensity, maxCells, 1, true)
     if (cells < 0) return 0
 
-    const heavyMin  = HEAVY_CONTRIBUTION
     const fineScale = scale * 2 ** SPLIT_LEVELS
     let heavy = 0
     if (WORLD0 * fineScale <= MAX_INDEX)
-      for (let k = 0; k < cells; k++) this.#sumC[k] > heavyMin && heavy++
-    const fine  = heavy ? this.#split(mirror, n, anchorX, anchorY, fineScale, intensity, cells, heavyMin, maxCells - cells + heavy - this.#hot) : 0
+      for (let k = 0; k < cells; k++) isHeavy(this.#sumC[k]) && heavy++
+    const fine  = heavy ? this.#split(mirror, n, anchorX, anchorY, fineScale, intensity, cells, maxCells - cells + heavy - this.#hot) : 0
     const kept  = fine > 0 ? cells - heavy : cells
     const total = kept + Math.max(fine, 0) + this.#hot
     if (this.out.length < total * CELL_FLOATS) this.out = new Float32Array(Math.max(total, Math.min(this.#ix.length, maxCells)) * CELL_FLOATS)
     const out = this.out
     let o = 0
     for (let k = 0; k < cells + Math.max(fine, 0); k++) {
-      if (fine > 0 && k < cells && this.#sumC[k] > heavyMin) continue
+      if (fine > 0 && k < cells && isHeavy(this.#sumC[k])) continue
 
       const sc   = k < cells ? scale : fineScale
       const area = sc * sc                          // celdas² por px² de world0
@@ -223,7 +228,7 @@ export class HeatCells {
     if (this.#hot)
       for (let i = 0, p = 0; i < n; i++, p += POINT_FLOATS) {
         const c = contribution(mirror[p + 2], intensity)
-        if (c < HOT_CONTRIBUTION || !inWorld(anchorX + mirror[p], anchorY + mirror[p + 1], scale)) continue
+        if (!isHot(c) || !inWorld(anchorX + mirror[p], anchorY + mirror[p + 1], scale)) continue
 
         out[o]     = mirror[p]
         out[o + 1] = mirror[p + 1]
@@ -237,16 +242,16 @@ export class HeatCells {
     return total
   }
 
-  // Vuelve a juntar los puntos de las celdas pesadas (aportes que suman más de `heavyMin`) en celdas de `fineScale`, a
+  // Vuelve a juntar los puntos de las celdas pesadas (`isHeavy`) en celdas de `fineScale`, a
   // continuación de las `cells` de la tabla. Devuelve cuántas, o −1 si pasan de `budget`: entonces las pesadas quedan enteras.
-  #split(mirror, n, anchorX, anchorY, fineScale, intensity, cells, heavyMin, budget) {
+  #split(mirror, n, anchorX, anchorY, fineScale, intensity, cells, budget) {
     const table = this.#table
     const mask  = this.#mask
     const cellOf = this.#cellOf
     let fine = 0
     for (let i = 0, o = 0; i < n; i++, o += POINT_FLOATS) {
       const parent = cellOf[i]
-      if (parent < 0 || this.#sumC[parent] <= heavyMin) continue
+      if (parent < 0 || !isHeavy(this.#sumC[parent])) continue
 
       const x  = anchorX + mirror[o]
       const y  = anchorY + mirror[o + 1]
@@ -304,7 +309,7 @@ export class HeatCells {
       if (!inWorld(x, y, scale)) continue          // fuera del mundo: invisible también sin agregar
 
       const c = contribution(mirror[o + 2], intensity)
-      if (c >= HOT_CONTRIBUTION) {
+      if (isHot(c)) {
         if (cells + ++hot > maxCells) return -1
         continue
       }

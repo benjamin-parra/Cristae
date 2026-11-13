@@ -318,7 +318,9 @@ const pesada = k => {
 test('una celda cuyos aportes suman más de HEAVY_CONTRIBUTION se parte en celdas de 1/2^SPLIT_LEVELS de lado', () => {
   const hc = new HeatCells()
   const justo = Math.floor(HEAVY_CONTRIBUTION / POINT_ALPHA / 16)    // 2 por subcelda: 32 puntos, Σc = HEAVY_CONTRIBUTION
-  assert.equal(hc.build(espejo(pesada(justo), 0, 0), 16 * justo + 1, 0, 0, NIVEL, CELL_PX, 1), 2, 'en el umbral, entera')
+  // Σc de 32 aportes de POINT_ALPHA da 3,8400000000000025 en coma flotante, por encima de HEAVY_CONTRIBUTION: justo en el umbral
+  // ya cuenta como pesada, y quedaría entera sólo porque las subceldas no caben en el tope. Por eso se prueba por debajo.
+  assert.equal(hc.build(espejo(pesada(justo - 1), 0, 0), 16 * (justo - 1) + 1, 0, 0, NIVEL, CELL_PX, 1), 2, 'por debajo del umbral, entera')
   const p = pesada(justo + 1)
   const n = hc.build(espejo(p, 0, 0), p.length, 0, 0, NIVEL, CELL_PX, 1)
   assert.equal(n, 17, 'pasado el umbral, sus 16 subceldas y la suelta')
@@ -346,4 +348,25 @@ test('si las subceldas pasan del tope, la celda pesada queda entera', () => {
   assert.ok(33 * POINT_ALPHA > HEAVY_CONTRIBUTION)
   assert.equal(hc.build(espejo(pocas, 0, 0), pocas.length, 0, 0, NIVEL, CELL_PX, 1), 3, 'la pesada entera y las dos sueltas')
   assert.equal(celdas(hc).find(c => c.n === 33)?.n, 33)
+})
+
+test('una celda bajo HEAVY_CONTRIBUTION queda entera aunque otra, pasada, se parta, y sus puntos no entran en las subceldas', () => {
+  const hc = new HeatCells()
+  const justo = Math.floor(HEAVY_CONTRIBUTION / POINT_ALPHA / 16)
+  const liviana = pesada(justo - 1).slice(0, -1)                  // 16 puntos: Σc = la mitad del umbral
+  const pasada  = pesada(justo + 1).slice(0, -1).map(([x, y, w]) => [x + 40 * LADO, y, w])
+  const p = liviana.concat(pasada)
+  assert.equal(hc.build(espejo(p, 0, 0), p.length * 2, 0, 0, NIVEL, CELL_PX, 1), 1 + 16, 'la liviana entera y la pasada en sus 16 subceldas')
+  assert.deepEqual(celdas(hc).map(c => c.n).sort((a, b) => a - b), [...Array(16).fill(justo + 1), liviana.length].sort((a, b) => a - b))
+})
+
+test('con celdas pesadas a un nivel cuyo índice fino no cabe, no se parten y las posiciones siguen en su sitio', () => {
+  const hc    = new HeatCells()
+  const nivel = 23                                               // WORLD0·scale = 2^30 cabe, y el cuádruple de la partida no
+  const punto = 200                                              // px de world0
+  const p = Array.from({ length: 40 }, () => [punto, 100, 1])
+  assert.equal(hc.build(espejo(p, 0, 0), p.length * 2, 0, 0, nivel, 2, 1), 1, 'una celda con sus 40 puntos')
+  const [c] = celdas(hc)
+  assert.equal(c.n, 40)
+  assert.ok(Math.abs(c.x - punto) < 1e-4 && Math.abs(c.y - 100) < 1e-4, `en (${c.x}, ${c.y})`)
 })
