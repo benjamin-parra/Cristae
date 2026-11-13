@@ -605,7 +605,6 @@ export interface LabelProps<T = unknown> {
   htmlOf?      : (item: T) => string | Node | null | undefined;
   /** Default: `html` si hay `htmlOf`; si no, `canvas`. */
   renderer?    : LabelRenderer;
-  /** `along` con `gl` lanza `TypeError`: está pendiente. */
   placement?   : LabelPlacement;
   /** Px entre centros sobre el trazo, > 0. Sólo donde la colocación resuelve a `along`. */
   repeat?      : number;

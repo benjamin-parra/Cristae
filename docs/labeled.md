@@ -112,16 +112,18 @@ nuevo en cada render no redibuja si los textos no cambiaron.
 | | `canvas` | `html` | `gl` |
 | --- | --- | --- | --- |
 | Cantidad | miles con `center`; del orden de mil trazos con `along` | cientos | miles, sin costo de CPU al mover el mapa |
-| Curvado | sí, letra a letra | no: con `along` va en el punto medio, girado según el trazo | pendiente |
+| Curvado | sí, letra a letra | no: con `along` va en el punto medio, girado según el trazo | sí, letra a letra; se coloca al asentar el mapa y entre medio escala con él |
 | Fuentes | cualquier fuente CSS; se remide cuando carga | cualquier CSS que llegue al shadow root del mapa | cualquier fuente CSS; se rasteriza de nuevo cuando carga |
-| Ligaduras, RTL y kerning | bien con `center`; se pierden con `along` | bien siempre | ajuste por par en latino, griego y cirílico; árabe, hebreo e índicas como corrida entera; sin ligaduras entre grafemas |
+| Ligaduras, RTL y kerning | bien con `center`; se pierden con `along` | bien siempre | ajuste por par en latino, griego y cirílico; árabe, hebreo e índicas como corrida entera; sin ligaduras entre grafemas; con `along`, grafema a grafema como `canvas` |
 | Zoom animado | se oculta y vuelve al asentar | sigue al mapa | sigue a su ícono en cada cuadro |
 
 `renderer="gl"` pinta los rótulos en la GPU, en el contexto WebGL de las capas de abajo; sin capa GL debajo abre
 uno:
 
 - `paint`, `htmlOf` e `interactive` lanzan `TypeError`, como con `canvas`.
-- Sobre el trazo está pendiente: `along`, también el de `auto` en una línea, lanza un `TypeError` que lo dice.
+- Sobre el trazo coloca cuando el mapa asienta, con lo que se ve más una pantalla por lado. Mientras se hace
+  zoom el texto crece o se achica con el mapa, y al asentar se recoloca; lo que estaba a más de una pantalla
+  aparece al asentar.
 - Sin WebGL2 pinta con `canvas` y avisa una vez.
 - El defecto sigue siendo `canvas` y pasará a `gl` con el anfitrión GL: para conservarlo, `renderer="canvas"`.
 - Un canvas que pinta más de 1.300 rótulos en un cuadro avisa una vez que `gl` existe.
@@ -217,7 +219,6 @@ labels.remove()                // idempotente
 Un valor inválido lanza `TypeError` antes de tocar el motor, y en caliente no cambia nada:
 
 - `htmlOf` o `interactive` sin `renderer="html"`, o `paint` sin `canvas`;
-- `along`, `repeat` u `orientation` con `renderer="gl"`, mientras esté pendiente;
 - `paint` con un `placement` que no es `auto` ni `center`;
 - `repeat` u `orientation` con un `placement` explícito que no es `along`;
 - `repeat ≤ 0`, un `offset` no finito, o un `renderer`, `placement` u `orientation` desconocido;

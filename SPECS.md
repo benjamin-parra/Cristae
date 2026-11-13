@@ -774,7 +774,7 @@ La **ley** (MODELO §5.4) formalizada como contrato que un implementador debe cu
 | `terrain` (§18) | — | — | O(tiles) pedidos de red, a lo sumo 6 en vuelo, + O(píxeles) de decodificación + O(filas) llamadas al modelo base |
 | `relief` (§18) | — | — | O(vértices + celdas de la caja de la zona); asigna 8 B por celda de esa caja |
 | `elevation` (§18) | — | — | O(1) **[0-alloc]** |
-| cuadro de los rótulos `gl` (§19.3) | O(miembros) uniformes y draws instanciados, **[0-alloc]**, sin recolocar con la vista | O(glifos del miembro) al recolocarlo por sus datos; O(glifos) al cambiar foco o hover | subida de las filas nuevas del atlas |
+| cuadro de los rótulos `gl` (§19.3) | O(miembros) uniformes y draws instanciados, **[0-alloc]**, sin recolocar con la vista; sobre el trazo, el asiento sin recolocar también | O(glifos del miembro) al recolocarlo por sus datos, y sobre el trazo O(vértices y glifos a una pantalla de la vista) en el asiento que cambia de zoom; O(glifos) al cambiar foco o hover | subida de las filas nuevas del atlas |
 | atlas de glifos de los rótulos `gl` (§19.3) | O(1) **[0-alloc]** por grafema ya pedido (id, ajuste del par, referencias), por fuente ya vista y por `flush` sin cola | O(1) por grafema nuevo, que espera su rasterizado; `flush` rasteriza hasta `RASTER_BUDGET_MS` por cuadro | O(glifos + área de la página) al compactar, sólo si suelta algo |
 | redibujo del calor (§19.4) | O(n) splats instanciados, o uno por celda desde n·R² = 20.000·40², + O(px) de la rampa, **[0-alloc]** con la cámara sola | subida O(n) y celdas O(n) al cambiar la Source | subida O(n) al reasentar el ancla; celdas O(n) al cambiar de nivel (cada 1/4 de zoom), o en el `zoomanim` del destino |
 | `ring` · `arc` (§18) | — | — | O(vértices) llamadas al destino del modelo; no es [0-alloc]: devuelve pares. El escritor que comparte con la capa de formas y los editores no crea arrays ni clausuras, salvo lo que asigne el destino del modelo (la esfera, nada): con él, el anillo que reescribe cada frame del gesto de un editor de forma es **[0-alloc]**; el frame entero no, porque convertir el píxel en lugar asigna |
@@ -1709,9 +1709,7 @@ predio. Equivale a `polyline.setText` de Leaflet.TextPath sobre líneas. Reempla
 - **Validación en dos momentos.** Lo que depende sólo de las props lanza `TypeError` en `cristaeConfig()`,
   antes de tocar el motor: `htmlOf` o `interactive` sin `html`, `paint` sin `canvas`, `paint` con un
   `placement` que no es `auto` ni `center`, `repeat` u `orientation` con un `placement` explícito que no es
-  `along`, `repeat ≤ 0`, `offset` no finito o un valor desconocido; con `renderer="gl"`, `along`, `repeat` u
-  `orientation` lanzan con un mensaje que dice que está pendiente, también el `auto` que resuelve a `along` en el
-  montaje. Lo que depende del hijo —un `placement` que la capa alcanzada no admite— lanza en
+  `along`, `repeat ≤ 0`, `offset` no finito o un valor desconocido. Lo que depende del hijo —un `placement` que la capa alcanzada no admite— lanza en
   el montaje antes de reducir, con lo que alcanza el decorador. En caliente se valida todo antes de tocar un host.
 - **Colocación natural (`auto`)**: `below` sobre puntos, HTML y burbujas; `along` sobre líneas; `center`
   sobre polígonos y formas. Admiten: puntos, HTML y burbujas `center`, `above`, `below`, `right`; líneas
@@ -1737,12 +1735,17 @@ predio. Equivale a `polyline.setText` de Leaflet.TextPath sobre líneas. Reempla
   el contexto de las capas GL de abajo y abre uno propio sólo si no hay ninguna. La colocación no depende de la vista:
   el ancla de cada rótulo en world0, relativa al centro de la vista al colocar, y el corrimiento de cada glifo en px;
   paneo, zoom y cada cuadro del zoom animado, que dibuja con la vista inyectada como los puntos, sólo cambian la
-  matriz. Se recoloca un miembro con sus datos, su fuente o su colocación; foco y hover reescriben alfa y banderas;
+  matriz. Sobre el trazo (`along`) la colocación es la de `labelLayout`, la de `canvas`, hecha en el asiento
+  (`moveend`, `zoomend`) con la vista agrandada `MARGEN` (1) pantalla por lado: cada glifo guarda su centro en world0
+  y su giro en un u16, y entre asientos escala con el mapa (`2^(zoom − zoom del asiento)`). El asiento recoloca si
+  cambió el zoom o el tamaño, o si el centro se corrió más que el margen; un miembro oculto, al volver a verse. Sin
+  ajuste por par, grafema a grafema como `canvas`, y girado sin redondear la línea. Se recoloca un miembro con sus
+  datos, su fuente o su colocación; foco y hover reescriben alfa y banderas;
   `color` y `halo` son uniformes. Dos pases por miembro y el ítem bajo el puntero al final, como `canvas`; el emoji
   sale de la página de color en el pase de relleno, sin halo, con salida premultiplicada. La pluma avanza con los
   anchos de la medida más el ajuste por par (latino, griego y cirílico) y la línea alfabética cae en px enteros de
   dispositivo; una corrida compleja con emoji se parte en orden lógico. El picking es un gemelo de CPU de la
-  proyección, con las cajas de `labelLayout`. Al perder el contexto todo vuelve desde la copia de CPU, sin
+  proyección, con las cajas de `labelLayout`; sobre el trazo, la caja girada de cada glifo. Al perder el contexto todo vuelve desde la copia de CPU, sin
   rasterizar. Sin WebGL2 el miembro pinta con `canvas` y avisa una vez por página. El canvas avisa una vez cuando pinta más de `AVISO_GL_ROTULOS` (1.300) rótulos sin
   `paint` en un cuadro.
 - **Z: cuatro planos** de un millón cada uno, sin `z` explícito:
@@ -1836,7 +1839,7 @@ por referencia. No se pica.
 | `test/element/labeled.test.mjs`, `test/grammar-reach.test.mjs` | qué rotula cada árbol (cluster por dentro y por fuera, geodésica, overlay y `labeled` anidados), R2 con el calor solo, los `TypeError` en sus dos momentos sin tocar el motor, `textOf` nuevo sin remontar, `visible="false"`, `renderer` sin tapar `render()`, los avisos de retiro; cluster, geodésica y el overlay decorador reducen como antes |
 | `test/grammar-roles.test.mjs`, `test/element/overlay.test.mjs` | la firma de cada rol y el texto de cada error; el overlay decorador monta los mismos badges que antes, también por fuera de un cluster |
 | `test/render/label-*.test.mjs`, `test/engine/labels*.test.mjs` | colocación, medida por grafema, canvas compartido, `html`, picking por glifo y `[0-alloc]` (piezas A, B y C del diseño) |
-| `test/render/label-gl.test.mjs`, `test/render/label-gl-alloc.test.mjs`, `test/engine/tramos-motor.test.mjs` | el renderer `gl`: la colocación no se rehace con la vista, el corrimiento de cada glifo (caja, ajuste por par, línea alfabética), el picking igual al de `labelLayout` en puntos, polígonos y líneas, las referencias del atlas, foco, hover y tema sin recolocar, el emoji partido de la corrida, las subidas del atlas por contexto, la fábrica que lanza sin WebGL2, `[0-alloc]` en el cuadro y en el zoom animado, y un solo contexto con los puntos de abajo |
+| `test/render/label-gl.test.mjs`, `test/render/label-gl-alloc.test.mjs`, `test/render/label-gl-along.test.mjs`, `test/engine/tramos-motor.test.mjs` | el renderer `gl`: la colocación no se rehace con la vista, el corrimiento de cada glifo (caja, ajuste por par, línea alfabética), el picking igual al de `labelLayout` en puntos, polígonos y líneas, las referencias del atlas, foco, hover y tema sin recolocar, el emoji partido de la corrida, las subidas del atlas por contexto, la fábrica que lanza sin WebGL2, `[0-alloc]` en el cuadro y en el zoom animado, y un solo contexto con los puntos de abajo; sobre el trazo, cada glifo y su giro donde los pone `labelLayout`, ninguna colocación del lado contrario con `orientation: 'path'`, el recorte a una pantalla, el picking glifo a glifo y el asiento que recoloca sólo si hace falta |
 | `test/render/label-glyphs.test.mjs`, `test/render/sdf.test.mjs` | el campo de un disco a menos de medio px; el atlas `gl` determinista, la cola con su tope por cuadro, las referencias, la compactación que sólo corre si suelta, el tope que no lanza, el emoji en la página de color, el ajuste por par sólo en latino, griego y cirílico, y `[0-alloc]` al recolocar |
 | `test/render/heat-math.test.mjs`, `test/render/heat-ideal.test.mjs` | la matemática pura del calor (brocha, aporte, rampa, paleta) y los gemelos de GPU contra la referencia float64, con las tolerancias medidas |
 | `test/render/heat-shaders.test.mjs` | los shaders de las dos rutas, el formato por extensión una vez por contexto y el respaldo RGBA8 |
@@ -1855,7 +1858,7 @@ por referencia. No se pica.
 | rótulos superpuestos | sin colisión entre rótulos, ni entre dos `labeled` con el mismo `offset` |
 | fuente web tardía | se remide cuando resuelve `document.fonts.load` de esa `font` |
 | rótulo sobre un editor | no en esta versión: `addLabels` devuelve `null` y el elemento avisa una vez por editor |
-| `renderer="gl"` sobre el trazo | pendiente: `along` (también el de `auto` en una línea), `repeat` y `orientation` lanzan `TypeError` |
+| `renderer="gl"` sobre el trazo | coloca al asentar el mapa; entre asientos el texto escala con el mapa y al asentar se recoloca. Lo que queda a más de una pantalla de la vista aparece al asentar |
 | `renderer="gl"` sin WebGL2 | pinta con `canvas` y avisa una vez por página |
 | escala bajo 1 m | sigue en decimales |
 
