@@ -452,3 +452,26 @@ test('[0-alloc] anchorOf del miembro de puntos no asigna por rótulo', () => {
   assert.equal(m.anchorOf({ id: 'x', lat: NaN, lng: 0 }, out), null, 'sin posición finita no hay ancla')
   engine.destroy()
 })
+
+// Lo reutilizado entre cuadros (el texto medido, la colocación) se rehace con los datos: `set` con otro texto
+// para el mismo id y `move` llegan al canvas real por el aviso de la Source.
+test('los datos nuevos con el mismo id cambian lo pintado: set con otro texto y move', async () => {
+  const { engine } = motor()
+  const datos = [{ id: 'a', lat: 0, lng: 0, n: 'uno' }, { id: 'b', lat: 1, lng: 1, n: 'dos' }]
+  engine.addPointLayer({ id: 'p', accessors: puntos, iconSet: makeIconSet(), data: datos })
+  engine.addLabels({ hostId: 'p', textOf: v => v.n })
+  const source  = engine.getLayer('p').source
+  const pintado = async () => { await frame(); await frame(); return [...new Set(fills.splice(0).filter(x => /^(dos|uno)/.test(x)))].sort() }
+  fills.length = 0
+  assert.deepEqual(await pintado(), ['dos', 'uno'])
+
+  source.set([{ id: 'a', lat: 0, lng: 0, n: 'uno más largo' }, datos[1]])
+  assert.deepEqual(await pintado(), ['dos', 'uno más largo'])
+
+  const m = miembro(engine, 'p')
+  source.move('a', 5, 6)
+  const out = {}
+  assert.ok(m.anchorOf(source.getSnapshot().find(i => i.id === 'a'), out))
+  assert.deepEqual([out.lat, out.lng], [5, 6], 'el ancla sigue al movimiento')
+  engine.destroy()
+})

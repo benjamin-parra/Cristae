@@ -301,3 +301,45 @@ test('fit: la caja de un pintor corrida por `shift`, igual que size con esquina;
   assert.deepEqual([...b.boxes.slice(0, 5)], [0, 0, 0, 0, 0])
   assert.deepEqual(hits(b, 225, 240), [])
 })
+
+// Lo que viaja en `icon` y en `anchor` (x, y, offset, ax, ay) en vez de en argumentos: cada campo cuenta.
+test('puntos: `offset` sube el ancla; `ax`, `ay` mueven el punto dentro de la caja del ícono', () => {
+  const items = [{ id: 'P', text: 'ab', x: 200, y: 200 }]
+  const con   = (opts, extra = {}) => {
+    const m = member({ kind: 'point', items, opts })
+    const base = m.anchorOf
+    m.anchorOf = (it, out) => Object.assign(base(it, out), extra)
+    return createLayout().place(m, VIEW, measure())
+  }
+  assert.ok(near(con({ placement: 'right' }).anchors[1], 200))
+  assert.ok(near(con({ placement: 'right', offset: 8 }).anchors[1], 192), 'offset positivo hacia arriba')
+  const centrado = con({ placement: 'right' }).anchors[0]
+  const esquina  = con({ placement: 'right' }, { ax: 0, ay: 0 }).anchors[0]
+  assert.ok(near(centrado, 214) && near(esquina, 224), `con el punto en la esquina de la caja el ancla se corre media caja: ${centrado} y ${esquina}`)
+})
+
+test('un texto de más grafemas que el búfer de glifos sigue en fila: el búfer crece antes de escribir', () => {
+  const texto = 'x'.repeat(60)
+  const m = member({ items: [{ id: 'R', text: texto, path: line([0, 300], [800, 300]) }] })
+  const l = createLayout().place(m, VIEW, measure())
+  assert.equal(l.glyphCount, 60)
+  const [x, y, , u] = glyphAt(l, 59)
+  assert.ok(near(x, 400 - 210 + 3.5 + 7 * 59) && near(y, 300) && u === 59, `último glifo en ${x}`)
+  const p = createLayout().place(member({ kind: 'point', items: [{ id: 'P', text: 'z'.repeat(60), x: 400, y: 300 }] }), VIEW, measure())
+  assert.ok(near(glyphAt(p, 59)[0], 400 - 210 + 3.5 + 7 * 59), 'y en el de un punto')
+})
+
+test('la guarda de la vista: 250 px fuera todavía se coloca, 300 px fuera no', () => {
+  const colocar = x => createLayout().place(member({ kind: 'point', items: [{ id: 'F', text: 'a', x, y: 200 }] }), VIEW, measure()).placementCount
+  assert.equal(colocar(800 + 250 - 14), 1)
+  assert.equal(colocar(800 + 300), 0)
+  assert.equal(colocar(-250), 1)
+  assert.equal(colocar(-300), 0)
+})
+
+test('un polígono sin polo no deja colocación ni arrastra la anterior', () => {
+  const l = createLayout()
+  const con = path => l.place(member({ kind: 'polygon', items: [{ id: 'G', text: 'zona', path }] }), VIEW, measure()).placementCount
+  assert.equal(con(line([100, 100], [300, 100], [300, 300], [100, 300])), 1)
+  assert.equal(con([]), 0)
+})
