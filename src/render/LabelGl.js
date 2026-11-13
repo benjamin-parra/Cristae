@@ -298,6 +298,8 @@ export const createLabelGl = ({ host, pane, zIndex, surface = opts => new EditSu
   let textures  = null
   let frame     = 0
   let injected  = false
+  let stale     = true                    // algo cambió desde el último dibujo: datos, estilo, foco, atlas o contexto
+  let drawnW    = 0, drawnH = 0           // el drawing buffer del último dibujo
   let alive     = true
   let offView   = null
   let renderer  = null
@@ -534,8 +536,12 @@ export const createLabelGl = ({ host, pane, zIndex, surface = opts => new EditSu
   }
 
   // Dibuja con `at` (la vista de la cámara, o la inyectada en el zoom animado) y avisa la vista al tramo. Oculto todo, o
-  // sin contexto, no dibuja. Recoloca lo que cambió. [0-alloc] sin recolocar.
+  // sin contexto, no dibuja. Recoloca lo que cambió. Con la misma vista, el mismo buffer y nada nuevo, la textura del
+  // miembro ya vale: el `move` y el `moveend` de un mismo paso, o el `zoomend` y el `moveend`, dibujan una vez.
+  // [0-alloc] sin recolocar.
   const draw = at => {
+    const same = last.valid && last.zoom === at.zoom && last.center.x === at.center.x && last.center.y === at.center.y
+      && last.size.x === at.size.x && last.size.y === at.size.y
     last.zoom = at.zoom
     last.center.x = at.center.x
     last.center.y = at.center.y
@@ -543,6 +549,10 @@ export const createLabelGl = ({ host, pane, zIndex, surface = opts => new EditSu
     last.size.y = at.size.y
     last.valid = true
     if (!gl || gl.isContextLost()) return false
+    if (same && !stale && drawnW === gl.drawingBufferWidth && drawnH === gl.drawingBufferHeight) return true
+    stale  = false
+    drawnW = gl.drawingBufferWidth
+    drawnH = gl.drawingBufferHeight
     for (let i = 0; i < members.length; i++) {
       const member = members[i], st = states.get(member)
       member.visible && st.version !== member.version && place(member, st, at)
@@ -622,6 +632,7 @@ export const createLabelGl = ({ host, pane, zIndex, surface = opts => new EditSu
       u        = programOf(gl)
       textures = texturesOf(gl, glyphs)
       states.forEach(buildMember)
+      stale = true
       alive && camera.hasView() && draw(live())
     },
 
@@ -636,12 +647,14 @@ export const createLabelGl = ({ host, pane, zIndex, surface = opts => new EditSu
 
     // Repinta en el próximo cuadro; los pedidos de un cuadro son un solo dibujo.
     redraw() {
+      stale = true
       alive && gl && !frame && (frame = requestAnimationFrame(paint))
     },
 
     // Pinta ya: lo pide el realm en el cuadro en que rasterizó glifos.
     repaint() {
       frame && cancelAnimationFrame(frame)
+      stale = true
       paint()
     },
 

@@ -60,6 +60,28 @@ test('paneo, zoom y el zoom animado no recolocan ni suben instancias: sólo camb
   r.destroy()
 })
 
+// El `move` y el `moveend` de un mismo paso traen la misma vista: el segundo no vuelve a dibujar. Un aviso, una vista
+// distinta o un drawing buffer nuevo (otro DPR) sí.
+test('con la misma vista, el mismo buffer y nada nuevo no vuelve a dibujar', () => {
+  const { host, r, s } = montar()
+  const m = miembro({ items: PUNTOS })
+  r.attach(m)
+  r.resetCanvasReference()
+  const ends = s.ends
+  r.resetCanvasReference()
+  assert.equal(s.ends, ends, 'misma vista: la textura ya vale')
+  host.center.lng += 1e-4
+  r.resetCanvasReference()
+  assert.equal(s.ends, ends + 1, 'otra vista')
+  r.invalidate(m, 'style')
+  r.resetCanvasReference()
+  assert.equal(s.ends, ends + 2, 'un aviso')
+  s.gl.drawingBufferWidth = 1600
+  r.resetCanvasReference()
+  assert.equal(s.ends, ends + 3, 'otro drawing buffer')
+  r.destroy()
+})
+
 // El gemelo de CPU contra la caja de `labelLayout` con la misma vista: el picking del canvas.
 const comparar = (r, m, host, n = 2000) => {
   const layout  = createLayout()
@@ -154,7 +176,7 @@ test('foco y hover reescriben alfa y banderas sin recolocar; el ítem bajo el pu
   assert.deepEqual([...new Set(inst.slice(7, 11).map(g => g.alfa))], [Math.round(0.3 * 255)], 'b se atenúa')
   assert.deepEqual([...new Set(inst.slice(11).map(g => g.flags))], [1], 'c está bajo el puntero')
   const draws = s.log.draws.length
-  r.resetCanvasReference()
+  r.repaint()
   assert.equal(s.log.draws.length - draws, 4, 'halo y relleno, y otra vez para el ítem bajo el puntero')
   r.destroy()
 })
@@ -199,16 +221,16 @@ test('el atlas sube entero al crecer y por filas después; sin escrituras no sub
   r.resetCanvasReference()
   assert.equal(s.log.tex.length, 3, 'las tres páginas en el primer dibujo')
   while (atlas.flush(1e9));
-  r.resetCanvasReference()
+  r.repaint()
   assert.equal(s.log.tex.length, 3)
   assert.ok(s.log.texSub.length >= 2, 'las filas nuevas de la página de campos y de la meta')
   const subidas = s.log.texSub.length, alineaciones = s.log.alineaciones
-  r.resetCanvasReference()
+  r.repaint()
   assert.equal(s.log.texSub.length, subidas, 'sin escrituras no sube nada')
   assert.equal(s.log.alineaciones, alineaciones, 'ni recorre las filas: el sello del atlas no cambió')
   atlas.sdf.gen++
   atlas.stamp++
-  r.resetCanvasReference()
+  r.repaint()
   assert.equal(s.log.tex.length, 4, 'una generación nueva (crecer o compactar) sube la página entera')
 
   r.dropGl()
