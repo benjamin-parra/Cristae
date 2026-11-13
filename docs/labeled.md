@@ -111,7 +111,7 @@ nuevo en cada render no redibuja si los textos no cambiaron.
 
 | | `canvas` | `html` | `gl` |
 | --- | --- | --- | --- |
-| Cantidad | miles con `center`; del orden de mil trazos con `along` | cientos | miles, sin costo de CPU al mover el mapa |
+| Cantidad | miles con `center`; del orden de mil trazos con `along` | cientos | miles, con casi nada de CPU por cuadro al mover el mapa |
 | Curvado | sí, letra a letra | no: con `along` va en el punto medio, girado según el trazo | sí, letra a letra; se coloca al asentar el mapa y entre medio escala con él |
 | Fuentes | cualquier fuente CSS; se remide cuando carga | cualquier CSS que llegue al shadow root del mapa | cualquier fuente CSS; se rasteriza de nuevo cuando carga |
 | Ligaduras, RTL y kerning | bien con `center`; se pierden con `along` | bien siempre | ajuste por par en latino, griego y cirílico; árabe, hebreo e índicas como corrida entera; sin ligaduras entre grafemas; con `along`, grafema a grafema como `canvas` |
@@ -125,8 +125,9 @@ uno:
   zoom el texto crece o se achica con el mapa, y al asentar se recoloca; lo que estaba a más de una pantalla
   aparece al asentar.
 - Sin WebGL2 pinta con `canvas` y avisa una vez.
-- Con 6.400 rótulos a 1920×1080 en una GPU integrada (Intel UHD 730), el zoom da de 55 a 60 cuadros por segundo con
-  `gl` y de 25 a 42 con `canvas`; la escala típica da 60 con los dos.
+- Con 6.400 rótulos de texto a 1920×1080 en una GPU integrada (Intel UHD 730), el zoom da de 55 a 60 cuadros por
+  segundo con `gl` y de 25 a 42 con `canvas`; la escala típica da 60 con los dos. Con las píldoras de `paint` en
+  la misma escena, que siguen en `canvas`, el zoom con `gl` baja a 34-57.
 - El defecto sigue siendo `canvas` y pasará a `gl` con el anfitrión GL: para conservarlo, `renderer="canvas"`.
 - Un canvas que pinta más de 1.300 rótulos en un cuadro avisa una vez que `gl` existe.
 

@@ -13,8 +13,8 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   de las capas GL de abajo. Es el mismo valor en HTML, React y JS, sin opciones nuevas, y el defecto sigue siendo
   `canvas`. No admite `paint`, `htmlOf` ni `interactive` (lanzan el `TypeError` de siempre). Sobre el trazo
   (`along`, `repeat`, `orientation`) coloca al asentar el mapa y entre medio escala el texto con él. Sin WebGL2 pinta
-  con `canvas` y avisa una vez. El emoji sale en color. Un canvas que pinta más de 1.300 rótulos en un cuadro avisa una vez que `gl`
-  existe. Ver [`docs/labeled.md`](docs/labeled.md#cómo-se-dibuja).
+  con `canvas` y avisa una vez. El emoji sale en color. Un canvas que pinta más de 1.300 rótulos en un cuadro avisa
+  una vez que `gl` existe. Ver [`docs/labeled.md`](docs/labeled.md#cómo-se-dibuja).
   **El defecto pasará a `gl`** con el anfitrión GL, sin `renderer` declarado; `paint` seguirá en `canvas` y
   `htmlOf` en `html`.
   *Migración*: ninguna en esta versión. Para conservar el canvas cuando cambie el defecto, declarar
