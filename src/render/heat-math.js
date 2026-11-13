@@ -36,6 +36,31 @@ export const brushAt = (d, R, core) => {
   return d <= r0 ? 1 : d >= R ? 0 : (R - d) / (R - r0)
 }
 
+// La brocha de una celda agregada (heat-cells.js): `brushAt` promediada sobre un corrimiento radial uniforme en [−s, s], que es
+// cómo ve un px a los puntos de la celda repartidos alrededor de su centroide. Es la convolución de la rampa con una caja, en
+// forma cerrada: con H la primitiva de clamp(t, 0, 1), vale 1 − w/(2s)·[H((d + s − r0)/w) − H((d − s − r0)/w)], con r0 = core·R
+// y w = R − r0. Lejos de los quiebres (r0 y R) es la brocha misma; en ellos los suaviza en ±s, y el alcance llega a R + s, como
+// el del punto más lejano de la celda. Sin ella, el borde de una región densa se corre hacia adentro hasta media celda.
+//
+// Por debajo de SPREAD_MIN_PX la dispersión no cambia la brocha en nada visible, y en float32 la resta de las dos primitivas
+// se cancela: con s → 0 da 0·∞ y pintaría el quad entero. Un dieciseisavo de px cambia la brocha a lo sumo en s/(2w), menos
+// de 1/400 con el desenfoque más chico que tiene sentido (w = 10 px).
+export const SPREAD_MIN_PX = 1 / 16
+
+// Mitad del ancho de una caja uniforme por desvío estándar: una caja de ancho 2s tiene varianza s²/3. Pasa la varianza de los
+// puntos de una celda al s de `brushSpreadAt`.
+export const BOX_HALF_PER_SIGMA = Math.sqrt(3)
+const rampIntegral = t => (t <= 0 ? 0 : t <= 1 ? t * t / 2 : t - 0.5)
+export const brushSpreadAt = (d, R, core, s) => {
+  const r0 = core * R
+  const w  = R - r0
+  if (!(s >= SPREAD_MIN_PX) || !(w > 0)) return brushAt(d, R, core)
+  if (d + s <= r0) return 1
+  if (d - s >= R) return 0                // el redondeo de la fórmula dejaría ±1e-16 donde ya no llega ningún punto
+
+  return 1 - w / (2 * s) * (rampIntegral((d + s - r0) / w) - rampIntegral((d - s - r0) / w))
+}
+
 // Aporte de un punto de peso normalizado `wn`: acotado a [MIN_OPACITY, 1].
 export const contribution = (wn, intensity) => Math.min(Math.max(wn * intensity * POINT_ALPHA, MIN_OPACITY), 1)
 

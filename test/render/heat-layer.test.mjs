@@ -8,7 +8,14 @@
 //   · oculta no dibuja; `zoomstart` pinta vacío; `destroy` cancela el rAF;
 //   · `dropGl` + `buildGl` resube desde el espejo; sin extensiones usa RGBA8 con `over`; suelta, la rampa va al framebuffer
 //     por defecto; y `redraw()` con la cámara sola no asigna.
+//   · la agregación: por debajo de AGGREGATE_MIN_POINTS la capa hace las mismas llamadas GL que en ef39ddd, llamada por llamada
+//     (test/fixtures/calor-llamadas-ef39ddd.json); desde el umbral dibuja celdas con su programa; las celdas se rehacen sólo
+//     con un flush, un move, un cambio de nivel entero, de tamaño de celda, de `intensity` o un `refresh`, y nunca en un
+//     paneo, oculta ni en pleno zoom animado; y el redibujo con celdas no asigna.
 // Corre con: node --test test/render/heat-layer.test.mjs
+//
+// El registro de ef39ddd se regenera, sólo si cambia a propósito el camino sin agregar, con el src de esa versión:
+//   git archive ef39ddd src | tar x -C <dir> && CALOR_GRABAR=<dir>/src/render/HeatLayer.js node --test test/render/heat-layer.test.mjs
 import { makeMap } from '../../test-helpers/engine-stub.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -17,6 +24,8 @@ import { GRAD_STEPS } from '../../src/render/heat-math.js'
 import { adoptLeafletHost } from '../../src/host/LeafletHost.js'
 import { createSource } from '../../src/data/Source.js'
 import { bytesPorLlamada } from '../../test-helpers/asignaciones.mjs'
+import { HeatCells, AGGREGATE_MIN_POINTS, CELL_FLOATS, CELL_PX, CELL_PER_RADIUS } from '../../src/render/heat-cells.js'
+import { readFileSync, writeFileSync } from 'node:fs'
 
 /* ── Dobles: un contexto que anota, una cámara con eventos y una superficie que toma contextos ── */
 
@@ -133,13 +142,13 @@ const puntos = [
 ]
 
 const montar = (items, { opts = {}, accessors = { idOf, positionOf, weightOf }, vista = {}, ext = true, enTramo = true, cam = camara(vista),
-  gls = [glDoble({ ext })] } = {}) => {
+  gls = [glDoble({ ext })], Clase = HeatLayer } = {}) => {
   const calls  = gls[0].calls
   const source = createSource(accessors)
   source.set(items)
   const surf = superficie(gls, calls, { enTramo })
   let altas  = 0
-  const layer = new HeatLayer({
+  const layer = new Clase({
     host: { camera: cam }, pane: 'heat', source, ...opts,
     surface: o => { altas++; surf.owner = o.owner; return surf },
   })
@@ -521,4 +530,197 @@ test('redraw() con la cámara sola asigna 0 bytes', () => {
   const b = medir()
   assert.ok(b < 1, `redraw con la cámara sola: ${b} bytes por llamada`)
   layer.destroy()
+})
+
+/* ── La agregación ── */
+
+const FIXTURE = new URL('../fixtures/calor-llamadas-ef39ddd.json', import.meta.url)
+
+// Veinte puntos con pesos distintos, y otros tantos para un flush.
+const veinte = Array.from({ length: 20 }, (_, i) => ({ id: i, pos: { lat: -33 + (i % 5) * 0.01, lng: -70 + Math.floor(i / 5) * 0.013 }, w: 1 + (i % 4) }))
+const otros  = veinte.map(p => ({ ...p, pos: { lat: p.pos.lat + 0.002, lng: p.pos.lng } }))
+
+// Las llamadas GL de un recorrido completo: alta, paneo, zoom animado que cambia de nivel, flush, intensity, radius, refresh,
+// pérdida y vuelta del contexto, y destroy. Los arreglos tipados se guardan como listas.
+const recorrido = Clase => conRaf(async ({ correr }) => {
+  const calls = []
+  const gls   = [glDoble({ calls }), glDoble({ calls })]
+  const { layer, cam, source, surf } = montar(veinte, { Clase, gls, vista: { zoom: 10.4, lat: -33, lng: -70 } })
+  layer.redraw()
+  cam.estado.lng = -69.99
+  layer.redraw()
+  cam.fire('zoomstart')
+  cam.estado.zoom = 11.6
+  cam.fire('zoomend')
+  correr()
+  source.set(otros)
+  await new Promise(r => setTimeout(r, 5))
+  layer.intensity = 2
+  correr()
+  layer.radius = 5
+  correr()
+  layer.refresh()
+  surf.perder()
+  surf.recuperar()
+  layer.destroy()
+  return JSON.parse(JSON.stringify(calls, (_k, v) => (ArrayBuffer.isView(v) ? Array.from(v) : v)))
+})
+
+test('por debajo del umbral la capa hace las mismas llamadas GL que en ef39ddd', async () => {
+  if (process.env.CALOR_GRABAR) {
+    const { HeatLayer: Vieja } = await import(process.env.CALOR_GRABAR)
+    writeFileSync(FIXTURE, JSON.stringify(await recorrido(Vieja)) + '\n')
+  }
+  assert.ok(veinte.length < AGGREGATE_MIN_POINTS)
+  const esperado = JSON.parse(readFileSync(FIXTURE, 'utf8'))
+  const actual   = await recorrido(HeatLayer)
+  const i = actual.findIndex((c, k) => JSON.stringify(c) !== JSON.stringify(esperado[k]))
+  assert.equal(i === -1 && actual.length === esperado.length, true,
+    `primera llamada distinta en ${i}: ${JSON.stringify(actual[i])} contra ${JSON.stringify(esperado[i])}`)
+})
+
+// Una nube de `n` puntos en un cuadrado de 0,2° alrededor de (lat, lng): a zoom 10 entran varios por celda de 8 px.
+const nube = (n, { lat = -33, lng = -70, lado = 0.2 } = {}) =>
+  Array.from({ length: n }, (_, i) => ({ id: i, pos: { lat: lat + ((i * 7919) % 1000) / 1000 * lado, lng: lng + ((i * 104729) % 997) / 997 * lado }, w: 1 }))
+
+// Cuenta las pasadas de HeatCells.build mientras corre `fn`.
+const contandoPasadas = async fn => {
+  const build = HeatCells.prototype.build
+  const pasadas = []
+  HeatCells.prototype.build = function (...a) { const r = build.apply(this, a); pasadas.push({ celdas: r, nivel: a[4], px: a[5] }); return r }
+  try { await fn(pasadas) } finally { HeatCells.prototype.build = build }
+  return pasadas
+}
+
+test('con un punto menos que el umbral dibuja un splat por punto; con el umbral, celdas con su programa', () => {
+  const debajo = montar(nube(AGGREGATE_MIN_POINTS - 1), { vista: { zoom: 10, lat: -32.9, lng: -69.9 } })
+  const [splat] = llamadas(debajo.calls, 'drawArraysInstanced')
+  assert.equal(splat[4], AGGREGATE_MIN_POINTS - 1)
+  assert.equal(llamadas(debajo.calls, 'linkProgram').length, 2, 'sólo el splat y la rampa')
+  assert.equal(llamadas(debajo.calls, 'vertexAttribPointer').length, 2, 'un VAO de puntos')
+  debajo.layer.destroy()
+
+  const encima = montar(nube(AGGREGATE_MIN_POINTS), { vista: { zoom: 10, lat: -32.9, lng: -69.9 } })
+  const [celdas] = llamadas(encima.calls, 'drawArraysInstanced')
+  assert.ok(celdas[4] > 0 && celdas[4] < AGGREGATE_MIN_POINTS / 2, `${celdas[4]} celdas`)
+  assert.equal(llamadas(encima.calls, 'linkProgram').length, 3, 'el programa de celdas se enlaza al agregar')
+  const subida = llamadas(encima.calls, 'bufferData').at(-1)[2]
+  assert.equal(subida.length, celdas[4] * CELL_FLOATS, 'el búfer de celdas: cuatro floats por celda')
+  let suma = 0
+  for (let k = 0; k < celdas[4]; k++) suma += subida[k * CELL_FLOATS + 3]
+  assert.equal(suma, AGGREGATE_MIN_POINTS, 'las multiplicidades suman los puntos')
+  const usados = llamadas(encima.calls, 'uniform1fv').map(c => c[1].name)
+  assert.equal(usados.includes('uIntensity'), false, 'en las celdas el aporte ya lleva la intensidad')
+  encima.layer.destroy()
+  assert.equal(llamadas(encima.calls, 'deleteBuffer').length, 2, 'destroy borra también el búfer de celdas')
+})
+
+test('las celdas se rehacen con un flush, un move, el nivel, la celda, intensity y refresh; no en un paneo', async () => conRaf(async ({ correr }) => {
+  const pasadas = await contandoPasadas(async pasadas => {
+    const { layer, cam, source } = montar(nube(AGGREGATE_MIN_POINTS), { vista: { zoom: 10.2, lat: -32.9, lng: -69.9 } })
+    assert.equal(pasadas.length, 1, 'el primer dibujo')
+    assert.equal(pasadas[0].nivel, 11, 'nivel ⌈10,2⌉')
+    cam.estado.lng = -69.85
+    layer.redraw()
+    cam.fire('moveend')
+    correr()
+    assert.equal(pasadas.length, 1, 'un paneo no rehace')
+    cam.estado.zoom = 10.9
+    layer.redraw()
+    assert.equal(pasadas.length, 1, 'un zoom dentro del mismo nivel no rehace')
+    cam.estado.zoom = 11.3
+    layer.redraw()
+    assert.equal(pasadas.length, 2, 'cruzar un nivel entero sí')
+    layer.radius = 5
+    correr()
+    assert.equal(pasadas.length, 3, 'un radio que cambia la celda rehace')
+    layer.radius = CELL_PX / CELL_PER_RADIUS
+    correr()
+    assert.equal(pasadas.length, 4, 'otro, hasta el tope de la celda')
+    layer.radius = CELL_PX / CELL_PER_RADIUS + 50
+    correr()
+    assert.equal(pasadas.length, 4, 'un radio que deja la celda igual no rehace')
+    layer.intensity = 2
+    correr()
+    assert.equal(pasadas.length, 5, 'intensity')
+    layer.refresh()
+    assert.equal(pasadas.length, 6, 'refresh')
+    source.set(nube(AGGREGATE_MIN_POINTS, { lat: -32.95 }))
+    await new Promise(r => setTimeout(r, 5))
+    assert.equal(pasadas.length, 7, 'un flush')
+    source.move(3, -32.91, -69.91)
+    await new Promise(r => setTimeout(r, 5))
+    assert.equal(pasadas.length, 8, 'un move')
+    layer.destroy()
+  })
+  assert.equal(pasadas.length, 8)
+}))
+
+test('oculta y en pleno zoom animado no rehace las celdas: lo hace el dibujo que vuelve', async () => conRaf(async ({ correr }) => {
+  await contandoPasadas(async pasadas => {
+    const { layer, cam, source } = montar(nube(AGGREGATE_MIN_POINTS), { vista: { zoom: 10, lat: -32.9, lng: -69.9 } })
+    layer.setVisible(false)
+    source.set(nube(AGGREGATE_MIN_POINTS, { lat: -32.95 }))
+    await new Promise(r => setTimeout(r, 5))
+    layer.intensity = 3
+    correr()
+    assert.equal(pasadas.length, 1, 'oculta no rehace')
+    layer.setVisible(true)
+    assert.equal(pasadas.length, 2, 'al volver, una sola pasada')
+    cam.fire('zoomstart')
+    cam.estado.zoom = 12
+    layer.redraw()
+    correr()
+    assert.equal(pasadas.length, 2, 'en pleno zoom animado no')
+    cam.fire('zoomend')
+    correr()
+    assert.equal(pasadas.length, 3, 'el zoomend sí')
+    layer.destroy()
+  })
+}))
+
+test('dropGl seguido de buildGl resube las celdas sin rehacerlas', () => conRaf(async () => {
+  await contandoPasadas(async pasadas => {
+    const gls = [glDoble(), glDoble()]
+    const { layer, surf } = montar(nube(AGGREGATE_MIN_POINTS), { gls, vista: { zoom: 10, lat: -32.9, lng: -69.9 } })
+    const [antes] = llamadas(gls[0].calls, 'drawArraysInstanced')
+    surf.perder()
+    surf.recuperar()
+    assert.equal(pasadas.length, 1, 'las celdas siguen en CPU')
+    const [despues] = llamadas(gls[1].calls, 'drawArraysInstanced')
+    assert.equal(despues[4], antes[4], 'y el contexto nuevo dibuja las mismas')
+    assert.equal(llamadas(gls[1].calls, 'linkProgram').length, 3, 'con su programa de celdas')
+    layer.destroy()
+  })
+}))
+
+test('si las celdas no pagan, dibuja un splat por punto', () => {
+  const lejos = Array.from({ length: AGGREGATE_MIN_POINTS }, (_, i) => ({ id: i, pos: { lat: -60 + (i % 200) * 0.6, lng: -170 + Math.floor(i / 200) * 3.4 }, w: 1 }))
+  const { layer, calls } = montar(lejos, { vista: { zoom: 10 } })
+  assert.equal(llamadas(calls, 'drawArraysInstanced')[0][4], AGGREGATE_MIN_POINTS)
+  assert.equal(llamadas(calls, 'linkProgram').length, 2)
+  layer.destroy()
+})
+
+test('redraw() con celdas y la cámara sola asigna 0 bytes', () => {
+  const quieto = glDoble({ grabar: false })
+  const cam    = camara({ zoom: 10, lat: -32.9, lng: -69.9 })
+  const source = createSource({ idOf, positionOf, weightOf })
+  source.set(nube(AGGREGATE_MIN_POINTS))
+  const surf = superficie([quieto], [])
+  surf.begin = () => DESTINO
+  surf.end   = () => {}
+  let pasadas = 0
+  const build = HeatCells.prototype.build
+  HeatCells.prototype.build = function (...a) { pasadas++; return build.apply(this, a) }
+  try {
+    const layer = new HeatLayer({ host: { camera: cam }, pane: 'heat', source, surface: o => { surf.owner = o.owner; return surf } })
+    assert.equal(pasadas, 1)
+    const b = bytesPorLlamada(() => layer.redraw(), 20_000, { calentar: 100_000 })
+    assert.equal(pasadas, 1, 'el redibujo no rehizo las celdas')
+    assert.ok(b < 1, `redraw con celdas: ${b} bytes por llamada`)
+    layer.destroy()
+  } finally {
+    HeatCells.prototype.build = build
+  }
 })

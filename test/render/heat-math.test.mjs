@@ -3,7 +3,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   DEFAULT_RADIUS, DEFAULT_BLUR, DEFAULT_INTENSITY, POINT_ALPHA, MIN_OPACITY, GRAD_STEPS, CORE_MAX, TERM_CAP, TERM_FLOOR,
-  nonNeg, brushCore, brushAt, contribution, DEFAULT_STOPS, defaultRamp, samplePalette,
+  nonNeg, brushCore, brushAt, brushSpreadAt, SPREAD_MIN_PX, contribution, DEFAULT_STOPS, defaultRamp, samplePalette,
 } from '../../src/render/heat-math.js'
 
 test('constantes: los valores de hoy', () => {
@@ -72,4 +72,23 @@ test('samplePalette: llama a la rampa GRAD_STEPS veces y escribe en `out`', () =
   assert.equal(ts.at(-1), 1)
   assert.deepEqual([...out.subarray(0, 4)], [255, 128, 0, 0])
   assert.deepEqual([...out.subarray(-4)], [255, 128, 0, 255])
+})
+
+test('brushSpreadAt: la brocha promediada en ±s, igual a la integral numérica, y con s = 0 la brocha misma', () => {
+  const R = 40
+  const core = brushCore(25, 15)
+  const PASOS = 20_000
+  const promedio = (d, s) => {
+    let suma = 0
+    for (let i = 0; i < PASOS; i++) suma += brushAt(d - s + (i + 0.5) / PASOS * 2 * s, R, core)
+    return suma / PASOS
+  }
+  for (const s of [0.5, 3, 7])
+    for (const d of [0, 20, 24, 25, 27, 32.5, 38, 40, 42, 46])
+      assert.ok(Math.abs(brushSpreadAt(d, R, core, s) - promedio(d, s)) < 1e-6, `d = ${d}, s = ${s}: ${brushSpreadAt(d, R, core, s)} contra ${promedio(d, s)}`)
+  assert.equal(brushSpreadAt(33, R, core, 0), brushAt(33, R, core))
+  assert.equal(brushSpreadAt(39.99, R, core, SPREAD_MIN_PX / 2), brushAt(39.99, R, core), 'bajo SPREAD_MIN_PX, la brocha sin promediar')
+  assert.ok(Math.abs(brushSpreadAt(32.5, R, core, 4) - 0.5) < 1e-12, 'lejos de los quiebres es la rampa misma')
+  assert.equal(brushSpreadAt(R + 3, R, core, 3), 0, 'el alcance es R + s')
+  assert.ok(brushSpreadAt(R + 1, R, core, 3) > 0)
 })

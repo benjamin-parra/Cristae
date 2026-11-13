@@ -1,7 +1,8 @@
 import { EditSurface, blendOver } from './EditSurface.js'
 import { createFrameView } from './frame-view.js'
 import { projX0, projY0, readView } from './project.js'
-import { heatFormat, heatPrograms } from './heat-shaders.js'
+import { heatFormat, heatPrograms, heatCellProgram } from './heat-shaders.js'
+import { HeatCells, AGGREGATE_MIN_POINTS, CELL_FLOATS, aggregationLevel, cellSize } from './heat-cells.js'
 import {
   DEFAULT_RADIUS, DEFAULT_BLUR, DEFAULT_INTENSITY, GRAD_STEPS,
   nonNeg, brushCore, defaultRamp, samplePalette,
@@ -27,6 +28,13 @@ import {
 // sola —un paneo, un zoom— el dibujo no relee los accessors ni sube nada: sólo cambian la matriz y los uniformes.
 // `dropGl` conserva el espejo, así que un contexto nuevo resube sin volver a los datos.
 //
+// LA AGREGACIÓN. Desde AGGREGATE_MIN_POINTS puntos, el splat no es por punto sino por celda de pantalla (heat-cells.js):
+// cada celda junta sus puntos en una muestra con su multiplicidad, y el campo a la vista es el mismo con muchas menos
+// instancias. Las celdas salen del espejo, nunca de los accessors, y se rehacen sólo cuando cambia algo de lo que dependen:
+// el espejo (un flush, un reasiento del ancla), el nivel entero de zoom, el tamaño de celda (que sigue al radio),
+// `intensity` (el aporte va horneado en la celda) y `refresh`. Un paneo no las toca. Por debajo del umbral, o donde
+// agregar no paga, la capa dibuja exactamente como sin agregación.
+//
 // EL ZOOM ANIMADO. El campo no se escala con la transición CSS del canvas (se vería desfasado): al empezar el zoom se
 // pinta vacío, y el calor reaparece, ya reproyectado, al asentar la vista. Mientras dura, ni un flush de la Source ni un
 // evento de mapa lo pintan: quedan anotados como atrasados y los pinta el `zoomend`.
@@ -46,6 +54,13 @@ const INSTANCE_FLOATS = 3
 const FLOAT_BYTES     = 4
 const INSTANCE_STRIDE = INSTANCE_FLOATS * FLOAT_BYTES
 const WEIGHT_OFFSET   = 2 * FLOAT_BYTES
+
+// Una celda en su búfer de instancias: el centroide en x e y, el aporte medio, la multiplicidad y la covarianza.
+const CELL_STRIDE        = CELL_FLOATS * FLOAT_BYTES
+const CELL_WEIGHT_OFFSET = 2 * FLOAT_BYTES
+const CELL_COUNT_OFFSET  = 3 * FLOAT_BYTES
+const CELL_COV_OFFSET    = 4 * FLOAT_BYTES
+const COV_FLOATS         = 3
 
 // Capacidad inicial del espejo, en puntos: una nube chica no crece. Después se duplica.
 const MIN_INSTANCES = 64
@@ -82,6 +97,7 @@ export class HeatLayer {
   #uCore      = new Float32Array(1)   // core·R
   #uSize      = new Float32Array(2)   // el FBO en px
   #uRatio     = new Float32Array(1)   // px del acumulador por px del dispositivo
+  #uPxWorld0  = new Float32Array(1)   // px de pantalla por px de world0, para la covarianza de las celdas
   #gl         = null
   #format     = null
   #programs   = null
@@ -92,6 +108,15 @@ export class HeatLayer {
   #accW       = 0
   #accH       = 0
   #palTex     = null
+  #cells      = null                // HeatCells, desde el primer dibujo con AGGREGATE_MIN_POINTS puntos
+  #cellsStale = true                // las celdas no siguen al espejo, la intensidad o un refresh
+  #cellLevel  = NaN                 // el nivel y el tamaño de celda con que se armaron
+  #cellPx     = NaN
+  #cellCount  = 0                   // celdas que se dibujan; 0 = un splat por punto
+  #cellPending = false              // las celdas cambiaron y su búfer no las tiene
+  #cellVao    = null
+  #cellVbo    = null
+  #cellProgram = null
   #raf        = 0                   // rAF del redibujo coalescido a un frame; 0 = ninguno
   #visible    = true                // oculta no dibuja: el pane oculto no detiene el trabajo por flush
   #stale      = true                // algo pidió un dibujo mientras estaba oculta o sin contexto
@@ -147,7 +172,7 @@ export class HeatLayer {
 
   redraw() { return this.#draw() }
   resetCanvasReference() { return this.#draw() }                       // reposiciona + redibuja (el draw hace ambas)
-  refresh() { this.#buildPalette(); return this.#draw() }              // re-encode (p. ej. cambio de tema en la rampa)
+  refresh() { this.#buildPalette(); this.#cellsStale = true; return this.#draw() }   // re-encode (p. ej. cambio de tema en la rampa)
   syncPickingSize() {}                                                 // sin picking (un heat no se pica)
 
   // Lo llama setLayerVisibility del motor. Oculta no dibuja y queda anotada como atrasada; al volver repinta si hacía
@@ -175,6 +200,8 @@ export class HeatLayer {
       gl.deleteFramebuffer(this.#accFbo)
       gl.deleteBuffer(this.#vbo)
       gl.deleteVertexArray(this.#vao)
+      this.#cellVbo && gl.deleteBuffer(this.#cellVbo)
+      this.#cellVao && gl.deleteVertexArray(this.#cellVao)
     }
     this.dropGl()
     this.#surface?.destroy()
@@ -190,6 +217,7 @@ export class HeatLayer {
   #setIntensity(v) {
     this.#intensity = v ?? DEFAULT_INTENSITY
     this.#uIntensity[0] = this.#intensity
+    this.#cellsStale = true
   }
 
   // R = alcance de un punto en px y core·R = hasta dónde la brocha es opaca; son uniformes, así que cambiarlos no
@@ -269,12 +297,60 @@ export class HeatLayer {
     this.#count   = n
     this.#dirty   = false
     this.#pending = true
+    this.#cellsStale = true
   }
 
   #upload(gl) {
     gl.bindBuffer(gl.ARRAY_BUFFER, this.#vbo)
     gl.bufferData(gl.ARRAY_BUFFER, this.#mirror.subarray(0, this.#count * INSTANCE_FLOATS), gl.DYNAMIC_DRAW)
     this.#pending = false
+  }
+
+  /* ── Celdas ── */
+
+  // Las celdas que se dibujan con esta vista, rehechas sólo si cambió algo de lo que dependen. 0 = un splat por punto.
+  #aggregate(view) {
+    if (this.#count < AGGREGATE_MIN_POINTS) return (this.#cellCount = 0)
+
+    const level = aggregationLevel(view.zoom)
+    const px    = cellSize(this.#uRadius[0])
+    if (this.#cellsStale || level !== this.#cellLevel || px !== this.#cellPx) {
+      const placed = this.#placed
+      this.#cells ??= new HeatCells()
+      this.#cellCount   = this.#cells.build(this.#mirror, this.#count, placed.anchorX, placed.anchorY, level, px, this.#intensity)
+      this.#cellLevel   = level
+      this.#cellPx      = px
+      this.#cellsStale  = false
+      this.#cellPending = this.#cellCount > 0
+    }
+    return this.#cellCount
+  }
+
+  // El programa y el VAO de celdas nacen con la primera subida: una capa que nunca agrega no los crea.
+  #uploadCells(gl) {
+    if (!this.#cellVbo) {
+      this.#cellProgram = heatCellProgram(gl, this.#format)
+      this.#cellVbo = gl.createBuffer()
+      this.#cellVao = gl.createVertexArray()
+      gl.bindVertexArray(this.#cellVao)
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.#cellVbo)
+      gl.enableVertexAttribArray(0)
+      gl.vertexAttribPointer(0, 2, gl.FLOAT, false, CELL_STRIDE, 0)
+      gl.vertexAttribDivisor(0, 1)
+      gl.enableVertexAttribArray(1)
+      gl.vertexAttribPointer(1, 1, gl.FLOAT, false, CELL_STRIDE, CELL_WEIGHT_OFFSET)
+      gl.vertexAttribDivisor(1, 1)
+      gl.enableVertexAttribArray(2)
+      gl.vertexAttribPointer(2, 1, gl.FLOAT, false, CELL_STRIDE, CELL_COUNT_OFFSET)
+      gl.vertexAttribDivisor(2, 1)
+      gl.enableVertexAttribArray(3)
+      gl.vertexAttribPointer(3, COV_FLOATS, gl.FLOAT, false, CELL_STRIDE, CELL_COV_OFFSET)
+      gl.vertexAttribDivisor(3, 1)
+      gl.bindVertexArray(null)
+    }
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.#cellVbo)
+    gl.bufferData(gl.ARRAY_BUFFER, this.#cells.out.subarray(0, this.#cellCount * CELL_FLOATS), gl.DYNAMIC_DRAW)
+    this.#cellPending = false
   }
 
   /* ── Dibujo ── */
@@ -325,15 +401,16 @@ export class HeatLayer {
     const drift  = Math.max(Math.abs(view.center.x - placed.anchorX), Math.abs(view.center.y - placed.anchorY))
     if (this.#dirty || drift * 2 ** (view.zoom - FLOAT32_BITS) > ANCHOR_TOL_PX) this.#rebuild(view)
     this.#pending && this.#upload(gl)
+    this.#aggregate(view) && this.#cellPending && this.#uploadCells(gl)
 
-    this.#accumulate(gl, w, h)
+    this.#accumulate(gl, w, h, view.zoom)
     this.#colorize(gl, w)
     this.#surface.end(view)
     return true
   }
 
   // Pasada 1: los splats al FBO de acumulación, que se realoca sólo si cambió el tamaño de la vista.
-  #accumulate(gl, w, h) {
+  #accumulate(gl, w, h, zoom) {
     const format = this.#format
     gl.activeTexture(gl.TEXTURE0)
     if (!this.#accTex) {
@@ -358,19 +435,23 @@ export class HeatLayer {
     gl.clear(gl.COLOR_BUFFER_BIT)
     if (!this.#count || !(this.#uRadius[0] > 0)) return
 
-    const splat = this.#programs.splat
+    const cells = this.#cellCount
+    const splat = cells ? this.#cellProgram : this.#programs.splat
     this.#uSize[0] = w
     this.#uSize[1] = h
     gl.enable(gl.BLEND)
     gl.blendFunc(format.blendSrc, format.blendDst)
     gl.useProgram(splat.program)
     this.#frame.bind(gl, splat, this.#placed)
-    gl.uniform1fv(splat.uIntensity, this.#uIntensity)
+    if (cells) {                         // en las celdas el aporte ya lleva la intensidad
+      this.#uPxWorld0[0] = 2 ** zoom
+      gl.uniform1fv(splat.uPxPorWorld0, this.#uPxWorld0)
+    } else gl.uniform1fv(splat.uIntensity, this.#uIntensity)
     gl.uniform1fv(splat.uRadius, this.#uRadius)
     gl.uniform1fv(splat.uCore, this.#uCore)
     gl.uniform2fv(splat.uAccSize, this.#uSize)
-    gl.bindVertexArray(this.#vao)
-    gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, QUAD_VERTICES, this.#count)
+    gl.bindVertexArray(cells ? this.#cellVao : this.#vao)
+    gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, QUAD_VERTICES, cells || this.#count)
     gl.bindVertexArray(null)
   }
 
@@ -429,6 +510,7 @@ export class HeatLayer {
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, GRAD_STEPS, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, this.#palette)
     this.#accW = this.#accH = 0
     this.#pending = !this.#dirty && this.#count > 0
+    this.#cellPending = this.#cellCount > 0
     return this.#draw()
   }
 
@@ -437,6 +519,7 @@ export class HeatLayer {
   dropGl() {
     this.#gl = this.#format = this.#programs = this.#vao = this.#vbo = null
     this.#accTex = this.#accFbo = this.#palTex = null
+    this.#cellVao = this.#cellVbo = this.#cellProgram = null
     this.#accW = this.#accH = 0
   }
 }

@@ -7,8 +7,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { heatFormat, heatPrograms, heatSources, SPLAT_VERTEX, SPLAT_FRAGMENT_LOGSUM, SPLAT_FRAGMENT_OVER, RAMP_FRAGMENT_LOGSUM,
-  RAMP_FRAGMENT_OVER, SPLAT_UNIFORMS, RAMP_UNIFORMS } from '../../src/render/heat-shaders.js'
-import { POINT_ALPHA, MIN_OPACITY, TERM_CAP, TERM_FLOOR, GRAD_STEPS } from '../../src/render/heat-math.js'
+  RAMP_FRAGMENT_OVER, SPLAT_UNIFORMS, RAMP_UNIFORMS, SPLAT_CELL_VERTEX, SPLAT_CELL_FRAGMENT_LOGSUM, SPLAT_CELL_FRAGMENT_OVER,
+  CELL_UNIFORMS, heatCellProgram, heatCellSources } from '../../src/render/heat-shaders.js'
+import { POINT_ALPHA, MIN_OPACITY, TERM_CAP, TERM_FLOOR, GRAD_STEPS, SPREAD_MIN_PX, BOX_HALF_PER_SIGMA } from '../../src/render/heat-math.js'
 
 const CONSTANTES = ['ONE', 'ZERO', 'R16F', 'RGBA8', 'RED', 'RGBA', 'HALF_FLOAT', 'UNSIGNED_BYTE', 'TEXTURE_2D', 'FRAMEBUFFER',
   'COLOR_ATTACHMENT0', 'FRAMEBUFFER_COMPLETE', 'FRAMEBUFFER_BINDING', 'TEXTURE_BINDING_2D', 'ONE_MINUS_SRC_ALPHA',
@@ -60,7 +61,8 @@ test('el vértice del splat lleva el preludio, projectRel y projectHidden; la ra
 })
 
 test('las constantes del GLSL coinciden con heat-math', () => {
-  const fuentes = [SPLAT_VERTEX, SPLAT_FRAGMENT_LOGSUM, SPLAT_FRAGMENT_OVER, RAMP_FRAGMENT_LOGSUM, RAMP_FRAGMENT_OVER]
+  const fuentes = [SPLAT_VERTEX, SPLAT_FRAGMENT_LOGSUM, SPLAT_FRAGMENT_OVER, RAMP_FRAGMENT_LOGSUM, RAMP_FRAGMENT_OVER,
+    SPLAT_CELL_VERTEX, SPLAT_CELL_FRAGMENT_LOGSUM, SPLAT_CELL_FRAGMENT_OVER]
   fuentes.forEach(f => {
     assert.equal(literal(f, 'POINT_ALPHA'), POINT_ALPHA)
     assert.equal(literal(f, 'MIN_OPACITY'), MIN_OPACITY)
@@ -139,4 +141,31 @@ test('heatPrograms: un LINK_STATUS falso lanza, salvo con el contexto perdido', 
   const gl = glDoble({ enlaza: false })
   assert.throws(() => heatPrograms(gl, { name: 'r16f' }), /no linkea: boom/)
   assert.doesNotThrow(() => heatPrograms(glDoble({ enlaza: false, perdido: true }), { name: 'r16f' }))
+})
+
+test('las celdas suman n veces el término con la brocha promediada, y su quad llega a R + s', () => {
+  const { vertex, fragment } = heatCellSources('r16f')
+  assert.match(vertex, /projectRel\(uMatrix, aRel\)/)
+  ;[['float', 'aContribution', 1], ['float', 'aCount', 2], ['vec3', 'aCov', 3]].forEach(([t, a, k]) => assert.match(vertex, new RegExp(`layout\\(location = ${k}\\) in ${t}\\s+${a}`)))
+  assert.match(vertex, /float reach = uRadius \+ BOX_HALF_PER_SIGMA \* sqrt\(max\(vCov\.x \+ vCov\.y, 0\.0\)\)/)
+  assert.match(vertex, /corner \* reach/)
+  assert.equal(literal(vertex, 'BOX_HALF_PER_SIGMA'), BOX_HALF_PER_SIGMA)
+  assert.equal(literal(fragment, 'BOX_HALF_PER_SIGMA'), BOX_HALF_PER_SIGMA)
+  assert.match(fragment, /outSum = vCount \* -log\(max\(1\.0 - vContribution \* g, TERM_FLOOR\)\)/)
+  assert.match(fragment, /float g = cellBrush\(\)/)
+  assert.equal(literal(fragment, 'SPREAD_MIN_PX'), SPREAD_MIN_PX)
+  assert.match(fragment, /if \(s < SPREAD_MIN_PX \|\| w <= 0\.0\) return brush\(\)/)
+  assert.match(fragment, /\(vCov\.x \* dv\.x \* dv\.x \+ vCov\.y \* dv\.y \* dv\.y \+ 2\.0 \* vCov\.z \* dv\.x \* dv\.y\) \/ \(d \* d\)/)
+  assert.match(heatCellSources('rgba8').fragment, /1\.0 - pow\(1\.0 - q, vCount\)/)
+})
+
+test('heatCellProgram: aparte de heatPrograms, compartido por contexto y formato, con sus uniformes', () => {
+  const gl = glDoble()
+  const f = heatFormat(gl)
+  heatPrograms(gl, f)
+  const a = heatCellProgram(gl, f)
+  assert.equal(heatCellProgram(gl, f), a)
+  assert.equal(gl.calls.filter(c => c[0] === 'linkProgram').length, 3)
+  CELL_UNIFORMS.forEach(n => assert.equal(a[n].name, n))
+  assert.equal(a.matrix, a.uMatrix)
 })

@@ -19,10 +19,11 @@
 // premultiplicar para la mezcla `blendOver` del tramo.
 import { withProjection, projectionKey } from './projection-prelude.js'
 import { sharedProgram } from './gl-programs.js'
-import { POINT_ALPHA, MIN_OPACITY, TERM_CAP, TERM_FLOOR, GRAD_STEPS } from './heat-math.js'
+import { POINT_ALPHA, MIN_OPACITY, TERM_CAP, TERM_FLOOR, GRAD_STEPS, SPREAD_MIN_PX, BOX_HALF_PER_SIGMA } from './heat-math.js'
 
 // Los uniformes de cada programa, que son sus nombres en el fuente. `u_projection_scale` lo declara el preludio.
 export const SPLAT_UNIFORMS = ['uMatrix', 'uIntensity', 'uRadius', 'uCore', 'uAccSize']
+export const CELL_UNIFORMS  = ['uMatrix', 'uRadius', 'uCore', 'uAccSize', 'uPxPorWorld0']
 export const RAMP_UNIFORMS  = ['uAcc', 'uPaleta', 'uAccPorDispositivo']
 
 // Las unidades de textura de la rampa, que se fijan al enlazar.
@@ -66,6 +67,47 @@ void main() {
   gl_Position = vec4(clip.xy + corner * uRadius * 2.0 / uAccSize * clip.w, clip.zw);
 }`
 
+// El splat de una celda agregada (heat-cells.js): el aporte medio ya acotado por punto, con `intensity` aplicada en la CPU,
+// la multiplicidad n, que el fragmento usa para sumar lo de n puntos en una sola muestra, y la covarianza de sus puntos.
+// La covarianza pasa a px del FBO con el jacobiano de la proyección en el centroide (J·Σ·Jᵀ), medido proyectando un px de
+// pantalla en cada eje: vale con cualquier proyección que el preludio dé. El quad llega a R + √(3·traza), que acota la
+// dispersión en cualquier dirección.
+export const SPLAT_CELL_VERTEX = `${HEADER}${CONSTANTS}const float BOX_HALF_PER_SIGMA = ${glsl(BOX_HALF_PER_SIGMA)};
+layout(location = 0) in vec2  aRel;      // el centroide de la celda, world0 relativo al ancla (por instancia)
+layout(location = 1) in float aContribution;   // el aporte medio de sus puntos (por instancia)
+layout(location = 2) in float aCount;    // cuántos puntos junta (por instancia)
+layout(location = 3) in vec3  aCov;      // la covarianza de sus puntos: xx, yy, xy en px² de world0 (por instancia)
+uniform mat4  uMatrix;
+uniform float uRadius;
+uniform vec2  uAccSize;
+uniform float uPxPorWorld0;              // px de pantalla por px de world0: 2^zoom
+flat out vec2  vCenter;
+flat out float vContribution;
+flat out float vCount;
+flat out vec3  vCov;                     // la covarianza en px² del FBO
+
+vec2 toAcc(vec4 c) { return (c.xy / c.w * 0.5 + 0.5) * uAccSize; }
+
+void main() {
+  vec4 clip = projectRel(uMatrix, aRel);
+  vec2 corner = vec2(float(gl_VertexID & 1), float((gl_VertexID >> 1) & 1)) * 2.0 - 1.0;
+  vCenter       = toAcc(clip);
+  vContribution = aContribution;
+  vCount        = aCount;
+  float k = 1.0 / uPxPorWorld0;
+  vec2 ex = (toAcc(projectRel(uMatrix, aRel + vec2(k, 0.0))) - vCenter) / k;
+  vec2 ey = (toAcc(projectRel(uMatrix, aRel + vec2(0.0, k))) - vCenter) / k;
+  vCov = vec3(aCov.x * ex.x * ex.x + aCov.y * ey.x * ey.x + 2.0 * aCov.z * ex.x * ey.x,
+              aCov.x * ex.y * ex.y + aCov.y * ey.y * ey.y + 2.0 * aCov.z * ex.y * ey.y,
+              aCov.x * ex.x * ex.y + aCov.y * ey.x * ey.y + aCov.z * (ex.x * ey.y + ex.y * ey.x));
+  if (projectHidden(clip)) {
+    gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+    return;
+  }
+  float reach = uRadius + BOX_HALF_PER_SIGMA * sqrt(max(vCov.x + vCov.y, 0.0));
+  gl_Position = vec4(clip.xy + corner * reach * 2.0 / uAccSize * clip.w, clip.zw);
+}`
+
 // La brocha: la de `brushAt`, 1 hasta core·R y lineal a 0 en R.
 const BRUSH = `${HEADER}${CONSTANTS}
 uniform float uRadius;
@@ -96,6 +138,47 @@ void main() {
   if (g <= 0.0) discard;
   float q = floor(floor(vContribution * 255.0 + 0.5) * floor(g * 255.0 + 0.5) / 255.0 + 0.5) / 255.0;
   outAlpha = vec4(0.0, 0.0, 0.0, q);
+}`
+
+// La brocha de la celda: la de `brushSpreadAt`, `brush()` promediada en ±s, con s = √3·σ y σ² la varianza de los puntos en
+// la dirección del px (uᵀΣu). En el centro mismo no hay dirección: vale la media de las dos varianzas.
+const CELL_BRUSH = `${BRUSH}const float SPREAD_MIN_PX = ${glsl(SPREAD_MIN_PX)};
+const float BOX_HALF_PER_SIGMA = ${glsl(BOX_HALF_PER_SIGMA)};
+flat in float vCount;
+flat in vec3  vCov;
+float rampIntegral(float t) {
+  return t <= 0.0 ? 0.0 : t <= 1.0 ? t * t * 0.5 : t - 0.5;
+}
+float cellBrush() {
+  float w = uRadius - uCore;
+  vec2 dv = gl_FragCoord.xy - vCenter;
+  float d = length(dv);
+  float sigma2 = d > 0.0 ? (vCov.x * dv.x * dv.x + vCov.y * dv.y * dv.y + 2.0 * vCov.z * dv.x * dv.y) / (d * d) : 0.5 * (vCov.x + vCov.y);
+  float s = BOX_HALF_PER_SIGMA * sqrt(max(sigma2, 0.0));
+  if (s < SPREAD_MIN_PX || w <= 0.0) return brush();
+  if (d + s <= uCore) return 1.0;
+  if (d - s >= uRadius) return 0.0;
+  return 1.0 - w / (2.0 * s) * (rampIntegral((d + s - uCore) / w) - rampIntegral((d - s - uCore) / w));
+}
+`
+
+// n puntos iguales en el mismo sitio suman n veces el término.
+export const SPLAT_CELL_FRAGMENT_LOGSUM = `${CELL_BRUSH}
+out float outSum;
+void main() {
+  float g = cellBrush();
+  if (g <= 0.0) discard;
+  outSum = vCount * -log(max(1.0 - vContribution * g, TERM_FLOOR));
+}`
+
+// n mezclas `over` de q dejan 1 − (1 − q)^n. Sin la cuantización entre una y otra, que el acumulador de 8 bits sí hace.
+export const SPLAT_CELL_FRAGMENT_OVER = `${CELL_BRUSH}
+out vec4 outAlpha;
+void main() {
+  float g = cellBrush();
+  if (g <= 0.0) discard;
+  float q = floor(floor(vContribution * 255.0 + 0.5) * floor(g * 255.0 + 0.5) / 255.0 + 0.5) / 255.0;
+  outAlpha = vec4(0.0, 0.0, 0.0, 1.0 - pow(1.0 - q, vCount));
 }`
 
 export const RAMP_VERTEX = `${HEADER}
@@ -140,6 +223,11 @@ export const heatSources = (name, variant = 'mercator') => ({
   ramp  : { vertex: RAMP_VERTEX, fragment: name === 'r16f' ? RAMP_FRAGMENT_LOGSUM : RAMP_FRAGMENT_OVER },
 })
 
+export const heatCellSources = (name, variant = 'mercator') => ({
+  vertex   : withProjection(SPLAT_CELL_VERTEX, variant),
+  fragment : name === 'r16f' ? SPLAT_CELL_FRAGMENT_LOGSUM : SPLAT_CELL_FRAGMENT_OVER,
+})
+
 const compile = (gl, type, source) => {
   const shader = gl.createShader(type)
   gl.shaderSource(shader, source)
@@ -179,6 +267,10 @@ export const heatPrograms = (gl, format, variant = 'mercator') =>
       }),
     }
   })
+
+// El splat de celdas, aparte de `heatPrograms`: sólo lo enlaza un contexto con una capa que agrega.
+export const heatCellProgram = (gl, format, variant = 'mercator') =>
+  sharedProgram(gl, projectionKey(`heat-cells:${format.name}`, variant), () => build(gl, heatCellSources(format.name, variant), CELL_UNIFORMS))
 
 const formats = new WeakMap()
 
