@@ -7,6 +7,8 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
 
 ## [Sin publicar]
 
+## [0.51.0] - 2026-11-16
+
 ### Agregado
 - **`renderer="gl"` en los rótulos.** `<cristae-labeled>`, `<cristae-text-layer>`, `addLabels` y `addTextLayer`
   aceptan `gl`, que pinta los rótulos en la GPU, glifo a glifo desde un atlas de campos de distancia, en el contexto
