@@ -132,7 +132,8 @@ uno:
   de `gl` da de 1,04 a 1,06 veces la del canvas, contra un tope de 1,04. Sobre el
   trazo, el asiento tras un zoom animado midió hasta 35,1 ms en la Intel UHD 730, contra 33 ms de criterio (dos
   cuadros); en la Arc B580 midió 29,2 ms como máximo. También sobre el trazo, la tinta de `gl` da de 1,15 a
-  1,16 veces la del canvas en la UHD.
+  1,16 veces la del canvas en la UHD. La comparación de la tinta contra el canvas es un dato informativo, no una
+  garantía: varía según navegador y GPU (ver «Límites»).
 - El defecto sigue siendo `canvas` y pasará a `gl` con el anfitrión GL: para conservarlo, `renderer="canvas"`.
 - Un canvas que pinta más de 1.300 rótulos en un cuadro avisa una vez que `gl` existe.
 
@@ -272,6 +273,10 @@ Un valor inválido lanza `TypeError` antes de tocar el motor, y en caliente no c
 - **`gl` frente a `canvas`:** algún glifo puede quedar hasta medio px corrido, el texto de 9 a 10,5 px con DPR 1
   sale algo más suave y no hay ligaduras. Los glifos que todavía no están en el atlas aparecen unos cuadros
   después; con miles de ideogramas distintos, lo que no cabe en el atlas no se dibuja y avisa una vez.
+- **Tinta de `gl` contra `canvas`:** `gl` no reproduce el canvas píxel a píxel, y la razón entre la tinta de uno y
+  la del otro varía alrededor de ±10 % según el navegador y la GPU: con la misma escena de rótulos dio 1,007 en
+  una Arc B580 con Chromium 157 y 1,120 en una Intel UHD 730 con Chromium 151. Las cifras conocidas de arriba se
+  midieron en una GPU y un navegador concretos; en otros pueden salir distintas.
 - **Escrituras complejas con `gl`:** el atlas guarda unos 2.800 glifos distintos de ideogramas; con más, lo que
   no cabe no se dibuja y se avisa una vez. Árabe, hebreo e índicas van como una corrida entera por texto, y
   ocupan más. Una segunda página del atlas no está en esta versión.
