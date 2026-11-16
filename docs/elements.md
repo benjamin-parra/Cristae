@@ -513,9 +513,9 @@ están en [`shapes.md`](shapes.md).
 
 ### `<cristae-label-layer>` — etiquetas canvas
 
-Se retira en v0.47.0: la reemplaza [`<cristae-labeled>`](#cristae-labeled--rótulos) sobre la capa de puntos, y
+Se retira en v0.52.0: la reemplaza [`<cristae-labeled>`](#cristae-labeled--rótulos) sobre la capa de puntos, y
 con `source` propio [`<cristae-text-layer>`](text-layer.md). Al montarse avisa una vez por página en consola, y
-ya se traduce por dentro a su reemplazo, con `pane` y `z` sin efecto. La equivalencia está en [`labels.md`](labels.md#retiro-en-v0470).
+ya se traduce por dentro a su reemplazo, con `pane` y `z` sin efecto. La equivalencia está en [`labels.md`](labels.md#retiro-en-v0520).
 
 Standalone (con `source`/`accessors`) o **attachment** (`bind-to="<idHost>"`: deriva posiciones del
 host, resuelto por nombre, orden-independiente).
@@ -533,7 +533,7 @@ host, resuelto por nombre, orden-independiente).
 ### `<cristae-text-layer>` — texto suelto
 
 Capa base de texto con datos propios (`data`, `source`, `accessors`), con las opciones de
-[`<cristae-labeled>`](#cristae-labeled--rótulos) que valen sin trazo y sin contexto WebGL. Acepta `fields`,
+[`<cristae-labeled>`](#cristae-labeled--rótulos) que valen sin trazo; con `canvas` o `html` no gasta contexto WebGL, y con `gl` entra al de las capas de abajo. Acepta `fields`,
 `id-of` y `text-of` para leer el texto de un campo sin funciones. Detalle en [`text-layer.md`](text-layer.md).
 
 ### `<cristae-icon-set>` y `<cristae-icon>` — íconos propios sin JS
@@ -649,7 +649,7 @@ Se llama `geometryStyle` y no `style` porque una propiedad `style` pisaría `HTM
 
 Agregador de la gramática ([SPECS §8.10](../SPECS.md)): envuelve la capa **host** (hijo sin slot) y,
 opcional, una capa hija `slot="bubble"` de puntos que define cómo se ven las burbujas. Sin bubble →
-icon-set de cluster por defecto. La hija `slot="bubble"` de label se retira en v0.47.0 y avisa una vez por
+icon-set de cluster por defecto. La hija `slot="bubble"` de label se retira en v0.52.0 y avisa una vez por
 página en consola: el rótulo de las burbujas lo da un `<cristae-labeled>` por fuera del cluster
 ([`labeled.md`](labeled.md#burbujas)).
 
@@ -730,7 +730,7 @@ equivale a `polyline.setText` de Leaflet.TextPath.
 | `placement` | `auto` `along` `center` `above` `below` `right` | atributo |
 | `repeat` `offset` | number (px) | atributo |
 | `orientation` | `auto` `path` | atributo |
-| `renderer` | `canvas` `html` | atributo |
+| `renderer` | `canvas` `html` `gl` | atributo — `gl` pinta en la GPU, sin `paint`, `htmlOf` ni `interactive` ([`labeled.md`](labeled.md#cómo-se-dibuja)) |
 | `font` `color` `halo` | CSS | atributo |
 | `interactive` | boolean (default `false`, sólo `html`) | atributo |
 | `visible` | boolean (default `true`) | atributo — `"false"` o `"0"` oculta sin desmontar |

@@ -128,6 +128,10 @@ uno:
 - Con 6.400 rótulos de texto a 1920×1080 en una GPU integrada (Intel UHD 730), el zoom da de 55 a 60 cuadros por
   segundo con `gl` y de 25 a 42 con `canvas`; la escala típica da 60 con los dos. Con las píldoras de `paint` en
   la misma escena, que siguen en `canvas`, el zoom con `gl` baja a 34-57.
+- Dos cifras quedan fuera de los criterios de la versión y se publican como conocidas. A DPR 1,25 y 1,5 la tinta
+  de `gl` da de 1,04 a 1,06 veces la del canvas, contra un tope de 1,04. Sobre el
+  trazo, el asiento tras un zoom animado midió hasta 35,1 ms en la Intel UHD 730, contra 33 ms de criterio (dos
+  cuadros); en la Arc B580 midió 29,2 ms como máximo.
 - El defecto sigue siendo `canvas` y pasará a `gl` con el anfitrión GL: para conservarlo, `renderer="canvas"`.
 - Un canvas que pinta más de 1.300 rótulos en un cuadro avisa una vez que `gl` existe.
 
@@ -279,7 +283,7 @@ Un valor inválido lanza `TypeError` antes de tocar el motor, y en caliente no c
 
 ## Desde `<cristae-label-layer>`
 
-`<cristae-label-layer>` se retira en v0.47.0, y su reemplazo es `<cristae-labeled>` sobre la capa de puntos; con
+`<cristae-label-layer>` se retira en v0.52.0, y su reemplazo es `<cristae-labeled>` sobre la capa de puntos; con
 `source` propio, [`<cristae-text-layer>`](text-layer.md). La
-equivalencia prop por prop está en [`labels.md`](labels.md#retiro-en-v0470). `<cristae-line-label-layer>` no
+equivalencia prop por prop está en [`labels.md`](labels.md#retiro-en-v0520). `<cristae-line-label-layer>` no
 llegó a publicarse: su reemplazo es `<cristae-labeled>` sobre la capa de líneas.

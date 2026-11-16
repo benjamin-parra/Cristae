@@ -19,6 +19,10 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   `htmlOf` en `html`.
   *Migración*: ninguna en esta versión. Para conservar el canvas cuando cambie el defecto, declarar
   `renderer="canvas"`.
+  *Cifras conocidas fuera de criterio*: a DPR fraccionario (1,25 y 1,5) la tinta de `gl` da de 1,04 a 1,06 veces la
+  del canvas, contra un tope de 1,04; y el asiento de `along` tras un zoom animado midió hasta 35,1 ms en una Intel
+  UHD 730, contra 33 ms de criterio (29,2 ms como máximo en una Arc B580). Quedan documentadas en
+  [`docs/labeled.md`](docs/labeled.md#cómo-se-dibuja).
 - **`PagedTable.setBinder(binder)`** cambia cómo se pinta la fila sin reconstruir el motor: repuebla
   en el acto la ventana visible y conserva pool, molde, página, scroll, búsqueda y `where`. Una tabla
   cuyas celdas leen estado de la pantalla (un idioma, un conjunto que cambia) ya no tiene que
@@ -137,6 +141,12 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   *Migración*: ninguna.
 
 ### Cambiado
+- **El retiro de lo deprecado pasa de la v0.47.0 a la v0.52.0.** La v0.47.0 era el número que daba la fórmula con
+  `freeUnusedMemory()` como único medio desde la v0.46.22; esta versión ya suma cinco medios, así que la versión que
+  retira es la v0.52.0 como mínimo (sube si antes entran más). Cambian la constante `RETIRO`, los avisos de consola,
+  los tipos y la documentación que lo nombran; lo deprecado sigue funcionando igual hasta esa versión.
+  *Migración*: ninguna en esta versión. Antes de la v0.52.0, cambiar cada API deprecada por su reemplazo (tabla del
+  [README](README.md#deprecado-se-retira-en-v0520)).
 - **El calor (`addHeatLayer`, `<cristae-heat-layer>`) se dibuja en GPU**, sin leer el framebuffer a CPU. En el prototipo
   medido salió unas 90 a 140 veces más rápido que el canvas 2D, en una GPU de escritorio NVIDIA, a 1440×900 y con
   10 000 a 1 M de puntos: es una cifra de prototipo, no una garantía. El color difiere unos niveles del canvas
@@ -432,7 +442,7 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   v0.46.22, y lo deprecado se sostiene con caminos aparte. La política nueva está en
   [`docs/versionado.md`](docs/versionado.md#deprecación-y-retiro): al menos una versión de aviso y el retiro
   en una versión menor marcada. La tabla de cada API con su reemplazo está en el
-  [README](README.md#deprecado-se-retira-en-v0470).
+  [README](README.md#deprecado-se-retira-en-v0520).
   *Migración*: ninguna en esta versión. Antes de la v0.47.0, cambiar cada API por su reemplazo.
 - **`<cristae-label-layer>`, `<CristaeLabelLayer>`, `addLabelLayer` y la hija `slot="bubble"` de label del
   cluster.** Siguen funcionando y se retiran en la v0.47.0; avisan una vez por página, el elemento y el
@@ -441,7 +451,7 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   *Migración*: envolver la capa en `<cristae-labeled>` en vez de `bind-to`; la píldora se pide con
   `paint={drawLabel}`, porque el aspecto por defecto pasa a texto con halo; el rótulo de las burbujas va en un
   `<cristae-labeled>` por fuera del cluster; con `source` propio, `<cristae-text-layer>`. La equivalencia está en
-  [`docs/labels.md`](docs/labels.md#retiro-en-v0470).
+  [`docs/labels.md`](docs/labels.md#retiro-en-v0520).
 
 ### Corregido
 - **Una capa sin contexto WebGL ya no deja el mapa en blanco.** Al soltarla la política de cupo, o al quitarle el

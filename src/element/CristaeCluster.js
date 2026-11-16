@@ -46,7 +46,7 @@ function ensureCenterCss() {
 //   </cristae-cluster>
 //
 // Hija opcional `slot="bubble"` (point o label) = cómo se ven las burbujas. Sin ella → default. La de
-// label se retira en v0.47.0, y avisa una vez por página con la misma clave que `bubble: { kind: 'label' }`
+// label se retira en v0.52.0, y avisa una vez por página con la misma clave que `bubble: { kind: 'label' }`
 // del motor: el rótulo de las burbujas lo da un <cristae-labeled> por fuera del cluster.
 //
 // expandable (default true): click en una burbuja la expande (los puntos del cluster aparecen

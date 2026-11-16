@@ -12,7 +12,7 @@ import { STACK } from '../engine/stack.js'
 //     rotula las burbujas como lo haría un <cristae-labeled> por fuera del cluster (`addClusterFold`).
 // Se ve como siempre: la píldora (`drawLabel` o el `paint` declarado) con su `style`, y el hover que marca el
 // handle. Avisa su retiro una vez por página, al montarse como capa, con la misma clave que `addLabelLayer`.
-/** @deprecated Se retira en v0.47.0: con `bind-to` la reemplaza `<cristae-labeled>` sobre la capa de puntos
+/** @deprecated Se retira en v0.52.0: con `bind-to` la reemplaza `<cristae-labeled>` sobre la capa de puntos
  *  (docs/labeled.md); con `source` propio, `<cristae-text-layer>`. */
 export class CristaeLabelLayer extends CristaeLayerElement {
 

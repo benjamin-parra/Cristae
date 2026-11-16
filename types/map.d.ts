@@ -324,7 +324,7 @@ export interface ShapeHit extends HitBase {
   kind: 'shape';
 }
 
-/** @deprecated Se retira en v0.47.0 con `addCircleLayer`: la reemplaza `ShapeHit`, el hit de `addShapeLayer`. */
+/** @deprecated Se retira en v0.52.0 con `addCircleLayer`: la reemplaza `ShapeHit`, el hit de `addShapeLayer`. */
 export interface CircleHit extends HitBase {
   kind: 'circle';
 }
@@ -731,7 +731,7 @@ export interface ClusterConfig {
   maxZoom?   : number;
   minPoints? : number;
   /** Cómo se ven las burbujas: `{ kind: 'point', iconSet, sizeOf }`. La forma `{ kind: 'label', … }`, la
-   *  que arma `<cristae-label-layer slot="bubble">`, se retira en v0.47.0: la reemplazan la burbuja de puntos
+   *  que arma `<cristae-label-layer slot="bubble">`, se retira en v0.52.0: la reemplazan la burbuja de puntos
    *  y `addLabels({ hostId })` sobre la capa de burbujas, o un `<cristae-labeled>` por fuera del cluster
    *  (docs/labeled.md). Hasta entonces es eso mismo: una capa de burbujas sin dibujo, rotulada con la píldora,
    *  sin contexto WebGL ni picking. */
@@ -887,8 +887,8 @@ export interface ShapeHandle<T = unknown> {
   style(options: Record<string, unknown>): void;
 }
 
-// ── Círculos en METROS (addCircleLayer, obsoleto): alias de la capa de formas, se retira en v0.47.0 ──
-/** @deprecated Se retira en v0.47.0: la reemplaza `ShapeAccessors`, con `radiusOf` en vez de `radiusMetersOf`. */
+// ── Círculos en METROS (addCircleLayer, obsoleto): alias de la capa de formas, se retira en v0.52.0 ──
+/** @deprecated Se retira en v0.52.0: la reemplaza `ShapeAccessors`, con `radiusOf` en vez de `radiusMetersOf`. */
 export interface CircleAccessors<T> extends Pick<SourceAccessors<T>, "hashOf"> {
   idOf           : (c: T) => string | number;
   positionOf     : (c: T) => { lat: number; lng: number };
@@ -898,7 +898,7 @@ export interface CircleAccessors<T> extends Pick<SourceAccessors<T>, "hashOf"> {
    *  `fillColor`, `fillOpacity` y `dash`. Un `color` sin `fillColor` mueve también el relleno. */
   styleOf?       : (c: T) => Record<string, unknown>;
 }
-/** @deprecated Se retira en v0.47.0: la reemplaza `ShapeLayerConfig`. */
+/** @deprecated Se retira en v0.52.0: la reemplaza `ShapeLayerConfig`. */
 export interface CircleLayerConfig<T> {
   id           : string;
   accessors    : CircleAccessors<T>;
@@ -909,7 +909,7 @@ export interface CircleLayerConfig<T> {
   z?           : number;
   visible?     : boolean;
 }
-/** @deprecated Se retira en v0.47.0: la reemplaza `ShapeHandle`, que además tiene `style`. */
+/** @deprecated Se retira en v0.52.0: la reemplaza `ShapeHandle`, que además tiene `style`. */
 export type CircleHandle<T = unknown> = Omit<ShapeHandle<T>, "style">;
 
 // ── Heatmap (addHeatLayer) — GPU, miembro de tramo, densidad acumulada ───────
@@ -1246,13 +1246,13 @@ export class MapEngine {
 
   addPointLayer<T>(config: PointLayerConfig<T>): PointHandle<T>;
   addPolygonLayer<T>(config: PolygonLayerConfig<T>): PolygonHandle<T>;
-  /** @deprecated Se retira en v0.47.0: la reemplaza `addPolygonLayer({ geometry })`. */
+  /** @deprecated Se retira en v0.52.0: la reemplaza `addPolygonLayer({ geometry })`. */
   addPolygonGpuLayer(config: PolygonGpuLayerConfig): PolygonGpuHandle;
   addLineLayer<T>(config: LineLayerConfig<T>): LineHandle<T>;
   /** Terreno en planta sobre las alturas de `dem`. Lanza `TypeError` o `RangeError` ante una opción inválida. */
   addTerrainLayer(config: TerrainLayerConfig): TerrainLayerHandle;
   addHtmlLayer<T>(config: HtmlLayerConfig<T>): HtmlHandle<T>;
-  /** @deprecated Se retira en v0.47.0: con `bindTo` la reemplaza `addLabels({ hostId })` o `<cristae-labeled>`
+  /** @deprecated Se retira en v0.52.0: con `bindTo` la reemplaza `addLabels({ hostId })` o `<cristae-labeled>`
    *  sobre la capa de puntos (docs/labeled.md); con `source` propio, `addTextLayer` o `<cristae-text-layer>`. */
   addLabelLayer<T>(config: LabelLayerConfig<T>): LabelHandle;
   /** Rótulos sobre los ítems del host. `null` si el host no es rotulable: un editor, el calor, la imagen o
@@ -1265,7 +1265,7 @@ export class MapEngine {
   addOverlay<T>(config: OverlayConfig<T>): OverlayHandle<T> | null;
   addHighlightOverlay(config: HighlightOverlayConfig): HighlightOverlayHandle | null;
   addShapeLayer<T>(config: ShapeLayerConfig<T>): ShapeHandle<T>;
-  /** @deprecated Se retira en v0.47.0: la reemplaza `addShapeLayer`, con `radiusOf` en vez de `radiusMetersOf`,
+  /** @deprecated Se retira en v0.52.0: la reemplaza `addShapeLayer`, con `radiusOf` en vez de `radiusMetersOf`,
    *  o `<cristae-shape-layer>` (docs/shapes.md). */
   addCircleLayer<T>(config: CircleLayerConfig<T>): CircleHandle<T>;
   addHeatLayer<T>(config: HeatLayerConfig<T>): HeatHandle<T>;
@@ -1331,7 +1331,7 @@ export class MapEngine {
   /** Cursor del contenedor, en vivo: `null`, `''` o un valor que el CSS rechace es ninguno. Su precedencia
    *  frente al arrastre, el editor y el `pointer` automático: docs/interaction.md#el-cursor-del-contenedor. */
   setCursor(cursor: string | null): this;
-  /** @deprecated Se retira en v0.47.0: el mapa de Leaflet es un detalle interno y queda fuera de contrato. La
+  /** @deprecated Se retira en v0.52.0: el mapa de Leaflet es un detalle interno y queda fuera de contrato. La
    *  cámara, los tiles y el cursor se piden al motor (docs/elements.md). */
   getLeafletMap(): unknown;
   syncSize(): void;
@@ -1366,7 +1366,7 @@ export class CristaeLineLayer extends HTMLElement {}
 export class CristaeHtmlLayer extends HTMLElement {}
 /** Capa base de texto suelto (docs/text-layer.md). */
 export class CristaeTextLayer extends HTMLElement {}
-/** @deprecated Se retira en v0.47.0: con `bind-to` la reemplaza `<cristae-labeled>` sobre la capa de puntos
+/** @deprecated Se retira en v0.52.0: con `bind-to` la reemplaza `<cristae-labeled>` sobre la capa de puntos
  *  (docs/labeled.md); con `source` propio, `<cristae-text-layer>`. */
 export class CristaeLabelLayer extends HTMLElement {}
 /** Modificador que rotula lo que produce su hijo directo (docs/labeled.md). */
@@ -1433,7 +1433,7 @@ export interface PolygonGpuGeometry {
   parts?     : Uint32Array;
 }
 
-/** @deprecated Se retira en v0.47.0 con `addPolygonGpuLayer`: la reemplaza `PolygonLayerConfig`, con `geometry`. */
+/** @deprecated Se retira en v0.52.0 con `addPolygonGpuLayer`: la reemplaza `PolygonLayerConfig`, con `geometry`. */
 export interface PolygonGpuLayerConfig {
   id           : string;
   geometry     : PolygonGpuGeometry;
@@ -1454,7 +1454,7 @@ export interface PolygonGpuLayerConfig {
   idOf?        : (part: number) => unknown;
 }
 
-/** @deprecated Se retira en v0.47.0 con `addPolygonGpuLayer`: la reemplaza `PolygonHandle`. */
+/** @deprecated Se retira en v0.52.0 con `addPolygonGpuLayer`: la reemplaza `PolygonHandle`. */
 export interface PolygonGpuHandle {
   readonly id: string;
   redraw(): boolean;

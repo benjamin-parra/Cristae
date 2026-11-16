@@ -135,7 +135,7 @@ export type CristaePointHit   = PointHit
 export type CristaePolygonHit = PolygonHit
 export type CristaeShapeHit   = ShapeHit
 export type CristaeHtmlHit    = HtmlHit
-/** @deprecated Se retira en v0.47.0: la reemplaza `CristaeShapeHit`. */
+/** @deprecated Se retira en v0.52.0: la reemplaza `CristaeShapeHit`. */
 export type CristaeCircleHit  = CircleHit
 export type CristaeLineHit    = LineHit
 export type CristaeImageHit   = ImageHit
@@ -347,7 +347,7 @@ export interface CristaePolygonLayerElement<T = unknown> extends HTMLElement { r
 export interface CristaeTerrainLayerElement extends HTMLElement { readonly controls: TerrainLayerHandle | null }
 export interface CristaeShapeLayerElement<T = unknown> extends HTMLElement { readonly controls: ShapeHandle<T> | null }
 export interface CristaeHtmlLayerElement<T = unknown> extends HTMLElement { readonly controls: HtmlHandle<T> | null }
-/** @deprecated Se retira en v0.47.0 con `<cristae-label-layer>`: la reemplaza `CristaeLabeledElement`. */
+/** @deprecated Se retira en v0.52.0 con `<cristae-label-layer>`: la reemplaza `CristaeLabeledElement`. */
 export interface CristaeLabelLayerElement extends HTMLElement { readonly controls: Omit<LabelHandle, "setLabels"> | null }
 
 interface CristaePointLayerBase<T> extends CristaeDataLayerProps, CristaeRemoteLayerProps {
@@ -459,7 +459,7 @@ export type CristaeLabel      = Label
 export type CristaeLabelStyle = LabelStyle
 export type CristaeLabelPaint = LabelPaint
 
-/** @deprecated Se retira en v0.47.0 con `<CristaeLabelLayer>`: la reemplaza `CristaeLabeledProps`. */
+/** @deprecated Se retira en v0.52.0 con `<CristaeLabelLayer>`: la reemplaza `CristaeLabeledProps`. */
 export interface CristaeLabelLayerProps<T = unknown> extends CristaeLeafLayerProps {
   /** Id de la capa host cuyos ítems etiqueta (attachment); o standalone con `source`+`accessors`. */
   bindTo?    : string;
@@ -470,7 +470,7 @@ export interface CristaeLabelLayerProps<T = unknown> extends CristaeLeafLayerPro
   style?     : CristaeLabelStyle;
   visible?   : boolean;
 }
-/** @deprecated Se retira en v0.47.0: con `bindTo` la reemplaza `<CristaeLabeled>` sobre la capa de puntos
+/** @deprecated Se retira en v0.52.0: con `bindTo` la reemplaza `<CristaeLabeled>` sobre la capa de puntos
  *  (docs/labeled.md); con `source` propio, `<CristaeTextLayer>`. */
 export declare function CristaeLabelLayer<T = unknown>(
   props: CristaeLabelLayerProps<T> & RefAttributes<CristaeLabelLayerElement>,

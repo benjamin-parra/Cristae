@@ -34,8 +34,10 @@ visibilidad y la opacidad siguen siendo CSS. Los editores conservan su superfici
 El calor es miembro de tramo: acumula y colorea en el contexto de sus vecinas y no lo parte.
 
 Lo que no es GL parte el tramo. La imagen, las etiquetas, el HTML y los rótulos (`addLabels`,
-`<cristae-labeled>`, la capa de texto) dibujan en canvas 2D o en nodos DOM, y su pane, si cae entre dos capas
-GL del apilado, las deja en dos tramos y dos contextos. Debajo o encima de todas las capas GL no parte nada.
+`<cristae-labeled>`, la capa de texto) con `canvas` o `html` dibujan en canvas 2D o en nodos DOM, y su pane, si cae
+entre dos capas GL del apilado, las deja en dos tramos y dos contextos. Los rótulos con `renderer="gl"` son miembros
+de tramo: su pane no lo parte, y sin capas GL debajo abren uno ([`labeled.md`](labeled.md#cómo-se-dibuja)).
+Debajo o encima de todas las capas GL, ningún pane parte nada.
 
 Construida suelta, sin la opción interna `surface`, una capa usa `EditSurface`, cuyos `begin()`, `end()`
 y `setOpacity()` no hacen nada: los tests de cada capa no cambian.
