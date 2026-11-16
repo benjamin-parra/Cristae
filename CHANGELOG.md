@@ -7,6 +7,13 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
 
 ## [Sin publicar]
 
+### Corregido
+- **Líneas, contornos y geometría editable en las GPU que respetan la precisión del sampler.** Los vertex shaders
+  del trazo, del trazo editable y del relleno editable leían las posiciones con el sampler `lowp` que GLSL ES da por
+  defecto en el vértice, y un driver que lo respeta (medido en una NVIDIA por ANGLE sobre OpenGL ES) las devuelve
+  con mantisa de half: a zoom 18 el vértice se corría hasta 0,6 px en una geocerca de 2 km y decenas de px en una de
+  100 km, y el patrón de guiones se corría con el largo acumulado. Ahora esos samplers son `highp`. Sin cambio de API.
+
 ## [0.51.0] - 2026-11-16
 
 ### Agregado

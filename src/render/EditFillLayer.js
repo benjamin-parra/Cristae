@@ -20,6 +20,7 @@ const BIT = 0x01                       // el relleno vive en el bit 0 del stenci
 
 const PRELUDE = `#version 300 es
 precision highp float;
+precision highp sampler2D;             // el del vértice es lowp por defecto y un driver que lo respeta lee en half
 uniform sampler2D uPos;                // posiciones de los VÉRTICES, relativas al ancla del anillo
 uniform mat4 uMatrix;                  // rel-ancla → clip
 vec2 posAt(int ref) {

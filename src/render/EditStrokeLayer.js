@@ -29,6 +29,7 @@ const UNIFORMS = ['matrix', 'positions', 'texGeom', 'pixel', 'halfWidth', 'color
 
 const VERTEX = step => `#version 300 es
 precision highp float;
+precision highp sampler2D;   // el del vértice es lowp por defecto y un driver que lo respeta lee en half
 
 uniform mat4      matrix;
 uniform sampler2D positions;
