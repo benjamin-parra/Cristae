@@ -23,7 +23,8 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   `renderer="canvas"`.
   *Cifras conocidas fuera de criterio*: a DPR fraccionario (1,25 y 1,5) la tinta de `gl` da de 1,04 a 1,06 veces la
   del canvas, contra un tope de 1,04; y el asiento de `along` tras un zoom animado midió hasta 35,1 ms en una Intel
-  UHD 730, contra 33 ms de criterio (29,2 ms como máximo en una Arc B580). Quedan documentadas en
+  UHD 730, contra 33 ms de criterio (29,2 ms como máximo en una Arc B580); y sobre el trazo la tinta de `gl` da de
+  1,15 a 1,16 veces la del canvas en la UHD, fuera del criterio de la escena. Quedan documentadas en
   [`docs/labeled.md`](docs/labeled.md#cómo-se-dibuja).
 - **`PagedTable.setBinder(binder)`** cambia cómo se pinta la fila sin reconstruir el motor: repuebla
   en el acto la ventana visible y conserva pool, molde, página, scroll, búsqueda y `where`. Una tabla

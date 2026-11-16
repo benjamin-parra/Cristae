@@ -128,10 +128,11 @@ uno:
 - Con 6.400 rótulos de texto a 1920×1080 en una GPU integrada (Intel UHD 730), el zoom da de 55 a 60 cuadros por
   segundo con `gl` y de 25 a 42 con `canvas`; la escala típica da 60 con los dos. Con las píldoras de `paint` en
   la misma escena, que siguen en `canvas`, el zoom con `gl` baja a 34-57.
-- Dos cifras quedan fuera de los criterios de la versión y se publican como conocidas. A DPR 1,25 y 1,5 la tinta
+- Tres cifras quedan fuera de los criterios de la versión y se publican como conocidas. A DPR 1,25 y 1,5 la tinta
   de `gl` da de 1,04 a 1,06 veces la del canvas, contra un tope de 1,04. Sobre el
   trazo, el asiento tras un zoom animado midió hasta 35,1 ms en la Intel UHD 730, contra 33 ms de criterio (dos
-  cuadros); en la Arc B580 midió 29,2 ms como máximo.
+  cuadros); en la Arc B580 midió 29,2 ms como máximo. También sobre el trazo, la tinta de `gl` da de 1,15 a
+  1,16 veces la del canvas en la UHD.
 - El defecto sigue siendo `canvas` y pasará a `gl` con el anfitrión GL: para conservarlo, `renderer="canvas"`.
 - Un canvas que pinta más de 1.300 rótulos en un cuadro avisa una vez que `gl` existe.
 
