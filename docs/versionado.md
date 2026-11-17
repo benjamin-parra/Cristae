@@ -39,7 +39,7 @@ Una API pública no se quita de un día para otro: primero se depreca, después 
 
 **El retiro vigente es v0.52.0.** Sale junto con `freeUnusedMemory()`, la operación del mapa y del control
 del cluster que suelta la memoria sin uso: ese cambio medio es el que hace minor a la versión que retira. La
-v0.51.0 ya cuenta cinco medios desde la v0.46.22 (rótulos `gl`, `setBinder`, la cámara agnóstica, los datos sin
+v0.51.1 ya cuenta cinco medios desde la v0.46.22 (rótulos `gl`, `setBinder`, la cámara agnóstica, los datos sin
 script y el terreno en planta) y no trae `freeUnusedMemory()`; con ése como único medio más, la fórmula da v0.52.0.
 Si la versión que retira trae más, el número sube en la misma cantidad, y se
 corrigen la constante `RETIRO` de `src/engine/deprecated.js`, de donde salen los avisos de consola, y el

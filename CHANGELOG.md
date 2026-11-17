@@ -7,22 +7,7 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
 
 ## [Sin publicar]
 
-### Corregido
-- **Líneas, contornos y geometría editable en las GPU que respetan la precisión del sampler.** Los vertex shaders
-  del trazo, del trazo editable y del relleno editable leían las posiciones con el sampler `lowp` que GLSL ES da por
-  defecto en el vértice, y un driver que lo respeta (medido en una NVIDIA por ANGLE sobre OpenGL ES) las devuelve
-  con mantisa de half: a zoom 18 el vértice se corría hasta 0,6 px en una geocerca de 2 km y decenas de px en una de
-  100 km, y el patrón de guiones se corría con el largo acumulado. Ahora esos samplers son `highp`. Sin cambio de API.
-- **La subida de un tile del atlas ya no comparte lote con el dibujo del FBO del tramo.** En una GPU Intel UHD sobre
-  Mesa (Chromium por ANGLE), cuando el atlas subía un tile en el cuadro que lo usa (la variante atenuada de la burbuja
-  al expandir un cluster), la subida y el `clear` y el dibujo del FBO del tramo caían en el mismo lote y la textura
-  podía conservar bloques opacos del cuadro anterior. Se midió con el anfitrión GL, que sigue en desarrollo y no viene
-  en esta versión, en cerca de un tercio de las cargas; con el anfitrión de Leaflet no se reprodujo, pero recorre el
-  mismo atlas y los mismos FBO. El sync del atlas que sube algo se cierra ahora con una valla (`fenceSync`), no con un
-  `flush` que desordenaría el reloj de `gl-budget`; el sync estable no llama a la GPU. Sin cambio de API.
-  *Migración*: ninguna.
-
-## [0.51.0] - 2026-11-16
+## [0.51.1] - 2026-11-17
 
 ### Agregado
 - **`renderer="gl"` en los rótulos.** `<cristae-labeled>`, `<cristae-text-layer>`, `addLabels` y `addTextLayer`
@@ -39,7 +24,9 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   *Cifras conocidas fuera de criterio*: a DPR fraccionario (1,25 y 1,5) la tinta de `gl` da de 1,04 a 1,06 veces la
   del canvas, contra un tope de 1,04; y el asiento de `along` tras un zoom animado midió hasta 35,1 ms en una Intel
   UHD 730, contra 33 ms de criterio (29,2 ms como máximo en una Arc B580); y sobre el trazo la tinta de `gl` da de
-  1,15 a 1,16 veces la del canvas en la UHD, fuera del criterio de la escena. Quedan documentadas en
+  1,15 a 1,16 veces la del canvas en la UHD, fuera del criterio de la escena. Contra el canvas, la tinta varía
+  ±10 % según navegador y GPU (1,007 en una Arc B580 con Chromium 157, 1,120 en la UHD con Chromium 151): es un
+  dato informativo, no un criterio. Quedan documentadas en
   [`docs/labeled.md`](docs/labeled.md#cómo-se-dibuja).
 - **`PagedTable.setBinder(binder)`** cambia cómo se pinta la fila sin reconstruir el motor: repuebla
   en el acto la ventana visible y conserva pool, molde, página, scroll, búsqueda y `where`. Una tabla
@@ -225,6 +212,20 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   *Migración*: `setTileProvider({ url, noWrap: true })` pasa a `new MapEngine({ container, worldCopies: false })`.
 
 ### Corregido
+- **Líneas, contornos y geometría editable en las GPU que respetan la precisión del sampler.** Los vertex shaders
+  del trazo, del trazo editable y del relleno editable leían las posiciones con el sampler `lowp` que GLSL ES da por
+  defecto en el vértice, y un driver que lo respeta (medido en una NVIDIA por ANGLE sobre OpenGL ES) las devuelve
+  con mantisa de half: a zoom 18 el vértice se corría hasta 0,6 px en una geocerca de 2 km y decenas de px en una de
+  100 km, y el patrón de guiones se corría con el largo acumulado. Ahora esos samplers son `highp`. Sin cambio de API.
+  *Migración*: ninguna.
+- **La subida de un tile del atlas ya no comparte lote con el dibujo del FBO del tramo.** En una GPU Intel UHD sobre
+  Mesa (Chromium por ANGLE), cuando el atlas subía un tile en el cuadro que lo usa (la variante atenuada de la burbuja
+  al expandir un cluster), la subida y el `clear` y el dibujo del FBO del tramo caían en el mismo lote y la textura
+  podía conservar bloques opacos del cuadro anterior. Se midió con el anfitrión GL, que sigue en desarrollo y no viene
+  en esta versión, en cerca de un tercio de las cargas; con el anfitrión de Leaflet no se reprodujo, pero recorre el
+  mismo atlas y los mismos FBO. El sync del atlas que sube algo se cierra ahora con una valla (`fenceSync`), no con un
+  `flush` que desordenaría el reloj de `gl-budget`; el sync estable no llama a la GPU. Sin cambio de API.
+  *Migración*: ninguna.
 - **Destruir un mapa de Cristae con una animación o un gesto en curso ya no lanza `TypeError`.** Leaflet deja
   agendado, sin forma de cortarlo desde `map.remove()`, el cierre de un zoom animado (250 ms), el aviso diferido
   de `invalidateSize`, la rueda, el cuadro de un pinch y el de la inercia de un arrastre, y al vencer movían un
