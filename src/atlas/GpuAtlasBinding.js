@@ -53,12 +53,15 @@ export class GpuAtlasBinding {
       this.#atlas    = atlas
       this.#uploaded = atlas.count
       this.#programs.forEach(p => this.#applyDims(p, atlas))   // dims → uniforms, sin recompilar
+      atlas.count && this.#closeBatch()
       return
     }
+    if (this.#uploaded >= atlas.count) return    // estable: ni una llamada a la GPU
     while (this.#uploaded < atlas.count) {        // append → cursor sobre el log append-only
       this.#upload(atlas, this.#uploaded)
       this.#uploaded++
     }
+    this.#closeBatch()
   }
 
   destroy() {
@@ -74,6 +77,17 @@ export class GpuAtlasBinding {
     const w = atlas.cols * atlas.tileSize
     const h = atlas.rows * atlas.tileSize
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null)
+  }
+
+  // Cierra el lote de la subida con una valla, no con `flush` ni `finish`: Chromium desaloja el contexto de `flush`
+  // más viejo y `gl-budget` ordena ese reloj, así que un flush de más desordenaría quién cae primero. Sin el cierre, la
+  // subida y el clear y el draw del FBO que usa el tile caían en el mismo lote y, en la UHD 730 con Chromium (ANGLE sobre
+  // Mesa), la textura del FBO conservaba bloques del cuadro anterior: la burbuja de un cluster que se expande salía con
+  // trozos de la burbuja sin expandir en ≈ 40 % de las cargas. Una valla por sync que sube algo (un evento, no un cuadro);
+  // el sync estable no llama a la GPU. Sin WebGL2 no hay valla y no se cierra nada.
+  #closeBatch() {
+    const gl = this.#gl
+    gl.fenceSync && gl.deleteSync(gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0))
   }
 
   #upload(atlas, index) {

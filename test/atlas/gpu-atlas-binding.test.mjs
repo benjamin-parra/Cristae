@@ -180,3 +180,81 @@ test('el cluster por defecto, con unas pocas burbujas, sube una fracción del at
   assert.equal(total, 6 * TILE * TILE * 4, 'seis tiles, no 199')
   assert.equal(subidasDe(llamadas).length, 6)
 })
+
+// Un `texSubImage2D` seguido en el mismo lote de GL por el clear y el draw de un FBO dejaba, en la UHD 730 con Chromium
+// (ANGLE sobre Mesa), bloques del cuadro anterior en la textura del FBO. Sucede cuando el atlas sube un tile en el
+// cuadro que lo usa: la burbuja de un cluster que se expande (variante `d…`) salía con trozos opacos de la burbuja sin
+// expandir en ≈ 40 % de las cargas. Cerrar la subida con una valla separa el lote. Tiene que ser una valla y no un
+// `flush` ni un `finish`: Chromium desaloja el contexto de `flush` más viejo y `gl-budget` ordena ese reloj. Una valla
+// por sync que sube algo; el sync estable no la hace.
+const nombres = llamadas => llamadas.map(([m]) => m)
+const ultimaSubida = llamadas => nombres(llamadas).lastIndexOf('texSubImage2D')
+const vallas = llamadas => nombres(llamadas).map((m, i) => (m === 'fenceSync' ? i : -1)).filter(i => i >= 0)
+const sinRelojDeContexto = llamadas => assert.ok(!nombres(llamadas).some(m => m === 'flush' || m === 'finish'), 'ni flush ni finish: son del reloj de gl-budget')
+
+test('adquirir sube los tiles y cierra la subida con UNA valla, después de la última texSubImage2D', () => {
+  const set = crear(40)
+  for (let k = 1; k <= 5; k++) set.resolve(String(k))
+  const { gl, llamadas, de } = makeGl()
+  new GpuAtlasBinding(gl).sync(set.atlas)
+  assert.equal(vallas(llamadas).length, 1, 'una valla por sync, no una por tile')
+  assert.ok(vallas(llamadas)[0] > ultimaSubida(llamadas), 'después de la última subida')
+  assert.equal(de('deleteSync').length, 1, 'y se suelta en el acto')
+  sinRelojDeContexto(llamadas)
+})
+
+test('una variante nueva en el cuadro sube y cierra con valla, antes de que la capa limpie y dibuje', () => {
+  const set = crear(40)
+  set.resolve('1')
+  const { gl, llamadas } = makeGl()
+  const binding = new GpuAtlasBinding(gl)
+  binding.sync(set.atlas)
+  const antes = llamadas.length
+  set.resolve('2')
+  binding.sync(set.atlas)
+  const nuevas = llamadas.slice(antes)
+  assert.equal(vallas(nuevas).length, 1)
+  assert.ok(vallas(nuevas)[0] > ultimaSubida(nuevas))
+  sinRelojDeContexto(nuevas)
+})
+
+test('regrow cierra la subida de la generación nueva con una valla', () => {
+  const set = defineIconSet({ sizes: { canvas: TILE }, describe: v => ({ shape: 'n', n: Number(v) }), renderers: { n: (ctx, _s, d) => { ctx.marca = d.n } } })
+  for (let k = 1; k <= 16; k++) set.resolve(String(k))
+  const { gl, llamadas } = makeGl()
+  const binding = new GpuAtlasBinding(gl)
+  binding.sync(set.atlas)
+  const antes = llamadas.length
+  set.resolve('17')
+  binding.sync(set.atlas)
+  const nuevas = llamadas.slice(antes)
+  assert.equal(vallas(nuevas).length, 1)
+  assert.ok(vallas(nuevas)[0] > ultimaSubida(nuevas))
+})
+
+test('un sync estable, o sin tiles que subir, no hace valla', () => {
+  const set = crear(40)
+  const vacio = makeGl()
+  new GpuAtlasBinding(vacio.gl).sync(set.atlas)
+  assert.equal(vallas(vacio.llamadas).length, 0, 'atlas vacío: sólo la reserva')
+
+  set.resolve('1')
+  const { gl, llamadas } = makeGl()
+  const binding = new GpuAtlasBinding(gl)
+  binding.sync(set.atlas)
+  const despues = llamadas.length
+  binding.sync(set.atlas)
+  binding.sync(set.atlas)
+  assert.deepEqual([...new Set(nombres(llamadas.slice(despues)))].sort(), ['activeTexture', 'bindTexture'], 'estable: sólo el enlace de la textura, ni subida ni valla')
+})
+
+test('sin valla en el contexto (sin WebGL2) la subida sigue igual y no lanza', () => {
+  const set = crear(40)
+  set.resolve('1')
+  const llamadas = []
+  const gl = new Proxy({ TEXTURE_2D: 3, RGBA: 4, UNSIGNED_BYTE: 5, TEXTURE0: 6, fenceSync: undefined }, {
+    get: (t, p) => (p in t ? t[p] : (...args) => { llamadas.push(p); return {} }),
+  })
+  new GpuAtlasBinding(gl).sync(set.atlas)
+  assert.equal(llamadas.filter(m => m === 'texSubImage2D').length, 1)
+})
