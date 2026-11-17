@@ -13,6 +13,14 @@ Todas las versiones notables de Cristae se documentan en este archivo. El format
   defecto en el vértice, y un driver que lo respeta (medido en una NVIDIA por ANGLE sobre OpenGL ES) las devuelve
   con mantisa de half: a zoom 18 el vértice se corría hasta 0,6 px en una geocerca de 2 km y decenas de px en una de
   100 km, y el patrón de guiones se corría con el largo acumulado. Ahora esos samplers son `highp`. Sin cambio de API.
+- **La subida de un tile del atlas ya no comparte lote con el dibujo del FBO del tramo.** En una GPU Intel UHD sobre
+  Mesa (Chromium por ANGLE), cuando el atlas subía un tile en el cuadro que lo usa (la variante atenuada de la burbuja
+  al expandir un cluster), la subida y el `clear` y el dibujo del FBO del tramo caían en el mismo lote y la textura
+  podía conservar bloques opacos del cuadro anterior. Se midió con el anfitrión GL, que sigue en desarrollo y no viene
+  en esta versión, en cerca de un tercio de las cargas; con el anfitrión de Leaflet no se reprodujo, pero recorre el
+  mismo atlas y los mismos FBO. El sync del atlas que sube algo se cierra ahora con una valla (`fenceSync`), no con un
+  `flush` que desordenaría el reloj de `gl-budget`; el sync estable no llama a la GPU. Sin cambio de API.
+  *Migración*: ninguna.
 
 ## [0.51.0] - 2026-11-16
 
